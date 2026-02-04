@@ -1,0 +1,752 @@
+// TrueKredit - Prisma Schema
+// Multi-tenant SaaS for KPKT loan management
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Enums
+// ============================================
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  BLOCKED
+}
+
+enum TenantType {
+  PPW // Pemberi Pinjam Wang (Money Lender)
+  PPG // Pemberi Pajak Gadai (Pawnbroker)
+}
+
+// UserRole is now stored as string for Better Auth compatibility
+// Valid values: OWNER, ADMIN, STAFF
+
+enum SubscriptionStatus {
+  ACTIVE
+  GRACE_PERIOD
+  BLOCKED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum BillingEventType {
+  INVOICE_ISSUED
+  PAYMENT_RECEIVED
+  GRACE_PERIOD_STARTED
+  ACCESS_BLOCKED
+  ACCESS_RESTORED
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LoanStatus {
+  PENDING_DISBURSEMENT
+  ACTIVE
+  IN_ARREARS // Loan has overdue payments past arrearsPeriod
+  COMPLETED
+  DEFAULTED
+  WRITTEN_OFF
+}
+
+enum RepaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+enum InterestModel {
+  FLAT
+  DECLINING_BALANCE
+  EFFECTIVE_RATE
+}
+
+enum EventStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// ============================================
+// Core Tenant Models
+// ============================================
+
+model Tenant {
+  id                 String       @id @default(cuid())
+  name               String
+  slug               String       @unique
+  type               TenantType // PPW (Money Lender) or PPG (Pawnbroker)
+  licenseNumber      String? // KPKT license number (e.g., PPW/KL/2024/001)
+  registrationNumber String? // Company registration number (SSM)
+  email              String? // Company email
+  contactNumber      String? // Company contact number
+  businessAddress    String? // Company business address
+  logoUrl            String? // Company logo URL (local path in dev, S3 in prod)
+  status             TenantStatus @default(ACTIVE)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  // Relations
+  members              TenantMember[]
+  subscription         Subscription?
+  borrowers            Borrower[]
+  borrowerDocuments    BorrowerDocument[]
+  products             Product[]
+  applications         LoanApplication[]
+  applicationDocuments ApplicationDocument[]
+  loans                Loan[]
+  invoices             Invoice[]
+  receipts             Receipt[]
+  billingEvents        BillingEvent[]
+  auditLogs            AuditLog[]
+  files                File[]
+  notifications        Notification[]
+  outboxEvents         OutboxEvent[]
+  sessions             Session[] // Sessions with this tenant active
+  adminAuditLogs       AdminAuditLog[] // Admin actions audit trail
+  paymentTransactions  PaymentTransaction[] // Payment transactions with receipts
+}
+
+// ============================================
+// Better Auth Models
+// ============================================
+
+// User model (Better Auth compatible - identity only, no tenant binding)
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  name          String?
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // User-level settings
+  isActive          Boolean   @default(true)
+  passwordChangedAt DateTime?
+
+  // Better Auth relations
+  sessions Session[]
+  accounts Account[]
+
+  // Multi-tenant membership
+  memberships TenantMember[]
+
+  // Application relations (user-scoped, not tenant-scoped)
+  adminAuditLogs AdminAuditLog[]
+
+  @@index([email])
+}
+
+// TenantMember - Junction table for multi-tenant access
+// One user can belong to multiple tenants with different roles
+model TenantMember {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      String   @default("STAFF") // OWNER, ADMIN, STAFF
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  auditLogs AuditLog[]
+
+  @@unique([userId, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+}
+
+// Session model (Better Auth with active tenant)
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Active tenant for this session
+  activeTenantId String?
+
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeTenant Tenant? @relation(fields: [activeTenantId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([token])
+  @@index([activeTenantId])
+}
+
+// Account model (Better Auth - for OAuth providers)
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String? // For credential provider
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Verification model (Better Auth - for email verification, password reset)
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+// Admin audit log for tracking admin actions (login, user management, etc.)
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  tenantId   String
+  action     String // e.g., 'LOGIN', 'USER_ACTIVATED', 'USER_DEACTIVATED', 'USER_ROLE_CHANGED', 'USER_INVITED'
+  targetId   String? // ID of the affected entity (e.g., user being modified)
+  targetType String? // Type of target (e.g., 'USER', 'TENANT')
+  details    String? // Additional details as JSON string
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId, createdAt])
+  @@index([action])
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  tenantId           String             @unique
+  plan               String             @default("standard")
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  gracePeriodEnd     DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// Billing Models
+// ============================================
+
+model Invoice {
+  id            String        @id @default(cuid())
+  tenantId      String
+  invoiceNumber String        @unique
+  amount        Decimal       @db.Decimal(12, 2)
+  status        InvoiceStatus @default(DRAFT)
+  periodStart   DateTime
+  periodEnd     DateTime
+  issuedAt      DateTime      @default(now())
+  dueAt         DateTime
+  paidAt        DateTime?
+
+  // Relations
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receipts Receipt[]
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model Receipt {
+  id         String   @id @default(cuid())
+  tenantId   String
+  invoiceId  String
+  amount     Decimal  @db.Decimal(12, 2)
+  paidAt     DateTime @default(now())
+  receiptUrl String?
+  reference  String?
+
+  // Relations
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model BillingEvent {
+  id        String           @id @default(cuid())
+  tenantId  String
+  eventType BillingEventType
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([eventType])
+}
+
+// ============================================
+// Loan Models
+// ============================================
+
+model Borrower {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  icNumber  String // IC or Passport number (for individuals) or SSM number (for corporates)
+  phone     String?
+  email     String?
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Borrower type
+  borrowerType String @default("INDIVIDUAL") // INDIVIDUAL, CORPORATE
+
+  // Document verification fields
+  documentType     String    @default("IC") // IC, PASSPORT
+  documentVerified Boolean   @default(false) // For e-KYC integration
+  verifiedAt       DateTime? // When verification was completed
+  verifiedBy       String? // e-KYC provider or manual verification
+
+  // Compliance fields (mandatory for regulatory reporting - Individual borrowers)
+  dateOfBirth      DateTime? // Extracted from IC or manually entered for passport holders
+  gender           String? // MALE, FEMALE
+  race             String? // MELAYU, CINA, INDIA, LAIN_LAIN, BUMIPUTRA_SABAH_SARAWAK, BUKAN_WARGANEGARA
+  educationLevel   String? // NO_FORMAL, PRIMARY, SECONDARY, DIPLOMA, DEGREE, POSTGRADUATE
+  occupation       String?
+  employmentStatus String? // EMPLOYED, SELF_EMPLOYED, UNEMPLOYED, RETIRED, STUDENT
+  bankName         String? // Bank code (MAYBANK, CIMB, etc.) or OTHER
+  bankNameOther    String? // Custom bank name when bankName is OTHER
+  bankAccountNo    String?
+
+  // Non-mandatory fields (Individual borrowers)
+  emergencyContactName         String?
+  emergencyContactPhone        String?
+  emergencyContactRelationship String?
+  monthlyIncome                Decimal? @db.Decimal(12, 2)
+
+  // Corporate fields (required when borrowerType is CORPORATE)
+  companyName       String? // Trading/business name
+  ssmRegistrationNo String? // SSM registration number
+  businessAddress   String? // Registered business address
+  authorizedRepName String? // Authorized representative name
+  authorizedRepIc   String? // Authorized rep IC number
+  companyPhone      String? // Company contact number
+  companyEmail      String? // Company email
+  natureOfBusiness  String? // Industry/business type
+
+  // Optional corporate fields
+  dateOfIncorporation DateTime? // Company incorporation date
+  paidUpCapital       Decimal?  @db.Decimal(14, 2) // Paid-up capital
+  numberOfEmployees   Int? // Employee count
+
+  // Relations
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  applications LoanApplication[]
+  loans        Loan[]
+  documents    BorrowerDocument[]
+
+  @@unique([tenantId, icNumber])
+  @@index([tenantId])
+  @@index([borrowerType])
+}
+
+model Product {
+  id              String        @id @default(cuid())
+  tenantId        String
+  name            String
+  description     String?
+  interestModel   InterestModel @default(FLAT)
+  interestRate    Decimal       @default(18.00) @db.Decimal(5, 2) // Annual interest rate (e.g., 18.00%)
+  latePaymentRate Decimal       @default(8.00) @db.Decimal(5, 2) // Annual late payment interest rate
+  arrearsPeriod   Int           @default(14) // Days after missed payment before loan is at risk (triggers notifications)
+  defaultPeriod   Int           @default(28) // Days after missed payment before loan is considered defaulted
+  minAmount       Decimal       @db.Decimal(12, 2)
+  maxAmount       Decimal       @db.Decimal(12, 2)
+  minTerm         Int // in months
+  maxTerm         Int // in months
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Fee configuration
+  legalFeeType     String  @default("FIXED") // FIXED or PERCENTAGE
+  legalFeeValue    Decimal @default(0) @db.Decimal(12, 2)
+  stampingFeeType  String  @default("FIXED") // FIXED or PERCENTAGE
+  stampingFeeValue Decimal @default(0) @db.Decimal(12, 2)
+
+  // Required documents - tenant-configurable categories
+  // JSON array of { key: string, label: string, required: boolean }
+  requiredDocuments Json @default("[]")
+
+  // Borrower eligibility - which types of borrowers can use this product
+  // Valid values: INDIVIDUAL, CORPORATE, BOTH
+  eligibleBorrowerTypes String @default("BOTH")
+
+  // Loan schedule type per KPKT regulations
+  // JADUAL_J = No collateral, JADUAL_K = With collateral (12% max rate)
+  loanScheduleType String @default("JADUAL_J")
+
+  // Relations
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  applications LoanApplication[]
+  loans        Loan[]
+
+  @@index([tenantId])
+}
+
+model LoanApplication {
+  id         String            @id @default(cuid())
+  tenantId   String
+  borrowerId String
+  productId  String
+  amount     Decimal           @db.Decimal(12, 2)
+  term       Int // in months
+  status     ApplicationStatus @default(DRAFT)
+  notes      String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  // Relations
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower  Borrower              @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  product   Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  loan      Loan?
+  documents ApplicationDocument[]
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model ApplicationDocument {
+  id            String   @id @default(cuid())
+  tenantId      String
+  applicationId String
+  filename      String
+  originalName  String
+  mimeType      String
+  size          Int
+  path          String
+  category      String // Matches key from product.requiredDocuments
+  uploadedAt    DateTime @default(now())
+
+  // Relations
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([applicationId])
+}
+
+model BorrowerDocument {
+  id           String   @id @default(cuid())
+  tenantId     String
+  borrowerId   String
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  path         String
+  category     String // IC_FRONT, IC_BACK, PASSPORT, SSM_CERT, FORM_9, FORM_24, FORM_49, etc.
+  uploadedAt   DateTime @default(now())
+
+  // Relations
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([borrowerId])
+}
+
+model Loan {
+  id               String     @id @default(cuid())
+  tenantId         String
+  borrowerId       String
+  productId        String
+  applicationId    String     @unique
+  principalAmount  Decimal    @db.Decimal(12, 2)
+  interestRate     Decimal    @db.Decimal(5, 2)
+  term             Int // in months
+  disbursementDate DateTime?
+  status           LoanStatus @default(PENDING_DISBURSEMENT)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  // Disbursement details
+  disbursementReference   String?   // Auto-generated reference (e.g., DIS-20260204-ABC123)
+  disbursementProofPath   String?   // Path to proof of disbursement file
+  disbursementProofName   String?   // Original filename
+  disbursementProofMime   String?   // MIME type
+  disbursementProofSize   Int?      // File size in bytes
+  disbursementProofAt     DateTime? // When proof was uploaded
+
+  // Completion/discharge fields
+  completedAt          DateTime? // When loan was fully paid and completed
+  dischargeNotes       String? // Notes added when discharging/completing the loan
+  dischargeLetterPath  String? // Path to the generated discharge letter PDF
+  dischargeLetterGenAt DateTime? // When discharge letter was generated
+
+  // Agreement document (signed, uploaded by admin before disbursement)
+  agreementDate         DateTime? // The agreed disbursement date in the signed agreement (used for schedule calculation)
+  agreementPath         String?   // Path to signed agreement file (local or S3)
+  agreementFilename     String?   // Stored filename
+  agreementOriginalName String?   // Original uploaded filename
+  agreementMimeType     String?   // MIME type (application/pdf)
+  agreementSize         Int?      // File size in bytes
+  agreementUploadedAt   DateTime? // When agreement was uploaded
+  agreementVersion      Int       @default(0) // Version counter for audit trail
+
+  // Stamp certificate (uploaded by admin before disbursement)
+  stampCertPath         String?   // Path to stamp certificate file (local or S3)
+  stampCertFilename     String?   // Stored filename
+  stampCertOriginalName String?   // Original uploaded filename
+  stampCertMimeType     String?   // MIME type (application/pdf)
+  stampCertSize         Int?      // File size in bytes
+  stampCertUploadedAt   DateTime? // When stamp certificate was uploaded
+  stampCertVersion      Int       @default(0) // Version counter for audit trail
+
+  // Metrics
+  totalLateFees Decimal  @default(0) @db.Decimal(12, 2) // Total late fees charged
+  repaymentRate Decimal? @db.Decimal(5, 2) // Percentage of payments made on time
+
+  // Relations
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower         Borrower              @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  product          Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  application      LoanApplication       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  scheduleVersions LoanScheduleVersion[]
+  transactions     PaymentTransaction[]
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model LoanScheduleVersion {
+  id            String        @id @default(cuid())
+  loanId        String
+  version       Int
+  interestModel InterestModel
+  inputs        Json // Store calculation inputs
+  outputsHash   String // Hash for integrity verification
+  createdAt     DateTime      @default(now())
+
+  // Relations
+  loan       Loan            @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  repayments LoanRepayment[]
+
+  @@unique([loanId, version])
+  @@index([loanId])
+}
+
+model LoanRepayment {
+  id                String          @id @default(cuid())
+  scheduleVersionId String
+  dueDate           DateTime
+  principal         Decimal         @db.Decimal(12, 2)
+  interest          Decimal         @db.Decimal(12, 2)
+  totalDue          Decimal         @db.Decimal(12, 2)
+  status            RepaymentStatus @default(PENDING)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relations
+  scheduleVersion LoanScheduleVersion @relation(fields: [scheduleVersionId], references: [id], onDelete: Cascade)
+  allocations     PaymentAllocation[]
+
+  @@index([scheduleVersionId])
+  @@index([dueDate])
+  @@index([status])
+}
+
+// A payment transaction represents a single payment made by a borrower
+// It can be allocated across multiple scheduled repayments (for prepayments/spillover)
+model PaymentTransaction {
+  id          String   @id @default(cuid())
+  tenantId    String
+  loanId      String
+  totalAmount Decimal  @db.Decimal(12, 2) // Total amount paid in this transaction
+  reference   String? // Payment reference (e.g., bank transfer ref)
+  notes       String?
+  paymentDate DateTime // When the payment was made
+  createdAt   DateTime @default(now())
+
+  // Generated receipt (stored on creation)
+  receiptNumber String?  @unique // e.g., "RCP-20260204-001"
+  receiptPath   String? // Path to stored PDF (local or S3)
+  receiptGenAt  DateTime? // When receipt was generated
+
+  // Proof of payment uploaded by admin
+  proofFilename     String?
+  proofOriginalName String?
+  proofMimeType     String?
+  proofSize         Int?
+  proofPath         String?
+  proofUploadedAt   DateTime?
+
+  // Relations
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  loan        Loan                @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  allocations PaymentAllocation[]
+
+  @@index([tenantId])
+  @@index([loanId])
+  @@index([receiptNumber])
+}
+
+model PaymentAllocation {
+  id            String   @id @default(cuid())
+  transactionId String? // Optional for backward compatibility with existing data
+  repaymentId   String
+  amount        Decimal  @db.Decimal(12, 2)
+  allocatedAt   DateTime @default(now())
+
+  // Legacy fields (kept for backward compatibility, will be removed in future)
+  reference String?
+  notes     String?
+
+  // Late fee and early payment tracking
+  lateFee        Decimal? @db.Decimal(12, 2) // Late fee charged for this allocation
+  isEarlyPayment Boolean  @default(false) // Whether this was an early/advance payment
+
+  // Relations
+  transaction PaymentTransaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  repayment   LoanRepayment       @relation(fields: [repaymentId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@index([repaymentId])
+}
+
+// ============================================
+// Compliance Models
+// ============================================
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  tenantId     String
+  memberId     String? // TenantMember who performed the action
+  action       String
+  entityType   String
+  entityId     String
+  previousData Json?
+  newData      Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  // Relations
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  member TenantMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, createdAt])
+  @@index([action])
+}
+
+// ============================================
+// File Storage Models
+// ============================================
+
+model File {
+  id           String   @id @default(cuid())
+  tenantId     String
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  path         String
+  category     String // e.g., 'invoices', 'receipts', 'uploads', 'reports'
+  uploadedAt   DateTime @default(now())
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([category])
+}
+
+// ============================================
+// Notification Models
+// ============================================
+
+model Notification {
+  id        String    @id @default(cuid())
+  tenantId  String
+  type      String // e.g., 'email', 'whatsapp'
+  recipient String
+  subject   String?
+  body      String
+  status    String    @default("pending") // pending, sent, failed
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+// ============================================
+// Event Outbox (for internal admin sync)
+// ============================================
+
+model OutboxEvent {
+  id             String      @id @default(cuid())
+  tenantId       String
+  eventType      String
+  payload        Json
+  idempotencyKey String      @unique
+  status         EventStatus @default(PENDING)
+  attempts       Int         @default(0)
+  lastAttemptAt  DateTime?
+  sentAt         DateTime?
+  createdAt      DateTime    @default(now())
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([tenantId])
+}

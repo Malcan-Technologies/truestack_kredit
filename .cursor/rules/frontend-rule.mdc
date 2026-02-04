@@ -1,0 +1,104 @@
+---
+description: 
+alwaysApply: true
+---
+
+Use these rules to keep frontend work consistent for future prompts and implementation.
+
+---
+
+## 1) Framework & Structure
+
+- **Next.js 16.x** with App Router.
+- TypeScript only.
+- Organize by feature (e.g., `app/(admin)/loans`, `app/(admin)/billing`).
+- Next.js 16 requires convention of proxy instead of middleware files.
+
+---
+
+## 2) UI System
+
+- **Use ShadCN UI components** wherever possible.
+- Use **sonner** (ShadCN) for notifications and toasts.
+- Modularize UI into reusable components:
+    - `components/ui` for shared primitives
+    - `components/features/<feature>` for domain-specific UI
+- Refer to @brand.md for branding guide
+
+---
+
+## 3) Theming & Typography
+
+- Dark theme by default.
+- Use **Rethink Sans** for headings.
+- Use **Inter** for body.
+- Orange gradient highlights (per branding guide).
+
+---
+
+## 4) UX Guidelines
+
+- Prefer simple admin-first workflows.
+- Use wizards for loan creation.
+- Always show tenant context and billing status.
+- Provide clear audit log visibility.
+
+---
+
+## 5) Forms & Validation
+
+- Use schema-based validation (e.g., Zod).
+- Show inline validation with consistent error messaging.
+- Keep inputs accessible and keyboard-friendly.
+
+---
+
+## 6) Date, Time & Number Formatting
+
+All date/time and number formatting uses utilities from `lib/utils.ts`.
+
+### Timezone
+
+- Database stores all dates in **UTC**.
+- Frontend displays in **Malaysia timezone (GMT+8)** using `date-fns-tz`.
+- Use `toMalaysiaTime()` when converting UTC dates for display.
+
+### Date/Time Utilities
+
+| Function | Output Example | Use Case |
+|----------|----------------|----------|
+| `formatDate(date)` | "30 Jan 2026" | General date display |
+| `formatDateTime(date)` | "30 Jan 2026, 2:30 PM" | Full date + time |
+| `formatTime(date)` | "2:30 PM" | Time only |
+| `formatRelativeTime(date)` | "5 minutes ago" | Recent activity, login logs |
+| `formatSmartDateTime(date)` | Relative if <24h, else full | Audit logs, notifications |
+| `formatDateForInput(date)` | "2026-01-30" | Form date inputs |
+
+### Currency & Number Formatting
+
+| Function | Output Example | Use Case |
+|----------|----------------|----------|
+| `formatCurrency(amount)` | "RM 1,234.56" | Money display |
+| `formatNumber(amount, decimals)` | "1,234.56" | Numbers without currency |
+
+### Safe Math Utilities
+
+JavaScript floating-point arithmetic causes precision issues (e.g., `0.1 + 0.2 = 0.30000000000000004`). Always use these utilities for financial calculations:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `safeRound(value, decimals)` | Round to decimal places | `safeRound(10.456, 2)` → `10.46` |
+| `safeAdd(...values)` | Add multiple numbers safely | `safeAdd(0.1, 0.2)` → `0.3` |
+| `safeSubtract(initial, ...values)` | Subtract numbers safely | `safeSubtract(100, 30, 20)` → `50` |
+| `safeMultiply(a, b, decimals)` | Multiply safely | `safeMultiply(10.5, 3)` → `31.5` |
+| `safeDivide(a, b, decimals)` | Divide safely (0 if divisor is 0) | `safeDivide(100, 3)` → `33.33` |
+| `safePercentage(part, total)` | Calculate percentage | `safePercentage(25, 100)` → `25` |
+| `toSafeNumber(value)` | Convert string/null to number | `toSafeNumber("123.45")` → `123.45` |
+
+### Best Practices
+
+- Always use these utilities; never format dates/numbers inline.
+- For user-facing timestamps, prefer `formatRelativeTime()` for recent events.
+- Hover/title attributes can show full date when using relative time.
+- **Never use raw arithmetic (`+`, `-`, `*`, `/`) for currency calculations.**
+- Use `toSafeNumber()` when converting API response strings to numbers.

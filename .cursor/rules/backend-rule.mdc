@@ -1,0 +1,187 @@
+---
+alwaysApply: true
+---
+
+Use these rules to keep backend work consistent for future prompts and implementation.
+
+---
+
+## 1) Stack & Services
+
+- **Express** API with TypeScript.
+- **Prisma 7** for ORM.
+- Postgres as primary DB.
+
+---
+
+## 2) Modularity
+
+Keep strict boundaries:
+
+- `modules/billing`
+- `modules/loans`
+- `modules/schedules`
+- `modules/tenants`
+- `modules/compliance`
+- `modules/notifications`
+
+Use services for domain logic; routes only orchestrate.
+
+---
+
+## 3) Tenant Scoping
+
+- All tenant-owned tables must include `tenantId`.
+- Enforce scoping in Prisma middleware.
+- Never accept `tenantId` directly from client payloads; always derive from auth context.
+
+---
+
+## 4) Billing Enforcement
+
+- Check subscription status + grace period at request time.
+- Block access when expired beyond grace period.
+
+---
+
+## 5) Tenant Limits
+
+| Resource | Limit | Notes |
+|----------|-------|-------|
+| Users per tenant | 5 | Includes owner. Enforced in `POST /api/tenants/users`. |
+
+- Validate limits before creating resources.
+- Return clear error message with upgrade path.
+- Constants defined at module level (e.g., `MAX_USERS_PER_TENANT = 5`).
+
+---
+
+## 6) Event Emission
+
+- Emit domain events for sync to internal admin system.
+- Sign events with API key or HMAC signature.
+- Use idempotency keys in outgoing events.
+
+---
+
+## 7) File Handling
+
+- Use S3 for file storage (receipts, invoices, PDFs, user uploads).
+- Use pre-signed URLs for uploads.
+
+---
+
+## 8) Notification Rules
+
+- WhatsApp (Meta) for critical alerts.
+- Resend for email.
+- Use a centralized notifications service.
+
+---
+
+## 9) Date & Time Handling
+
+### Timezone Strategy
+
+- **Database**: Store all dates in **UTC** (Prisma default behavior).
+- **API Responses**: Return dates as ISO 8601 strings in UTC.
+- **Frontend**: Converts to Malaysia timezone (GMT+8) for display.
+
+### Best Practices
+
+- Never store local times in the database; always use UTC.
+- Use `new Date()` or Prisma's `@default(now())` which are UTC.
+- Let the frontend handle timezone conversion for display.
+- For date comparisons in queries, work in UTC.
+
+### Example
+
+```typescript
+// Good - UTC storage
+createdAt: new Date(), // Stored as UTC
+
+// API returns ISO string
+{ createdAt: "2026-01-30T06:30:00.000Z" }
+
+// Frontend converts to MYT (GMT+8) for display
+// "30 Jan 2026, 2:30 PM"
+```
+
+---
+
+## 10) Safe Math Utilities
+
+JavaScript floating-point arithmetic causes precision issues. Use utilities from `lib/math.ts` for all financial calculations.
+
+### Core Utilities
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `safeRound(value, decimals)` | Round to decimal places | `safeRound(10.456, 2)` → `10.46` |
+| `safeAdd(...values)` | Add multiple numbers | `safeAdd(0.1, 0.2)` → `0.3` |
+| `safeSubtract(initial, ...values)` | Subtract numbers | `safeSubtract(100, 30, 20)` → `50` |
+| `safeMultiply(a, b, decimals)` | Multiply safely | `safeMultiply(10.5, 3)` → `31.5` |
+| `safeDivide(a, b, decimals)` | Divide (0 if divisor is 0) | `safeDivide(100, 3)` → `33.33` |
+| `safePercentage(part, total)` | Calculate percentage | `safePercentage(25, 100)` → `25` |
+| `toSafeNumber(value)` | Convert Decimal/string to number | Handles Prisma Decimals |
+
+### Loan Calculation Helpers
+
+| Function | Description |
+|----------|-------------|
+| `monthlyInterestRate(annualRate)` | Convert annual % to monthly decimal |
+| `calculateFlatInterest(principal, rate, term)` | Flat rate interest |
+| `calculateEMI(principal, rate, term)` | Declining balance EMI |
+
+### Best Practices
+
+- **Never use raw arithmetic** (`+`, `-`, `*`, `/`) for currency or interest calculations.
+- Use `toSafeNumber()` when converting Prisma Decimal fields.
+- All schedule generation and payment allocation must use safe math.
+- Round final amounts to 2 decimal places for currency.
+
+---
+
+## 11) Database Migrations
+
+When making changes to `prisma/schema.prisma`, **do not run migrations automatically**. Instead, provide the user with the commands to run manually.
+
+### After Schema Changes
+
+When you modify the Prisma schema, tell the user:
+
+```bash
+# Navigate to backend directory
+cd apps/backend
+
+# Create a migration (replace 'description' with a meaningful name)
+npx prisma migrate dev --name description_of_change
+
+# Example:
+npx prisma migrate dev --name add_borrower_compliance_fields
+```
+
+### Avoiding Database Drift
+
+- **Always use migrations** (`prisma migrate dev`) instead of `prisma db push` for schema changes.
+- **Commit migration files** in `prisma/migrations/` to version control.
+- **Never modify the database directly** with raw SQL.
+- **Check migration status** before starting work: `npx prisma migrate status`
+
+### If Drift Occurs
+
+If Prisma detects a drift between migrations and database:
+
+```bash
+# Option 1: Reset database (loses all data - development only)
+npx prisma migrate reset
+
+# Option 2: Deploy existing migrations
+npx prisma migrate deploy
+```
+
+### Important
+
+- Let the user run migration commands themselves.
+- Provide clear, copy-paste ready commands.
+- Explain what the migration will do before they run it.

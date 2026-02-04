@@ -1,0 +1,328 @@
+/* Import fonts - must be first */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Rethink+Sans:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme - matching truestack.my */
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --surface: 210 40% 98%;
+    --border: 214 32% 91%;
+    --muted: 215 16% 47%;
+    --muted-foreground: 215 16% 47%;
+    
+    /* Card */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    
+    /* Popover */
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    
+    /* Input */
+    --input: 214 32% 91%;
+    --ring: 217 91% 60%;
+    
+    /* Primary (blue accent - TrueStack blue) */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    
+    /* Secondary */
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Accent colors (blue gradient - TrueStack style) */
+    --accent: 217 91% 60%;
+    --accent-start: 217 91% 60%;
+    --accent-end: 224 76% 48%;
+    --accent-foreground: 0 0% 100%;
+    
+    /* Status colors */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --error: 0 84% 60%;
+    --info: 217 91% 60%;
+    
+    /* Radius */
+    --radius: 0.5rem;
+    
+    /* Legacy variables for backward compatibility */
+    --color-accent-start: #3B82F6;
+    --color-accent-end: #2563EB;
+  }
+
+  .dark {
+    /* Dark theme - matching truestack.my dark sections */
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --surface: 217 33% 17%;
+    --border: 217 33% 25%;
+    --muted: 215 20% 65%;
+    --muted-foreground: 215 20% 65%;
+    
+    /* Card */
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+    
+    /* Popover */
+    --popover: 222 47% 13%;
+    --popover-foreground: 210 40% 98%;
+    
+    /* Input */
+    --input: 217 33% 25%;
+    --ring: 217 91% 60%;
+    
+    /* Primary (blue accent - TrueStack blue) */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    
+    /* Secondary */
+    --secondary: 217 33% 25%;
+    --secondary-foreground: 210 40% 98%;
+    
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Accent colors (blue gradient - TrueStack style) */
+    --accent: 217 91% 60%;
+    --accent-start: 217 91% 60%;
+    --accent-end: 224 76% 48%;
+    --accent-foreground: 0 0% 100%;
+    
+    /* Status colors */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --error: 0 84% 60%;
+    --info: 217 91% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+}
+
+@layer components {
+  /* Primary gradient button */
+  .btn-primary {
+    @apply bg-gradient-accent text-white font-medium px-4 py-2 rounded-lg;
+    @apply hover:opacity-90 transition-opacity;
+    @apply focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply bg-surface text-foreground border border-accent font-medium px-4 py-2 rounded-lg;
+    @apply hover:bg-accent/10 transition-colors;
+    @apply focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background;
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply text-muted hover:text-foreground hover:bg-surface px-4 py-2 rounded-lg;
+    @apply transition-colors;
+  }
+
+  /* Card component */
+  .card {
+    @apply bg-surface border border-border rounded-xl p-6;
+  }
+
+  /* Input component */
+  .input {
+    @apply bg-background border border-border rounded-lg px-4 py-2 text-foreground;
+    @apply placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent;
+    @apply transition-colors;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply bg-success/20 text-success;
+  }
+
+  .badge-warning {
+    @apply bg-warning/20 text-warning;
+  }
+
+  .badge-error {
+    @apply bg-error/20 text-error;
+  }
+
+  .badge-info {
+    @apply bg-info/20 text-info;
+  }
+
+  /* Table styles */
+  .table-header {
+    @apply bg-surface text-muted text-left text-sm font-medium;
+  }
+
+  .table-row {
+    @apply border-b border-border hover:bg-surface/50 transition-colors;
+  }
+
+  .table-cell {
+    @apply px-4 py-3;
+  }
+}
+
+@layer utilities {
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-gradient-accent bg-clip-text text-transparent;
+  }
+
+  /* Glassmorphism */
+  .glass {
+    @apply backdrop-blur-md bg-surface/70;
+  }
+
+  /* Theme-aware background tints */
+  .bg-tint {
+    @apply bg-gradient-to-br from-primary/[0.03] via-background to-primary/[0.02];
+  }
+
+  .bg-tint-subtle {
+    @apply bg-gradient-to-br from-primary/[0.02] via-background to-primary/[0.01];
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-background;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted;
+}
+
+/* Selection */
+::selection {
+  @apply bg-accent/30;
+}
+
+/* Markdown content styles */
+.markdown-content {
+  @apply text-foreground leading-relaxed;
+}
+
+.markdown-content h1 {
+  @apply text-3xl font-heading font-bold mb-6 mt-0;
+}
+
+.markdown-content h2 {
+  @apply text-2xl font-bold mt-10 mb-4;
+  background: linear-gradient(135deg, var(--color-accent-start), var(--color-accent-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.markdown-content h3 {
+  @apply text-xl font-semibold mt-8 mb-3;
+}
+
+.markdown-content h4 {
+  @apply text-lg font-medium mt-6 mb-3;
+}
+
+.markdown-content p {
+  @apply my-4 leading-relaxed;
+}
+
+.markdown-content ul {
+  @apply list-disc list-inside my-4 space-y-1;
+}
+
+.markdown-content ol {
+  @apply list-decimal list-inside my-4 space-y-1;
+}
+
+.markdown-content li {
+  @apply ml-4;
+}
+
+.markdown-content a {
+  @apply text-accent hover:underline;
+}
+
+.markdown-content code {
+  @apply bg-background px-1.5 py-0.5 rounded text-sm text-accent;
+}
+
+.markdown-content pre {
+  @apply bg-background rounded-lg p-4 overflow-x-auto my-4 border border-border;
+}
+
+.markdown-content pre code {
+  @apply bg-transparent p-0 text-foreground;
+}
+
+.markdown-content blockquote {
+  @apply border-l-4 border-accent pl-4 my-4 italic text-muted;
+}
+
+.markdown-content table {
+  @apply w-full;
+}
+
+.markdown-content th {
+  @apply px-4 py-3 text-left text-sm font-semibold bg-surface border-b border-border;
+}
+
+.markdown-content td {
+  @apply px-4 py-3 text-sm;
+}
+
+.markdown-content tr {
+  @apply border-b border-border;
+}
+
+.markdown-content tr:last-child {
+  @apply border-b-0;
+}
+
+.markdown-content tbody tr:hover {
+  @apply bg-surface/50;
+}
+
+.markdown-content hr {
+  @apply my-8 border-border;
+}
+
+.markdown-content strong {
+  @apply font-semibold;
+}
+
+.markdown-content em {
+  @apply italic;
+}

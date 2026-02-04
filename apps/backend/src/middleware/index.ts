@@ -1,0 +1,6 @@
+// Export all middleware
+export { errorHandler } from './errorHandler.js';
+export { requestLogger } from './requestLogger.js';
+export { authenticateToken, optionalAuth } from './authenticate.js';
+export { requireRole, requireAdmin, requireOwner } from './requireRole.js';
+export { requireActiveSubscription } from './billingGuard.js';

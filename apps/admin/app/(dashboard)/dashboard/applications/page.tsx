@@ -145,6 +145,7 @@ export default function ApplicationsPage() {
           variant={filter === "APPROVED" ? "default" : "outline"}
           size="sm"
           onClick={() => setFilter("APPROVED")}
+          className={filter === "APPROVED" ? "" : "text-emerald-600 border-emerald-500/50 hover:bg-emerald-500/10"}
         >
           Approved
         </Button>
@@ -152,6 +153,7 @@ export default function ApplicationsPage() {
           variant={filter === "REJECTED" ? "default" : "outline"}
           size="sm"
           onClick={() => setFilter("REJECTED")}
+          className={filter === "REJECTED" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
         >
           Rejected
         </Button>

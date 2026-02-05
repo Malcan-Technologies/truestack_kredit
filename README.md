@@ -42,63 +42,76 @@ truestack_kredit/
 └── docker-compose.yml  # Local development services
 ```
 
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 20+
-- Docker and Docker Compose
-- npm or yarn
+- Docker & Docker Compose
+- npm
 
-### Local Development
-
-1. **Clone and install dependencies**
+### Setup (5 minutes)
 
 ```bash
-cd truestack_kredit
+# 1. Install dependencies
 npm install
-```
 
-2. **Start the database**
+# 2. Start PostgreSQL & MinIO
+npm run docker:up
 
-```bash
-docker-compose up -d
-```
-
-This starts PostgreSQL on port 5432 and MinIO (S3-compatible) on port 9000.
-
-3. **Set up the backend**
-
-```bash
+# 3. Setup backend
 cd apps/backend
-cp .env.example .env  # Already configured for local dev
-npx prisma generate
-npx prisma db push
-npm run db:seed       # Seed demo data
-```
+cp .env.example .env
+npm run db:generate
+npm run db:migrate
+npm run db:seed
 
-4. **Start the backend server**
+# 4. Start backend (terminal 1)
+npm run dev
 
-```bash
-npm run dev           # Runs on http://localhost:4000
-```
-
-5. **Start the frontend**
-
-In a new terminal:
-
-```bash
+# 5. Start frontend (terminal 2)
 cd apps/admin
-npm run dev           # Runs on http://localhost:3000
+npm run dev
 ```
 
-### Demo Credentials
+**Access:** http://localhost:3000
 
-After seeding, you can login with:
+### Demo Login
 
-- **Email:** admin@demo.com
-- **Password:** Demo@123
-- **Tenant:** demo-company
+| Field    | Value          |
+|----------|----------------|
+| Email    | admin@demo.com |
+| Password | Demo@123       |
+
+### Seeded Data
+
+The seed creates:
+- 2 tenants (Demo Company, ACME Lending)
+- 3 loan products (flat rate, declining balance, corporate)
+- 4 borrowers (2 individual, 1 passport holder, 1 corporate)
+- 2 sample loan applications
+- Active 30-day trial subscriptions
+
+### Common Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start all services |
+| `npm run dev:admin` | Frontend only (port 3000) |
+| `npm run dev:backend` | Backend only (port 4000) |
+| `npm run docker:up` | Start Docker services |
+| `npm run docker:down` | Stop Docker services |
+| `npm run db:migrate` | Run database migrations |
+| `npm run db:seed` | Seed demo data |
+| `npm run db:generate` | Generate Prisma client |
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Database connection error | Run `docker ps` to verify PostgreSQL is running |
+| Prisma client error | Run `npm run db:generate` in `apps/backend` |
+| Port already in use | Change `PORT` in `.env` files |
 
 ## API Endpoints
 
@@ -164,19 +177,30 @@ Similar to declining balance with effective annual rate conversion.
 
 ## Environment Variables
 
-### Backend (.env)
+### Backend (`apps/backend/.env`)
 
 ```env
 DATABASE_URL="postgresql://kredit:kredit_dev@localhost:5432/kredit_dev"
-JWT_SECRET="your-secret"
-JWT_REFRESH_SECRET="your-refresh-secret"
+BETTER_AUTH_SECRET="dev-secret-change-in-production-32-chars-min"
 PORT=4000
+
+# Storage (default: local)
+STORAGE_TYPE="local"
+STORAGE_PATH="./uploads"
+
+# Optional: S3/MinIO
+# S3_ENDPOINT="http://localhost:9000"
+# S3_ACCESS_KEY="minioadmin"
+# S3_SECRET_KEY="minioadmin"
+# S3_BUCKET="kredit-uploads"
 ```
 
-### Frontend (.env.local)
+### Frontend (`apps/admin/.env.local`)
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:4000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+BETTER_AUTH_SECRET="dev-secret-change-in-production-32-chars-min"
 ```
 
 ## Branding

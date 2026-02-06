@@ -28,12 +28,16 @@ const createApplicationSchema = z.object({
   amount: z.number().positive(),
   term: z.number().int().positive(),
   notes: z.string().max(1000).optional(),
+  collateralType: z.string().max(200).optional(),
+  collateralValue: z.number().positive().optional(),
 });
 
 const updateApplicationSchema = z.object({
   amount: z.number().positive().optional(),
   term: z.number().int().positive().optional(),
   notes: z.string().max(1000).optional(),
+  collateralType: z.string().max(200).optional().nullable(),
+  collateralValue: z.number().positive().optional().nullable(),
 });
 
 const disburseSchema = z.object({
@@ -513,10 +517,12 @@ router.post('/applications', async (req, res, next) => {
         term: data.term,
         notes: data.notes,
         status: 'DRAFT',
+        collateralType: data.collateralType,
+        collateralValue: data.collateralValue,
       },
       include: {
         borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
-        product: { select: { id: true, name: true, interestModel: true, interestRate: true } },
+        product: { select: { id: true, name: true, interestModel: true, interestRate: true, loanScheduleType: true } },
       },
     });
 
@@ -753,7 +759,7 @@ router.post('/applications/:applicationId/approve', async (req, res, next) => {
         data: { status: 'APPROVED' },
       });
 
-      // Create loan
+      // Create loan (copy collateral fields for Jadual K products)
       const loan = await tx.loan.create({
         data: {
           tenantId: req.tenantId!,
@@ -764,6 +770,8 @@ router.post('/applications/:applicationId/approve', async (req, res, next) => {
           interestRate: application.product.interestRate,
           term: application.term,
           status: 'PENDING_DISBURSEMENT',
+          collateralType: application.collateralType,
+          collateralValue: application.collateralValue,
         },
       });
 
@@ -2470,18 +2478,22 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
       },
       product: {
         interestModel: loan.product.interestModel,
+        loanScheduleType: loan.product.loanScheduleType,
       },
+      collateralType: loan.collateralType,
+      collateralValue: loan.collateralValue ? Number(loan.collateralValue) : null,
     };
 
-    // Generate the PDF
+    // Generate the PDF (automatically selects Jadual J or K template)
     const pdfBuffer = await generateLoanAgreement(loanData);
 
-    // Generate filename
+    // Generate filename with schedule type
+    const scheduleLabel = loan.product.loanScheduleType === 'JADUAL_K' ? 'Jadual_K' : 'Jadual_J';
     const borrowerName = loan.borrower.borrowerType === 'CORPORATE' && loan.borrower.companyName
       ? loan.borrower.companyName
       : loan.borrower.name;
     const sanitizedName = borrowerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
-    const filename = `Loan_Agreement_${sanitizedName}_${loanId.substring(0, 8)}.pdf`;
+    const filename = `${scheduleLabel}_Agreement_${sanitizedName}_${loanId.substring(0, 8)}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

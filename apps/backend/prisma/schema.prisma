@@ -449,6 +449,10 @@ model LoanApplication {
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
 
+  // Collateral fields (required for Jadual K products)
+  collateralType  String?  // e.g., "Kenderaan", "Hartanah", "Mesin", "Peralatan", etc.
+  collateralValue Decimal? @db.Decimal(12, 2) // Estimated value of collateral in RM
+
   // Relations
   tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   borrower  Borrower              @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
@@ -546,6 +550,10 @@ model Loan {
   stampCertSize         Int?      // File size in bytes
   stampCertUploadedAt   DateTime? // When stamp certificate was uploaded
   stampCertVersion      Int       @default(0) // Version counter for audit trail
+
+  // Collateral fields (for Jadual K loans - copied from application on approval)
+  collateralType  String?  // e.g., "Kenderaan", "Hartanah", "Mesin", "Peralatan", etc.
+  collateralValue Decimal? @db.Decimal(12, 2) // Estimated value of collateral in RM
 
   // Metrics
   totalLateFees Decimal  @default(0) @db.Decimal(12, 2) // Total late fees charged

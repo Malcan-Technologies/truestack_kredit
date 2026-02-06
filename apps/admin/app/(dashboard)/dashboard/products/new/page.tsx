@@ -210,8 +210,8 @@ export default function NewProductPage() {
         toast.error("Please enter a product name");
         return;
       }
-      if (!formData.description.trim()) {
-        toast.error("Please enter a description");
+      if (formData.description.trim().length < 5) {
+        toast.error("Description must be at least 5 characters");
         return;
       }
     }

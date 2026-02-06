@@ -79,6 +79,8 @@ interface Application {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  collateralType: string | null;
+  collateralValue: string | null;
   borrower: {
     id: string;
     name: string;
@@ -917,6 +919,21 @@ export default function ApplicationDetailPage() {
                 <span className="text-muted-foreground">Schedule Type</span>
                 <span>{application.product.loanScheduleType === "JADUAL_K" ? "Jadual K" : "Jadual J"}</span>
               </div>
+              {/* Collateral info for Jadual K */}
+              {application.product.loanScheduleType === "JADUAL_K" && application.collateralType && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Collateral</span>
+                    <span>{application.collateralType}</span>
+                  </div>
+                  {application.collateralValue && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Collateral Value</span>
+                      <span>{formatCurrency(toSafeNumber(application.collateralValue))}</span>
+                    </div>
+                  )}
+                </>
+              )}
               {application.loan && (
                 <div className="pt-2 border-t">
                   <Link

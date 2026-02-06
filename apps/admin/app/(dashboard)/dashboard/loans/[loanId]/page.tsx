@@ -149,6 +149,9 @@ interface Loan {
   stampCertOriginalName: string | null;
   stampCertVersion: number;
   stampCertUploadedAt: string | null;
+  // Collateral fields (Jadual K)
+  collateralType: string | null;
+  collateralValue: string | null;
   borrower: {
     id: string;
     name: string;
@@ -1119,6 +1122,18 @@ export default function LoanDetailPage() {
                     {loan.interestRate}% / {loan.term} months
                   </p>
                 </div>
+                {/* Collateral info for Jadual K loans */}
+                {loan.product.loanScheduleType === "JADUAL_K" && loan.collateralType && (
+                  <div className="border-t pt-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Collateral</p>
+                    <p className="text-sm font-medium">{loan.collateralType}</p>
+                    {loan.collateralValue && (
+                      <p className="text-sm text-muted-foreground">
+                        Value: {formatCurrency(toSafeNumber(loan.collateralValue))}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {loan.disbursementDate && (() => {
                   const principal = toSafeNumber(loan.principalAmount);
                   const legalFee = loan.product.legalFeeType === "PERCENTAGE"
@@ -1302,6 +1317,17 @@ export default function LoanDetailPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold">Loan Agreement</h3>
+                      {loan.product.loanScheduleType === "JADUAL_K" ? (
+                        <Badge variant="default" className="text-xs">
+                          <ShieldCheck className="h-3 w-3 mr-1" />
+                          Jadual K
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">
+                          <Shield className="h-3 w-3 mr-1" />
+                          Jadual J
+                        </Badge>
+                      )}
                       {loan.agreementPath ? (
                         <Badge variant="verified" className="text-xs">
                           <CheckCircle className="h-3 w-3 mr-1" />

@@ -530,7 +530,28 @@ async function main() {
     },
   });
 
-  console.log('✓ Created loan applications:', application1.id, ',', application2.id);
+  // Create a Jadual K application with collateral (secured loan)
+  const application3 = await prisma.loanApplication.upsert({
+    where: { id: 'demo-application-3' },
+    update: {
+      collateralType: 'Kenderaan - Proton X50 2024 (WA 1234 B)',
+      collateralValue: 85000,
+    },
+    create: {
+      id: 'demo-application-3',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: decliningProduct.id,
+      amount: 30000,
+      term: 36,
+      status: 'SUBMITTED',
+      notes: 'Secured loan for home improvement - vehicle as collateral',
+      collateralType: 'Kenderaan - Proton X50 2024 (WA 1234 B)',
+      collateralValue: 85000,
+    },
+  });
+
+  console.log('✓ Created loan applications:', application1.id, ',', application2.id, ',', application3.id);
 
   // Create audit logs for the applications
   await prisma.auditLog.createMany({
@@ -576,6 +597,33 @@ async function main() {
         previousData: { status: 'DRAFT' },
         newData: { status: 'SUBMITTED' },
       },
+      {
+        tenantId: tenant.id,
+        memberId: membership.id,
+        action: 'CREATE',
+        entityType: 'LoanApplication',
+        entityId: application3.id,
+        newData: {
+          borrowerId: borrower1.id,
+          borrowerName: borrower1.name,
+          productId: decliningProduct.id,
+          productName: decliningProduct.name,
+          amount: 30000,
+          term: 36,
+          status: 'DRAFT',
+          collateralType: 'Kenderaan - Proton X50 2024 (WA 1234 B)',
+          collateralValue: 85000,
+        },
+      },
+      {
+        tenantId: tenant.id,
+        memberId: membership.id,
+        action: 'SUBMIT',
+        entityType: 'LoanApplication',
+        entityId: application3.id,
+        previousData: { status: 'DRAFT' },
+        newData: { status: 'SUBMITTED' },
+      },
     ],
     skipDuplicates: true,
   });
@@ -595,7 +643,8 @@ async function main() {
   console.log('     • Home Improvement Loan (Secured) - Individual only, Jadual K');
   console.log('     • Business Working Capital - Corporate only, Jadual J');
   console.log('   - 4 Borrowers (2 IC, 1 Passport, 1 Corporate)');
-  console.log('   - 2 Loan Applications (1 Draft, 1 Submitted)');
+  console.log('   - 3 Loan Applications (1 Draft, 2 Submitted)');
+  console.log('     • 1 Jadual K application with collateral (Kenderaan)');
 }
 
 main()

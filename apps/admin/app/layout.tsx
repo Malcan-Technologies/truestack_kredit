@@ -16,6 +16,10 @@ const rethinkSans = Rethink_Sans({
 export const metadata: Metadata = {
   title: "TrueKredit - Admin",
   description: "Multi-tenant loan management platform",
+  icons: {
+    icon: "/favicon.png",
+    apple: "/favicon.png",
+  },
 };
 
 export default function RootLayout({

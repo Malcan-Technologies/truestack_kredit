@@ -164,6 +164,8 @@ export default function NewApplicationPage() {
   const [amount, setAmount] = useState(0);
   const [term, setTerm] = useState(12);
   const [notes, setNotes] = useState("");
+  const [collateralType, setCollateralType] = useState("");
+  const [collateralValue, setCollateralValue] = useState(0);
 
   // Fetch borrowers and products on mount
   useEffect(() => {
@@ -319,6 +321,17 @@ export default function NewApplicationPage() {
         toast.error(`Term cannot exceed ${maxTerm} months`);
         return;
       }
+      // Validate collateral fields for Jadual K products
+      if (selectedProduct.loanScheduleType === "JADUAL_K") {
+        if (!collateralType.trim()) {
+          toast.error("Please enter the collateral type for Jadual K loan");
+          return;
+        }
+        if (collateralValue <= 0) {
+          toast.error("Please enter the collateral value for Jadual K loan");
+          return;
+        }
+      }
     }
     setCurrentStep((prev) => Math.min(prev + 1, 4));
   };
@@ -338,6 +351,10 @@ export default function NewApplicationPage() {
         amount,
         term,
         notes: notes || undefined,
+        ...(selectedProduct.loanScheduleType === "JADUAL_K" && collateralType.trim() ? {
+          collateralType: collateralType.trim(),
+          collateralValue: collateralValue > 0 ? collateralValue : undefined,
+        } : {}),
       });
 
       if (res.success && res.data) {
@@ -698,6 +715,46 @@ export default function NewApplicationPage() {
                       className="mt-1"
                     />
                   </div>
+
+                  {/* Collateral fields for Jadual K products */}
+                  {selectedProduct.loanScheduleType === "JADUAL_K" && (
+                    <div className="border-t pt-4 space-y-4">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-primary" />
+                        <label className="text-sm font-semibold">Collateral Details (Jadual K)</label>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">
+                          Collateral Type *
+                        </label>
+                        <Input
+                          value={collateralType}
+                          onChange={(e) => setCollateralType(e.target.value)}
+                          placeholder="e.g., Kenderaan, Hartanah, Mesin..."
+                          className="mt-1"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Description of the collateral securing this loan
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">
+                          Collateral Value (RM) *
+                        </label>
+                        <Input
+                          type="number"
+                          value={collateralValue || ""}
+                          onChange={(e) => setCollateralValue(parseFloat(e.target.value) || 0)}
+                          placeholder="0.00"
+                          min={0}
+                          className="mt-1"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Estimated value of the collateral in Ringgit Malaysia
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Right: Preview */}
@@ -939,6 +996,27 @@ export default function NewApplicationPage() {
                       </span>
                     </div>
                   </div>
+                  {/* Collateral Details for Jadual K */}
+                  {selectedProduct.loanScheduleType === "JADUAL_K" && collateralType && (
+                    <div className="relative pt-4 border-t border-border/50 space-y-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <ShieldCheck className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-semibold text-foreground">Collateral</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Type</span>
+                        <span className="font-medium text-foreground">{collateralType}</span>
+                      </div>
+                      {collateralValue > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Value</span>
+                          <span className="font-medium text-foreground">
+                            {formatCurrency(collateralValue)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {notes && (
                     <div className="relative pt-4 border-t border-border/50">
                       <p className="text-xs text-muted-foreground mb-1">Notes</p>

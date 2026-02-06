@@ -1,6 +1,6 @@
 /**
  * PDF Service for generating loan agreement documents
- * Uses pdf-lib to fill in the Jadual J template with loan data
+ * Uses pdf-lib to fill in the Jadual J or Jadual K template with loan data
  */
 
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
@@ -36,7 +36,11 @@ export interface LoanForAgreement {
   };
   product: {
     interestModel: string;
+    loanScheduleType: string; // 'JADUAL_J' or 'JADUAL_K'
   };
+  // Collateral fields (for Jadual K loans)
+  collateralType?: string | null;
+  collateralValue?: number | null;
 }
 
 interface FieldPosition {
@@ -110,6 +114,82 @@ const JADUAL_PERTAMA_FIELDS: Record<string, FieldPosition> = {
   // Lender Signature Section (DITANDATANGANI oleh Pemberi Pinjam)
   signLenderName: { x: 148, y: 679, page: 4, fontSize: 9, maxWidth: 180 },
   signLenderRegNo: { x: 278, y: 659, page: 4, fontSize: 9 },
+};
+
+// ============================================
+// Coordinate Mapping for Jadual K Template
+// Similar structure to Jadual J but different page layout
+// Coordinates need calibration - run calibrate-pdf.ts with --template jadual-k
+// ============================================
+
+const JADUAL_K_FIELDS: Record<string, FieldPosition> = {
+  // ============================================
+  // Page 1 (index 0) - Bayaran balik ansuran
+  // ============================================
+  
+  // First repayment date (tarikh bayaran balik yang pertama)
+  firstRepaymentDate: { x: 100, y: 240, page: 0, fontSize: 9 },
+  
+  // Monthly repayment date (setiap dan tiap-tiap bulan)
+  monthlyRepaymentDate: { x: 100, y: 220, page: 0, fontSize: 9 },
+  
+  // Repayment tenure in months (bulan tersebut)
+  repaymentTenure: { x: 100, y: 200, page: 0, fontSize: 9 },
+  
+  // ============================================
+  // Jadual Pertama (Schedule 1) - adjust page index after calibration
+  // ============================================
+  
+  // Section 1: Hari dan tahun Perjanjian ini (Agreement Date)
+  agreementDate: { x: 340, y: 615, page: 7, fontSize: 9 },
+  
+  // Section 2: Lender Details - Combined into single multi-line field
+  lenderDetails: { x: 340, y: 592, page: 7, fontSize: 7, maxWidth: 140 },
+  
+  // Section 3: Borrower Details - Combined into single multi-line field
+  borrowerDetails: { x: 340, y: 536, page: 7, fontSize: 7, maxWidth: 140 },
+  
+  // Section 4: Jumlah Wang Pokok (Principal Amount)
+  principalAmountWords: { x: 337, y: 485, page: 7, fontSize: 9, maxWidth: 90 },
+  principalAmountFigures: { x: 360, y: 470, page: 7, fontSize: 9 },
+  
+  // Section 5: Kadar faedah (Interest Rate)
+  interestRateWords: { x: 337, y: 421, page: 7, fontSize: 9 },
+  interestRatePercent: { x: 340, y: 405, page: 7, fontSize: 9 },
+  
+  // Section 6: Tempoh bayaran balik (Repayment Period) - same as repaymentTenure
+  repaymentPeriod: { x: 340, y: 377, page: 7, fontSize: 9 },
+  
+  // Section 7: Bilangan bayaran balik ansuran (Number of installments) - same as term
+  installmentCount: { x: 340, y: 336, page: 7, fontSize: 9 },
+  
+  // Section 8: Jumlah wang bagi setiap bayaran balik ansuran (Monthly Payment)
+  monthlyPayment: { x: 340, y: 305, page: 7, fontSize: 9 },
+  
+  // Section 9: Cara bayaran balik (Repayment method) - day of month for repayment
+  repaymentDay: { x: 340, y: 245, page: 7, fontSize: 9 },
+  
+  // Section 10: Jumlah keseluruhan bayaran balik (Total Repayment)
+  totalRepayment: { x: 340, y: 178, page: 7, fontSize: 9 },
+  
+  // Section 11: Butir-butir Cagaran (Collateral Details)
+  collateralType: { x: 340, y: 150, page: 7, fontSize: 9, maxWidth: 140 },
+  
+  // Section 12: Nilai Cagaran (Collateral Value)
+  collateralValueWords: { x: 337, y: 125, page: 7, fontSize: 9, maxWidth: 90 },
+  collateralValueFigures: { x: 360, y: 110, page: 7, fontSize: 9 },
+  
+  // ============================================
+  // Signature Sections - adjust page index after calibration
+  // ============================================
+  
+  // Borrower Signature Section (DITANDATANGANI oleh Peminjam)
+  signBorrowerName: { x: 140, y: 252, page: 5, fontSize: 9, maxWidth: 180 },
+  signBorrowerIcOrRegNo: { x: 270, y: 232, page: 5, fontSize: 9 },
+  
+  // Lender Signature Section (DITANDATANGANI oleh Pemberi Pinjam)
+  signLenderName: { x: 140, y: 142, page: 5, fontSize: 9, maxWidth: 180 },
+  signLenderRegNo: { x: 270, y: 122, page: 5, fontSize: 9 },
 };
 
 // ============================================
@@ -277,10 +357,16 @@ function drawWrappedText(
 
 /**
  * Generate a pre-filled loan agreement PDF
+ * Automatically selects the correct template (Jadual J or Jadual K) based on product type
  */
 export async function generateLoanAgreement(loan: LoanForAgreement): Promise<Buffer> {
-  // Load the Jadual J template
-  const templatePath = path.join(process.cwd(), 'templates', 'jadual-j.pdf');
+  // Select template and field positions based on loan schedule type
+  const isJadualK = loan.product.loanScheduleType === 'JADUAL_K';
+  const templateFile = isJadualK ? 'jadual-k.pdf' : 'jadual-j.pdf';
+  const fieldPositions = isJadualK ? JADUAL_K_FIELDS : JADUAL_PERTAMA_FIELDS;
+  
+  // Load the correct template
+  const templatePath = path.join(process.cwd(), 'templates', templateFile);
   const templateBytes = await fs.readFile(templatePath);
   const pdfDoc = await PDFDocument.load(templateBytes);
   
@@ -308,7 +394,7 @@ export async function generateLoanAgreement(loan: LoanForAgreement): Promise<Buf
   
   // Helper to draw field - uses the page index from field configuration
   const drawField = (fieldKey: string, text: string, useBold: boolean = false) => {
-    const field = JADUAL_PERTAMA_FIELDS[fieldKey];
+    const field = fieldPositions[fieldKey];
     if (!field) return;
     
     // Get the correct page from field configuration
@@ -402,11 +488,41 @@ export async function generateLoanAgreement(loan: LoanForAgreement): Promise<Buf
   drawField('interestRateWords', numberToMalayWords(Math.floor(rate)));
   drawField('interestRatePercent', `${rate}`);
   
-  // Section 6: Monthly Payment
+  // Section 6/8: Monthly Payment
   drawField('monthlyPayment', formatCurrency(monthlyPayment).replace('MYR', 'RM'));
   
-  // Section 7: Total Repayment
+  // Section 7/10: Total Repayment
   drawField('totalRepayment', formatCurrency(totalPayable).replace('MYR', 'RM'));
+  
+  // ============================================
+  // Jadual K-specific fields
+  // ============================================
+  if (isJadualK) {
+    // Tempoh bayaran balik (Repayment Period)
+    drawField('repaymentPeriod', `${loan.term}`);
+    
+    // Bilangan bayaran balik ansuran (Number of installments)
+    drawField('installmentCount', `${loan.term}`);
+    
+    // Cara bayaran balik (Repayment method) - day of month
+    if (loan.monthlyRepaymentDay) {
+      drawField('repaymentDay', `${loan.monthlyRepaymentDay}`);
+    } else if (loan.firstRepaymentDate) {
+      const day = new Date(loan.firstRepaymentDate).getDate();
+      drawField('repaymentDay', `${day}`);
+    }
+    
+    // Butir-butir Cagaran (Collateral Details)
+    if (loan.collateralType) {
+      drawField('collateralType', loan.collateralType);
+    }
+    
+    // Nilai Cagaran (Collateral Value) - words and figures
+    if (loan.collateralValue && loan.collateralValue > 0) {
+      drawField('collateralValueWords', numberToMalayWords(Math.floor(loan.collateralValue)));
+      drawField('collateralValueFigures', formatCurrency(loan.collateralValue).replace(/^RM\s*/, ''));
+    }
+  }
   
   // ============================================
   // Signature Sections (Pages 4 & 5)
@@ -442,11 +558,13 @@ export async function generateLoanAgreement(loan: LoanForAgreement): Promise<Buf
 
 /**
  * Generate a calibration PDF with grid lines to help map field coordinates
- * Run this function to get exact coordinates for the Jadual J template
+ * @param template - 'jadual-j' or 'jadual-k' (defaults to 'jadual-j')
  */
-export async function generateCalibrationPdf(): Promise<Buffer> {
-  // Load the Jadual J template
-  const templatePath = path.join(process.cwd(), 'templates', 'jadual-j.pdf');
+export async function generateCalibrationPdf(template: 'jadual-j' | 'jadual-k' = 'jadual-j'): Promise<Buffer> {
+  const templateFile = template === 'jadual-k' ? 'jadual-k.pdf' : 'jadual-j.pdf';
+  const fieldPositions = template === 'jadual-k' ? JADUAL_K_FIELDS : JADUAL_PERTAMA_FIELDS;
+  
+  const templatePath = path.join(process.cwd(), 'templates', templateFile);
   const templateBytes = await fs.readFile(templatePath);
   const pdfDoc = await PDFDocument.load(templateBytes);
   
@@ -458,8 +576,8 @@ export async function generateCalibrationPdf(): Promise<Buffer> {
     const page = pages[pageIndex];
     const { width, height } = page.getSize();
     
-    // Draw page number
-    page.drawText(`Page ${pageIndex + 1} (index: ${pageIndex})`, {
+    // Draw page number and template name
+    page.drawText(`${template.toUpperCase()} - Page ${pageIndex + 1} (index: ${pageIndex})`, {
       x: 10,
       y: height - 20,
       size: 12,
@@ -515,27 +633,26 @@ export async function generateCalibrationPdf(): Promise<Buffer> {
       font,
       color: rgb(0, 0.5, 0),
     });
-  }
-  
-  // Mark the current field positions on page 5
-  const page5 = pages[4];
-  for (const [fieldKey, field] of Object.entries(JADUAL_PERTAMA_FIELDS)) {
-    if (field.page === 4) {
-      // Draw a small red marker at the position
-      page5.drawCircle({
-        x: field.x,
-        y: field.y,
-        size: 3,
-        color: rgb(1, 0, 0),
-      });
-      // Label the field
-      page5.drawText(fieldKey, {
-        x: field.x + 5,
-        y: field.y - 3,
-        size: 6,
-        font,
-        color: rgb(1, 0, 0),
-      });
+    
+    // Mark configured field positions on this page
+    for (const [fieldKey, field] of Object.entries(fieldPositions)) {
+      if (field.page === pageIndex) {
+        // Draw a small red marker at the position
+        page.drawCircle({
+          x: field.x,
+          y: field.y,
+          size: 3,
+          color: rgb(1, 0, 0),
+        });
+        // Label the field
+        page.drawText(fieldKey, {
+          x: field.x + 5,
+          y: field.y - 3,
+          size: 6,
+          font,
+          color: rgb(1, 0, 0),
+        });
+      }
     }
   }
   
@@ -545,12 +662,13 @@ export async function generateCalibrationPdf(): Promise<Buffer> {
 
 /**
  * Generate a test agreement PDF with sample data
+ * @param template - 'jadual-j' or 'jadual-k' (defaults to 'jadual-j')
  */
-export async function generateTestAgreement(): Promise<Buffer> {
+export async function generateTestAgreement(template: 'jadual-j' | 'jadual-k' = 'jadual-j'): Promise<Buffer> {
   const testLoan: LoanForAgreement = {
     id: 'test-loan-001',
     principalAmount: new Decimal(10000),
-    interestRate: new Decimal(18),
+    interestRate: new Decimal(template === 'jadual-k' ? 12 : 18),
     term: 12,
     firstRepaymentDate: new Date('2026-03-15'),
     monthlyRepaymentDay: 15,
@@ -571,7 +689,13 @@ export async function generateTestAgreement(): Promise<Buffer> {
     },
     product: {
       interestModel: 'FLAT',
+      loanScheduleType: template === 'jadual-k' ? 'JADUAL_K' : 'JADUAL_J',
     },
+    // Collateral data for Jadual K test
+    ...(template === 'jadual-k' ? {
+      collateralType: 'Kenderaan - Proton X50 2024',
+      collateralValue: 85000,
+    } : {}),
   };
   
   return generateLoanAgreement(testLoan);

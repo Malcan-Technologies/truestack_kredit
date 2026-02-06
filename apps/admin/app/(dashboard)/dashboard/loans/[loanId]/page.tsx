@@ -1577,7 +1577,7 @@ export default function LoanDetailPage() {
                       <Calendar className="h-5 w-5 text-accent" />
                       Repayment Schedule
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className="mt-2">
                       Version {currentSchedule.version} • {currentSchedule.interestModel.replace(/_/g, " ")}
                       {loan.disbursementDate && ` • Disbursed ${formatDate(loan.disbursementDate)}`}
                     </CardDescription>
@@ -1786,6 +1786,20 @@ export default function LoanDetailPage() {
                 <span className="text-muted-foreground">Late Payment Rate</span>
                 <span>{loan.product.latePaymentRate}% p.a.</span>
               </div>
+              {loan.product.loanScheduleType === "JADUAL_K" && loan.collateralType && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Collateral</span>
+                    <span className="text-right max-w-[60%]">{loan.collateralType}</span>
+                  </div>
+                  {loan.collateralValue && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Collateral Value</span>
+                      <span>{formatCurrency(toSafeNumber(loan.collateralValue))}</span>
+                    </div>
+                  )}
+                </>
+              )}
               <div className="pt-2 border-t">
                 <Link
                   href={`/dashboard/applications/${loan.application.id}`}

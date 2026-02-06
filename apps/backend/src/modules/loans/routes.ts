@@ -1144,13 +1144,22 @@ router.delete('/applications/:applicationId/documents/:documentId', async (req, 
  */
 router.get('/', async (req, res, next) => {
   try {
-    const { status, page = '1', pageSize = '20' } = req.query;
+    const { status, search, page = '1', pageSize = '20' } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(pageSize as string);
     const take = parseInt(pageSize as string);
 
     const where = {
       tenantId: req.tenantId,
       ...(status && { status: status as 'PENDING_DISBURSEMENT' | 'ACTIVE' | 'IN_ARREARS' | 'COMPLETED' | 'DEFAULTED' | 'WRITTEN_OFF' }),
+      ...(search && {
+        borrower: {
+          OR: [
+            { name: { contains: search as string, mode: 'insensitive' as const } },
+            { icNumber: { contains: search as string } },
+            { companyName: { contains: search as string, mode: 'insensitive' as const } },
+          ],
+        },
+      }),
     };
 
     const [loans, total] = await Promise.all([

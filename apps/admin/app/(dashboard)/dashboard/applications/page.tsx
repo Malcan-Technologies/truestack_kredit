@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Plus, ClipboardList, Eye, Building2, User, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RefreshButton } from "@/components/ui/refresh-button";
+import { TablePagination } from "@/components/ui/table-pagination";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -55,36 +57,59 @@ export default function ApplicationsPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("");
-  const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+
+  // Debounce search input
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(value);
+      setCurrentPage(1);
+    }, 300);
+  };
 
   const fetchApplications = useCallback(async () => {
+    setLoading(true);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        pageSize: pageSize.toString(),
+      });
       if (filter) params.append("status", filter);
-      if (search) params.append("search", search);
-      const queryString = params.toString();
+      if (debouncedSearch) params.append("search", debouncedSearch);
 
       const res = await api.get<Application[]>(
-        `/api/loans/applications${queryString ? `?${queryString}` : ""}`
+        `/api/loans/applications?${params.toString()}`
       );
       if (res.success && res.data) {
         setApplications(Array.isArray(res.data) ? res.data : []);
+        if (res.pagination) {
+          setTotalItems(res.pagination.total);
+          setTotalPages(res.pagination.totalPages);
+        }
       } else {
         setApplications([]);
+        setTotalItems(0);
+        setTotalPages(0);
       }
     } catch (error) {
       console.error("Failed to fetch applications:", error);
       setApplications([]);
+      setTotalItems(0);
+      setTotalPages(0);
     } finally {
       setLoading(false);
     }
-  }, [filter, search]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSearch(searchInput);
-  };
+  }, [filter, debouncedSearch, currentPage, pageSize]);
 
   useEffect(() => {
     fetchApplications();
@@ -94,13 +119,15 @@ export default function ApplicationsPage() {
     await fetchApplications();
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-muted">Loading...</div>
-      </div>
-    );
-  }
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  };
 
   return (
     <div className="space-y-6">
@@ -123,28 +150,28 @@ export default function ApplicationsPage() {
         <Button
           variant={filter === "" ? "default" : "outline"}
           size="sm"
-          onClick={() => setFilter("")}
+          onClick={() => { setFilter(""); setCurrentPage(1); }}
         >
           All
         </Button>
         <Button
           variant={filter === "DRAFT" ? "default" : "outline"}
           size="sm"
-          onClick={() => setFilter("DRAFT")}
+          onClick={() => { setFilter("DRAFT"); setCurrentPage(1); }}
         >
           Draft
         </Button>
         <Button
           variant={filter === "SUBMITTED" ? "default" : "outline"}
           size="sm"
-          onClick={() => setFilter("SUBMITTED")}
+          onClick={() => { setFilter("SUBMITTED"); setCurrentPage(1); }}
         >
           Submitted
         </Button>
         <Button
           variant={filter === "APPROVED" ? "default" : "outline"}
           size="sm"
-          onClick={() => setFilter("APPROVED")}
+          onClick={() => { setFilter("APPROVED"); setCurrentPage(1); }}
           className={filter === "APPROVED" ? "" : "text-emerald-600 border-emerald-500/50 hover:bg-emerald-500/10"}
         >
           Approved
@@ -152,7 +179,7 @@ export default function ApplicationsPage() {
         <Button
           variant={filter === "REJECTED" ? "default" : "outline"}
           size="sm"
-          onClick={() => setFilter("REJECTED")}
+          onClick={() => { setFilter("REJECTED"); setCurrentPage(1); }}
           className={filter === "REJECTED" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
         >
           Rejected
@@ -168,26 +195,40 @@ export default function ApplicationsPage() {
                 <ClipboardList className="h-5 w-5 text-accent" />
                 All Applications
               </CardTitle>
-              <CardDescription>
-                {applications.length} applications. Click a row to view details.
+              <CardDescription className="mt-1.5">
+                {totalItems} application{totalItems !== 1 ? "s" : ""}. Click a row to view details.
               </CardDescription>
             </div>
-            <form onSubmit={handleSearch} className="flex items-center gap-2">
-              <Input
-                placeholder="Search by name, IC, company..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                className="w-64"
-              />
-              <Button type="submit" variant="secondary" size="icon">
-                <Search className="h-4 w-4" />
-              </Button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, IC, company..."
+                  value={searchInput}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="w-full sm:w-72 md:w-80 lg:w-96 pl-9"
+                />
+              </div>
               <RefreshButton onRefresh={handleRefresh} showToast successMessage="Applications refreshed" />
-            </form>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {applications.length === 0 ? (
+          {loading ? (
+            <TableSkeleton
+              headers={["Borrower", "Type", "Product", "Amount", "Term", "Status", "Created", "Actions"]}
+              columns={[
+                { width: "w-32", subLine: true },
+                { badge: true, width: "w-20" },
+                { width: "w-24" },
+                { width: "w-20" },
+                { width: "w-16" },
+                { badge: true, width: "w-20" },
+                { width: "w-20" },
+                { width: "w-8" },
+              ]}
+            />
+          ) : applications.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-center">
               <ClipboardList className="h-12 w-12 text-muted mb-4" />
               <p className="text-muted">No applications found</p>
@@ -269,6 +310,15 @@ export default function ApplicationsPage() {
               </TableBody>
             </Table>
           )}
+          <TablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            itemLabel="applications"
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </CardContent>
       </Card>
     </div>

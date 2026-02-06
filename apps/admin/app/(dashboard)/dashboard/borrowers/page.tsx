@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { Plus, Search, User, ShieldCheck, AlertTriangle, ChevronLeft, ChevronRight, Building2 } from "lucide-react";
+import { Plus, Search, User, ShieldCheck, AlertTriangle, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RefreshButton } from "@/components/ui/refresh-button";
+import { TablePagination } from "@/components/ui/table-pagination";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 
@@ -52,7 +54,6 @@ interface PaginatedResponse {
   };
 }
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
 
 // ============================================
@@ -68,145 +69,15 @@ function formatICForDisplay(icNumber: string): string {
 }
 
 // ============================================
-// Pagination Component
-// ============================================
-
-interface PaginationProps {
-  currentPage: number;
-  totalPages: number;
-  totalItems: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (size: number) => void;
-}
-
-function Pagination({
-  currentPage,
-  totalPages,
-  totalItems,
-  pageSize,
-  onPageChange,
-  onPageSizeChange,
-}: PaginationProps) {
-  const startItem = (currentPage - 1) * pageSize + 1;
-  const endItem = Math.min(currentPage * pageSize, totalItems);
-
-  // Generate page numbers to show
-  const getPageNumbers = () => {
-    const pages: (number | "ellipsis")[] = [];
-    const maxVisiblePages = 5;
-
-    if (totalPages <= maxVisiblePages) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
-    } else {
-      // Always show first page
-      pages.push(1);
-
-      if (currentPage > 3) {
-        pages.push("ellipsis");
-      }
-
-      // Show pages around current
-      const start = Math.max(2, currentPage - 1);
-      const end = Math.min(totalPages - 1, currentPage + 1);
-
-      for (let i = start; i <= end; i++) {
-        pages.push(i);
-      }
-
-      if (currentPage < totalPages - 2) {
-        pages.push("ellipsis");
-      }
-
-      // Always show last page
-      if (totalPages > 1) {
-        pages.push(totalPages);
-      }
-    }
-
-    return pages;
-  };
-
-  return (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 py-4">
-      {/* Items info */}
-      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-        <span>
-          Showing {startItem}-{endItem} of {totalItems} borrowers
-        </span>
-        <div className="flex items-center gap-2">
-          <span>Per page:</span>
-          <select
-            value={pageSize}
-            onChange={(e) => onPageSizeChange(parseInt(e.target.value))}
-            className="h-8 rounded-md border border-border bg-background px-2 text-sm"
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Page navigation */}
-      <div className="flex items-center gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage <= 1}
-        >
-          <ChevronLeft className="h-4 w-4" />
-          <span className="hidden sm:inline ml-1">Previous</span>
-        </Button>
-
-        <div className="flex items-center gap-1 mx-2">
-          {getPageNumbers().map((page, index) =>
-            page === "ellipsis" ? (
-              <span key={`ellipsis-${index}`} className="px-2 text-muted-foreground">
-                ...
-              </span>
-            ) : (
-              <Button
-                key={page}
-                variant={currentPage === page ? "default" : "outline"}
-                size="sm"
-                className="min-w-[36px]"
-                onClick={() => onPageChange(page)}
-              >
-                {page}
-              </Button>
-            )
-          )}
-        </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage >= totalPages}
-        >
-          <span className="hidden sm:inline mr-1">Next</span>
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ============================================
 // Main Component
 // ============================================
 
 export default function BorrowersPage() {
   const [borrowers, setBorrowers] = useState<Borrower[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const [typeFilter, setTypeFilter] = useState<string>("");
 
   // Pagination state
@@ -215,6 +86,16 @@ export default function BorrowersPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  // Debounce search input
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(value);
+      setCurrentPage(1);
+    }, 300);
+  };
+
   const fetchBorrowers = useCallback(async () => {
     setLoading(true);
     try {
@@ -222,8 +103,8 @@ export default function BorrowersPage() {
         page: currentPage.toString(),
         pageSize: pageSize.toString(),
       });
-      if (search) {
-        params.append("search", search);
+      if (debouncedSearch) {
+        params.append("search", debouncedSearch);
       }
       if (typeFilter) {
         params.append("borrowerType", typeFilter);
@@ -248,17 +129,11 @@ export default function BorrowersPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, search, typeFilter]);
+  }, [currentPage, pageSize, debouncedSearch, typeFilter]);
 
   useEffect(() => {
     fetchBorrowers();
   }, [fetchBorrowers]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSearch(searchInput);
-    setCurrentPage(1); // Reset to first page on new search
-  };
 
   const handleRefresh = async () => {
     await fetchBorrowers();
@@ -326,43 +201,53 @@ export default function BorrowersPage() {
                 <User className="h-5 w-5 text-accent" />
                 All Borrowers
               </CardTitle>
-              <CardDescription>
-                {totalItems} borrowers registered. Click a name to view details.
+              <CardDescription className="mt-1.5">
+                {totalItems} borrower{totalItems !== 1 ? "s" : ""} registered. Click a name to view details.
               </CardDescription>
             </div>
-            <form onSubmit={handleSearch} className="flex items-center gap-2">
-              <Input
-                placeholder="Search by name, IC, phone, email..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                className="w-64"
-              />
-              <Button type="submit" variant="secondary" size="icon">
-                <Search className="h-4 w-4" />
-              </Button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, IC, phone, email..."
+                  value={searchInput}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="w-full sm:w-72 md:w-80 lg:w-96 pl-9"
+                />
+              </div>
               <RefreshButton onRefresh={handleRefresh} showToast successMessage="Borrower list refreshed" />
-            </form>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="text-muted">Loading...</div>
-            </div>
+            <TableSkeleton
+              headers={["Name", "Type", "Identity", "Contact", "Created", "Updated", "Loans"]}
+              columns={[
+                { width: "w-32", subLine: true },
+                { badge: true, width: "w-20" },
+                { width: "w-28", subLine: true },
+                { width: "w-24", subLine: true },
+                { width: "w-28" },
+                { width: "w-28" },
+                { badge: true, width: "w-8" },
+              ]}
+            />
           ) : borrowers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <User className="h-12 w-12 text-muted-foreground mb-4" />
-              {search ? (
+              {debouncedSearch ? (
                 <>
                   <p className="text-muted-foreground mb-2">
-                    No borrowers found matching &quot;{search}&quot;
+                    No borrowers found matching &quot;{debouncedSearch}&quot;
                   </p>
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
                       onClick={() => {
-                        setSearch("");
                         setSearchInput("");
+                        setDebouncedSearch("");
+                        setCurrentPage(1);
                       }}
                     >
                       Clear search
@@ -497,16 +382,15 @@ export default function BorrowersPage() {
               </Table>
 
               {/* Pagination */}
-              {totalPages > 1 && (
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  totalItems={totalItems}
-                  pageSize={pageSize}
-                  onPageChange={handlePageChange}
-                  onPageSizeChange={handlePageSizeChange}
-                />
-              )}
+              <TablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalItems}
+                pageSize={pageSize}
+                itemLabel="borrowers"
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+              />
             </>
           )}
         </CardContent>

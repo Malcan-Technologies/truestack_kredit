@@ -40,7 +40,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -257,6 +256,65 @@ const repaymentStatusColors: Record<string, "default" | "success" | "warning" | 
   PAID: "success",
   OVERDUE: "destructive",
 };
+
+// ============================================
+// Progress Donut (for Progress card)
+// ============================================
+
+function ProgressDonut({
+  percent,
+  size = 80,
+  strokeWidth = 8,
+}: {
+  percent: number;
+  size?: number;
+  strokeWidth?: number;
+}) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (percent / 100) * circumference;
+  const center = size / 2;
+
+  let strokeColor = "stroke-primary";
+  if (percent === 100) {
+    strokeColor = "stroke-emerald-500";
+  } else if (percent >= 75) {
+    strokeColor = "stroke-blue-500";
+  } else if (percent >= 50) {
+    strokeColor = "stroke-amber-500";
+  } else if (percent > 0) {
+    strokeColor = "stroke-orange-500";
+  }
+
+  return (
+    <div className="relative inline-flex items-center justify-center mt-2">
+      <svg width={size} height={size} className="-rotate-90 shrink-0">
+        <circle
+          cx={center}
+          cy={center}
+          r={radius}
+          fill="none"
+          strokeWidth={strokeWidth}
+          className="stroke-muted"
+        />
+        <circle
+          cx={center}
+          cy={center}
+          r={radius}
+          fill="none"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          className={strokeColor}
+        />
+      </svg>
+      <span className="absolute text-sm font-heading font-bold text-foreground">
+        {Math.round(percent)}%
+      </span>
+    </div>
+  );
+}
 
 // ============================================
 // Timeline Component
@@ -1255,19 +1313,55 @@ export default function LoanDetailPage() {
                   </>
                 ) : metrics ? (
                   <>
-                    <p className="text-2xl font-heading font-bold text-success">
-                      {formatCurrency(metrics.totalPaid)}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      of {formatCurrency(metrics.totalDue)} ({metrics.progressPercent}%)
-                    </p>
-                    <Progress value={metrics.progressPercent} className="mt-2 h-2" />
-                    {metrics.totalDue - metrics.totalPaid > 0 && (
-                      <p className="text-sm mt-2">
-                        <span className="text-muted-foreground">Outstanding: </span>
-                        <span className="font-semibold">{formatCurrency(metrics.totalDue - metrics.totalPaid)}</span>
-                      </p>
-                    )}
+                    <div className="flex items-center gap-4">
+                      <ProgressDonut percent={metrics.progressPercent} />
+                      <div>
+                        <p className="text-2xl font-heading font-bold text-success">
+                          {formatCurrency(metrics.totalPaid)}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          of {formatCurrency(metrics.totalDue)}
+                        </p>
+                        {metrics.totalDue - metrics.totalPaid > 0 && (
+                          <p className="text-sm mt-1">
+                            <span className="text-muted-foreground">Outstanding: </span>
+                            <span className="font-semibold">{formatCurrency(metrics.totalDue - metrics.totalPaid)}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4">
+                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-border px-4 py-3">
+                        <p className="text-sm font-medium text-foreground">Paid</p>
+                        <p className="text-xl font-heading font-bold text-success tabular-nums">{metrics.paidCount}</p>
+                        <p className="text-xs text-muted-foreground">of {metrics.totalRepayments}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-border px-4 py-3">
+                        <p className="text-sm font-medium text-foreground">Overdue</p>
+                        <p className={`text-xl font-heading font-bold tabular-nums ${metrics.overdueCount > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                          {metrics.overdueCount}
+                        </p>
+                        {metrics.oldestOverdueDays > 0 ? (
+                          <p className="text-xs text-destructive">{metrics.oldestOverdueDays} days</p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">&nbsp;</p>
+                        )}
+                      </div>
+                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-border px-4 py-3">
+                        <p className="text-sm font-medium text-foreground">Late Fees</p>
+                        <p className={`text-xl font-heading font-bold tabular-nums ${metrics.totalLateFees > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+                          {formatCurrency(metrics.totalLateFees)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">&nbsp;</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-border px-4 py-3">
+                        <p className="text-sm font-medium text-foreground">On-Time Rate</p>
+                        <p className={`text-xl font-heading font-bold tabular-nums ${metrics.repaymentRate >= 80 ? "text-success" : metrics.repaymentRate >= 50 ? "text-amber-600 dark:text-amber-400" : "text-destructive"}`}>
+                          {metrics.repaymentRate}%
+                        </p>
+                        <p className="text-xs text-muted-foreground">&nbsp;</p>
+                      </div>
+                    </div>
                   </>
                 ) : (
                   <p className="text-muted-foreground">Loading...</p>
@@ -1275,38 +1369,6 @@ export default function LoanDetailPage() {
               </CardContent>
             </Card>
           </div>
-
-          {/* Metrics Summary (for active loans) */}
-          {metrics && loan.status !== "PENDING_DISBURSEMENT" && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-card border rounded-lg p-4">
-                <p className="text-sm text-muted-foreground">Paid</p>
-                <p className="text-xl font-bold text-success">{metrics.paidCount}</p>
-                <p className="text-xs text-muted-foreground">of {metrics.totalRepayments}</p>
-              </div>
-              <div className="bg-card border rounded-lg p-4">
-                <p className="text-sm text-muted-foreground">Overdue</p>
-                <p className={`text-xl font-bold ${metrics.overdueCount > 0 ? "text-destructive" : "text-muted-foreground"}`}>
-                  {metrics.overdueCount}
-                </p>
-                {metrics.oldestOverdueDays > 0 && (
-                  <p className="text-xs text-destructive">{metrics.oldestOverdueDays} days</p>
-                )}
-              </div>
-              <div className="bg-card border rounded-lg p-4">
-                <p className="text-sm text-muted-foreground">Late Fees</p>
-                <p className={`text-xl font-bold ${metrics.totalLateFees > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
-                  {formatCurrency(metrics.totalLateFees)}
-                </p>
-              </div>
-              <div className="bg-card border rounded-lg p-4">
-                <p className="text-sm text-muted-foreground">On-Time Rate</p>
-                <p className={`text-xl font-bold ${metrics.repaymentRate >= 80 ? "text-success" : metrics.repaymentRate >= 50 ? "text-amber-600" : "text-destructive"}`}>
-                  {metrics.repaymentRate}%
-                </p>
-              </div>
-            </div>
-          )}
 
           {/* Loan Agreement Required (before disbursement) */}
           {loan.status === "PENDING_DISBURSEMENT" && (

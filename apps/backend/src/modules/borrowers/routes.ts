@@ -697,7 +697,8 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
       ? CORPORATE_DOCUMENT_CATEGORIES
       : INDIVIDUAL_DOCUMENT_CATEGORIES;
 
-    if (!validCategories.includes(category as typeof ALL_DOCUMENT_CATEGORIES[number])) {
+    const validSet = new Set(validCategories as readonly string[]);
+    if (!validSet.has(category)) {
       throw new ConflictError(`Invalid document category for ${borrower.borrowerType} borrower`);
     }
 

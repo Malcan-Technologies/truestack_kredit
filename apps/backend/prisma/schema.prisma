@@ -133,14 +133,20 @@ model Tenant {
 // ============================================
 
 // User model (Better Auth compatible - identity only, no tenant binding)
+// role/banned are required by Better Auth admin plugin; tenant-level role is in TenantMember
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
   emailVerified Boolean  @default(false)
   name          String?
   image         String?
+  referralCode  String?  @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  // Better Auth admin plugin fields (app-level; tenant role is in TenantMember)
+  role   String  @default("staff")
+  banned Boolean @default(false)
 
   // User-level settings
   isActive          Boolean   @default(true)
@@ -156,7 +162,14 @@ model User {
   // Application relations (user-scoped, not tenant-scoped)
   adminAuditLogs AdminAuditLog[]
 
+  // Referral: who invited this user (set at signup when valid referral code is used)
+  referredById   String?
+  referrer       User?    @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referredUsers  User[]   @relation("UserReferrals")
+
   @@index([email])
+  @@index([referralCode])
+  @@index([referredById])
 }
 
 // TenantMember - Junction table for multi-tenant access

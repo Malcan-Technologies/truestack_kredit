@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,8 +33,9 @@ function generateSlug(name: string): string {
   return baseSlug ? `${baseSlug}-${suffix}` : suffix;
 }
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     tenantName: "",
@@ -48,7 +49,17 @@ export default function RegisterPage() {
     email: "",
     password: "",
     name: "",
+    referralCode: "",
   });
+
+  // Pre-fill optional referral code from URL (?ref=CODE or ?ref=INV-CODE)
+  useEffect(() => {
+    const ref = searchParams.get("ref");
+    if (ref && typeof ref === "string") {
+      const code = ref.startsWith("INV-") ? ref : `INV-${ref}`;
+      setFormData((prev) => ({ ...prev, referralCode: code }));
+    }
+  }, [searchParams]);
 
   // Auto-generate slug when tenant name changes
   const handleTenantNameChange = (value: string) => {
@@ -253,6 +264,18 @@ export default function RegisterPage() {
                 Min 8 characters, 1 uppercase, 1 lowercase, 1 number
               </p>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="referralCode">Referral code (optional)</Label>
+              <Input
+                id="referralCode"
+                type="text"
+                placeholder="e.g. INV-ABC123"
+                value={formData.referralCode}
+                onChange={(e) =>
+                  setFormData({ ...formData, referralCode: e.target.value.trim() })
+                }
+              />
+            </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button type="submit" className="w-full" disabled={loading}>
@@ -268,5 +291,21 @@ export default function RegisterPage() {
         </form>
       </Card>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <p className="text-muted-foreground text-center">Loading...</p>
+          </CardContent>
+        </Card>
+      </div>
+    }>
+      <RegisterForm />
+    </Suspense>
   );
 }

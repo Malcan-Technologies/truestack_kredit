@@ -5,6 +5,7 @@ import { auth } from '../../lib/auth.js';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnauthorizedError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
+import { getOrCreateReferralCode } from '../../lib/referral.js';
 // @ts-ignore - better-auth crypto module
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
 
@@ -185,6 +186,11 @@ router.get('/me', authenticateToken, async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.userId },
+      include: {
+        referrer: {
+          select: { id: true, name: true, email: true },
+        },
+      },
     });
 
     if (!user) {
@@ -215,6 +221,9 @@ router.get('/me', authenticateToken, async (req, res, next) => {
           email: user.email,
           name: user.name,
           role: membership.role, // Role from membership
+          referrer: user.referrer
+            ? { id: user.referrer.id, name: user.referrer.name, email: user.referrer.email }
+            : null,
         },
         tenant: {
           id: membership.tenant.id,
@@ -429,6 +438,25 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
 });
 
 /**
+ * Get or generate referral code for current user
+ * GET /api/auth/referral-code
+ */
+router.get('/referral-code', authenticateToken, async (req, res, next) => {
+  try {
+    const referralCode = await getOrCreateReferralCode(req.user!.userId);
+
+    res.json({
+      success: true,
+      data: {
+        referralCode,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Log login event
  * POST /api/auth/log-login
  */
@@ -436,13 +464,14 @@ router.post('/log-login', authenticateToken, async (req, res, next) => {
   try {
     const userAgent = req.headers['user-agent'];
     
-    await prisma.adminLoginLog.create({
+    await prisma.adminAuditLog.create({
       data: {
         userId: req.user!.userId,
         tenantId: req.user!.tenantId,
-        ipAddress: getClientIp(req),
-        userAgent: userAgent?.substring(0, 500),
-        deviceType: parseDeviceType(userAgent),
+        action: 'LOGIN',
+        ipAddress: getClientIp(req) ?? undefined,
+        userAgent: userAgent?.substring(0, 500) ?? undefined,
+        details: JSON.stringify({ deviceType: parseDeviceType(userAgent) }),
       },
     });
 

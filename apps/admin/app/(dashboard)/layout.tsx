@@ -20,11 +20,19 @@ import {
   ScrollText,
   Calculator,
   CircleDollarSign,
-  Shield
+  Shield,
+  UserCircle
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { TenantSwitcher } from "@/components/tenant-switcher";
 import { TenantProvider } from "@/components/tenant-context";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
@@ -270,25 +278,35 @@ export default function DashboardLayout({
 
           {/* User info */}
           <div className="p-4 border-t border-border">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-accent flex items-center justify-center text-white font-medium">
-                {user.name?.[0] || user.email[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user.name || user.email}</p>
-                <Badge variant="outline" className="text-xs">
-                  {membership?.role || "STAFF"}
-                </Badge>
-              </div>
-            </div>
-            <Button 
-              variant="ghost" 
-              className="w-full justify-start text-muted hover:text-destructive"
-              onClick={handleLogout}
-            >
-              <LogOut className="h-4 w-4 mr-2" />
-              Sign Out
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-surface transition-colors">
+                  <div className="w-10 h-10 rounded-full bg-gradient-accent flex items-center justify-center text-white font-medium">
+                    {user.name?.[0] || user.email[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-sm font-medium truncate">{user.name || user.email}</p>
+                    <Badge variant="outline" className="text-xs">
+                      {membership?.role || "STAFF"}
+                    </Badge>
+                  </div>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={() => router.push("/dashboard/profile")}>
+                  <UserCircle className="h-4 w-4 mr-2" />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={handleLogout}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </aside>

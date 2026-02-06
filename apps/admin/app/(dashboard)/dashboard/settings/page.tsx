@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Users, Building2, Shield, Eye, EyeOff, UserX, UserCheck, UserCircle, Upload, X, ImageIcon, Crown, AlertTriangle } from "lucide-react";
+import { Users, Building2, Shield, Eye, EyeOff, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useSession, updateUser } from "@/lib/auth-client";
+import { useSession } from "@/lib/auth-client";
 import { useTenantContext } from "@/components/tenant-context";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
 
@@ -92,10 +92,6 @@ export default function SettingsPage() {
     password: "",
     role: "STAFF",
   });
-  const [showEditProfile, setShowEditProfile] = useState(false);
-  const [profileName, setProfileName] = useState("");
-  const [savingProfile, setSavingProfile] = useState(false);
-  
   // Tenant editing state
   const [showEditTenant, setShowEditTenant] = useState(false);
   const [savingTenant, setSavingTenant] = useState(false);
@@ -208,39 +204,6 @@ export default function SettingsPage() {
     } catch (error) {
       toast.error("Failed to update user");
     }
-  };
-
-  const handleUpdateProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!profileName.trim()) {
-      toast.error("Name is required");
-      return;
-    }
-
-    setSavingProfile(true);
-    try {
-      // Use Better Auth's updateUser to update the name
-      // This ensures the session cache is updated properly
-      const result = await updateUser({
-        name: profileName.trim(),
-      });
-
-      if (result.error) {
-        toast.error(result.error.message || "Failed to update profile");
-        setSavingProfile(false);
-        return;
-      }
-
-      toast.success("Profile updated successfully");
-      setShowEditProfile(false);
-      // Refetch session to get updated data
-      refetchSession();
-      fetchData();
-    } catch (error) {
-      toast.error("Failed to update profile");
-    }
-    setSavingProfile(false);
   };
 
   const handleUpdateTenant = async (e: React.FormEvent) => {
@@ -440,87 +403,6 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-heading font-bold text-gradient">Settings</h1>
         <p className="text-muted">Manage your tenant settings and users</p>
       </div>
-
-      {/* My Profile */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <UserCircle className="h-5 w-5 text-accent" />
-              <div>
-                <CardTitle>My Profile</CardTitle>
-                <CardDescription>Your personal account information</CardDescription>
-              </div>
-            </div>
-            {!showEditProfile && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setProfileName(currentUser?.name || "");
-                  setShowEditProfile(true);
-                }}
-              >
-                Edit Profile
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {showEditProfile ? (
-            <form onSubmit={handleUpdateProfile} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Name *</label>
-                  <Input
-                    value={profileName}
-                    onChange={(e) => setProfileName(e.target.value)}
-                    placeholder="Your name"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Email</label>
-                  <Input
-                    value={currentUser?.email || ""}
-                    disabled
-                    className="bg-surface"
-                  />
-                  <p className="text-xs text-muted">Email cannot be changed</p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button type="submit" disabled={savingProfile}>
-                  {savingProfile ? "Saving..." : "Save Changes"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowEditProfile(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <p className="text-sm text-muted">Name</p>
-                <p className="font-medium">{currentUser?.name || "—"}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted">Email</p>
-                <p className="font-medium">{currentUser?.email || "—"}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted">Role</p>
-                <Badge variant={currentRole === "OWNER" ? "default" : "outline"}>
-                  {currentRole}
-                </Badge>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Tenant Info */}
       <Card>

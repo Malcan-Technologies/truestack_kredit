@@ -17,6 +17,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   name: z.string().min(2).max(100).optional(),
+  referralCode: z.string().max(20).optional().transform((s) => (s && s.trim()) || undefined),
 });
 
 export async function POST(request: NextRequest) {
@@ -46,6 +47,21 @@ export async function POST(request: NextRequest) {
         { error: "Email already registered" },
         { status: 409 }
       );
+    }
+
+    // Optional: validate referral code and resolve referrer for referredById
+    let referrerId: string | null = null;
+    if (data.referralCode) {
+      const code = data.referralCode.replace(/^INV-/i, "").trim();
+      const referrer = await prisma.user.findFirst({
+        where: { referralCode: code },
+        select: { id: true },
+      });
+      if (!referrer) {
+        delete (data as { referralCode?: string }).referralCode;
+      } else {
+        referrerId = referrer.id;
+      }
     }
 
     // Create tenant in a transaction
@@ -111,10 +127,18 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Update the session with active tenant
-    if (signUpResult.session?.token) {
+    // Record who referred this user (when valid referral code was used)
+    if (referrerId) {
+      await prisma.user.update({
+        where: { id: signUpResult.user.id },
+        data: { referredById: referrerId },
+      });
+    }
+
+    // Update the session with active tenant (Better Auth returns token at top level)
+    if (signUpResult.token) {
       await prisma.session.update({
-        where: { token: signUpResult.session.token },
+        where: { token: signUpResult.token },
         data: { activeTenantId: tenant.id },
       });
     }
@@ -136,9 +160,10 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Copy session cookies from Better Auth response if available
-    if (signUpResult.headers) {
-      const setCookieHeader = signUpResult.headers.get("set-cookie");
+    // Copy session cookies from Better Auth response if available (headers may exist at runtime)
+    const headers = (signUpResult as { headers?: Headers }).headers;
+    if (headers) {
+      const setCookieHeader = headers.get("set-cookie");
       if (setCookieHeader) {
         response.headers.set("set-cookie", setCookieHeader);
       }

@@ -251,7 +251,7 @@ interface TimelineEvent {
 const loanStatusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   PENDING_DISBURSEMENT: "warning",
   ACTIVE: "info",
-  IN_ARREARS: "destructive",
+  IN_ARREARS: "warning",
   COMPLETED: "success",
   DEFAULTED: "destructive",
   WRITTEN_OFF: "destructive",

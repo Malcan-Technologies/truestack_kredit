@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { Plus, Search, User, ShieldCheck, AlertTriangle, Building2 } from "lucide-react";
+import { Plus, Search, User, ShieldCheck, AlertTriangle, Building2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +86,10 @@ export default function BorrowersPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  // Sort state
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
   // Debounce search input
   const handleSearchChange = (value: string) => {
     setSearchInput(value);
@@ -146,8 +150,36 @@ export default function BorrowersPage() {
 
   const handlePageSizeChange = (size: number) => {
     setPageSize(size);
-    setCurrentPage(1); // Reset to first page when changing page size
+    setCurrentPage(1);
   };
+
+  const toggleSort = (field: string) => {
+    if (sortField === field) {
+      if (sortDir === "asc") setSortDir("desc");
+      else { setSortField(null); setSortDir("asc"); }
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedBorrowers = sortField
+    ? [...borrowers].sort((a, b) => {
+        let cmp = 0;
+        switch (sortField) {
+          case "type":
+            cmp = a.borrowerType.localeCompare(b.borrowerType);
+            break;
+          case "created":
+            cmp = a.createdAt.localeCompare(b.createdAt);
+            break;
+          case "updated":
+            cmp = a.updatedAt.localeCompare(b.updatedAt);
+            break;
+        }
+        return sortDir === "desc" ? -cmp : cmp;
+      })
+    : borrowers;
 
   return (
     <div className="space-y-6">
@@ -280,16 +312,31 @@ export default function BorrowersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>Type</TableHead>
+                    <TableHead>
+                      <button onClick={() => toggleSort("type")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                        Type
+                        {sortField === "type" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </TableHead>
                     <TableHead>Identity</TableHead>
                     <TableHead>Contact</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Updated</TableHead>
+                    <TableHead>
+                      <button onClick={() => toggleSort("created")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                        Created
+                        {sortField === "created" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button onClick={() => toggleSort("updated")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                        Updated
+                        {sortField === "updated" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </TableHead>
                     <TableHead>Loans</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {borrowers.map((borrower) => (
+                  {sortedBorrowers.map((borrower) => (
                     <TableRow key={borrower.id}>
                       <TableCell className="font-medium">
                         <Link

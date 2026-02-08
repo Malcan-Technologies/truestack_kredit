@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { FileText, Eye, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2 } from "lucide-react";
+import { FileText, Eye, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TableActionButton } from "@/components/ui/table-action-button";
@@ -69,6 +69,7 @@ interface LateFeeStatus {
   loansReadyForDefault: number;
   loansInArrears: number;
   loansReadyToComplete: number;
+  loansPendingDisbursement: number;
 }
 
 // Mini donut chart component
@@ -135,7 +136,7 @@ function ProgressDonut({
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   PENDING_DISBURSEMENT: "warning",
   ACTIVE: "info",
-  IN_ARREARS: "destructive",
+  IN_ARREARS: "warning",
   COMPLETED: "success",
   DEFAULTED: "destructive",
   WRITTEN_OFF: "destructive",
@@ -158,6 +159,10 @@ export default function LoansPage() {
   // Late fee processing state
   const [lateFeeStatus, setLateFeeStatus] = useState<LateFeeStatus | null>(null);
   const [processingLateFees, setProcessingLateFees] = useState(false);
+
+  // Sort state
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   // Debounce search input
   const handleSearchChange = (value: string) => {
@@ -256,12 +261,57 @@ export default function LoansPage() {
     setCurrentPage(1);
   };
 
+  // Toggle sort on a column
+  const toggleSort = (field: string) => {
+    if (sortField === field) {
+      if (sortDir === "asc") setSortDir("desc");
+      else { setSortField(null); setSortDir("asc"); } // third click clears sort
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
+
   // Apply client-side filters
-  const loans = filter === "READY_TO_COMPLETE"
+  const filteredLoans = filter === "READY_TO_COMPLETE"
     ? allLoans.filter(loan => loan.progress?.readyToComplete)
     : filter === "READY_FOR_DEFAULT"
     ? allLoans.filter(loan => loan.readyForDefault && loan.status !== "DEFAULTED")
     : allLoans;
+
+  // Apply sorting
+  const loans = sortField
+    ? [...filteredLoans].sort((a, b) => {
+        let cmp = 0;
+        switch (sortField) {
+          case "type":
+            cmp = a.borrower.borrowerType.localeCompare(b.borrower.borrowerType);
+            break;
+          case "principal":
+            cmp = Number(a.principalAmount) - Number(b.principalAmount);
+            break;
+          case "rate":
+            cmp = Number(a.interestRate) - Number(b.interestRate);
+            break;
+          case "product":
+            cmp = a.product.name.localeCompare(b.product.name);
+            break;
+          case "term":
+            cmp = a.term - b.term;
+            break;
+          case "progress":
+            cmp = (a.progress?.progressPercent ?? -1) - (b.progress?.progressPercent ?? -1);
+            break;
+          case "lateFees":
+            cmp = Number(a.totalLateFees) - Number(b.totalLateFees);
+            break;
+          case "disbursed":
+            cmp = (a.disbursementDate || "").localeCompare(b.disbursementDate || "");
+            break;
+        }
+        return sortDir === "desc" ? -cmp : cmp;
+      })
+    : filteredLoans;
 
   return (
     <TooltipProvider>
@@ -272,8 +322,8 @@ export default function LoansPage() {
           <h1 className="text-2xl font-heading font-bold text-gradient">Loans</h1>
           <p className="text-muted">View and manage active loans</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -297,16 +347,16 @@ export default function LoansPage() {
                 </div>
               </TooltipContent>
             </Tooltip>
-            {lateFeeStatus?.lastRun && (
-              <span className="text-muted-foreground text-xs">
-                <Clock className="inline h-3 w-3 mr-1" />
-                Last run: {formatSmartDateTime(lateFeeStatus.lastRun)} ({lateFeeStatus.lastTrigger})
-              </span>
-            )}
+            <Link href="/dashboard/applications">
+              <Button>View Applications</Button>
+            </Link>
           </div>
-          <Link href="/dashboard/applications">
-            <Button>View Applications</Button>
-          </Link>
+          {lateFeeStatus?.lastRun && (
+            <span className="text-muted-foreground text-xs">
+              <Clock className="inline h-3 w-3 mr-1" />
+              Last run: {formatSmartDateTime(lateFeeStatus.lastRun)} ({lateFeeStatus.lastTrigger})
+            </span>
+          )}
         </div>
       </div>
 
@@ -330,20 +380,13 @@ export default function LoansPage() {
       )}
 
       {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center">
         <Button
           variant={filter === "" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter(""); setCurrentPage(1); }}
         >
           All
-        </Button>
-        <Button
-          variant={filter === "PENDING_DISBURSEMENT" ? "default" : "outline"}
-          size="sm"
-          onClick={() => { setFilter("PENDING_DISBURSEMENT"); setCurrentPage(1); }}
-        >
-          Pending Disbursement
         </Button>
         <Button
           variant={filter === "ACTIVE" ? "default" : "outline"}
@@ -353,19 +396,10 @@ export default function LoansPage() {
           Active
         </Button>
         <Button
-          variant={filter === "COMPLETED" ? "default" : "outline"}
-          size="sm"
-          onClick={() => { setFilter("COMPLETED"); setCurrentPage(1); }}
-          className={filter === "COMPLETED" ? "" : "text-emerald-600 border-emerald-500/50 hover:bg-emerald-500/10"}
-        >
-          Completed
-        </Button>
-        <span className="border-l border-border mx-1" />
-        <Button
           variant={filter === "IN_ARREARS" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("IN_ARREARS"); setCurrentPage(1); }}
-          className={filter === "IN_ARREARS" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
+          className={filter === "IN_ARREARS" ? "" : "text-amber-600 dark:text-amber-400 border-amber-500/50 hover:bg-amber-500/10"}
         >
           In Arrears
         </Button>
@@ -377,7 +411,29 @@ export default function LoansPage() {
         >
           Defaulted
         </Button>
-        <span className="border-l border-border mx-1" />
+        <Button
+          variant={filter === "COMPLETED" ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setFilter("COMPLETED"); setCurrentPage(1); }}
+          className={filter === "COMPLETED" ? "" : "text-emerald-600 border-emerald-500/50 hover:bg-emerald-500/10"}
+        >
+          Completed
+        </Button>
+        {/* Action Needed section */}
+        <span className="border-l border-border mx-1 h-6" />
+        <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Action Needed</span>
+        <Button
+          variant={filter === "PENDING_DISBURSEMENT" ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setFilter("PENDING_DISBURSEMENT"); setCurrentPage(1); }}
+        >
+          Pending Disbursement
+          {lateFeeStatus?.loansPendingDisbursement ? (
+            <span className="ml-1.5 bg-amber-500 text-white rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {lateFeeStatus.loansPendingDisbursement}
+            </span>
+          ) : null}
+        </Button>
         <Button
           variant={filter === "READY_TO_COMPLETE" ? "default" : "outline"}
           size="sm"
@@ -463,15 +519,55 @@ export default function LoansPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Borrower</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Principal</TableHead>
-                  <TableHead>Rate</TableHead>
-                  <TableHead>Term</TableHead>
-                  <TableHead>Progress</TableHead>
-                  <TableHead>Late Fees</TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("type")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Type
+                      {sortField === "type" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("product")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Product
+                      {sortField === "product" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("principal")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Principal
+                      {sortField === "principal" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("rate")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Rate
+                      {sortField === "rate" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("term")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Term
+                      {sortField === "term" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("progress")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Progress
+                      {sortField === "progress" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("lateFees")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Late Fees
+                      {sortField === "lateFees" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Disbursed</TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("disbursed")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Disbursed
+                      {sortField === "disbursed" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>

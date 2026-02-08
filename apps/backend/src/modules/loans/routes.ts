@@ -1020,8 +1020,13 @@ router.post('/process-late-fees', async (req, res, next) => {
  */
 router.get('/late-fee-status', async (req, res, next) => {
   try {
-    const status = await LateFeeProcessor.getProcessingStatus(req.tenantId!);
-    res.json({ success: true, data: status });
+    const [status, loansPendingDisbursement] = await Promise.all([
+      LateFeeProcessor.getProcessingStatus(req.tenantId!),
+      prisma.loan.count({
+        where: { tenantId: req.tenantId!, status: 'PENDING_DISBURSEMENT' },
+      }),
+    ]);
+    res.json({ success: true, data: { ...status, loansPendingDisbursement } });
   } catch (error) {
     next(error);
   }

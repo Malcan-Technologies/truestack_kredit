@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { Plus, ClipboardList, Eye, Building2, User, Search } from "lucide-react";
+import { Plus, ClipboardList, Eye, Building2, User, Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TableActionButton } from "@/components/ui/table-action-button";
@@ -67,6 +67,10 @@ export default function ApplicationsPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  // Sort state
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
   // Debounce search input
   const handleSearchChange = (value: string) => {
     setSearchInput(value);
@@ -128,6 +132,40 @@ export default function ApplicationsPage() {
     setPageSize(size);
     setCurrentPage(1);
   };
+
+  const toggleSort = (field: string) => {
+    if (sortField === field) {
+      if (sortDir === "asc") setSortDir("desc");
+      else { setSortField(null); setSortDir("asc"); }
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedApplications = sortField
+    ? [...applications].sort((a, b) => {
+        let cmp = 0;
+        switch (sortField) {
+          case "type":
+            cmp = a.borrower.borrowerType.localeCompare(b.borrower.borrowerType);
+            break;
+          case "product":
+            cmp = a.product.name.localeCompare(b.product.name);
+            break;
+          case "amount":
+            cmp = Number(a.amount) - Number(b.amount);
+            break;
+          case "term":
+            cmp = a.term - b.term;
+            break;
+          case "created":
+            cmp = a.createdAt.localeCompare(b.createdAt);
+            break;
+        }
+        return sortDir === "desc" ? -cmp : cmp;
+      })
+    : applications;
 
   return (
     <div className="space-y-6">
@@ -244,17 +282,42 @@ export default function ApplicationsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Borrower</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Term</TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("type")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Type
+                      {sortField === "type" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("product")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Product
+                      {sortField === "product" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("amount")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Amount
+                      {sortField === "amount" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("term")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Term
+                      {sortField === "term" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead>
+                    <button onClick={() => toggleSort("created")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Created
+                      {sortField === "created" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {applications.map((app) => {
+                {sortedApplications.map((app) => {
                   const isCorporate = app.borrower.borrowerType === "CORPORATE";
                   const displayName = isCorporate && app.borrower.companyName 
                     ? app.borrower.companyName 

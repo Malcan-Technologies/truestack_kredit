@@ -1,0 +1,727 @@
+/**
+ * Letter Service
+ * 
+ * Consolidated PDF letter generation for all loan correspondence:
+ *   - Discharge Letter (full settlement confirmation)
+ *   - Arrears Letter (overdue notice)
+ *   - Default Letter (default notice)
+ * 
+ * All letters share the same letterhead design, header, and footer.
+ * Uses pdfkit for PDF generation.
+ */
+
+import PDFDocument from 'pdfkit';
+import path from 'path';
+import fs from 'fs';
+import https from 'https';
+import http from 'http';
+import { UPLOAD_DIR } from './upload.js';
+import { toSafeNumber, safeRound, safeAdd, safeSubtract } from './math.js';
+
+// ============================================
+// Shared Helpers
+// ============================================
+
+// Helper function to fetch image from URL or local file
+const fetchImageBuffer = (url: string): Promise<Buffer> => {
+  return new Promise((resolve, reject) => {
+    if (url.startsWith('/api/uploads/') || url.startsWith('/uploads/')) {
+      const relativePath = url.replace('/api/uploads/', '').replace('/uploads/', '');
+      const filePath = path.join(UPLOAD_DIR, relativePath);
+
+      if (fs.existsSync(filePath)) {
+        resolve(fs.readFileSync(filePath));
+      } else {
+        reject(new Error(`File not found: ${filePath}`));
+      }
+    } else if (url.startsWith('http://') || url.startsWith('https://')) {
+      const client = url.startsWith('https') ? https : http;
+      client.get(url, (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => resolve(Buffer.concat(chunks)));
+        response.on('error', reject);
+      }).on('error', reject);
+    } else {
+      reject(new Error(`Unsupported URL format: ${url}`));
+    }
+  });
+};
+
+// Format currency helper
+const formatRM = (amount: unknown): string => {
+  const num = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
+  return `RM ${num.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+// Format date helper
+const formatDate = (date: Date): string => {
+  return date.toLocaleDateString('en-MY', { day: '2-digit', month: 'long', year: 'numeric' });
+};
+
+// ============================================
+// Type Definitions
+// ============================================
+
+interface TenantInfo {
+  name: string;
+  registrationNumber: string | null;
+  licenseNumber: string | null;
+  businessAddress: string | null;
+  contactNumber: string | null;
+  email: string | null;
+  logoUrl: string | null;
+}
+
+interface BorrowerInfo {
+  displayName: string;
+  identificationNumber: string | null;
+  address: string | null;
+}
+
+interface OverdueRepaymentSummary {
+  repaymentNumber: number;
+  dueDate: Date;
+  totalDue: number;
+  amountPaid: number;
+  outstanding: number;
+  lateFeeAccrued: number;
+  daysOverdue: number;
+}
+
+export interface DischargeLetterParams {
+  loan: {
+    id: string;
+    principalAmount: unknown;
+    interestRate: unknown;
+    term: number;
+    disbursementDate: Date | null;
+    completedAt: Date;
+  };
+  borrower: BorrowerInfo;
+  tenant: TenantInfo;
+  totalPaid: number;
+  totalLateFees: number;
+  dischargeNotes: string | null;
+}
+
+export interface ArrearsLetterParams {
+  loan: {
+    id: string;
+    principalAmount: unknown;
+    interestRate: unknown;
+    term: number;
+    disbursementDate: Date | null;
+    totalLateFees: unknown;
+  };
+  borrower: BorrowerInfo;
+  tenant: TenantInfo;
+  overdueRepayments: OverdueRepaymentSummary[];
+  totalOutstanding: number;
+  totalLateFees: number;
+  arrearsPeriod: number; // Days given to settle before default
+}
+
+export interface DefaultLetterParams {
+  loan: {
+    id: string;
+    principalAmount: unknown;
+    interestRate: unknown;
+    term: number;
+    disbursementDate: Date | null;
+    totalLateFees: unknown;
+  };
+  borrower: BorrowerInfo;
+  tenant: TenantInfo;
+  overdueRepayments: OverdueRepaymentSummary[];
+  totalOutstanding: number;
+  totalLateFees: number;
+}
+
+// ============================================
+// Shared Letterhead: Header & Footer
+// ============================================
+
+async function addLetterHeader(
+  doc: PDFKit.PDFDocument,
+  tenant: TenantInfo
+): Promise<void> {
+  // Add logo if available
+  let logoAdded = false;
+  if (tenant.logoUrl) {
+    try {
+      const logoBuffer = await fetchImageBuffer(tenant.logoUrl);
+      doc.image(logoBuffer, 50, 45, { width: 80 });
+      logoAdded = true;
+    } catch {
+      // Continue without logo
+    }
+  }
+
+  // Header - Company Info (right-aligned if logo present, centered otherwise)
+  const headerX = logoAdded ? 350 : 50;
+  const headerAlign = logoAdded ? 'right' as const : 'center' as const;
+  const headerWidth = logoAdded ? 200 : 500;
+
+  doc.fontSize(16).font('Helvetica-Bold')
+     .text(tenant.name, headerX, 50, { width: headerWidth, align: headerAlign });
+
+  if (tenant.registrationNumber) {
+    doc.fontSize(9).font('Helvetica')
+       .text(`SSM: ${tenant.registrationNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
+  }
+  if (tenant.licenseNumber) {
+    doc.fontSize(9).font('Helvetica')
+       .text(`License: ${tenant.licenseNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
+  }
+  if (tenant.businessAddress) {
+    doc.text(tenant.businessAddress, headerX, doc.y, { width: headerWidth, align: headerAlign });
+  }
+  if (tenant.contactNumber) {
+    doc.text(`Tel: ${tenant.contactNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
+  }
+  if (tenant.email) {
+    doc.text(`Email: ${tenant.email}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
+  }
+
+  // Line separator
+  doc.moveDown(2);
+  doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke('#E5E7EB');
+  doc.moveDown(1.5);
+}
+
+function addLetterFooter(doc: PDFKit.PDFDocument, tenant: TenantInfo): void {
+  // Closing
+  doc.moveDown(2);
+  doc.fontSize(10).font('Helvetica').fillColor('#000000')
+     .text('Yours faithfully,', { align: 'left' });
+  doc.moveDown(1);
+  doc.font('Helvetica-Bold').text(tenant.name, { align: 'left' });
+
+  // Footer
+  doc.fontSize(8).font('Helvetica').fillColor('#9CA3AF');
+  doc.text('This is a computer-generated letter. No signature required.', 50, 750, { align: 'center' });
+  doc.moveDown(0.5);
+  doc.fontSize(9).font('Helvetica').fillColor('#3B82F6')
+     .text('Powered by TrueKredit', 50, doc.y, { align: 'center' });
+}
+
+// ============================================
+// Shared Components
+// ============================================
+
+function addOverdueTable(
+  doc: PDFKit.PDFDocument,
+  overdueRepayments: OverdueRepaymentSummary[]
+): void {
+  // Table header
+  const tableTop = doc.y;
+  const colWidths = [40, 90, 85, 85, 85, 65, 55]; // #, Due Date, Total Due, Paid, Outstanding, Late Fee, Days
+  const colX = [50, 90, 180, 265, 350, 435, 500];
+
+  // Header row background
+  doc.rect(50, tableTop, 505, 18).fill('#F3F4F6');
+  doc.fontSize(8).font('Helvetica-Bold').fillColor('#374151');
+  doc.text('#', colX[0], tableTop + 5, { width: colWidths[0] });
+  doc.text('Due Date', colX[1], tableTop + 5, { width: colWidths[1] });
+  doc.text('Total Due', colX[2], tableTop + 5, { width: colWidths[2], align: 'right' });
+  doc.text('Paid', colX[3], tableTop + 5, { width: colWidths[3], align: 'right' });
+  doc.text('Outstanding', colX[4], tableTop + 5, { width: colWidths[4], align: 'right' });
+  doc.text('Late Fee', colX[5], tableTop + 5, { width: colWidths[5], align: 'right' });
+  doc.text('Days', colX[6], tableTop + 5, { width: colWidths[6], align: 'right' });
+
+  let rowY = tableTop + 22;
+  doc.fontSize(8).font('Helvetica').fillColor('#000000');
+
+  for (const rep of overdueRepayments) {
+    doc.text(`${rep.repaymentNumber}`, colX[0], rowY, { width: colWidths[0] });
+    doc.text(formatDate(rep.dueDate), colX[1], rowY, { width: colWidths[1] });
+    doc.text(formatRM(rep.totalDue), colX[2], rowY, { width: colWidths[2], align: 'right' });
+    doc.text(formatRM(rep.amountPaid), colX[3], rowY, { width: colWidths[3], align: 'right' });
+    doc.text(formatRM(rep.outstanding), colX[4], rowY, { width: colWidths[4], align: 'right' });
+    doc.text(formatRM(rep.lateFeeAccrued), colX[5], rowY, { width: colWidths[5], align: 'right' });
+    doc.text(`${rep.daysOverdue}`, colX[6], rowY, { width: colWidths[6], align: 'right' });
+    rowY += 16;
+  }
+
+  // Totals row
+  rowY += 4;
+  doc.moveTo(50, rowY - 2).lineTo(555, rowY - 2).stroke('#E5E7EB');
+  doc.font('Helvetica-Bold');
+
+  const totalOutstanding = overdueRepayments.reduce((sum, r) => safeAdd(sum, r.outstanding), 0);
+  const totalLateFees = overdueRepayments.reduce((sum, r) => safeAdd(sum, r.lateFeeAccrued), 0);
+
+  doc.text('Total', colX[0], rowY + 2, { width: colWidths[0] });
+  doc.text(formatRM(totalOutstanding), colX[4], rowY + 2, { width: colWidths[4], align: 'right' });
+  doc.text(formatRM(totalLateFees), colX[5], rowY + 2, { width: colWidths[5], align: 'right' });
+
+  doc.y = rowY + 20;
+}
+
+function addLoanDetailsBox(
+  doc: PDFKit.PDFDocument,
+  loan: { id: string; principalAmount: unknown; interestRate: unknown; term: number; disbursementDate: Date | null },
+  extraFields?: { label: string; value: string }[],
+  boxColor: string = '#F9FAFB'
+): void {
+  const extraCount = extraFields?.length || 0;
+  const boxHeight = 70 + (extraCount > 2 ? (extraCount - 2) * 15 : 0);
+  const boxY = doc.y;
+  doc.rect(50, boxY, 500, boxHeight).fill(boxColor);
+
+  doc.fontSize(10).font('Helvetica-Bold').fillColor('#374151')
+     .text('LOAN DETAILS', 70, boxY + 12);
+
+  const detailsY = boxY + 28;
+  doc.fontSize(9).font('Helvetica').fillColor('#6B7280');
+
+  // Left column
+  doc.text('Loan Reference:', 70, detailsY);
+  doc.text('Principal Amount:', 70, detailsY + 14);
+  doc.text('Interest Rate:', 70, detailsY + 28);
+
+  doc.font('Helvetica-Bold').fillColor('#000000');
+  doc.text(loan.id.substring(0, 12), 180, detailsY);
+  doc.text(formatRM(loan.principalAmount), 180, detailsY + 14);
+  doc.text(`${toSafeNumber(loan.interestRate)}% p.a.`, 180, detailsY + 28);
+
+  // Right column
+  doc.font('Helvetica').fillColor('#6B7280');
+  doc.text('Disbursement Date:', 320, detailsY);
+  doc.text('Term:', 320, detailsY + 14);
+
+  doc.font('Helvetica-Bold').fillColor('#000000');
+  doc.text(loan.disbursementDate ? formatDate(loan.disbursementDate) : 'N/A', 440, detailsY);
+  doc.text(`${loan.term} months`, 440, detailsY + 14);
+
+  // Extra fields (e.g. settlement date, total paid, late fees paid)
+  if (extraFields) {
+    let extraY = detailsY + 28;
+    for (const field of extraFields) {
+      doc.font('Helvetica').fillColor('#6B7280');
+      doc.text(field.label, 320, extraY);
+      doc.font('Helvetica-Bold').fillColor('#000000');
+      doc.text(field.value, 440, extraY);
+      extraY += 15;
+    }
+  }
+
+  doc.y = boxY + boxHeight + 15;
+}
+
+function addRecipient(
+  doc: PDFKit.PDFDocument,
+  borrower: BorrowerInfo
+): void {
+  doc.fontSize(10).font('Helvetica-Bold').fillColor('#000000')
+     .text(borrower.displayName);
+  if (borrower.identificationNumber) {
+    doc.font('Helvetica').text(`IC/SSM: ${borrower.identificationNumber}`);
+  }
+  if (borrower.address) {
+    doc.text(borrower.address);
+  }
+}
+
+// ============================================
+// Helper: create PDF write stream and return path promise
+// ============================================
+
+function createPdfWriter(
+  subDir: string,
+  prefix: string,
+  loanId: string
+): { doc: PDFKit.PDFDocument; pathPromise: Promise<string>; filePath: string } {
+  const lettersDir = path.join(UPLOAD_DIR, 'letters', subDir);
+  if (!fs.existsSync(lettersDir)) {
+    fs.mkdirSync(lettersDir, { recursive: true });
+  }
+
+  const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const filename = `${prefix}-${dateStr}-${loanId.substring(0, 8)}.pdf`;
+  const filePath = path.join(lettersDir, filename);
+  const apiPath = `/api/uploads/letters/${subDir}/${filename}`;
+
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  const writeStream = fs.createWriteStream(filePath);
+  doc.pipe(writeStream);
+
+  const pathPromise = new Promise<string>((resolve, reject) => {
+    writeStream.on('finish', () => resolve(apiPath));
+    writeStream.on('error', reject);
+  });
+
+  return { doc, pathPromise, filePath };
+}
+
+// ============================================
+// Discharge Letter
+// ============================================
+
+export async function generateDischargeLetter(params: DischargeLetterParams): Promise<string> {
+  const { loan, borrower, tenant, totalPaid, totalLateFees, dischargeNotes } = params;
+
+  // Special handling: discharge letters go to discharge-letters subdirectory for backward compat
+  const lettersDir = path.join(UPLOAD_DIR, 'discharge-letters');
+  if (!fs.existsSync(lettersDir)) {
+    fs.mkdirSync(lettersDir, { recursive: true });
+  }
+
+  const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const filename = `DIS-${dateStr}-${loan.id.substring(0, 8)}.pdf`;
+  const filePath = path.join(lettersDir, filename);
+
+  return new Promise(async (resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const writeStream = fs.createWriteStream(filePath);
+      doc.pipe(writeStream);
+
+      // Shared header
+      await addLetterHeader(doc, tenant);
+
+      // Letter Title
+      doc.fontSize(18).font('Helvetica-Bold').fillColor('#000000')
+         .text('LETTER OF DISCHARGE', 50, doc.y, { align: 'center' });
+
+      doc.moveDown(0.5);
+      doc.fontSize(10).font('Helvetica').fillColor('#6B7280')
+         .text(`Ref: ${loan.id}`, { align: 'center' });
+
+      // Date
+      doc.moveDown(1.5);
+      doc.fontSize(10).font('Helvetica').fillColor('#000000')
+         .text(`Date: ${formatDate(loan.completedAt)}`, { align: 'left' });
+
+      // Recipient
+      doc.moveDown(1.5);
+      addRecipient(doc, borrower);
+
+      // Letter Body
+      doc.moveDown(2);
+      doc.font('Helvetica').text('Dear Sir/Madam,', { align: 'left' });
+
+      doc.moveDown(1);
+      doc.font('Helvetica-Bold').text('RE: FULL SETTLEMENT AND DISCHARGE OF LOAN', { align: 'left' });
+
+      doc.moveDown(1);
+      doc.font('Helvetica').text(
+        `We are pleased to confirm that the loan facility extended to you has been fully settled and discharged.`,
+        { align: 'justify' }
+      );
+
+      // Loan Details Box
+      doc.moveDown(1.5);
+      const boxY = doc.y;
+      const extraFields: { label: string; value: string }[] = [
+        { label: 'Settlement Date:', value: formatDate(loan.completedAt) },
+        { label: 'Total Amount Paid:', value: formatRM(totalPaid) },
+      ];
+      if (totalLateFees > 0) {
+        extraFields.push({ label: 'Late Fees Paid:', value: formatRM(totalLateFees) });
+      }
+
+      // Use the slightly taller box for discharge (has extra fields like settlement/total paid)
+      const boxHeight = 100;
+      doc.rect(50, boxY, 500, boxHeight).fill('#F9FAFB');
+
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#374151')
+         .text('LOAN DETAILS', 70, boxY + 15);
+
+      doc.moveDown(0.8);
+      const detailsY = doc.y;
+      doc.fontSize(9).font('Helvetica').fillColor('#6B7280');
+
+      // Left column
+      doc.text('Loan Reference:', 70, detailsY);
+      doc.text('Principal Amount:', 70, detailsY + 15);
+      doc.text('Interest Rate:', 70, detailsY + 30);
+      doc.text('Term:', 70, detailsY + 45);
+
+      // Left values
+      doc.font('Helvetica-Bold').fillColor('#000000');
+      doc.text(loan.id.substring(0, 12), 180, detailsY);
+      doc.text(formatRM(loan.principalAmount), 180, detailsY + 15);
+      doc.text(`${toSafeNumber(loan.interestRate)}% p.a.`, 180, detailsY + 30);
+      doc.text(`${loan.term} months`, 180, detailsY + 45);
+
+      // Right column
+      doc.font('Helvetica').fillColor('#6B7280');
+      doc.text('Disbursement Date:', 320, detailsY);
+      doc.text('Settlement Date:', 320, detailsY + 15);
+      doc.text('Total Amount Paid:', 320, detailsY + 30);
+      if (totalLateFees > 0) {
+        doc.text('Late Fees Paid:', 320, detailsY + 45);
+      }
+
+      // Right values
+      doc.font('Helvetica-Bold').fillColor('#000000');
+      doc.text(loan.disbursementDate ? formatDate(loan.disbursementDate) : 'N/A', 440, detailsY);
+      doc.text(formatDate(loan.completedAt), 440, detailsY + 15);
+      doc.text(formatRM(totalPaid), 440, detailsY + 30);
+      if (totalLateFees > 0) {
+        doc.text(formatRM(totalLateFees), 440, detailsY + 45);
+      }
+
+      // Move past the box
+      doc.y = boxY + 115;
+
+      // Confirmation paragraph
+      doc.fontSize(10).font('Helvetica').fillColor('#000000')
+         .text(
+           `This letter confirms that all obligations under the above loan facility have been fully satisfied. ` +
+           `You are hereby released and discharged from any further liability in respect of this loan.`,
+           50, doc.y, { align: 'justify' }
+         );
+
+      doc.moveDown(1);
+      doc.text(
+        `Please retain this letter for your records as proof of full settlement.`,
+        { align: 'justify' }
+      );
+
+      // Notes if any
+      if (dischargeNotes) {
+        doc.moveDown(1.5);
+        doc.font('Helvetica-Bold').text('Notes:', { align: 'left' });
+        doc.font('Helvetica').text(dischargeNotes, { align: 'left' });
+      }
+
+      // Closing
+      doc.moveDown(2);
+      doc.font('Helvetica').text('Thank you for your patronage.', { align: 'left' });
+
+      // Shared footer
+      addLetterFooter(doc, tenant);
+
+      doc.end();
+
+      writeStream.on('finish', () => {
+        resolve(`/api/uploads/discharge-letters/${filename}`);
+      });
+
+      writeStream.on('error', reject);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// ============================================
+// Arrears Letter
+// ============================================
+
+export async function generateArrearsLetter(params: ArrearsLetterParams): Promise<string> {
+  const { loan, borrower, tenant, overdueRepayments, totalOutstanding, totalLateFees, arrearsPeriod } = params;
+
+  const { doc, pathPromise } = createPdfWriter('arrears', 'ARR', loan.id);
+
+  try {
+    // Shared header
+    await addLetterHeader(doc, tenant);
+
+    // Letter Title
+    doc.fontSize(18).font('Helvetica-Bold').fillColor('#DC2626')
+       .text('NOTICE OF ARREARS', 50, doc.y, { align: 'center' });
+
+    doc.moveDown(0.5);
+    doc.fontSize(10).font('Helvetica').fillColor('#6B7280')
+       .text(`Ref: ${loan.id}`, { align: 'center' });
+
+    // Date
+    doc.moveDown(1.5);
+    doc.fontSize(10).font('Helvetica').fillColor('#000000')
+       .text(`Date: ${formatDate(new Date())}`, { align: 'left' });
+
+    // Recipient
+    doc.moveDown(1.5);
+    addRecipient(doc, borrower);
+
+    // Letter Body
+    doc.moveDown(2);
+    doc.font('Helvetica').text('Dear Sir/Madam,', { align: 'left' });
+
+    doc.moveDown(1);
+    doc.font('Helvetica-Bold')
+       .text('RE: NOTICE OF OVERDUE LOAN REPAYMENT(S)', { align: 'left' });
+
+    doc.moveDown(1);
+    doc.font('Helvetica').text(
+      `We refer to the loan facility granted to you under the above reference. ` +
+      `Our records indicate that the following repayment(s) are overdue:`,
+      { align: 'justify' }
+    );
+
+    // Loan Details Box
+    doc.moveDown(1.5);
+    addLoanDetailsBox(doc, loan, undefined, '#FEF2F2');
+
+    // Overdue Repayments Table
+    doc.moveDown(0.5);
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#000000')
+       .text('Overdue Repayment Schedule:', 50, doc.y, { width: 500, align: 'left' });
+    doc.moveDown(0.5);
+    addOverdueTable(doc, overdueRepayments);
+
+    // Summary (full page width)
+    doc.moveDown(1);
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#DC2626')
+       .text(`Total Outstanding Amount: ${formatRM(totalOutstanding)}`, 50, doc.y, { width: 500, align: 'left' });
+    if (totalLateFees > 0) {
+      doc.text(`Total Late Fees Accrued: ${formatRM(totalLateFees)}`, 50, doc.y, { width: 500, align: 'left' });
+      doc.fillColor('#DC2626')
+         .text(`Grand Total Due: ${formatRM(safeAdd(totalOutstanding, totalLateFees))}`, 50, doc.y, { width: 500, align: 'left' });
+    }
+
+    // Dateline & request to settle (full page width)
+    const letterDate = new Date();
+    const deadlineDate = new Date(letterDate);
+    deadlineDate.setDate(deadlineDate.getDate() + arrearsPeriod);
+
+    doc.moveDown(1.5);
+    doc.fontSize(10).font('Helvetica').fillColor('#000000')
+       .text(
+         `We kindly request that you settle the above outstanding amount(s) within ` +
+         `${arrearsPeriod} days from the date of this letter (by ${formatDate(deadlineDate)}) ` +
+         `to avoid further accumulation of late payment charges. Late fees are charged daily at ` +
+         `the rate specified in your loan agreement.`,
+         50, doc.y, { width: 500, align: 'justify' }
+       );
+
+    doc.moveDown(1);
+    doc.font('Helvetica-Bold').fillColor('#DC2626')
+       .text(
+         `Failure to settle the outstanding amount(s) by ${formatDate(deadlineDate)} may result ` +
+         `in your loan being classified as defaulted, and the company may initiate legal action ` +
+         `to recover the outstanding amount.`,
+         50, doc.y, { width: 500, align: 'justify' }
+       );
+
+    doc.moveDown(1);
+    doc.font('Helvetica').fillColor('#000000')
+       .text(
+         `If you have already made the payment, please disregard this notice. ` +
+         `For any enquiries, please contact us at the above contact details.`,
+         50, doc.y, { width: 500, align: 'justify' }
+       );
+
+    // Shared footer
+    addLetterFooter(doc, tenant);
+
+    doc.end();
+
+    return await pathPromise;
+  } catch (error) {
+    doc.end();
+    throw error;
+  }
+}
+
+// ============================================
+// Default Letter
+// ============================================
+
+export async function generateDefaultLetter(params: DefaultLetterParams): Promise<string> {
+  const { loan, borrower, tenant, overdueRepayments, totalOutstanding, totalLateFees } = params;
+
+  const { doc, pathPromise } = createPdfWriter('default', 'DEF', loan.id);
+
+  try {
+    // Shared header
+    await addLetterHeader(doc, tenant);
+
+    // Letter Title
+    doc.fontSize(18).font('Helvetica-Bold').fillColor('#991B1B')
+       .text('NOTICE OF DEFAULT', 50, doc.y, { align: 'center' });
+
+    doc.moveDown(0.5);
+    doc.fontSize(10).font('Helvetica').fillColor('#6B7280')
+       .text(`Ref: ${loan.id}`, { align: 'center' });
+
+    // Date
+    doc.moveDown(1.5);
+    doc.fontSize(10).font('Helvetica').fillColor('#000000')
+       .text(`Date: ${formatDate(new Date())}`, { align: 'left' });
+
+    // Recipient
+    doc.moveDown(1.5);
+    addRecipient(doc, borrower);
+
+    // Letter Body
+    doc.moveDown(2);
+    doc.font('Helvetica').text('Dear Sir/Madam,', { align: 'left' });
+
+    doc.moveDown(1);
+    doc.font('Helvetica-Bold')
+       .text('RE: NOTICE OF DEFAULT ON LOAN FACILITY', { align: 'left' });
+
+    doc.moveDown(1);
+    doc.font('Helvetica').text(
+      `We refer to the loan facility granted to you under the above reference and our previous ` +
+      `correspondence regarding the overdue repayment(s).`,
+      { align: 'justify' }
+    );
+
+    doc.moveDown(1);
+    doc.font('Helvetica').text(
+      `Despite our earlier notice, the outstanding amount(s) remain unsettled. ` +
+      `In accordance with the terms and conditions of your loan agreement, we hereby formally ` +
+      `notify you that your loan has been classified as DEFAULTED.`,
+      { align: 'justify' }
+    );
+
+    // Loan Details Box
+    doc.moveDown(1.5);
+    addLoanDetailsBox(doc, loan, undefined, '#FEF2F2');
+
+    // Overdue Repayments Table
+    doc.moveDown(0.5);
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#000000')
+       .text('Outstanding Repayments:', 50, doc.y, { width: 500, align: 'left' });
+    doc.moveDown(0.5);
+    addOverdueTable(doc, overdueRepayments);
+
+    // Summary (full page width)
+    doc.moveDown(1);
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#991B1B')
+       .text(`Total Outstanding Principal & Interest: ${formatRM(totalOutstanding)}`, 50, doc.y, { width: 500, align: 'left' });
+    if (totalLateFees > 0) {
+      doc.text(`Total Late Fees: ${formatRM(totalLateFees)}`, 50, doc.y, { width: 500, align: 'left' });
+    }
+    doc.fontSize(12)
+       .text(`TOTAL AMOUNT DUE: ${formatRM(safeAdd(totalOutstanding, totalLateFees))}`, 50, doc.y, { width: 500, align: 'left' });
+
+    // Consequences (full page width)
+    doc.moveDown(1.5);
+    doc.fontSize(10).font('Helvetica').fillColor('#000000')
+       .text(
+         `As a result of this default, we reserve the right to take any or all of the following actions ` +
+         `as provided under the terms of your loan agreement and applicable laws:`,
+         50, doc.y, { width: 500, align: 'justify' }
+       );
+
+    doc.moveDown(0.5);
+    doc.text('  1. Demand immediate repayment of the entire outstanding amount;', 50, doc.y, { width: 500, indent: 20 });
+    doc.text('  2. Impose additional default charges as stipulated in the agreement;', 50, doc.y, { width: 500, indent: 20 });
+    doc.text('  3. Initiate legal proceedings to recover the outstanding amount;', 50, doc.y, { width: 500, indent: 20 });
+    doc.text('  4. Report the default to relevant credit reporting agencies.', 50, doc.y, { width: 500, indent: 20 });
+
+    doc.moveDown(1);
+    doc.text(
+      `We strongly urge you to contact us immediately to discuss repayment arrangements ` +
+      `and avoid further escalation of this matter.`,
+      50, doc.y, { width: 500, align: 'justify' }
+    );
+
+    // Shared footer
+    addLetterFooter(doc, tenant);
+
+    doc.end();
+
+    return await pathPromise;
+  } catch (error) {
+    doc.end();
+    throw error;
+  }
+}

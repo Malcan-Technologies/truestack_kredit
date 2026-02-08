@@ -126,6 +126,7 @@ model Tenant {
   sessions             Session[] // Sessions with this tenant active
   adminAuditLogs       AdminAuditLog[] // Admin actions audit trail
   paymentTransactions  PaymentTransaction[] // Payment transactions with receipts
+  lateFeeEntries       LateFeeEntry[] // Daily late fee accrual entries
 }
 
 // ============================================
@@ -572,6 +573,13 @@ model Loan {
   totalLateFees Decimal  @default(0) @db.Decimal(12, 2) // Total late fees charged
   repaymentRate Decimal? @db.Decimal(5, 2) // Percentage of payments made on time
 
+  // Late fee / default tracking
+  readyForDefault   Boolean   @default(false) // True when default period exceeded (admin must manually mark)
+  defaultReadyDate  DateTime? // When it became ready for default (UTC)
+  arrearsStartDate  DateTime? // When it entered arrears status (UTC)
+  arrearsLetterPath String?   // Path to generated arrears letter PDF
+  defaultLetterPath String?   // Path to generated default letter PDF
+
   // Relations
   tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   borrower         Borrower              @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
@@ -579,6 +587,7 @@ model Loan {
   application      LoanApplication       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   scheduleVersions LoanScheduleVersion[]
   transactions     PaymentTransaction[]
+  lateFeeEntries   LateFeeEntry[]
 
   @@index([tenantId])
   @@index([status])
@@ -612,9 +621,14 @@ model LoanRepayment {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
+  // Late fee tracking (running totals updated by processor)
+  lateFeeAccrued Decimal @default(0) @db.Decimal(12, 2) // Total accrued late fees for this repayment
+  lateFeesPaid   Decimal @default(0) @db.Decimal(12, 2) // Late fees paid so far
+
   // Relations
   scheduleVersion LoanScheduleVersion @relation(fields: [scheduleVersionId], references: [id], onDelete: Cascade)
   allocations     PaymentAllocation[]
+  lateFeeEntries  LateFeeEntry[]
 
   @@index([scheduleVersionId])
   @@index([dueDate])
@@ -770,4 +784,53 @@ model OutboxEvent {
 
   @@index([status])
   @@index([tenantId])
+}
+
+// ============================================
+// Late Fee Models
+// ============================================
+
+// Immutable daily log: one row per repayment per day of accrual
+model LateFeeEntry {
+  id                String   @id @default(cuid())
+  tenantId          String
+  loanId            String
+  repaymentId       String
+  accrualDate       DateTime // UTC representation of the Malaysia business day
+  daysOverdue       Int      // Number of days overdue at time of accrual
+  outstandingAmount Decimal  @db.Decimal(12, 2) // Amount in arrears that fee was calculated on
+  dailyRate         Decimal  @db.Decimal(10, 8) // Daily rate used (latePaymentRate / 365 / 100)
+  feeAmount         Decimal  @db.Decimal(12, 2) // Fee charged for this day
+  createdAt         DateTime @default(now())
+
+  // Relations
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  loan      Loan          @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  repayment LoanRepayment @relation(fields: [repaymentId], references: [id], onDelete: Cascade)
+
+  @@unique([repaymentId, accrualDate]) // Prevents double-charging per repayment per day
+  @@index([tenantId])
+  @@index([loanId])
+  @@index([repaymentId])
+  @@index([accrualDate])
+}
+
+// Audit trail for each cron / manual late fee processing run
+model LateFeeProcessingLog {
+  id               String   @id @default(cuid())
+  tenantId         String?  // null = system-wide run across all tenants
+  processedAt      DateTime @default(now())
+  trigger          String   // "CRON" | "MANUAL"
+  status           String   // "SUCCESS" | "FAILED"
+  loansProcessed   Int      @default(0)
+  feesCalculated   Int      @default(0)
+  totalFeeAmount   Decimal  @default(0) @db.Decimal(12, 2)
+  arrearsLetters   Int      @default(0)
+  processingTimeMs Int      @default(0)
+  errorMessage     String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  @@index([processedAt])
+  @@index([trigger])
 }

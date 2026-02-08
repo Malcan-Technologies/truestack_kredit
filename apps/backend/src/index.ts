@@ -6,6 +6,7 @@ import { prisma } from './lib/prisma.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { ensureUploadDir, UPLOAD_DIR } from './lib/upload.js';
+import { initCronJobs } from './lib/cronJobs.js';
 
 // Import routes
 import authRoutes from './modules/auth/routes.js';
@@ -71,4 +72,7 @@ process.on('SIGINT', shutdown);
 app.listen(config.port, () => {
   console.log(`🚀 TrueKredit API running on port ${config.port}`);
   console.log(`   Environment: ${config.nodeEnv}`);
+
+  // Initialize cron jobs after server starts
+  initCronJobs();
 });

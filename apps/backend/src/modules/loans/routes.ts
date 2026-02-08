@@ -2,9 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import path from 'path';
 import fs from 'fs';
-import PDFDocument from 'pdfkit';
-import https from 'https';
-import http from 'http';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
@@ -14,6 +11,8 @@ import { parseDocumentUpload, parseFileUpload, saveDocumentFile, deleteDocumentF
 import { AuditService } from '../compliance/auditService.js';
 import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtract, calculateFlatInterest, calculateEMI } from '../../lib/math.js';
 import { createHash } from 'crypto';
+import { LateFeeProcessor } from '../../lib/lateFeeProcessor.js';
+import { generateDischargeLetter, generateDefaultLetter } from '../../lib/letterService.js';
 
 const router = Router();
 
@@ -51,268 +50,7 @@ const previewSchema = z.object({
   term: z.number().int().positive(),
 });
 
-// Helper function to fetch image from URL or local file
-const fetchImageBuffer = (url: string): Promise<Buffer> => {
-  return new Promise((resolve, reject) => {
-    if (url.startsWith('/api/uploads/') || url.startsWith('/uploads/')) {
-      const relativePath = url.replace('/api/uploads/', '').replace('/uploads/', '');
-      const filePath = path.join(UPLOAD_DIR, relativePath);
-      
-      if (fs.existsSync(filePath)) {
-        resolve(fs.readFileSync(filePath));
-      } else {
-        reject(new Error(`File not found: ${filePath}`));
-      }
-    } else if (url.startsWith('http://') || url.startsWith('https://')) {
-      const client = url.startsWith('https') ? https : http;
-      client.get(url, (response) => {
-        const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer) => chunks.push(chunk));
-        response.on('end', () => resolve(Buffer.concat(chunks)));
-        response.on('error', reject);
-      }).on('error', reject);
-    } else {
-      reject(new Error(`Unsupported URL format: ${url}`));
-    }
-  });
-};
-
-// Type definitions for discharge letter generation
-interface DischargeLetterParams {
-  loan: {
-    id: string;
-    principalAmount: unknown;
-    interestRate: unknown;
-    term: number;
-    disbursementDate: Date | null;
-    completedAt: Date;
-  };
-  borrower: {
-    displayName: string;
-    identificationNumber: string | null;
-    address: string | null;
-  };
-  tenant: {
-    name: string;
-    registrationNumber: string | null;
-    licenseNumber: string | null;
-    businessAddress: string | null;
-    contactNumber: string | null;
-    email: string | null;
-    logoUrl: string | null;
-  };
-  totalPaid: number;
-  totalLateFees: number;
-  dischargeNotes: string | null;
-}
-
-// Generate and store discharge letter PDF
-async function generateAndStoreDischargeLetteringLetter(params: DischargeLetterParams): Promise<string> {
-  const { loan, borrower, tenant, totalPaid, totalLateFees, dischargeNotes } = params;
-  
-  // Ensure discharge letters directory exists
-  const lettersDir = path.join(UPLOAD_DIR, 'discharge-letters');
-  if (!fs.existsSync(lettersDir)) {
-    fs.mkdirSync(lettersDir, { recursive: true });
-  }
-
-  // Generate filename with date
-  const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
-  const filename = `DIS-${dateStr}-${loan.id.substring(0, 8)}.pdf`;
-  const filePath = path.join(lettersDir, filename);
-
-  // Format currency helper
-  const formatRM = (amount: unknown): string => {
-    const num = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
-    return `RM ${num.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
-  // Format date helper
-  const formatDate = (date: Date): string => {
-    return date.toLocaleDateString('en-MY', { day: '2-digit', month: 'long', year: 'numeric' });
-  };
-
-  return new Promise(async (resolve, reject) => {
-    try {
-      const doc = new PDFDocument({ size: 'A4', margin: 50 });
-      const writeStream = fs.createWriteStream(filePath);
-      
-      doc.pipe(writeStream);
-
-      // Add logo if available
-      let logoAdded = false;
-      if (tenant.logoUrl) {
-        try {
-          const logoBuffer = await fetchImageBuffer(tenant.logoUrl);
-          doc.image(logoBuffer, 50, 45, { width: 80 });
-          logoAdded = true;
-        } catch {
-          // Continue without logo
-        }
-      }
-
-      // Header - Company Info (right-aligned if logo present)
-      const headerX = logoAdded ? 350 : 50;
-      const headerAlign = logoAdded ? 'right' as const : 'center' as const;
-      const headerWidth = logoAdded ? 200 : 500;
-
-      doc.fontSize(16).font('Helvetica-Bold')
-         .text(tenant.name, headerX, 50, { width: headerWidth, align: headerAlign });
-      
-      if (tenant.registrationNumber) {
-        doc.fontSize(9).font('Helvetica')
-           .text(`SSM: ${tenant.registrationNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
-      }
-      if (tenant.licenseNumber) {
-        doc.fontSize(9).font('Helvetica')
-           .text(`License: ${tenant.licenseNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
-      }
-      if (tenant.businessAddress) {
-        doc.text(tenant.businessAddress, headerX, doc.y, { width: headerWidth, align: headerAlign });
-      }
-      if (tenant.contactNumber) {
-        doc.text(`Tel: ${tenant.contactNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
-      }
-      if (tenant.email) {
-        doc.text(`Email: ${tenant.email}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
-      }
-
-      // Line separator
-      doc.moveDown(2);
-      doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke('#E5E7EB');
-      doc.moveDown(1.5);
-
-      // Letter Title
-      doc.fontSize(18).font('Helvetica-Bold').fillColor('#000000')
-         .text('LETTER OF DISCHARGE', 50, doc.y, { align: 'center' });
-      
-      doc.moveDown(0.5);
-      doc.fontSize(10).font('Helvetica').fillColor('#6B7280')
-         .text(`Ref: ${loan.id}`, { align: 'center' });
-
-      // Date
-      doc.moveDown(1.5);
-      doc.fontSize(10).font('Helvetica').fillColor('#000000')
-         .text(`Date: ${formatDate(loan.completedAt)}`, { align: 'left' });
-
-      // Recipient
-      doc.moveDown(1.5);
-      doc.font('Helvetica-Bold').text(borrower.displayName);
-      if (borrower.identificationNumber) {
-        doc.font('Helvetica').text(`IC/SSM: ${borrower.identificationNumber}`);
-      }
-      if (borrower.address) {
-        doc.text(borrower.address);
-      }
-
-      // Letter Body
-      doc.moveDown(2);
-      doc.font('Helvetica').text('Dear Sir/Madam,', { align: 'left' });
-
-      doc.moveDown(1);
-      doc.font('Helvetica-Bold').text('RE: FULL SETTLEMENT AND DISCHARGE OF LOAN', { align: 'left' });
-
-      doc.moveDown(1);
-      doc.font('Helvetica').text(
-        `We are pleased to confirm that the loan facility extended to you has been fully settled and discharged.`,
-        { align: 'justify' }
-      );
-
-      // Loan Details Box
-      doc.moveDown(1.5);
-      const boxY = doc.y;
-      doc.rect(50, boxY, 500, 100).fill('#F9FAFB');
-      
-      doc.fontSize(10).font('Helvetica-Bold').fillColor('#374151')
-         .text('LOAN DETAILS', 70, boxY + 15);
-      
-      doc.moveDown(0.8);
-      const detailsY = doc.y;
-      doc.fontSize(9).font('Helvetica').fillColor('#6B7280');
-      
-      // Left column
-      doc.text('Loan Reference:', 70, detailsY);
-      doc.text('Principal Amount:', 70, detailsY + 15);
-      doc.text('Interest Rate:', 70, detailsY + 30);
-      doc.text('Term:', 70, detailsY + 45);
-      
-      // Left values
-      doc.font('Helvetica-Bold').fillColor('#000000');
-      doc.text(loan.id.substring(0, 12), 180, detailsY);
-      doc.text(formatRM(loan.principalAmount), 180, detailsY + 15);
-      doc.text(`${toSafeNumber(loan.interestRate)}% p.a.`, 180, detailsY + 30);
-      doc.text(`${loan.term} months`, 180, detailsY + 45);
-      
-      // Right column
-      doc.font('Helvetica').fillColor('#6B7280');
-      doc.text('Disbursement Date:', 320, detailsY);
-      doc.text('Settlement Date:', 320, detailsY + 15);
-      doc.text('Total Amount Paid:', 320, detailsY + 30);
-      if (totalLateFees > 0) {
-        doc.text('Late Fees Paid:', 320, detailsY + 45);
-      }
-      
-      // Right values
-      doc.font('Helvetica-Bold').fillColor('#000000');
-      doc.text(loan.disbursementDate ? formatDate(loan.disbursementDate) : 'N/A', 440, detailsY);
-      doc.text(formatDate(loan.completedAt), 440, detailsY + 15);
-      doc.text(formatRM(totalPaid), 440, detailsY + 30);
-      if (totalLateFees > 0) {
-        doc.text(formatRM(totalLateFees), 440, detailsY + 45);
-      }
-
-      // Move past the box
-      doc.y = boxY + 115;
-
-      // Confirmation paragraph
-      doc.fontSize(10).font('Helvetica').fillColor('#000000')
-         .text(
-           `This letter confirms that all obligations under the above loan facility have been fully satisfied. ` +
-           `You are hereby released and discharged from any further liability in respect of this loan.`,
-           50, doc.y, { align: 'justify' }
-         );
-
-      doc.moveDown(1);
-      doc.text(
-        `Please retain this letter for your records as proof of full settlement.`,
-        { align: 'justify' }
-      );
-
-      // Notes if any
-      if (dischargeNotes) {
-        doc.moveDown(1.5);
-        doc.font('Helvetica-Bold').text('Notes:', { align: 'left' });
-        doc.font('Helvetica').text(dischargeNotes, { align: 'left' });
-      }
-
-      // Closing
-      doc.moveDown(2);
-      doc.font('Helvetica').text('Thank you for your patronage.', { align: 'left' });
-
-      doc.moveDown(2);
-      doc.text('Yours faithfully,', { align: 'left' });
-      doc.moveDown(1);
-      doc.font('Helvetica-Bold').text(tenant.name, { align: 'left' });
-
-      // Footer
-      doc.fontSize(8).font('Helvetica').fillColor('#9CA3AF');
-      doc.text('This is a computer-generated letter. No signature required.', 50, 750, { align: 'center' });
-      doc.moveDown(0.5);
-      doc.fontSize(9).font('Helvetica').fillColor('#3B82F6')
-         .text('Powered by TrueKredit', 50, doc.y, { align: 'center' });
-
-      doc.end();
-
-      writeStream.on('finish', () => {
-        resolve(`/api/uploads/discharge-letters/${filename}`);
-      });
-
-      writeStream.on('error', reject);
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
+// Note: Letter generation (discharge, arrears, default) is consolidated in letterService.ts
 
 /**
  * List loan applications
@@ -1223,6 +961,86 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// ============================================
+// Late Fee Processing Routes
+// (Must be defined BEFORE /:loanId catch-all)
+// ============================================
+
+/**
+ * Process late fees manually
+ * POST /api/loans/process-late-fees
+ * 
+ * Safe to run multiple times - backfill logic with unique constraint
+ * (@@unique([repaymentId, accrualDate])) prevents double-charging.
+ * Each run catches up any missed days since the last accrual.
+ */
+router.post('/process-late-fees', async (req, res, next) => {
+  try {
+    // Scope to current tenant so admin only processes their own loans
+    const result = await LateFeeProcessor.processLateFees('MANUAL', req.tenantId!);
+
+    if (result.skippedReason) {
+      return res.status(409).json({
+        success: false,
+        error: result.skippedReason,
+      });
+    }
+
+    // Log to audit trail
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'LATE_FEE_PROCESSING',
+      entityType: 'System',
+      entityId: 'late-fee-processor',
+      newData: {
+        trigger: 'MANUAL',
+        loansProcessed: result.loansProcessed,
+        feesCalculated: result.feesCalculated,
+        totalFeeAmount: result.totalFeeAmount,
+        arrearsLettersGenerated: result.arrearsLettersGenerated,
+        defaultReadyLoans: result.defaultReadyLoans,
+        processingTimeMs: result.processingTimeMs,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      success: result.success,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Get late fee processing status
+ * GET /api/loans/late-fee-status
+ */
+router.get('/late-fee-status', async (req, res, next) => {
+  try {
+    const status = await LateFeeProcessor.getProcessingStatus(req.tenantId!);
+    res.json({ success: true, data: status });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Get recent late fee processing logs
+ * GET /api/loans/late-fee-logs
+ */
+router.get('/late-fee-logs', async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 20;
+    const logs = await LateFeeProcessor.getRecentLogs(limit, req.tenantId!);
+    res.json({ success: true, data: logs });
+  } catch (error) {
+    next(error);
+  }
+});
+
 /**
  * Get single loan with schedule
  * GET /api/loans/:loanId
@@ -1865,7 +1683,7 @@ router.post('/:loanId/complete', async (req, res, next) => {
     
     let dischargeLetterPath: string | null = null;
     try {
-      dischargeLetterPath = await generateAndStoreDischargeLetteringLetter({
+      dischargeLetterPath = await generateDischargeLetter({
         loan: {
           id: loan.id,
           principalAmount: loan.principalAmount,
@@ -1985,8 +1803,97 @@ router.get('/:loanId/discharge-letter', async (req, res, next) => {
 });
 
 /**
+ * Download arrears letter for a loan
+ * GET /api/loans/:loanId/arrears-letter
+ */
+router.get('/:loanId/arrears-letter', async (req, res, next) => {
+  try {
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: req.params.loanId,
+        tenantId: req.tenantId,
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    if (!loan.arrearsLetterPath) {
+      throw new NotFoundError('Arrears letter not generated');
+    }
+
+    // Extract filename from path
+    const filename = loan.arrearsLetterPath.split('/').pop();
+    if (!filename) {
+      throw new NotFoundError('Arrears letter file');
+    }
+
+    const filePath = path.join(UPLOAD_DIR, 'letters', 'arrears', filename);
+    
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundError('Arrears letter file');
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Arrears-Letter-${loan.id.substring(0, 8)}.pdf"`);
+    
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Download default letter for a loan
+ * GET /api/loans/:loanId/default-letter
+ */
+router.get('/:loanId/default-letter', async (req, res, next) => {
+  try {
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: req.params.loanId,
+        tenantId: req.tenantId,
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    if (!loan.defaultLetterPath) {
+      throw new NotFoundError('Default letter not generated');
+    }
+
+    // Extract filename from path
+    const filename = loan.defaultLetterPath.split('/').pop();
+    if (!filename) {
+      throw new NotFoundError('Default letter file');
+    }
+
+    const filePath = path.join(UPLOAD_DIR, 'letters', 'default', filename);
+    
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundError('Default letter file');
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Default-Letter-${loan.id.substring(0, 8)}.pdf"`);
+    
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Mark loan as defaulted
  * POST /api/loans/:loanId/mark-default
+ * 
+ * Enhanced: generates a default letter PDF and logs to audit trail.
+ * Loan should ideally have readyForDefault=true (but admin can override).
  */
 router.post('/:loanId/mark-default', async (req, res, next) => {
   try {
@@ -1996,6 +1903,21 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
       where: {
         id: req.params.loanId,
         tenantId: req.tenantId,
+      },
+      include: {
+        product: true,
+        borrower: true,
+        tenant: true,
+        scheduleVersions: {
+          orderBy: { version: 'desc' },
+          take: 1,
+          include: {
+            repayments: {
+              orderBy: { dueDate: 'asc' },
+              include: { allocations: true },
+            },
+          },
+        },
       },
     });
 
@@ -2013,11 +1935,70 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
 
     const previousStatus = loan.status;
 
+    // Generate default letter
+    let defaultLetterPath: string | null = null;
+    try {
+      const currentSchedule = loan.scheduleVersions[0];
+      const overdueRepayments = currentSchedule?.repayments
+        .filter(r => r.status !== 'PAID' && new Date(r.dueDate) < new Date())
+        .map((r, _idx) => {
+          const repIdx = currentSchedule.repayments.findIndex(ar => ar.id === r.id);
+          const totalDue = toSafeNumber(r.totalDue);
+          const paid = r.allocations.reduce((s, a) => safeAdd(s, toSafeNumber(a.amount)), 0);
+          return {
+            repaymentNumber: repIdx + 1,
+            dueDate: r.dueDate,
+            totalDue,
+            amountPaid: paid,
+            outstanding: safeSubtract(totalDue, paid),
+            lateFeeAccrued: toSafeNumber(r.lateFeeAccrued),
+            daysOverdue: Math.max(0, Math.floor((Date.now() - new Date(r.dueDate).getTime()) / (1000 * 60 * 60 * 24))),
+          };
+        }) || [];
+
+      const totalOutstanding = overdueRepayments.reduce((s, r) => safeAdd(s, r.outstanding), 0);
+      const totalLateFees = overdueRepayments.reduce((s, r) => safeAdd(s, r.lateFeeAccrued), 0);
+
+      const borrower = loan.borrower;
+      defaultLetterPath = await generateDefaultLetter({
+        loan: {
+          id: loan.id,
+          principalAmount: loan.principalAmount,
+          interestRate: loan.interestRate,
+          term: loan.term,
+          disbursementDate: loan.disbursementDate,
+          totalLateFees: loan.totalLateFees,
+        },
+        borrower: {
+          displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName
+            ? borrower.companyName
+            : borrower.name,
+          identificationNumber: borrower.icNumber,
+          address: borrower.address,
+        },
+        tenant: {
+          name: loan.tenant.name,
+          registrationNumber: loan.tenant.registrationNumber,
+          licenseNumber: loan.tenant.licenseNumber,
+          businessAddress: loan.tenant.businessAddress,
+          contactNumber: loan.tenant.contactNumber,
+          email: loan.tenant.email,
+          logoUrl: loan.tenant.logoUrl,
+        },
+        overdueRepayments,
+        totalOutstanding,
+        totalLateFees,
+      });
+    } catch (letterErr) {
+      console.error('Failed to generate default letter:', letterErr);
+    }
+
     const updatedLoan = await prisma.loan.update({
       where: { id: loan.id },
       data: {
         status: 'DEFAULTED',
         dischargeNotes: reason ? `Default reason: ${reason}` : null,
+        defaultLetterPath,
       },
     });
 
@@ -2029,7 +2010,11 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
       entityType: 'Loan',
       entityId: loan.id,
       previousData: { status: previousStatus },
-      newData: { status: 'DEFAULTED', reason: reason || null },
+      newData: {
+        status: 'DEFAULTED',
+        reason: reason || null,
+        defaultLetterPath,
+      },
       ipAddress: req.ip,
     });
 

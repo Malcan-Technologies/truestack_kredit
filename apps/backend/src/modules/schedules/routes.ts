@@ -260,14 +260,15 @@ async function generateAndStoreReceipt(params: ReceiptParams): Promise<string> {
       rowY += 10;
       
       const totalAmount = toSafeNumber(transaction.totalAmount);
-      const grandTotal = safeAdd(totalAmount, totalLateFees);
+      // totalAmount already includes late fees, so split it for display
+      const principalInterestTotal = safeSubtract(totalAmount, totalLateFees);
 
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#000000');
       doc.text('TOTAL PAID', 50, rowY);
-      doc.text(formatRM(totalAmount), 280, rowY, { width: 80, align: 'right' });
-      doc.text(formatRM(totalLateFees), 380, rowY, { width: 80, align: 'right' });
+      doc.text(formatRM(principalInterestTotal), 280, rowY, { width: 80, align: 'right' });
+      doc.text(totalLateFees > 0 ? formatRM(totalLateFees) : '-', 380, rowY, { width: 80, align: 'right' });
       doc.fontSize(12).fillColor('#000000')
-         .text(formatRM(grandTotal), 460, rowY - 2, { width: 80, align: 'right' });
+         .text(formatRM(totalAmount), 460, rowY - 2, { width: 80, align: 'right' });
 
       // Reference
       if (transaction.reference) {
@@ -648,11 +649,15 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       throw new BadRequestError('All repayments are already paid');
     }
 
-    // Calculate total outstanding balance
+    // Calculate total outstanding balance including late fees
     let totalOutstanding = 0;
     for (const rep of unpaidRepayments) {
       const paid = rep.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
-      totalOutstanding = safeAdd(totalOutstanding, safeSubtract(toSafeNumber(rep.totalDue), paid));
+      const outstandingLateFees = safeSubtract(toSafeNumber(rep.lateFeeAccrued), toSafeNumber(rep.lateFeesPaid));
+      totalOutstanding = safeAdd(
+        totalOutstanding,
+        safeAdd(safeSubtract(toSafeNumber(rep.totalDue), paid), Math.max(0, outstandingLateFees))
+      );
     }
 
     if (data.amount > totalOutstanding + 0.01) {
@@ -662,10 +667,21 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
     const paymentDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
     const product = loan.product;
     let remainingPayment = data.amount;
-    const allocationData: { repaymentId: string; repaymentNumber: number; dueDate: Date; amount: number; lateFee: number; isEarlyPayment: boolean }[] = [];
-    let totalLateFees = 0;
+    const allocationData: {
+      repaymentId: string;
+      repaymentNumber: number;
+      dueDate: Date;
+      amount: number;        // principal + interest portion allocated
+      lateFee: number;        // late fee portion allocated from payment
+      isEarlyPayment: boolean;
+      lateFeeAllocated: number; // how much of the payment went to late fees
+      interestAllocated: number;
+      principalAllocated: number;
+    }[] = [];
+    let totalLateFeesPaid = 0;
 
     // Allocate payment across repayments
+    // Priority: late fees first, then interest, then principal (per repayment, oldest first)
     for (let i = 0; i < unpaidRepayments.length; i++) {
       if (remainingPayment <= 0.01) break;
       
@@ -673,37 +689,63 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       const repaymentIndex = currentSchedule.repayments.findIndex(r => r.id === repayment.id);
       const currentPaid = repayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
       const totalDue = toSafeNumber(repayment.totalDue);
+      const interestDue = toSafeNumber(repayment.interest);
       const remaining = safeSubtract(totalDue, currentPaid);
-
-      if (remaining <= 0.01) continue;
-
-      // Determine how much to allocate to this repayment
-      const allocationAmount = Math.min(remainingPayment, remaining);
-
-      // Calculate late fee if applicable
-      let lateFee = 0;
       const dueDate = new Date(repayment.dueDate);
-      const isOverdue = paymentDate > dueDate;
       const isEarlyPayment = paymentDate < dueDate;
 
-      if (isOverdue && data.applyLateFee !== false) {
-        const daysOverdue = Math.floor((paymentDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-        const latePaymentRate = toSafeNumber(product.latePaymentRate);
-        const dailyRate = safeDivide(latePaymentRate, 365 * 100, 8);
-        lateFee = safeRound(safeMultiply(remaining, safeMultiply(dailyRate, daysOverdue, 8)));
-        totalLateFees = safeAdd(totalLateFees, lateFee);
+      if (remaining <= 0.01 && toSafeNumber(repayment.lateFeeAccrued) <= toSafeNumber(repayment.lateFeesPaid) + 0.01) continue;
+
+      let lateFeeAllocated = 0;
+      let interestAllocated = 0;
+      let principalAllocated = 0;
+
+      // 1. Pay outstanding late fees first
+      const outstandingLateFees = Math.max(0, safeSubtract(
+        toSafeNumber(repayment.lateFeeAccrued),
+        toSafeNumber(repayment.lateFeesPaid)
+      ));
+
+      if (outstandingLateFees > 0.01 && remainingPayment > 0.01) {
+        lateFeeAllocated = Math.min(remainingPayment, outstandingLateFees);
+        remainingPayment = safeSubtract(remainingPayment, lateFeeAllocated);
+        totalLateFeesPaid = safeAdd(totalLateFeesPaid, lateFeeAllocated);
       }
 
-      allocationData.push({
-        repaymentId: repayment.id,
-        repaymentNumber: repaymentIndex + 1,
-        dueDate,
-        amount: allocationAmount,
-        lateFee,
-        isEarlyPayment,
-      });
+      // 2. Pay interest portion
+      // Calculate how much interest is still unpaid for this repayment
+      // Interest is paid before principal from the totalDue allocation
+      const totalAllocatedSoFar = currentPaid; // total of previous payment allocations
+      const interestUnpaid = Math.max(0, safeSubtract(interestDue, Math.min(totalAllocatedSoFar, interestDue)));
+      
+      if (interestUnpaid > 0.01 && remainingPayment > 0.01) {
+        interestAllocated = Math.min(remainingPayment, interestUnpaid);
+        remainingPayment = safeSubtract(remainingPayment, interestAllocated);
+      }
 
-      remainingPayment = safeSubtract(remainingPayment, allocationAmount);
+      // 3. Pay principal portion
+      const principalUnpaid = Math.max(0, safeSubtract(remaining, interestUnpaid));
+
+      if (principalUnpaid > 0.01 && remainingPayment > 0.01) {
+        principalAllocated = Math.min(remainingPayment, principalUnpaid);
+        remainingPayment = safeSubtract(remainingPayment, principalAllocated);
+      }
+
+      const allocationAmount = safeAdd(interestAllocated, principalAllocated);
+
+      if (allocationAmount > 0.01 || lateFeeAllocated > 0.01) {
+        allocationData.push({
+          repaymentId: repayment.id,
+          repaymentNumber: repaymentIndex + 1,
+          dueDate,
+          amount: allocationAmount, // principal + interest portion (for backward compatibility)
+          lateFee: lateFeeAllocated,
+          isEarlyPayment,
+          lateFeeAllocated,
+          interestAllocated,
+          principalAllocated,
+        });
+      }
     }
 
     // Generate receipt number (RCP-YYYYMMDD-XXX)
@@ -739,7 +781,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
             transactionId: transaction.id,
             repaymentId: alloc.repaymentId,
             amount: alloc.amount,
-            lateFee: alloc.lateFee > 0 ? alloc.lateFee : null,
+            lateFee: alloc.lateFeeAllocated > 0 ? alloc.lateFeeAllocated : null,
             isEarlyPayment: alloc.isEarlyPayment,
             allocatedAt: paymentDate,
           },
@@ -752,7 +794,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
           lateFee: allocation.lateFee,
         });
 
-        // Update repayment status
+        // Update repayment status and late fees paid
         const repayment = await tx.loanRepayment.findUnique({
           where: { id: alloc.repaymentId },
           include: { allocations: true },
@@ -761,28 +803,25 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         if (repayment) {
           const newPaid = repayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
           const totalDue = toSafeNumber(repayment.totalDue);
+          const newLateFeesPaid = safeAdd(toSafeNumber(repayment.lateFeesPaid), alloc.lateFeeAllocated);
           
           let newStatus = repayment.status;
-          if (newPaid >= totalDue - 0.01) {
+          // Consider repayment PAID only if both principal+interest and late fees are covered
+          const lateFeesCovered = newLateFeesPaid >= toSafeNumber(repayment.lateFeeAccrued) - 0.01;
+          if (newPaid >= totalDue - 0.01 && lateFeesCovered) {
             newStatus = 'PAID';
-          } else if (newPaid > 0) {
+          } else if (newPaid > 0 || newLateFeesPaid > 0) {
             newStatus = 'PARTIAL';
           }
 
           await tx.loanRepayment.update({
             where: { id: alloc.repaymentId },
-            data: { status: newStatus },
+            data: {
+              status: newStatus,
+              lateFeesPaid: newLateFeesPaid,
+            },
           });
         }
-      }
-
-      // Update loan's total late fees if applicable
-      if (totalLateFees > 0) {
-        const currentLateFees = toSafeNumber(loan.totalLateFees);
-        await tx.loan.update({
-          where: { id: loanId },
-          data: { totalLateFees: safeAdd(currentLateFees, totalLateFees) },
-        });
       }
 
       return { transaction, allocations: createdAllocations };
@@ -811,7 +850,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         email: loan.tenant.email,
         logoUrl: loan.tenant.logoUrl,
       },
-      totalLateFees,
+      totalLateFees: totalLateFeesPaid,
       totalOutstandingAfter: safeSubtract(totalOutstanding, data.amount),
     });
 
@@ -841,9 +880,11 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         allocations: allocationData.map(a => ({
           repaymentNumber: a.repaymentNumber,
           amount: a.amount,
-          lateFee: a.lateFee,
+          lateFeeAllocated: a.lateFeeAllocated,
+          interestAllocated: a.interestAllocated,
+          principalAllocated: a.principalAllocated,
         })),
-        totalLateFees,
+        totalLateFeesPaid,
         reference: data.reference || null,
         paymentDate: paymentDate.toISOString(),
         spillover: allocationData.length > 1,
@@ -859,9 +900,11 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         allocations: allocationData.map(a => ({
           repaymentNumber: a.repaymentNumber,
           amount: a.amount,
-          lateFee: a.lateFee,
+          lateFeeAllocated: a.lateFeeAllocated,
+          interestAllocated: a.interestAllocated,
+          principalAllocated: a.principalAllocated,
         })),
-        totalLateFees,
+        totalLateFeesPaid,
       },
     });
   } catch (error) {

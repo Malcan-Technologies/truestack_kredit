@@ -112,6 +112,26 @@ export function calculateFlatInterest(
 }
 
 /**
+ * Calculate daily late fee rate from annual late payment rate
+ * @param annualRate - Annual late payment rate as percentage (e.g., 8 for 8%)
+ * @returns Daily rate as a decimal (e.g., 0.00021918 for 8% p.a.)
+ */
+export function dailyLateFeeRate(annualRate: number): number {
+  return safeDivide(annualRate, 365 * 100, 8);
+}
+
+/**
+ * Calculate daily late fee amount
+ * @param outstandingAmount - The amount in arrears
+ * @param annualRate - Annual late payment rate as percentage
+ * @returns Daily fee amount rounded to 2 decimal places
+ */
+export function calculateDailyLateFee(outstandingAmount: number, annualRate: number): number {
+  const rate = dailyLateFeeRate(annualRate);
+  return safeRound(safeMultiply(outstandingAmount, rate, 8));
+}
+
+/**
  * Calculate EMI (Equated Monthly Installment) for declining balance
  * EMI = P × r × (1 + r)^n / ((1 + r)^n - 1)
  */

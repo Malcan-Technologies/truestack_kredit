@@ -553,6 +553,584 @@ async function main() {
 
   console.log('✓ Created loan applications:', application1.id, ',', application2.id, ',', application3.id);
 
+  // ============================================
+  // Create overdue test loans for late fee testing
+  // ============================================
+  console.log('\n🏦 Creating overdue test loans for late fee testing...');
+
+  // Helper to create a date N days ago
+  const daysAgo = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  // Helper to create a date N months ago on day 1
+  const monthsAgo = (n: number) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - n);
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  // Helper to add months to a date
+  const addMonths = (date: Date, months: number) => {
+    const d = new Date(date);
+    d.setMonth(d.getMonth() + months);
+    return d;
+  };
+
+  // Loan A: 2 repayments overdue by 7 days (within arrears period)
+  const appA = await prisma.loanApplication.upsert({
+    where: { id: 'demo-overdue-app-a' },
+    update: {},
+    create: {
+      id: 'demo-overdue-app-a',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: flatProduct.id,
+      amount: 6000,
+      term: 6,
+      status: 'APPROVED',
+      notes: 'Test loan - 7 days overdue (within arrears period)',
+    },
+  });
+
+  const loanA = await prisma.loan.upsert({
+    where: { applicationId: 'demo-overdue-app-a' },
+    update: {},
+    create: {
+      id: 'demo-overdue-loan-a',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: flatProduct.id,
+      applicationId: appA.id,
+      principalAmount: 6000,
+      interestRate: 18.0,
+      term: 6,
+      status: 'ACTIVE',
+      disbursementDate: monthsAgo(4), // Disbursed 4 months ago
+    },
+  });
+
+  // Create schedule for Loan A
+  const disbDateA = monthsAgo(4);
+  const totalInterestA = 6000 * 0.18 * (6 / 12); // 540
+  const monthlyPaymentA = (6000 + totalInterestA) / 6; // 1090
+  const monthlyPrincipalA = 6000 / 6; // 1000
+  const monthlyInterestA = totalInterestA / 6; // 90
+
+  const scheduleVersionA = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanA.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanA.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 6000, interestRate: 18, term: 6, disbursementDate: disbDateA.toISOString() },
+      outputsHash: 'seed-hash-a',
+    },
+  });
+
+  // Create 6 repayments, first 2 paid, next 2 overdue by 7 days
+  for (let i = 1; i <= 6; i++) {
+    const dueDate = addMonths(disbDateA, i);
+    const isPaid = i <= 2; // First 2 months paid
+    const repaymentId = `demo-repayment-a-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionA.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalA * 100) / 100,
+        interest: Math.round(monthlyInterestA * 100) / 100,
+        totalDue: Math.round(monthlyPaymentA * 100) / 100,
+        status: isPaid ? 'PAID' : 'PENDING',
+      },
+    });
+
+    // Create payment allocations for paid months
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-a-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-a-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentA * 100) / 100,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan A: 6-month loan, 2 paid, 2 overdue by ~7 days');
+
+  // Loan B: 1 repayment overdue by 20 days (past arrears period of 14 days)
+  const appB = await prisma.loanApplication.upsert({
+    where: { id: 'demo-overdue-app-b' },
+    update: {},
+    create: {
+      id: 'demo-overdue-app-b',
+      tenantId: tenant.id,
+      borrowerId: borrower2.id,
+      productId: flatProduct.id,
+      amount: 10000,
+      term: 12,
+      status: 'APPROVED',
+      notes: 'Test loan - 20 days overdue (past arrears period)',
+    },
+  });
+
+  const loanB = await prisma.loan.upsert({
+    where: { applicationId: 'demo-overdue-app-b' },
+    update: {},
+    create: {
+      id: 'demo-overdue-loan-b',
+      tenantId: tenant.id,
+      borrowerId: borrower2.id,
+      productId: flatProduct.id,
+      applicationId: appB.id,
+      principalAmount: 10000,
+      interestRate: 18.0,
+      term: 12,
+      status: 'ACTIVE',
+      disbursementDate: monthsAgo(3), // Disbursed 3 months ago
+    },
+  });
+
+  const disbDateB = monthsAgo(3);
+  const totalInterestB = 10000 * 0.18 * (12 / 12); // 1800
+  const monthlyPaymentB = (10000 + totalInterestB) / 12; // 983.33
+  const monthlyPrincipalB = 10000 / 12;
+  const monthlyInterestB = totalInterestB / 12;
+
+  const scheduleVersionB = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanB.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanB.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 10000, interestRate: 18, term: 12, disbursementDate: disbDateB.toISOString() },
+      outputsHash: 'seed-hash-b',
+    },
+  });
+
+  for (let i = 1; i <= 12; i++) {
+    const dueDate = addMonths(disbDateB, i);
+    const isPaid = i <= 2; // First 2 months paid
+    const repaymentId = `demo-repayment-b-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionB.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalB * 100) / 100,
+        interest: Math.round(monthlyInterestB * 100) / 100,
+        totalDue: Math.round(monthlyPaymentB * 100) / 100,
+        status: isPaid ? 'PAID' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-b-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-b-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentB * 100) / 100,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan B: 12-month loan, 2 paid, 1 overdue by ~20 days');
+
+  // Loan C: 1 repayment overdue by 35 days (past default period of 28 days)
+  const appC = await prisma.loanApplication.upsert({
+    where: { id: 'demo-overdue-app-c' },
+    update: {},
+    create: {
+      id: 'demo-overdue-app-c',
+      tenantId: tenant.id,
+      borrowerId: borrower3.id,
+      productId: flatProduct.id,
+      amount: 15000,
+      term: 12,
+      status: 'APPROVED',
+      notes: 'Test loan - 35 days overdue (past default period)',
+    },
+  });
+
+  const loanC = await prisma.loan.upsert({
+    where: { applicationId: 'demo-overdue-app-c' },
+    update: {},
+    create: {
+      id: 'demo-overdue-loan-c',
+      tenantId: tenant.id,
+      borrowerId: borrower3.id,
+      productId: flatProduct.id,
+      applicationId: appC.id,
+      principalAmount: 15000,
+      interestRate: 18.0,
+      term: 12,
+      status: 'ACTIVE',
+      disbursementDate: monthsAgo(4), // Disbursed 4 months ago
+    },
+  });
+
+  const disbDateC = monthsAgo(4);
+  const totalInterestC = 15000 * 0.18 * (12 / 12); // 2700
+  const monthlyPaymentC = (15000 + totalInterestC) / 12; // 1475
+  const monthlyPrincipalC = 15000 / 12;
+  const monthlyInterestC = totalInterestC / 12;
+
+  const scheduleVersionC = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanC.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanC.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 15000, interestRate: 18, term: 12, disbursementDate: disbDateC.toISOString() },
+      outputsHash: 'seed-hash-c',
+    },
+  });
+
+  for (let i = 1; i <= 12; i++) {
+    const dueDate = addMonths(disbDateC, i);
+    const isPaid = i <= 2; // First 2 months paid
+    const repaymentId = `demo-repayment-c-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionC.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalC * 100) / 100,
+        interest: Math.round(monthlyInterestC * 100) / 100,
+        totalDue: Math.round(monthlyPaymentC * 100) / 100,
+        status: isPaid ? 'PAID' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-c-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-c-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentC * 100) / 100,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan C: 12-month loan, 2 paid, 1+ overdue by ~35 days');
+
+  // ============================================
+  // Loan D: Just entered arrears period (16 days overdue, arrearsPeriod=14)
+  // Due date: Jan 23 2026 → 16 days overdue on Feb 8
+  // ============================================
+  const appD = await prisma.loanApplication.upsert({
+    where: { id: 'demo-overdue-app-d' },
+    update: {},
+    create: {
+      id: 'demo-overdue-app-d',
+      tenantId: tenant.id,
+      borrowerId: borrower2.id,
+      productId: flatProduct.id,
+      amount: 8000,
+      term: 12,
+      status: 'APPROVED',
+      notes: 'Test loan - 16 days overdue (just entered arrears period)',
+    },
+  });
+
+  const disbDateD = new Date('2025-10-23'); // Disbursed Oct 23, first due Nov 23
+  const loanD = await prisma.loan.upsert({
+    where: { applicationId: 'demo-overdue-app-d' },
+    update: {},
+    create: {
+      id: 'demo-overdue-loan-d',
+      tenantId: tenant.id,
+      borrowerId: borrower2.id,
+      productId: flatProduct.id,
+      applicationId: appD.id,
+      principalAmount: 8000,
+      interestRate: 18.0,
+      term: 12,
+      status: 'ACTIVE',
+      disbursementDate: disbDateD,
+    },
+  });
+
+  const totalInterestD = 8000 * 0.18 * (12 / 12); // 1440
+  const monthlyPaymentD = (8000 + totalInterestD) / 12; // 786.67
+  const monthlyPrincipalD = 8000 / 12;
+  const monthlyInterestD = totalInterestD / 12;
+
+  const scheduleVersionD = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanD.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanD.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 8000, interestRate: 18, term: 12, disbursementDate: disbDateD.toISOString() },
+      outputsHash: 'seed-hash-d',
+    },
+  });
+
+  // 12 repayments: due Nov 23, Dec 23, Jan 23, Feb 23...
+  // First 2 paid (Nov, Dec), Jan 23 is 16 days overdue on Feb 8
+  for (let i = 1; i <= 12; i++) {
+    const dueDate = addMonths(disbDateD, i);
+    const isPaid = i <= 2; // Nov and Dec paid
+    const repaymentId = `demo-repayment-d-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionD.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalD * 100) / 100,
+        interest: Math.round(monthlyInterestD * 100) / 100,
+        totalDue: Math.round(monthlyPaymentD * 100) / 100,
+        status: isPaid ? 'PAID' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-d-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-d-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentD * 100) / 100,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan D: 12-month loan, 2 paid, 1 overdue by 16 days (just in arrears)');
+
+  // ============================================
+  // Loan E: Deep in arrears with multiple months unpaid (25 days + second month overdue)
+  // Disbursed Sep 15, first due Oct 15. Oct+Nov paid, Dec 15 is 55 days overdue, Jan 15 is 24 days
+  // ============================================
+  const appE = await prisma.loanApplication.upsert({
+    where: { id: 'demo-overdue-app-e' },
+    update: {},
+    create: {
+      id: 'demo-overdue-app-e',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: flatProduct.id,
+      amount: 12000,
+      term: 12,
+      status: 'APPROVED',
+      notes: 'Test loan - multiple months overdue, deep arrears',
+    },
+  });
+
+  const disbDateE = new Date('2025-09-15');
+  const loanE = await prisma.loan.upsert({
+    where: { applicationId: 'demo-overdue-app-e' },
+    update: {},
+    create: {
+      id: 'demo-overdue-loan-e',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: flatProduct.id,
+      applicationId: appE.id,
+      principalAmount: 12000,
+      interestRate: 18.0,
+      term: 12,
+      status: 'ACTIVE',
+      disbursementDate: disbDateE,
+    },
+  });
+
+  const totalInterestE = 12000 * 0.18 * (12 / 12); // 2160
+  const monthlyPaymentE = (12000 + totalInterestE) / 12; // 1180
+  const monthlyPrincipalE = 12000 / 12;
+  const monthlyInterestE = totalInterestE / 12;
+
+  const scheduleVersionE = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanE.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanE.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 12000, interestRate: 18, term: 12, disbursementDate: disbDateE.toISOString() },
+      outputsHash: 'seed-hash-e',
+    },
+  });
+
+  // Due dates: Oct 15, Nov 15, Dec 15, Jan 15, Feb 15...
+  // Oct + Nov paid, Dec 15 (55 days overdue) + Jan 15 (24 days overdue) unpaid
+  for (let i = 1; i <= 12; i++) {
+    const dueDate = addMonths(disbDateE, i);
+    const isPaid = i <= 2; // Oct and Nov paid
+    const repaymentId = `demo-repayment-e-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionE.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalE * 100) / 100,
+        interest: Math.round(monthlyInterestE * 100) / 100,
+        totalDue: Math.round(monthlyPaymentE * 100) / 100,
+        status: isPaid ? 'PAID' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-e-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-e-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentE * 100) / 100,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan E: 12-month loan, 2 paid, 2 overdue (Dec 15 = 55 days, Jan 15 = 24 days)');
+
+  // ============================================
+  // Loan F: Partially paid repayment in arrears (borrower paid half, still overdue)
+  // Disbursed Nov 1, first due Dec 1. Dec paid, Jan 1 partially paid (RM 500 of RM 841.67)
+  // ============================================
+  const appF = await prisma.loanApplication.upsert({
+    where: { id: 'demo-overdue-app-f' },
+    update: {},
+    create: {
+      id: 'demo-overdue-app-f',
+      tenantId: tenant.id,
+      borrowerId: borrower3.id,
+      productId: flatProduct.id,
+      amount: 5000,
+      term: 6,
+      status: 'APPROVED',
+      notes: 'Test loan - partial payment, still in arrears',
+    },
+  });
+
+  const disbDateF = new Date('2025-11-01');
+  const loanF = await prisma.loan.upsert({
+    where: { applicationId: 'demo-overdue-app-f' },
+    update: {},
+    create: {
+      id: 'demo-overdue-loan-f',
+      tenantId: tenant.id,
+      borrowerId: borrower3.id,
+      productId: flatProduct.id,
+      applicationId: appF.id,
+      principalAmount: 5000,
+      interestRate: 18.0,
+      term: 6,
+      status: 'ACTIVE',
+      disbursementDate: disbDateF,
+    },
+  });
+
+  const totalInterestF = 5000 * 0.18 * (6 / 12); // 450
+  const monthlyPaymentF = (5000 + totalInterestF) / 6; // 908.33
+  const monthlyPrincipalF = 5000 / 6;
+  const monthlyInterestF = totalInterestF / 6;
+
+  const scheduleVersionF = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanF.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanF.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 5000, interestRate: 18, term: 6, disbursementDate: disbDateF.toISOString() },
+      outputsHash: 'seed-hash-f',
+    },
+  });
+
+  // Due dates: Dec 1, Jan 1, Feb 1...
+  // Dec paid, Jan 1 partially paid (500 of 908.33), Feb 1 not yet due
+  for (let i = 1; i <= 6; i++) {
+    const dueDate = addMonths(disbDateF, i);
+    const isPaid = i <= 1; // Dec paid
+    const isPartial = i === 2; // Jan partially paid
+    const repaymentId = `demo-repayment-f-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionF.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalF * 100) / 100,
+        interest: Math.round(monthlyInterestF * 100) / 100,
+        totalDue: Math.round(monthlyPaymentF * 100) / 100,
+        status: isPaid ? 'PAID' : isPartial ? 'PARTIAL' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-f-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-f-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentF * 100) / 100,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+
+    // Partial payment on Jan 1 repayment
+    if (isPartial) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-f-${i}-partial` },
+        update: {},
+        create: {
+          id: `demo-alloc-f-${i}-partial`,
+          repaymentId,
+          amount: 500, // Paid 500 of 908.33
+          allocatedAt: new Date('2026-01-10'), // Paid on Jan 10
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan F: 6-month loan, 1 paid, 1 partially paid (Jan 1 = 38 days overdue, RM 500/908.33 paid)');
+
   // Create audit logs for the applications
   await prisma.auditLog.createMany({
     data: [
@@ -645,6 +1223,17 @@ async function main() {
   console.log('   - 4 Borrowers (2 IC, 1 Passport, 1 Corporate)');
   console.log('   - 3 Loan Applications (1 Draft, 2 Submitted)');
   console.log('     • 1 Jadual K application with collateral (Kenderaan)');
+  console.log('   - 6 Overdue Test Loans (for late fee testing):');
+  console.log('     • Loan A: ~7 days overdue (within arrears period - late fees only)');
+  console.log('     • Loan B: ~20 days overdue (past arrears period - should enter arrears)');
+  console.log('     • Loan C: ~35 days overdue (past default period - ready for default)');
+  console.log('     • Loan D: ~16 days overdue (just entered arrears period)');
+  console.log('     • Loan E: 2 months unpaid (Dec 15 = 55 days, Jan 15 = 24 days - deep arrears)');
+  console.log('     • Loan F: Partial payment (Jan 1 = 38 days, RM 500/908.33 paid)');
+  console.log('\n💡 To test late fees:');
+  console.log('   1. Run the seed, then click "Process Late Fees" on the Loans page');
+  console.log('   2. Or wait for the cron job at 12:30 AM MYT');
+  console.log('   3. Safe to run multiple times - backfill catches missed days, no double-charging');
 }
 
 main()

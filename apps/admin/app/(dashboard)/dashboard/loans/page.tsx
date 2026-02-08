@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { FileText, Eye, Building2, User, CheckCircle, Search } from "lucide-react";
+import { FileText, Eye, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TableActionButton } from "@/components/ui/table-action-button";
@@ -26,7 +26,8 @@ import {
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, formatSmartDateTime } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface LoanProgress {
   paidCount: number;
@@ -43,6 +44,9 @@ interface Loan {
   status: string;
   disbursementDate: string | null;
   createdAt: string;
+  totalLateFees: string;
+  readyForDefault: boolean;
+  defaultReadyDate: string | null;
   borrower: {
     id: string;
     name: string;
@@ -55,6 +59,16 @@ interface Loan {
     name: string;
   };
   progress?: LoanProgress;
+}
+
+interface LateFeeStatus {
+  lastRun: string | null;
+  lastTrigger: string | null;
+  lastStatus: string | null;
+  processedToday: boolean;
+  loansReadyForDefault: number;
+  loansInArrears: number;
+  loansReadyToComplete: number;
 }
 
 // Mini donut chart component
@@ -141,6 +155,10 @@ export default function LoansPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  // Late fee processing state
+  const [lateFeeStatus, setLateFeeStatus] = useState<LateFeeStatus | null>(null);
+  const [processingLateFees, setProcessingLateFees] = useState(false);
+
   // Debounce search input
   const handleSearchChange = (value: string) => {
     setSearchInput(value);
@@ -154,8 +172,8 @@ export default function LoansPage() {
   const fetchLoans = useCallback(async () => {
     setLoading(true);
     try {
-      // For READY_TO_COMPLETE, we need to fetch all active/in-arrears loans and filter client-side
-      const statusParam = filter === "READY_TO_COMPLETE" ? "" : filter;
+      // For READY_TO_COMPLETE and READY_FOR_DEFAULT, fetch all loans and filter client-side
+      const statusParam = (filter === "READY_TO_COMPLETE" || filter === "READY_FOR_DEFAULT") ? "" : filter;
       const params = new URLSearchParams({
         page: currentPage.toString(),
         pageSize: pageSize.toString(),
@@ -185,12 +203,47 @@ export default function LoansPage() {
     setLoading(false);
   }, [filter, debouncedSearch, currentPage, pageSize]);
 
+  const fetchLateFeeStatus = useCallback(async () => {
+    try {
+      const res = await api.get<LateFeeStatus>("/api/loans/late-fee-status");
+      if (res.success && res.data) {
+        setLateFeeStatus(res.data);
+      }
+    } catch {
+      // Non-critical, silently ignore
+    }
+  }, []);
+
   useEffect(() => {
     fetchLoans();
-  }, [fetchLoans]);
+    fetchLateFeeStatus();
+  }, [fetchLoans, fetchLateFeeStatus]);
 
   const handleRefresh = async () => {
-    await fetchLoans();
+    await Promise.all([fetchLoans(), fetchLateFeeStatus()]);
+  };
+
+  const handleProcessLateFees = async () => {
+    if (processingLateFees) return;
+    setProcessingLateFees(true);
+    try {
+      const res = await api.post<{ loansProcessed: number; feesCalculated: number; totalFeeAmount: number }>(
+        "/api/loans/process-late-fees",
+        {}
+      );
+      if (res.success && res.data) {
+        toast.success(
+          `Late fees processed: ${res.data.loansProcessed} loans, ${res.data.feesCalculated} fees charged`
+        );
+        await Promise.all([fetchLoans(), fetchLateFeeStatus()]);
+      } else {
+        toast.error(res.error || "Failed to process late fees");
+      }
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to process late fees";
+      toast.error(errorMessage);
+    }
+    setProcessingLateFees(false);
   };
 
   const handlePageChange = (page: number) => {
@@ -203,12 +256,15 @@ export default function LoansPage() {
     setCurrentPage(1);
   };
 
-  // Apply client-side filter for READY_TO_COMPLETE
+  // Apply client-side filters
   const loans = filter === "READY_TO_COMPLETE"
     ? allLoans.filter(loan => loan.progress?.readyToComplete)
+    : filter === "READY_FOR_DEFAULT"
+    ? allLoans.filter(loan => loan.readyForDefault && loan.status !== "DEFAULTED")
     : allLoans;
 
   return (
+    <TooltipProvider>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -216,10 +272,62 @@ export default function LoansPage() {
           <h1 className="text-2xl font-heading font-bold text-gradient">Loans</h1>
           <p className="text-muted">View and manage active loans</p>
         </div>
-        <Link href="/dashboard/applications">
-          <Button>View Applications</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <div className="flex flex-col items-end gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleProcessLateFees}
+                  disabled={processingLateFees}
+                >
+                  {processingLateFees ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <PlayCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Process Late Fees
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <div className="space-y-1">
+                  <p className="text-popover-foreground">Manually process late fees for overdue loans. Catches up any missed days automatically.</p>
+                  <p className="text-popover-foreground/70 text-xs">Late fees are also automatically processed daily at 12:30 AM (GMT+8). Safe to run multiple times — no double-charging.</p>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+            {lateFeeStatus?.lastRun && (
+              <span className="text-muted-foreground text-xs">
+                <Clock className="inline h-3 w-3 mr-1" />
+                Last run: {formatSmartDateTime(lateFeeStatus.lastRun)} ({lateFeeStatus.lastTrigger})
+              </span>
+            )}
+          </div>
+          <Link href="/dashboard/applications">
+            <Button>View Applications</Button>
+          </Link>
+        </div>
       </div>
+
+      {/* Late Fee Status Bar */}
+      {lateFeeStatus && (lateFeeStatus.loansInArrears > 0 || lateFeeStatus.loansReadyForDefault > 0) && (
+        <div className="flex items-center gap-4 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+          <div className="flex items-center gap-4 text-sm flex-wrap">
+            {lateFeeStatus.loansInArrears > 0 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {lateFeeStatus.loansInArrears} loan{lateFeeStatus.loansInArrears !== 1 ? "s" : ""} in arrears
+              </span>
+            )}
+            {lateFeeStatus.loansReadyForDefault > 0 && (
+              <span className="text-red-600 dark:text-red-400">
+                {lateFeeStatus.loansReadyForDefault} loan{lateFeeStatus.loansReadyForDefault !== 1 ? "s" : ""} ready for default
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">
@@ -254,14 +362,6 @@ export default function LoansPage() {
         </Button>
         <span className="border-l border-border mx-1" />
         <Button
-          variant={filter === "READY_TO_COMPLETE" ? "default" : "outline"}
-          size="sm"
-          onClick={() => { setFilter("READY_TO_COMPLETE"); setCurrentPage(1); }}
-        >
-          Ready to Complete
-        </Button>
-        <span className="border-l border-border mx-1" />
-        <Button
           variant={filter === "IN_ARREARS" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("IN_ARREARS"); setCurrentPage(1); }}
@@ -276,6 +376,32 @@ export default function LoansPage() {
           className={filter === "DEFAULTED" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
         >
           Defaulted
+        </Button>
+        <span className="border-l border-border mx-1" />
+        <Button
+          variant={filter === "READY_TO_COMPLETE" ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setFilter("READY_TO_COMPLETE"); setCurrentPage(1); }}
+        >
+          Ready to Complete
+          {lateFeeStatus?.loansReadyToComplete ? (
+            <span className="ml-1.5 bg-emerald-600 text-white rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {lateFeeStatus.loansReadyToComplete}
+            </span>
+          ) : null}
+        </Button>
+        <Button
+          variant={filter === "READY_FOR_DEFAULT" ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setFilter("READY_FOR_DEFAULT"); setCurrentPage(1); }}
+          className={filter === "READY_FOR_DEFAULT" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
+        >
+          Ready for Default
+          {lateFeeStatus?.loansReadyForDefault ? (
+            <span className="ml-1.5 bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {lateFeeStatus.loansReadyForDefault}
+            </span>
+          ) : null}
         </Button>
       </div>
 
@@ -309,7 +435,7 @@ export default function LoansPage() {
         <CardContent className="p-0">
           {loading ? (
             <TableSkeleton
-              headers={["Borrower", "Type", "Product", "Principal", "Rate", "Term", "Progress", "Status", "Disbursed", "Actions"]}
+              headers={["Borrower", "Type", "Product", "Principal", "Rate", "Term", "Progress", "Late Fees", "Status", "Disbursed", "Actions"]}
               columns={[
                 { width: "w-32", subLine: true },
                 { badge: true, width: "w-20" },
@@ -318,6 +444,7 @@ export default function LoansPage() {
                 { width: "w-12" },
                 { width: "w-16" },
                 { circle: true },
+                { width: "w-16" },
                 { badge: true, width: "w-20" },
                 { width: "w-20" },
                 { width: "w-8" },
@@ -332,7 +459,6 @@ export default function LoansPage() {
               </Link>
             </div>
           ) : (
-            <TooltipProvider>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -343,6 +469,7 @@ export default function LoansPage() {
                   <TableHead>Rate</TableHead>
                   <TableHead>Term</TableHead>
                   <TableHead>Progress</TableHead>
+                  <TableHead>Late Fees</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Disbursed</TableHead>
                   <TableHead>Actions</TableHead>
@@ -417,7 +544,16 @@ export default function LoansPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
+                      {Number(loan.totalLateFees) > 0 ? (
+                        <span className="text-sm text-destructive font-medium">
+                          {formatCurrency(Number(loan.totalLateFees))}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <Badge variant={statusColors[loan.status] || "default"}>
                           {loan.status.replace(/_/g, " ")}
                         </Badge>
@@ -431,6 +567,19 @@ export default function LoansPage() {
                             </TooltipTrigger>
                             <TooltipContent>
                               <p>All payments received. Ready to complete and discharge.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                        {loan.readyForDefault && loan.status !== "DEFAULTED" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="destructive" className="text-xs">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Default Ready
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Default period exceeded. Ready to be marked as defaulted.</p>
                             </TooltipContent>
                           </Tooltip>
                         )}
@@ -449,7 +598,6 @@ export default function LoansPage() {
                 })}
               </TableBody>
             </Table>
-            </TooltipProvider>
           )}
           <TablePagination
             currentPage={currentPage}
@@ -463,5 +611,6 @@ export default function LoansPage() {
         </CardContent>
       </Card>
     </div>
+    </TooltipProvider>
   );
 }

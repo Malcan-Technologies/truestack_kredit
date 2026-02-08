@@ -110,6 +110,8 @@ interface LoanRepayment {
   interest: string;
   totalDue: string;
   status: string;
+  lateFeeAccrued: string;
+  lateFeesPaid: string;
   allocations: PaymentAllocation[];
 }
 
@@ -136,6 +138,11 @@ interface Loan {
   dischargeLetterPath: string | null;
   totalLateFees: string;
   repaymentRate: string | null;
+  readyForDefault: boolean;
+  defaultReadyDate: string | null;
+  arrearsStartDate: string | null;
+  arrearsLetterPath: string | null;
+  defaultLetterPath: string | null;
   createdAt: string;
   // Agreement fields
   agreementDate: string | null;
@@ -350,6 +357,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: Shield, label: "Stamp Certificate Uploaded", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
       case "CREATE":
         return { icon: Plus, label: "Loan Created", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+      case "LATE_FEE_ACCRUAL":
+        return { icon: AlertTriangle, label: "Late Fees Charged", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10" };
+      case "DEFAULT_READY":
+        return { icon: AlertTriangle, label: "Default Ready", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+      case "LATE_FEE_PROCESSING":
+        return { icon: RefreshCw, label: "Late Fee Processing", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10" };
       default:
         return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
     }
@@ -382,18 +395,42 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           const data = event.newData as Record<string, unknown>;
           // Support both legacy (amount) and new (totalAmount) field names
           const amount = data.totalAmount ?? data.amount;
-          const lateFee = data.totalLateFees ?? data.lateFee;
+          const lateFee = data.totalLateFeesPaid ?? data.totalLateFees ?? data.lateFee;
           return (
             <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3">
               <p className="text-xs text-muted-foreground">
                 Amount: <span className="font-medium text-foreground">
                   {formatCurrency(toSafeNumber(amount as number))}
                 </span>
-                {lateFee ? (
+                {lateFee && toSafeNumber(lateFee as number) > 0 ? (
                   <span className="ml-2 text-amber-600">
-                    + {formatCurrency(toSafeNumber(lateFee as number))} late fee
+                    + {formatCurrency(toSafeNumber(lateFee as number))} late fee paid
                   </span>
                 ) : null}
+              </p>
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "LATE_FEE_ACCRUAL" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">
+                Fee charged: <span className="font-medium text-amber-600">
+                  {formatCurrency(toSafeNumber(data.totalFeeCharged as number))}
+                </span>
+                <span className="ml-2">({data.repaymentsAffected as number} repayment{(data.repaymentsAffected as number) !== 1 ? "s" : ""})</span>
+              </p>
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "DEFAULT_READY" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">
+                Days overdue: <span className="font-medium text-red-600">{data.daysOverdue as number}</span>
+                <span className="ml-2">(default period: {data.defaultPeriod as number} days)</span>
               </p>
             </div>
           );
@@ -1328,6 +1365,12 @@ export default function LoanDetailPage() {
                             <span className="font-semibold">{formatCurrency(metrics.totalDue - metrics.totalPaid)}</span>
                           </p>
                         )}
+                        {metrics.progressPercent >= 100 && (loan.status === "ACTIVE" || loan.status === "IN_ARREARS") && (
+                          <Badge variant="success" className="mt-2 inline-flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3" />
+                            Ready to complete
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4">
@@ -1651,6 +1694,8 @@ export default function LoanDetailPage() {
                     const nextRepayment = unpaidRepayments[0];
                     const paid = nextRepayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
                     const remaining = safeSubtract(toSafeNumber(nextRepayment.totalDue), paid);
+                    const outstandingLateFees = Math.max(0, safeSubtract(toSafeNumber(nextRepayment.lateFeeAccrued), toSafeNumber(nextRepayment.lateFeesPaid)));
+                    const totalRemaining = safeAdd(remaining, outstandingLateFees);
                     const isOverdue = new Date(nextRepayment.dueDate) < new Date();
                     
                     return (
@@ -1658,9 +1703,14 @@ export default function LoanDetailPage() {
                         <div className="text-right text-sm">
                           <p className="text-muted-foreground">Next Payment Due</p>
                           <p className={`font-semibold ${isOverdue ? "text-destructive" : ""}`}>
-                            {formatCurrency(remaining)} on {formatDate(nextRepayment.dueDate)}
+                            {formatCurrency(totalRemaining)} on {formatDate(nextRepayment.dueDate)}
                             {isOverdue && " (Overdue)"}
                           </p>
+                          {outstandingLateFees > 0 && (
+                            <p className="text-xs text-amber-600">
+                              incl. {formatCurrency(outstandingLateFees)} late fees
+                            </p>
+                          )}
                         </div>
                         <Button onClick={() => openPaymentDialog()} size="sm">
                           <CreditCard className="h-4 w-4 mr-2" />
@@ -1694,6 +1744,7 @@ export default function LoanDetailPage() {
                       <TableHead className="text-right">Principal</TableHead>
                       <TableHead className="text-right">Interest</TableHead>
                       <TableHead className="text-right">Total Due</TableHead>
+                      <TableHead className="text-right">Late Fees</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
@@ -1705,7 +1756,9 @@ export default function LoanDetailPage() {
                       const totalDue = toSafeNumber(repayment.totalDue);
                       const remaining = safeSubtract(totalDue, paid);
                       const isOverdue = new Date(repayment.dueDate) < new Date() && repayment.status !== "PAID";
-                      const hasLateFees = repayment.allocations.some(a => toSafeNumber(a.lateFee) > 0);
+                      const lateFeeAccrued = toSafeNumber(repayment.lateFeeAccrued);
+                      const lateFeesPaid = toSafeNumber(repayment.lateFeesPaid);
+                      const hasLateFees = lateFeeAccrued > 0;
 
                       return (
                         <TableRow key={repayment.id} className={isOverdue ? "bg-destructive/5" : ""}>
@@ -1719,6 +1772,20 @@ export default function LoanDetailPage() {
                           <TableCell className="text-right">{formatCurrency(toSafeNumber(repayment.principal))}</TableCell>
                           <TableCell className="text-right">{formatCurrency(toSafeNumber(repayment.interest))}</TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(totalDue)}</TableCell>
+                          <TableCell className="text-right">
+                            {hasLateFees ? (
+                              <div>
+                                <span className="text-destructive font-medium">{formatCurrency(lateFeeAccrued)}</span>
+                                {lateFeesPaid > 0 && (
+                                  <span className="text-xs text-muted-foreground block">
+                                    {formatCurrency(lateFeesPaid)} paid
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               <span className={paid > 0 ? "text-success" : ""}>
@@ -1737,9 +1804,6 @@ export default function LoanDetailPage() {
                                 </>
                               )}
                             </div>
-                            {hasLateFees && (
-                              <span className="text-xs text-amber-600 block text-right">+ late fees</span>
-                            )}
                           </TableCell>
                           <TableCell>
                             <Badge variant={isOverdue ? "destructive" : repaymentStatusColors[repayment.status]}>
@@ -1848,6 +1912,48 @@ export default function LoanDetailPage() {
                 <span className="text-muted-foreground">Late Payment Rate</span>
                 <span>{loan.product.latePaymentRate}% p.a.</span>
               </div>
+              {toSafeNumber(loan.totalLateFees) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Late Fees</span>
+                  <span className="text-destructive font-medium">{formatCurrency(toSafeNumber(loan.totalLateFees))}</span>
+                </div>
+              )}
+              {/* Ready for Default indicator */}
+              {loan.readyForDefault && loan.status !== "DEFAULTED" && (
+                <div className="p-2 border border-destructive/30 bg-destructive/5 rounded-md">
+                  <div className="flex items-center gap-2 text-destructive font-medium text-xs mb-1">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Ready for Default
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Default period exceeded. This loan can be marked as defaulted.
+                  </p>
+                </div>
+              )}
+              {/* Letters */}
+              {(loan.arrearsLetterPath || loan.defaultLetterPath) && (
+                <div className="pt-2 border-t space-y-1.5">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Letters</span>
+                  {loan.arrearsLetterPath && (
+                    <button
+                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/arrears-letter`, "_blank")}
+                      className="flex items-center gap-2 text-primary hover:underline text-xs"
+                    >
+                      <Download className="h-3 w-3" />
+                      Arrears Notice
+                    </button>
+                  )}
+                  {loan.defaultLetterPath && (
+                    <button
+                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/default-letter`, "_blank")}
+                      className="flex items-center gap-2 text-primary hover:underline text-xs"
+                    >
+                      <Download className="h-3 w-3" />
+                      Default Notice
+                    </button>
+                  )}
+                </div>
+              )}
               {loan.product.loanScheduleType === "JADUAL_K" && loan.collateralType && (
                 <>
                   <div className="flex justify-between">

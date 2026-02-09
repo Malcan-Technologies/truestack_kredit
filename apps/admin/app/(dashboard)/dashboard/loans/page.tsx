@@ -580,7 +580,15 @@ export default function LoansPage() {
                   return (
                   <TableRow 
                     key={loan.id}
-                    className={progress?.readyToComplete ? "bg-emerald-50/50 dark:bg-emerald-950/20" : ""}
+                    className={
+                      progress?.readyToComplete
+                        ? "bg-emerald-50/50 dark:bg-emerald-950/20"
+                        : loan.readyForDefault && loan.status !== "DEFAULTED"
+                        ? "bg-red-50/50 dark:bg-red-950/20"
+                        : loan.status === "PENDING_DISBURSEMENT"
+                        ? "bg-amber-50/50 dark:bg-amber-950/20"
+                        : ""
+                    }
                   >
                     <TableCell>
                       <Link href={`/dashboard/loans/${loan.id}`} className="block">

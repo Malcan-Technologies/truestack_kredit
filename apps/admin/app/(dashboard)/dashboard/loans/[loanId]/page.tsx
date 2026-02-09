@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Banknote,
   Calendar,
+  ChevronRight,
   Check,
   X,
   User,
@@ -33,6 +34,7 @@ import {
   FileCheck,
   Copy,
   Eye,
+  Mail,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -245,6 +247,28 @@ interface TimelineEvent {
 }
 
 // ============================================
+// Helpers
+// ============================================
+
+/** Extract generation date from a letter path filename (e.g. ARR-20260209-143025-abc.pdf or ARR-20260209-abc.pdf) */
+function parseLetterDate(letterPath: string): Date | null {
+  const filename = letterPath.split("/").pop() || "";
+  // New format: PREFIX-YYYYMMDD-HHmmss-id.pdf
+  const match = filename.match(/^\w+-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-/);
+  if (match) {
+    const [, y, m, d, hh, mm, ss] = match;
+    return new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`);
+  }
+  // Legacy format: PREFIX-YYYYMMDD-id.pdf
+  const legacy = filename.match(/^\w+-(\d{4})(\d{2})(\d{2})-/);
+  if (legacy) {
+    const [, y, m, d] = legacy;
+    return new Date(`${y}-${m}-${d}T00:00:00Z`);
+  }
+  return null;
+}
+
+// ============================================
 // Status Colors
 // ============================================
 
@@ -363,6 +387,10 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: AlertTriangle, label: "Default Ready", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
       case "LATE_FEE_PROCESSING":
         return { icon: RefreshCw, label: "Late Fee Processing", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10" };
+      case "GENERATE_ARREARS_LETTER":
+        return { icon: FileText, label: "Arrears Letter Generated", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10" };
+      case "GENERATE_DEFAULT_LETTER":
+        return { icon: FileText, label: "Default Letter Generated", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
       default:
         return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
     }
@@ -515,6 +543,12 @@ export default function LoanDetailPage() {
   const [showGenerateAgreementDialog, setShowGenerateAgreementDialog] = useState(false);
   const [agreementDate, setAgreementDate] = useState<string>("");
   const [generatingAgreement, setGeneratingAgreement] = useState(false);
+
+  // Generate letter states
+  const [showGenerateArrearsLetterDialog, setShowGenerateArrearsLetterDialog] = useState(false);
+  const [showGenerateDefaultLetterDialog, setShowGenerateDefaultLetterDialog] = useState(false);
+  const [generatingArrearsLetter, setGeneratingArrearsLetter] = useState(false);
+  const [generatingDefaultLetter, setGeneratingDefaultLetter] = useState(false);
 
   // ============================================
   // Data Fetching
@@ -740,6 +774,40 @@ export default function LoanDetailPage() {
     await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
     toast.success("Loan data refreshed");
     setActionLoading(null);
+  };
+
+  const handleGenerateArrearsLetter = async () => {
+    setGeneratingArrearsLetter(true);
+    try {
+      const res = await api.post(`/api/loans/${loanId}/generate-arrears-letter`, {});
+      if (res.success) {
+        toast.success("Arrears letter generated successfully");
+        setShowGenerateArrearsLetterDialog(false);
+        await Promise.all([fetchLoan(), fetchTimeline()]);
+      } else {
+        toast.error(res.error || "Failed to generate arrears letter");
+      }
+    } catch {
+      toast.error("Failed to generate arrears letter");
+    }
+    setGeneratingArrearsLetter(false);
+  };
+
+  const handleGenerateDefaultLetter = async () => {
+    setGeneratingDefaultLetter(true);
+    try {
+      const res = await api.post(`/api/loans/${loanId}/generate-default-letter`, {});
+      if (res.success) {
+        toast.success("Default letter generated successfully");
+        setShowGenerateDefaultLetterDialog(false);
+        await Promise.all([fetchLoan(), fetchTimeline()]);
+      } else {
+        toast.error(res.error || "Failed to generate default letter");
+      }
+    } catch {
+      toast.error("Failed to generate default letter");
+    }
+    setGeneratingDefaultLetter(false);
   };
 
   const openPaymentDialog = () => {
@@ -1127,7 +1195,7 @@ export default function LoanDetailPage() {
                     className="font-medium hover:text-primary hover:underline transition-colors inline-flex items-center gap-1.5"
                   >
                     {borrowerDisplayName}
-                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                   </Link>
                   {isCorporate && loan.borrower.companyName && (
                     <p className="text-sm text-muted-foreground">Rep: {loan.borrower.name}</p>
@@ -1921,26 +1989,70 @@ export default function LoanDetailPage() {
                 </div>
               )}
               {/* Letters */}
-              {(loan.arrearsLetterPath || loan.defaultLetterPath) && (
-                <div className="pt-2 border-t space-y-1.5">
+              {(loan.arrearsLetterPath || loan.defaultLetterPath || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED") && (
+                <div className="pt-2 border-t space-y-2">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Letters</span>
-                  {loan.arrearsLetterPath && (
-                    <button
-                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/arrears-letter`, "_blank")}
-                      className="flex items-center gap-2 text-primary hover:underline text-xs"
-                    >
-                      <Download className="h-3 w-3" />
-                      Arrears Notice
-                    </button>
+                  {/* Arrears Letter Section */}
+                  {(loan.status === "IN_ARREARS" || loan.status === "DEFAULTED") && (
+                    <div className="space-y-1">
+                      {loan.arrearsLetterPath && (() => {
+                        const letterDate = parseLetterDate(loan.arrearsLetterPath!);
+                        return (
+                          <button
+                            onClick={() => window.open(`/api/proxy/loans/${loan.id}/arrears-letter`, "_blank")}
+                            className="flex items-center justify-between w-full text-xs group"
+                          >
+                            <span className="flex items-center gap-2 text-primary group-hover:underline">
+                              <Download className="h-3 w-3" />
+                              Arrears Notice
+                            </span>
+                            {letterDate && (
+                              <span className="text-muted-foreground">{formatDate(letterDate.toISOString())}</span>
+                            )}
+                          </button>
+                        );
+                      })()}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-7 text-xs"
+                        onClick={() => setShowGenerateArrearsLetterDialog(true)}
+                      >
+                        <FileText className="h-3 w-3 mr-1.5" />
+                        {loan.arrearsLetterPath ? "Regenerate Arrears Letter" : "Generate Arrears Letter"}
+                      </Button>
+                    </div>
                   )}
-                  {loan.defaultLetterPath && (
-                    <button
-                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/default-letter`, "_blank")}
-                      className="flex items-center gap-2 text-primary hover:underline text-xs"
-                    >
-                      <Download className="h-3 w-3" />
-                      Default Notice
-                    </button>
+                  {/* Default Letter Section */}
+                  {loan.status === "DEFAULTED" && (
+                    <div className="space-y-1">
+                      {loan.defaultLetterPath && (() => {
+                        const letterDate = parseLetterDate(loan.defaultLetterPath!);
+                        return (
+                          <button
+                            onClick={() => window.open(`/api/proxy/loans/${loan.id}/default-letter`, "_blank")}
+                            className="flex items-center justify-between w-full text-xs group"
+                          >
+                            <span className="flex items-center gap-2 text-primary group-hover:underline">
+                              <Download className="h-3 w-3" />
+                              Default Notice
+                            </span>
+                            {letterDate && (
+                              <span className="text-muted-foreground">{formatDate(letterDate.toISOString())}</span>
+                            )}
+                          </button>
+                        );
+                      })()}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-7 text-xs"
+                        onClick={() => setShowGenerateDefaultLetterDialog(true)}
+                      >
+                        <FileText className="h-3 w-3 mr-1.5" />
+                        {loan.defaultLetterPath ? "Regenerate Default Letter" : "Generate Default Letter"}
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}
@@ -2404,6 +2516,112 @@ export default function LoanDetailPage() {
             <Button variant="destructive" onClick={handleMarkDefault} disabled={actionLoading === "default"}>
               <XCircle className="h-4 w-4 mr-2" />
               {actionLoading === "default" ? "Processing..." : "Mark as Defaulted"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generate Arrears Letter Confirmation Dialog */}
+      <Dialog open={showGenerateArrearsLetterDialog} onOpenChange={setShowGenerateArrearsLetterDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {loan.arrearsLetterPath ? "Regenerate Arrears Letter" : "Generate Arrears Letter"}
+            </DialogTitle>
+            <DialogDescription>
+              A new arrears notice will be generated with the latest outstanding amounts and late fees.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium text-amber-700 dark:text-amber-300">
+                    {loan.arrearsLetterPath
+                      ? "This will generate a new arrears letter. The previous letter will be kept on record."
+                      : "This will generate an arrears notice letter for this loan."}
+                  </p>
+                  <p className="text-muted-foreground">
+                    The letter will include all currently overdue repayments and accrued late fees as of today.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <p className="text-sm text-muted-foreground">
+                  If your company has subscribed to the{" "}
+                  <Link href="/dashboard/help?doc=add-ons/automated-emails" target="_blank" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-primary">
+                    Automated Emails
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>{" "}
+                  add-on, this letter will also be sent via email to the borrower automatically.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGenerateArrearsLetterDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleGenerateArrearsLetter} disabled={generatingArrearsLetter}>
+              <FileText className="h-4 w-4 mr-2" />
+              {generatingArrearsLetter ? "Generating..." : "Generate Letter"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generate Default Letter Confirmation Dialog */}
+      <Dialog open={showGenerateDefaultLetterDialog} onOpenChange={setShowGenerateDefaultLetterDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {loan.defaultLetterPath ? "Regenerate Default Letter" : "Generate Default Letter"}
+            </DialogTitle>
+            <DialogDescription>
+              A new default notice will be generated with the latest outstanding amounts and late fees.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium text-destructive">
+                    {loan.defaultLetterPath
+                      ? "This will generate a new default notice. The previous letter will be kept on record."
+                      : "This will generate a formal default notice letter for this loan."}
+                  </p>
+                  <p className="text-muted-foreground">
+                    The letter will include all currently outstanding repayments, accrued late fees, and consequences of default as of today.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <p className="text-sm text-muted-foreground">
+                  If your company has subscribed to the{" "}
+                  <Link href="/dashboard/help?doc=add-ons/automated-emails" target="_blank" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-primary">
+                    Automated Emails
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>{" "}
+                  add-on, this letter will also be sent via email to the borrower automatically.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGenerateDefaultLetterDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleGenerateDefaultLetter} disabled={generatingDefaultLetter}>
+              <FileText className="h-4 w-4 mr-2" />
+              {generatingDefaultLetter ? "Generating..." : "Generate Letter"}
             </Button>
           </DialogFooter>
         </DialogContent>

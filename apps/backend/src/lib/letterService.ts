@@ -338,8 +338,10 @@ function createPdfWriter(
     fs.mkdirSync(lettersDir, { recursive: true });
   }
 
-  const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
-  const filename = `${prefix}-${dateStr}-${loanId.substring(0, 8)}.pdf`;
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+  const timeStr = now.toISOString().split('T')[1].replace(/[:.]/g, '').substring(0, 6); // HHmmss
+  const filename = `${prefix}-${dateStr}-${timeStr}-${loanId.substring(0, 8)}.pdf`;
   const filePath = path.join(lettersDir, filename);
   const apiPath = `/api/uploads/letters/${subDir}/${filename}`;
 

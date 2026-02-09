@@ -440,6 +440,18 @@ export class LateFeeProcessor {
 
                 letterGenerated = letterPath;
                 arrearsLettersGenerated++;
+
+                // Audit log: arrears letter generated (auto)
+                await AuditService.log({
+                  tenantId: loan.tenantId,
+                  action: 'GENERATE_ARREARS_LETTER',
+                  entityType: 'Loan',
+                  entityId: loanId,
+                  newData: {
+                    arrearsLetterPath: letterPath,
+                    trigger: trigger === 'CRON' ? 'auto' : 'manual_late_fee_run',
+                  },
+                });
               } catch (letterErr) {
                 errors.push(`Arrears letter for loan ${loanId}: ${letterErr instanceof Error ? letterErr.message : 'Unknown error'}`);
               }

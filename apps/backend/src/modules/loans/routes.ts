@@ -12,7 +12,7 @@ import { AuditService } from '../compliance/auditService.js';
 import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtract, calculateFlatInterest, calculateEMI } from '../../lib/math.js';
 import { createHash } from 'crypto';
 import { LateFeeProcessor } from '../../lib/lateFeeProcessor.js';
-import { generateDischargeLetter, generateDefaultLetter } from '../../lib/letterService.js';
+import { generateDischargeLetter, generateDefaultLetter, generateArrearsLetter } from '../../lib/letterService.js';
 
 const router = Router();
 
@@ -1894,6 +1894,324 @@ router.get('/:loanId/default-letter', async (req, res, next) => {
 });
 
 /**
+ * Manually generate (regenerate) an arrears letter for a loan
+ * POST /api/loans/:loanId/generate-arrears-letter
+ * 
+ * Allowed for IN_ARREARS and DEFAULTED status.
+ * Does NOT overwrite old letters — generates a new PDF with fresh data.
+ * Enforces a 3-day cooldown: if the current arrearsLetterPath was generated 
+ * within the last 3 days, the request is rejected.
+ */
+router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
+  try {
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: req.params.loanId,
+        tenantId: req.tenantId,
+      },
+      include: {
+        product: true,
+        borrower: true,
+        tenant: true,
+        scheduleVersions: {
+          orderBy: { version: 'desc' },
+          take: 1,
+          include: {
+            repayments: {
+              orderBy: { dueDate: 'asc' },
+              include: { allocations: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    if (loan.status !== 'IN_ARREARS' && loan.status !== 'DEFAULTED') {
+      throw new BadRequestError('Arrears letter can only be generated for loans in arrears or default status');
+    }
+
+    // 3-day cooldown check: parse date from the most recent arrears letter filename
+    if (loan.arrearsLetterPath) {
+      const filename = loan.arrearsLetterPath.split('/').pop() || '';
+      // Filename format: ARR-YYYYMMDD-HHmmss-loanId.pdf
+      const match = filename.match(/^ARR-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-/);
+      if (match) {
+        const [, y, m, d, hh, mm, ss] = match;
+        const letterDate = new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`);
+        const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSince < 3) {
+          throw new BadRequestError(
+            `An arrears letter was generated ${Math.floor(daysSince * 24)} hours ago. Please wait at least 3 days between letters.`
+          );
+        }
+      } else {
+        // Legacy format: ARR-YYYYMMDD-loanId.pdf (no time component)
+        const legacyMatch = filename.match(/^ARR-(\d{4})(\d{2})(\d{2})-/);
+        if (legacyMatch) {
+          const [, y, m, d] = legacyMatch;
+          const letterDate = new Date(`${y}-${m}-${d}T00:00:00Z`);
+          const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSince < 3) {
+            throw new BadRequestError(
+              `An arrears letter was generated recently. Please wait at least 3 days between letters.`
+            );
+          }
+        }
+      }
+    }
+
+    // Gather fresh overdue data
+    const currentSchedule = loan.scheduleVersions[0];
+    if (!currentSchedule) {
+      throw new BadRequestError('Loan has no repayment schedule');
+    }
+
+    const overdueRepayments = currentSchedule.repayments
+      .filter(r => r.status !== 'PAID' && new Date(r.dueDate) < new Date())
+      .map((r) => {
+        const repIdx = currentSchedule.repayments.findIndex(ar => ar.id === r.id);
+        const totalDue = toSafeNumber(r.totalDue);
+        const paid = r.allocations.reduce((s, a) => safeAdd(s, toSafeNumber(a.amount)), 0);
+        return {
+          repaymentNumber: repIdx + 1,
+          dueDate: r.dueDate,
+          totalDue,
+          amountPaid: paid,
+          outstanding: safeSubtract(totalDue, paid),
+          lateFeeAccrued: toSafeNumber(r.lateFeeAccrued),
+          daysOverdue: Math.max(0, Math.floor((Date.now() - new Date(r.dueDate).getTime()) / (1000 * 60 * 60 * 24))),
+        };
+      });
+
+    if (overdueRepayments.length === 0) {
+      throw new BadRequestError('No overdue repayments found');
+    }
+
+    const totalOutstanding = overdueRepayments.reduce((s, r) => safeAdd(s, r.outstanding), 0);
+    const totalLateFees = overdueRepayments.reduce((s, r) => safeAdd(s, r.lateFeeAccrued), 0);
+
+    const borrower = loan.borrower;
+    const letterPath = await generateArrearsLetter({
+      loan: {
+        id: loan.id,
+        principalAmount: loan.principalAmount,
+        interestRate: loan.interestRate,
+        term: loan.term,
+        disbursementDate: loan.disbursementDate,
+        totalLateFees: loan.totalLateFees,
+      },
+      borrower: {
+        displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName
+          ? borrower.companyName
+          : borrower.name,
+        identificationNumber: borrower.icNumber,
+        address: borrower.address,
+      },
+      tenant: {
+        name: loan.tenant.name,
+        registrationNumber: loan.tenant.registrationNumber,
+        licenseNumber: loan.tenant.licenseNumber,
+        businessAddress: loan.tenant.businessAddress,
+        contactNumber: loan.tenant.contactNumber,
+        email: loan.tenant.email,
+        logoUrl: loan.tenant.logoUrl,
+      },
+      overdueRepayments,
+      totalOutstanding,
+      totalLateFees,
+      arrearsPeriod: loan.product.arrearsPeriod,
+    });
+
+    // Update loan with new letter path (old file is NOT deleted)
+    await prisma.loan.update({
+      where: { id: loan.id },
+      data: { arrearsLetterPath: letterPath },
+    });
+
+    // Audit trail
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'GENERATE_ARREARS_LETTER',
+      entityType: 'Loan',
+      entityId: loan.id,
+      previousData: { arrearsLetterPath: loan.arrearsLetterPath },
+      newData: { arrearsLetterPath: letterPath },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      success: true,
+      data: { arrearsLetterPath: letterPath },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Manually generate (regenerate) a default letter for a loan
+ * POST /api/loans/:loanId/generate-default-letter
+ * 
+ * Allowed for DEFAULTED status only.
+ * Does NOT overwrite old letters — generates a new PDF with fresh data.
+ * Enforces a 3-day cooldown from the last generated default letter.
+ */
+router.post('/:loanId/generate-default-letter', async (req, res, next) => {
+  try {
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: req.params.loanId,
+        tenantId: req.tenantId,
+      },
+      include: {
+        product: true,
+        borrower: true,
+        tenant: true,
+        scheduleVersions: {
+          orderBy: { version: 'desc' },
+          take: 1,
+          include: {
+            repayments: {
+              orderBy: { dueDate: 'asc' },
+              include: { allocations: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    if (loan.status !== 'DEFAULTED') {
+      throw new BadRequestError('Default letter can only be generated for defaulted loans');
+    }
+
+    // 3-day cooldown check
+    if (loan.defaultLetterPath) {
+      const filename = loan.defaultLetterPath.split('/').pop() || '';
+      // Filename format: DEF-YYYYMMDD-HHmmss-loanId.pdf
+      const match = filename.match(/^DEF-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-/);
+      if (match) {
+        const [, y, m, d, hh, mm, ss] = match;
+        const letterDate = new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`);
+        const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSince < 3) {
+          throw new BadRequestError(
+            `A default letter was generated ${Math.floor(daysSince * 24)} hours ago. Please wait at least 3 days between letters.`
+          );
+        }
+      } else {
+        // Legacy format: DEF-YYYYMMDD-loanId.pdf
+        const legacyMatch = filename.match(/^DEF-(\d{4})(\d{2})(\d{2})-/);
+        if (legacyMatch) {
+          const [, y, m, d] = legacyMatch;
+          const letterDate = new Date(`${y}-${m}-${d}T00:00:00Z`);
+          const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSince < 3) {
+            throw new BadRequestError(
+              `A default letter was generated recently. Please wait at least 3 days between letters.`
+            );
+          }
+        }
+      }
+    }
+
+    // Gather fresh overdue data
+    const currentSchedule = loan.scheduleVersions[0];
+    if (!currentSchedule) {
+      throw new BadRequestError('Loan has no repayment schedule');
+    }
+
+    const overdueRepayments = currentSchedule.repayments
+      .filter(r => r.status !== 'PAID' && new Date(r.dueDate) < new Date())
+      .map((r) => {
+        const repIdx = currentSchedule.repayments.findIndex(ar => ar.id === r.id);
+        const totalDue = toSafeNumber(r.totalDue);
+        const paid = r.allocations.reduce((s, a) => safeAdd(s, toSafeNumber(a.amount)), 0);
+        return {
+          repaymentNumber: repIdx + 1,
+          dueDate: r.dueDate,
+          totalDue,
+          amountPaid: paid,
+          outstanding: safeSubtract(totalDue, paid),
+          lateFeeAccrued: toSafeNumber(r.lateFeeAccrued),
+          daysOverdue: Math.max(0, Math.floor((Date.now() - new Date(r.dueDate).getTime()) / (1000 * 60 * 60 * 24))),
+        };
+      });
+
+    if (overdueRepayments.length === 0) {
+      throw new BadRequestError('No overdue repayments found');
+    }
+
+    const totalOutstanding = overdueRepayments.reduce((s, r) => safeAdd(s, r.outstanding), 0);
+    const totalLateFees = overdueRepayments.reduce((s, r) => safeAdd(s, r.lateFeeAccrued), 0);
+
+    const borrower = loan.borrower;
+    const letterPath = await generateDefaultLetter({
+      loan: {
+        id: loan.id,
+        principalAmount: loan.principalAmount,
+        interestRate: loan.interestRate,
+        term: loan.term,
+        disbursementDate: loan.disbursementDate,
+        totalLateFees: loan.totalLateFees,
+      },
+      borrower: {
+        displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName
+          ? borrower.companyName
+          : borrower.name,
+        identificationNumber: borrower.icNumber,
+        address: borrower.address,
+      },
+      tenant: {
+        name: loan.tenant.name,
+        registrationNumber: loan.tenant.registrationNumber,
+        licenseNumber: loan.tenant.licenseNumber,
+        businessAddress: loan.tenant.businessAddress,
+        contactNumber: loan.tenant.contactNumber,
+        email: loan.tenant.email,
+        logoUrl: loan.tenant.logoUrl,
+      },
+      overdueRepayments,
+      totalOutstanding,
+      totalLateFees,
+    });
+
+    // Update loan with new letter path (old file is NOT deleted)
+    await prisma.loan.update({
+      where: { id: loan.id },
+      data: { defaultLetterPath: letterPath },
+    });
+
+    // Audit trail
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'GENERATE_DEFAULT_LETTER',
+      entityType: 'Loan',
+      entityId: loan.id,
+      previousData: { defaultLetterPath: loan.defaultLetterPath },
+      newData: { defaultLetterPath: letterPath },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      success: true,
+      data: { defaultLetterPath: letterPath },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Mark loan as defaulted
  * POST /api/loans/:loanId/mark-default
  * 
@@ -1993,6 +2311,20 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
         overdueRepayments,
         totalOutstanding,
         totalLateFees,
+      });
+
+      // Audit log: default letter generated (auto during mark-default)
+      await AuditService.log({
+        tenantId: req.tenantId!,
+        memberId: req.memberId,
+        action: 'GENERATE_DEFAULT_LETTER',
+        entityType: 'Loan',
+        entityId: loan.id,
+        newData: {
+          defaultLetterPath,
+          trigger: 'mark_default',
+        },
+        ipAddress: req.ip,
       });
     } catch (letterErr) {
       console.error('Failed to generate default letter:', letterErr);

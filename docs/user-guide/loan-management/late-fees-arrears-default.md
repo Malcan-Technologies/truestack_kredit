@@ -128,7 +128,31 @@ The arrears notice letter:
 - States a **deadline** for settlement (based on the arrears period days from the letter date)
 - Warns that failure to settle by the deadline may result in the loan being classified as defaulted and legal action may be initiated
 
-The letter can be downloaded from the loan detail page under **Quick Info → Arrears Letter**.
+The letter can be downloaded from the loan detail page under **Quick Info → Letters → Arrears Notice**.
+
+### Regenerating the Arrears Notice Letter
+
+The initial arrears letter is generated automatically when the loan first enters arrears. However, as late fees continue to accrue and the outstanding amounts change, the original letter may become outdated. Admins can manually generate a **new arrears letter** with up-to-date figures.
+
+**When to regenerate:**
+
+- Late fees have increased significantly since the last letter
+- You need a current letter to send to the borrower or for legal purposes
+- The borrower has made a partial payment and you need a letter reflecting the updated balance
+
+**How to regenerate:**
+
+1. Navigate to the loan detail page
+2. In the **Quick Info** card on the right, find the **Letters** section
+3. Click **"Regenerate Arrears Letter"**
+4. The new letter is generated with the latest outstanding amounts and late fees
+
+**Important notes:**
+
+- A **3-day cooldown** applies — you must wait at least 3 days between generating arrears letters (auto or manual)
+- Old letters are **never deleted** — each generation creates a new file. The download link always points to the most recent letter
+- The letter generation is recorded in the loan's **audit trail / timeline**
+- This option is available for loans in **In Arrears** or **Defaulted** status
 
 ---
 
@@ -171,7 +195,19 @@ The default notice letter:
 - Lists the consequences of default (demand for immediate repayment, additional charges, legal proceedings, credit reporting)
 - Urges the borrower to make immediate contact
 
-The letter can be downloaded from the loan detail page under **Quick Info → Default Letter**.
+The letter can be downloaded from the loan detail page under **Quick Info → Letters → Default Notice**.
+
+### Regenerating Letters for Defaulted Loans
+
+For loans in **Defaulted** status, admins can regenerate **both** the arrears letter and the default letter independently. This is useful when:
+
+- Additional late fees have accumulated since the last letter
+- Partial payments have changed the outstanding balance
+- You need updated documentation for legal proceedings
+
+To regenerate, go to the loan detail page and use the **"Regenerate Arrears Letter"** or **"Regenerate Default Letter"** buttons in the **Quick Info → Letters** section.
+
+The same **3-day cooldown** applies to each letter type independently. Old letters are preserved on disk and are never overwritten. Each generation is logged in the audit trail.
 
 ---
 
@@ -222,8 +258,8 @@ On the individual loan detail page:
 
 - **Repayment Schedule** — Each repayment row shows its accrued late fees and how much has been paid
 - **Next Payment Due** — The outstanding amount includes any unpaid late fees
-- **Quick Info Card** — Shows total late fees, "Ready for Default" status, and download links for arrears and default letters
-- **Audit Trail** — Shows all late fee processing events, status changes, and letter generation events
+- **Quick Info Card** — Shows total late fees, "Ready for Default" status, download links for arrears and default letters, and buttons to regenerate letters
+- **Audit Trail** — Shows all late fee processing events, status changes, and letter generation events (both auto and manual)
 
 ---
 
@@ -262,6 +298,14 @@ No. Late fees continue to accrue on all overdue repayments even after a loan has
 ### What if a borrower pays after entering arrears?
 
 If the borrower settles all overdue amounts (including late fees), the repayment statuses are updated accordingly. However, the arrears notice letter remains on record as part of the audit trail.
+
+### Can I regenerate the arrears or default letter?
+
+Yes. You can manually regenerate these letters from the loan detail page under **Quick Info → Letters**. The new letter will use the latest outstanding amounts and late fees. A 3-day cooldown applies between each generation to prevent excessive letter creation. Old letters are never deleted — the system always creates a new file.
+
+### What happens to old letters when I regenerate?
+
+Old letter files are preserved on the server. The download link on the loan detail page always points to the most recently generated letter. Each letter generation (auto or manual) is recorded in the loan's audit trail.
 
 ### Can I run late fee processing for only my company's loans?
 

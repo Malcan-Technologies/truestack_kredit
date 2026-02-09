@@ -171,7 +171,7 @@ export function TenantSwitcher({ className }: TenantSwitcherProps) {
         <Button
           variant="ghost"
           className={cn(
-            "w-full justify-between px-4 py-6 h-auto border-b border-border rounded-none hover:bg-surface",
+            "w-full justify-between px-4 py-6 h-auto border-b border-border rounded-none hover:bg-surface hover:text-foreground",
             className
           )}
           disabled={switching}

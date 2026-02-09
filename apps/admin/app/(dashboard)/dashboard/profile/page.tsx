@@ -1,17 +1,42 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { UserCircle, Gift, Copy, Share2 } from "lucide-react";
+import { UserCircle, Gift, Copy, Share2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useSession, updateUser } from "@/lib/auth-client";
+import { formatCurrency, formatDate } from "@/lib/utils";
 
 interface CurrentMembership {
   role: string;
   referrer: { id: string; name: string | null; email: string } | null;
+}
+
+interface ReferralData {
+  id: string;
+  referredUserEmail: string;
+  referredUserName: string | null;
+  referralCode: string;
+  rewardAmount: number;
+  isEligible: boolean;
+  isPaid: boolean;
+  eligibleAt: string;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+interface ReferralsResponse {
+  total: number;
+  eligible: number;
+  paid: number;
+  unpaid: number;
+  totalRewards: number;
+  paidRewards: number;
+  referrals: ReferralData[];
 }
 
 export default function ProfilePage() {
@@ -22,6 +47,8 @@ export default function ProfilePage() {
   const [profileName, setProfileName] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [loadingReferralCode, setLoadingReferralCode] = useState(false);
+  const [referrals, setReferrals] = useState<ReferralsResponse | null>(null);
+  const [loadingReferrals, setLoadingReferrals] = useState(false);
 
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const currentUser = session?.user;
@@ -68,10 +95,30 @@ export default function ProfilePage() {
     setLoadingReferralCode(false);
   };
 
+  const fetchReferrals = async () => {
+    if (!session) return;
+    
+    setLoadingReferrals(true);
+    try {
+      const res = await fetch("/api/proxy/referrals", { credentials: "include" });
+      const data = await res.json();
+      
+      if (data.success && data.data) {
+        setReferrals(data.data);
+      } else {
+        console.error("Failed to fetch referrals:", data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch referrals:", error);
+    }
+    setLoadingReferrals(false);
+  };
+
   useEffect(() => {
     if (session) {
       fetchData();
       fetchReferralCode();
+      fetchReferrals();
     }
   }, [session]);
 
@@ -108,17 +155,17 @@ export default function ProfilePage() {
     setSavingProfile(false);
   };
 
-  // Build referral link and share message
+  // Build referral link and share message (code is 6 alphanumeric, no prefix)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const displayCode = referralCode ? `INV-${referralCode}` : null;
+  const displayCode = referralCode ?? null;
   const referralLink = referralCode ? `${appUrl}/signup?ref=${referralCode}` : null;
 
   const shareMessage = referralCode && referralLink
     ? `Hi! If you're signing up for TrueKredit, feel free to use my referral code 🤩. It helps track my invites on the platform.
 
-Referral Code: INV-SNMZ9K 
+Referral Code: ${referralCode}
 
-Sign up here: http://localhost:3000/signup?ref=SNMZ9K`
+Sign up here: ${referralLink}`
     : "";
 
   const handleCopyCode = async () => {
@@ -312,10 +359,110 @@ Sign up here: http://localhost:3000/signup?ref=SNMZ9K`
                   disabled={!shareMessage}
                 >
                   <Share2 className="h-4 w-4 mr-2" />
-                  Share
+                  Share as Link
                 </Button>
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* My Referrals */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <Users className="h-5 w-5 text-accent" />
+            <div>
+              <CardTitle>My Referrals</CardTitle>
+              <CardDescription>Track users you've referred and rewards</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingReferrals ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="h-20 bg-surface rounded animate-pulse" />
+                ))}
+              </div>
+              <div className="h-64 bg-surface rounded animate-pulse" />
+            </div>
+          ) : referrals ? (
+            <>
+              {/* Summary stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div>
+                  <p className="text-xs text-muted-foreground">Total Referrals</p>
+                  <p className="text-2xl font-bold">{referrals.total}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Eligible</p>
+                  <p className="text-2xl font-bold text-green-500">{referrals.eligible}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Paid</p>
+                  <p className="text-2xl font-bold text-blue-500">{referrals.paid}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Total Rewards</p>
+                  <p className="text-2xl font-bold">{formatCurrency(referrals.totalRewards / 100)}</p>
+                </div>
+              </div>
+
+              {/* Referrals table */}
+              {referrals.referrals.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No referrals yet. Share your code to start earning rewards!</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>User</TableHead>
+                        <TableHead>Code Used</TableHead>
+                        <TableHead>Reward</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {referrals.referrals.map((referral) => (
+                        <TableRow key={referral.id}>
+                          <TableCell className="font-medium">
+                            {referral.referredUserName || referral.referredUserEmail}
+                            {referral.referredUserName && (
+                              <div className="text-xs text-muted-foreground">
+                                {referral.referredUserEmail}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-sm">{referral.referralCode}</span>
+                          </TableCell>
+                          <TableCell>{formatCurrency(referral.rewardAmount / 100)}</TableCell>
+                          <TableCell>
+                            {referral.isPaid ? (
+                              <Badge variant="default" className="bg-blue-500 text-black">Paid</Badge>
+                            ) : (
+                              <Badge variant="default" className="bg-green-500 text-black">Eligible</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm">{formatDate(referral.createdAt)}</span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>Failed to load referrals</p>
+            </div>
           )}
         </CardContent>
       </Card>

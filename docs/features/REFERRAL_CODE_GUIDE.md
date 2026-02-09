@@ -171,7 +171,7 @@ Add a new card below the Profile card.
 
 **Content:**
 
-* Referral Code (e.g. `INV-7K3P9A`)
+* Referral Code (6 alphanumeric, e.g. `7K3P9A`)
 * Referral Link
   `https://app.<domain>/signup?ref=<code>`
 

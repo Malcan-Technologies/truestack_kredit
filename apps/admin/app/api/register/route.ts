@@ -5,6 +5,42 @@ import { z } from "zod";
 
 const prisma = new PrismaClient();
 
+const REFERRAL_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+function generateReferralCode(): string {
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += REFERRAL_CHARS[Math.floor(Math.random() * REFERRAL_CHARS.length)];
+  }
+  return code;
+}
+
+async function ensureReferralCode(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { referralCode: true },
+  });
+  if (user?.referralCode) return;
+  const maxAttempts = 5;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const code = generateReferralCode();
+    try {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { referralCode: code },
+      });
+      return;
+    } catch (err: unknown) {
+      const isConflict =
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        (err as { code?: string }).code === "P2002";
+      if (!isConflict || attempt === maxAttempts - 1) throw err;
+    }
+  }
+}
+
 const registerSchema = z.object({
   tenantName: z.string().min(2).max(100),
   tenantSlug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
@@ -52,11 +88,11 @@ export async function POST(request: NextRequest) {
     // Optional: validate referral code and resolve referrer for referredById
     let referrerId: string | null = null;
     if (data.referralCode) {
-      const code = data.referralCode.replace(/^INV-/i, "").trim();
-      const referrer = await prisma.user.findFirst({
+      const code = data.referralCode.replace(/^INV-/i, "").trim().toUpperCase().slice(0, 6);
+      const referrer = code.length === 6 ? await prisma.user.findFirst({
         where: { referralCode: code },
         select: { id: true },
-      });
+      }) : null;
       if (!referrer) {
         delete (data as { referralCode?: string }).referralCode;
       } else {
@@ -133,7 +169,25 @@ export async function POST(request: NextRequest) {
         where: { id: signUpResult.user.id },
         data: { referredById: referrerId },
       });
+
+      // Create Referral record when valid referral code was used
+      if (data.referralCode) {
+        const code = data.referralCode.replace(/^INV-/i, "").trim().toUpperCase().slice(0, 6);
+        await prisma.referral.create({
+          data: {
+            referralCode: code,
+            referrerUserId: referrerId,
+            referredUserId: signUpResult.user.id,
+            rewardAmount: 49900, // RM499 in cents
+            isEligible: true,
+            eligibleAt: new Date(),
+          },
+        });
+      }
     }
+
+    // Auto-generate referral code for the new user so they always have one
+    await ensureReferralCode(signUpResult.user.id);
 
     // Update the session with active tenant (Better Auth returns token at top level)
     if (signUpResult.token) {

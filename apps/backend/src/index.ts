@@ -19,6 +19,7 @@ import scheduleRoutes from './modules/schedules/routes.js';
 import complianceRoutes from './modules/compliance/routes.js';
 import notificationRoutes from './modules/notifications/routes.js';
 import docsRoutes from './modules/docs/routes.js';
+import referralsRoutes from './modules/referrals/routes.js';
 
 const app = express();
 
@@ -54,6 +55,7 @@ app.use('/api/schedules', scheduleRoutes);
 app.use('/api/compliance', complianceRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/docs', docsRoutes);
+app.use('/api/referrals', referralsRoutes);
 
 // Error handling
 app.use(errorHandler);

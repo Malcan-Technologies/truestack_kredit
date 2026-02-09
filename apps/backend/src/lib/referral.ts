@@ -9,19 +9,17 @@ const REFERRAL_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 
 /**
  * Generate a unique referral code
- * - Format: 6-8 uppercase alphanumeric characters
+ * - Format: exactly 6 uppercase alphanumeric characters
  * - Excludes ambiguous characters (0, O, I, 1, L)
- * - Example: 7K3P9A
+ * - Uniqueness enforced by DB + retry on collision
  */
 function generateReferralCode(): string {
-  const length = 6 + Math.floor(Math.random() * 3); // 6-8 characters
+  const length = 6;
   let code = '';
-  
   for (let i = 0; i < length; i++) {
     const randomIndex = Math.floor(Math.random() * REFERRAL_CHARS.length);
     code += REFERRAL_CHARS[randomIndex];
   }
-  
   return code;
 }
 

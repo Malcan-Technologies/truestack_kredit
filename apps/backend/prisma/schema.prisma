@@ -168,9 +168,44 @@ model User {
   referrer       User?    @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
   referredUsers  User[]   @relation("UserReferrals")
 
+  // Referral relations (profile-level, not tenant-level)
+  referralsGiven   Referral[] @relation("Referrer")
+  referralReceived Referral?  @relation("Referred")
+
   @@index([email])
   @@index([referralCode])
   @@index([referredById])
+}
+
+// Referral - Profile-to-profile referral tracking with eligibility and payout status
+model Referral {
+  id              String   @id @default(cuid())
+  
+  // Referral details
+  referralCode    String   // The code that was used (6 alphanumeric)
+  rewardAmount    Int      // Stored in cents (RM499 = 49900)
+  
+  // User relationships (profile-to-profile)
+  referrerUserId  String
+  referredUserId  String   @unique // One referral per profile
+  
+  // Eligibility and payout tracking
+  isEligible      Boolean  @default(true)  // Eligible immediately on signup
+  isPaid          Boolean  @default(false)
+  
+  eligibleAt      DateTime @default(now())  // Set when referral is created
+  paidAt          DateTime?                 // Set when marked as paid
+  
+  // Relations
+  referrer        User     @relation("Referrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  referredUser    User     @relation("Referred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([referrerUserId])
+  @@index([referralCode])
+  @@index([isEligible, isPaid])
 }
 
 // TenantMember - Junction table for multi-tenant access

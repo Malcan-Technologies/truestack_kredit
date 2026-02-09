@@ -52,12 +52,12 @@ function RegisterForm() {
     referralCode: "",
   });
 
-  // Pre-fill optional referral code from URL (?ref=CODE or ?ref=INV-CODE)
+  // Pre-fill optional referral code from URL (?ref=CODE); strip legacy INV- if present
   useEffect(() => {
     const ref = searchParams.get("ref");
     if (ref && typeof ref === "string") {
-      const code = ref.startsWith("INV-") ? ref : `INV-${ref}`;
-      setFormData((prev) => ({ ...prev, referralCode: code }));
+      const code = ref.replace(/^INV-/i, "").trim().toUpperCase().slice(0, 6);
+      if (code) setFormData((prev) => ({ ...prev, referralCode: code }));
     }
   }, [searchParams]);
 
@@ -269,7 +269,7 @@ function RegisterForm() {
               <Input
                 id="referralCode"
                 type="text"
-                placeholder="e.g. INV-ABC123"
+                placeholder="e.g. ABC123"
                 value={formData.referralCode}
                 onChange={(e) =>
                   setFormData({ ...formData, referralCode: e.target.value.trim() })

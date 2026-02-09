@@ -102,3 +102,32 @@ JavaScript floating-point arithmetic causes precision issues (e.g., `0.1 + 0.2 =
 - Hover/title attributes can show full date when using relative time.
 - **Never use raw arithmetic (`+`, `-`, `*`, `/`) for currency calculations.**
 - Use `toSafeNumber()` when converting API response strings to numbers.
+
+---
+
+## 7) Tooltips
+
+Use the ShadCN `Tooltip` / `TooltipContent` component from `@/components/ui/tooltip`. **Never override the default text color.** The component uses `bg-primary text-primary-foreground` which works in both light and dark modes.
+
+```tsx
+// ✅ GOOD — uses default styling, inherits text color
+<TooltipContent>
+  <p>Primary tooltip text</p>
+  <p className="opacity-70 text-xs mt-1">Secondary / helper text</p>
+</TooltipContent>
+
+// ✅ GOOD — constrain width for longer content
+<TooltipContent className="max-w-xs">
+  <p>Longer tooltip text that needs wrapping</p>
+</TooltipContent>
+
+// ❌ BAD — custom text colors break light/dark mode consistency
+<TooltipContent>
+  <p className="text-popover-foreground">...</p>
+  <p className="text-muted-foreground">...</p>
+</TooltipContent>
+```
+
+- Use `className="max-w-xs"` on `TooltipContent` when content is longer than a short phrase.
+- For secondary/helper text, use `opacity-70 text-xs` to dim it while inheriting the correct color.
+- Keep tooltip text concise — max 1-2 sentences.

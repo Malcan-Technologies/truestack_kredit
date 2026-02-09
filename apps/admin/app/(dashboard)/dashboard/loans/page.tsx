@@ -322,7 +322,7 @@ export default function LoansPage() {
           <h1 className="text-2xl font-heading font-bold text-gradient">Loans</h1>
           <p className="text-muted">View and manage active loans</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
+        <div>
           <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -340,11 +340,9 @@ export default function LoansPage() {
                   Process Late Fees
                 </Button>
               </TooltipTrigger>
-              <TooltipContent className="max-w-xs">
-                <div className="space-y-1">
-                  <p className="text-popover-foreground">Manually process late fees for overdue loans. Catches up any missed days automatically.</p>
-                  <p className="text-popover-foreground/70 text-xs">Late fees are also automatically processed daily at 12:30 AM (GMT+8). Safe to run multiple times — no double-charging.</p>
-                </div>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <p>Manually process late fees for overdue loans.</p>
+                <p className="opacity-70 text-xs mt-1">Late fees are also automatically processed daily at 12:30 AM (GMT+8).</p>
               </TooltipContent>
             </Tooltip>
             <Link href="/dashboard/applications">
@@ -352,9 +350,9 @@ export default function LoansPage() {
             </Link>
           </div>
           {lateFeeStatus?.lastRun && (
-            <span className="text-muted-foreground text-xs">
-              <Clock className="inline h-3 w-3 mr-1" />
-              Last run: {formatSmartDateTime(lateFeeStatus.lastRun)} ({lateFeeStatus.lastTrigger})
+            <span className="text-muted-foreground text-xs mt-2 ml-1 block">
+              {/* <Clock className="inline h-3 w-3 mr-1" /> */}
+              Last run: {formatSmartDateTime(lateFeeStatus.lastRun)}
             </span>
           )}
         </div>

@@ -735,20 +735,10 @@ export default function LoanDetailPage() {
     setActionLoading(null);
   };
 
-  const handleUpdateStatus = async () => {
+  const handleRefreshPage = async () => {
     setActionLoading("status");
-    const res = await api.post(`/api/loans/${loanId}/update-status`, {});
-    if (res.success) {
-      const data = res.data as { statusChanged: boolean; newStatus: string };
-      if (data.statusChanged) {
-        toast.success(`Loan status updated to ${data.newStatus.replace(/_/g, " ")}`);
-      } else {
-        toast.info("Loan status unchanged");
-      }
-      await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
-    } else {
-      toast.error(res.error || "Failed to update status");
-    }
+    await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+    toast.success("Loan data refreshed");
     setActionLoading(null);
   };
 
@@ -1074,16 +1064,16 @@ export default function LoanDetailPage() {
               Disburse Loan
             </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={handleRefreshPage}
+            disabled={actionLoading === "status"}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${actionLoading === "status" ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
           {(loan.status === "ACTIVE" || loan.status === "IN_ARREARS") && (
             <>
-              <Button
-                variant="outline"
-                onClick={handleUpdateStatus}
-                disabled={actionLoading === "status"}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${actionLoading === "status" ? "animate-spin" : ""}`} />
-                Check Status
-              </Button>
               {canComplete && (
                 <Button onClick={() => setShowCompleteDialog(true)}>
                   <CheckCircle className="h-4 w-4 mr-2" />

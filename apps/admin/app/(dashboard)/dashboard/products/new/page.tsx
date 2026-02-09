@@ -645,7 +645,7 @@ export default function NewProductPage() {
                       value={formData.arrearsPeriod}
                       onChange={(e) => setFormData({ ...formData, arrearsPeriod: parseInt(e.target.value) || 14 })}
                     />
-                    <p className="text-xs text-muted-foreground">Days after missed payment before loan is flagged as at-risk</p>
+                    <p className="text-xs text-muted-foreground">Days after missed payment before loan is flagged as at-risk. Arrears notice will be auto-generated.</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Default Period (days) *</Label>
@@ -656,7 +656,7 @@ export default function NewProductPage() {
                       value={formData.defaultPeriod}
                       onChange={(e) => setFormData({ ...formData, defaultPeriod: parseInt(e.target.value) || 28 })}
                     />
-                    <p className="text-xs text-muted-foreground">Days after missed payment before loan is marked as defaulted</p>
+                    <p className="text-xs text-muted-foreground">Days after missed payment before loan is flagged to bemarked as defaulted</p>
                   </div>
                 </div>
               </div>

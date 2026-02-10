@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -261,9 +261,10 @@ export default function CompliancePage() {
         </TabsList>
 
         {/* ===== Tab: KPKT Regulatory ===== */}
-        <TabsContent value="regulatory" className="space-y-6">
+        <TabsContent value="regulatory">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* KPKT Portal Export Card */}
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -277,7 +278,7 @@ export default function CompliancePage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="flex-1 flex flex-col space-y-4">
               {/* Filters */}
               <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -359,28 +360,27 @@ export default function CompliancePage() {
                 </div>
               </div>
 
-              {/* Export button */}
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted">
-                  Export loans for <span className="font-medium text-foreground">{kpktYear}</span>
-                  {kpktStatus !== "all" && (
-                    <> with status <Badge variant="secondary" className="mx-1">{kpktStatus.replace("_", " ")}</Badge></>
-                  )}
-                  {" "}in KPKT format
-                </p>
-                <Button onClick={handleExportKPKT} disabled={exporting === "kpkt"} className="gap-2">
-                  {exporting === "kpkt" ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
-                  ) : (
-                    <><Download className="h-4 w-4" />Export KPKT CSV</>
-                  )}
-                </Button>
-              </div>
             </CardContent>
+            <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
+              <p className="text-sm text-muted">
+                Export loans for <span className="font-medium text-foreground">{kpktYear}</span>
+                {kpktStatus !== "all" && (
+                  <> with status <Badge variant="secondary" className="mx-1">{kpktStatus.replace("_", " ")}</Badge></>
+                )}
+                {" "}in KPKT format
+              </p>
+              <Button onClick={handleExportKPKT} disabled={exporting === "kpkt"} className="gap-2">
+                {exporting === "kpkt" ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
+                ) : (
+                  <><Download className="h-4 w-4" />Export KPKT CSV</>
+                )}
+              </Button>
+            </CardFooter>
           </Card>
 
           {/* Lampiran A Card */}
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -390,12 +390,12 @@ export default function CompliancePage() {
                   <CardTitle className="text-lg">Lampiran A (Lejar Akaun Peminjam)</CardTitle>
                   <CardDescription>
                     Bulk export all Borrower Account Ledger PDFs as a ZIP archive, filtered by year.
-                    For individual loans, use the download button on each loan detail page.
+                    
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="flex-1 flex flex-col space-y-4">
               {/* Year filter */}
               <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -413,12 +413,12 @@ export default function CompliancePage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
+                  {/* <div className="space-y-2">
                     <Label className="text-sm font-medium invisible">Spacer</Label>
                     <p className="text-sm text-muted pt-2">
                       All disbursed loans for the selected year will be included in the ZIP file
                     </p>
-                  </div>
+                  </div> */}
                 </div>
               </div>
 
@@ -459,27 +459,28 @@ export default function CompliancePage() {
                 </div>
               </div>
 
-              {/* Export button */}
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted">
-                  Bulk export all Lampiran A PDFs for <span className="font-medium text-foreground">{lampiranYear}</span> as ZIP
-                </p>
-                <Button onClick={handleExportLampiranABulk} disabled={exporting === "lampiran-bulk"} className="gap-2">
-                  {exporting === "lampiran-bulk" ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" />Generating ZIP...</>
-                  ) : (
-                    <><Archive className="h-4 w-4" />Download All (ZIP)</>
-                  )}
-                </Button>
-              </div>
             </CardContent>
+            <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
+              <p className="text-sm text-muted">
+                Bulk export all Lampiran A PDFs for <span className="font-medium text-foreground">{lampiranYear}</span> as ZIP
+              </p>
+              <Button onClick={handleExportLampiranABulk} disabled={exporting === "lampiran-bulk"} className="gap-2">
+                {exporting === "lampiran-bulk" ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Generating ZIP...</>
+                ) : (
+                  <><Archive className="h-4 w-4" />Download All (ZIP)</>
+                )}
+              </Button>
+            </CardFooter>
           </Card>
+          </div>
         </TabsContent>
 
         {/* ===== Tab: Data Exports ===== */}
-        <TabsContent value="data" className="space-y-6">
+        <TabsContent value="data">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Borrowers Export */}
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -493,7 +494,7 @@ export default function CompliancePage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="flex-1 flex flex-col space-y-4">
               <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
@@ -591,30 +592,30 @@ export default function CompliancePage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted">
-                  {borrowerType !== "all" && (
-                    <Badge variant="secondary" className="mr-2">
-                      {borrowerType === "INDIVIDUAL" ? "Individual" : "Corporate"}
-                    </Badge>
-                  )}
-                  {borrowerStartDate && <span>from {formatDate(borrowerStartDate)} </span>}
-                  {borrowerEndDate && <span>to {formatDate(borrowerEndDate)}</span>}
-                  {borrowerType === "all" && !borrowerStartDate && !borrowerEndDate && "Export all borrowers"}
-                </p>
-                <Button onClick={handleExportBorrowers} disabled={exporting === "borrowers"} className="gap-2">
-                  {exporting === "borrowers" ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
-                  ) : (
-                    <><Download className="h-4 w-4" />Export to CSV</>
-                  )}
-                </Button>
-              </div>
             </CardContent>
+            <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
+              <p className="text-sm text-muted">
+                {borrowerType !== "all" && (
+                  <Badge variant="secondary" className="mr-2">
+                    {borrowerType === "INDIVIDUAL" ? "Individual" : "Corporate"}
+                  </Badge>
+                )}
+                {borrowerStartDate && <span>from {formatDate(borrowerStartDate)} </span>}
+                {borrowerEndDate && <span>to {formatDate(borrowerEndDate)}</span>}
+                {borrowerType === "all" && !borrowerStartDate && !borrowerEndDate && "Export all borrowers"}
+              </p>
+              <Button onClick={handleExportBorrowers} disabled={exporting === "borrowers"} className="gap-2">
+                {exporting === "borrowers" ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
+                ) : (
+                  <><Download className="h-4 w-4" />Export to CSV</>
+                )}
+              </Button>
+            </CardFooter>
           </Card>
 
           {/* Loans Export */}
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -628,7 +629,7 @@ export default function CompliancePage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="flex-1 flex flex-col space-y-4">
               <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
@@ -674,30 +675,31 @@ export default function CompliancePage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted">
-                  {loanStatus !== "all" && <Badge variant="secondary" className="mr-2">{loanStatus}</Badge>}
-                  {loanStartDate && <span>from {formatDate(loanStartDate)} </span>}
-                  {loanEndDate && <span>to {formatDate(loanEndDate)}</span>}
-                  {loanStatus === "all" && !loanStartDate && !loanEndDate && "Export all loans"}
-                </p>
-                <Button onClick={handleExportLoans} disabled={exporting === "loans"} className="gap-2">
-                  {exporting === "loans" ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
-                  ) : (
-                    <><Download className="h-4 w-4" />Export to CSV</>
-                  )}
-                </Button>
-              </div>
             </CardContent>
+            <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
+              <p className="text-sm text-muted">
+                {loanStatus !== "all" && <Badge variant="secondary" className="mr-2">{loanStatus}</Badge>}
+                {loanStartDate && <span>from {formatDate(loanStartDate)} </span>}
+                {loanEndDate && <span>to {formatDate(loanEndDate)}</span>}
+                {loanStatus === "all" && !loanStartDate && !loanEndDate && "Export all loans"}
+              </p>
+              <Button onClick={handleExportLoans} disabled={exporting === "loans"} className="gap-2">
+                {exporting === "loans" ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
+                ) : (
+                  <><Download className="h-4 w-4" />Export to CSV</>
+                )}
+              </Button>
+            </CardFooter>
           </Card>
+          </div>
         </TabsContent>
 
         {/* ===== Tab: Reports ===== */}
         <TabsContent value="reports" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Overdue / NPL Report */}
-            <Card>
+            <Card className="flex flex-col">
               <CardHeader>
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-lg bg-destructive/10 flex items-center justify-center">
@@ -711,7 +713,7 @@ export default function CompliancePage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="flex-1 flex flex-col space-y-4">
                 <div className="p-4 bg-surface rounded-lg border border-border">
                   <h4 className="font-medium mb-2 text-sm">Report Columns</h4>
                   <div className="grid grid-cols-2 gap-2 text-xs text-muted">
@@ -730,20 +732,20 @@ export default function CompliancePage() {
                   </div>
                 </div>
 
-                <div className="flex justify-end">
-                  <Button onClick={handleExportOverdue} disabled={exporting === "overdue"} className="gap-2">
-                    {exporting === "overdue" ? (
-                      <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
-                    ) : (
-                      <><Download className="h-4 w-4" />Export Overdue Report</>
-                    )}
-                  </Button>
-                </div>
               </CardContent>
+              <CardFooter className="flex justify-end gap-4 border-t border-border pt-6 mt-auto">
+                <Button onClick={handleExportOverdue} disabled={exporting === "overdue"} className="gap-2">
+                  {exporting === "overdue" ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
+                  ) : (
+                    <><Download className="h-4 w-4" />Export Overdue Report</>
+                  )}
+                </Button>
+              </CardFooter>
             </Card>
 
             {/* Collection Summary */}
-            <Card>
+            <Card className="flex flex-col">
               <CardHeader>
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -757,7 +759,7 @@ export default function CompliancePage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="flex-1 flex flex-col space-y-4">
                 <div className="p-4 bg-surface rounded-lg border border-border">
                   <h4 className="font-medium mb-2 text-sm">Report Columns</h4>
                   <div className="grid grid-cols-2 gap-2 text-xs text-muted">
@@ -776,29 +778,29 @@ export default function CompliancePage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm">Period:</Label>
-                    <Select value={collectionMonths} onValueChange={setCollectionMonths}>
-                      <SelectTrigger className="w-36">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="6">Last 6 months</SelectItem>
-                        <SelectItem value="12">Last 12 months</SelectItem>
-                        <SelectItem value="24">Last 24 months</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button onClick={handleExportCollectionSummary} disabled={exporting === "collection"} className="gap-2">
-                    {exporting === "collection" ? (
-                      <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
-                    ) : (
-                      <><Download className="h-4 w-4" />Export Summary</>
-                    )}
-                  </Button>
-                </div>
               </CardContent>
+              <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">Period:</Label>
+                  <Select value={collectionMonths} onValueChange={setCollectionMonths}>
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="6">Last 6 months</SelectItem>
+                      <SelectItem value="12">Last 12 months</SelectItem>
+                      <SelectItem value="24">Last 24 months</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={handleExportCollectionSummary} disabled={exporting === "collection"} className="gap-2">
+                  {exporting === "collection" ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />Exporting...</>
+                  ) : (
+                    <><Download className="h-4 w-4" />Export Summary</>
+                  )}
+                </Button>
+              </CardFooter>
             </Card>
           </div>
         </TabsContent>

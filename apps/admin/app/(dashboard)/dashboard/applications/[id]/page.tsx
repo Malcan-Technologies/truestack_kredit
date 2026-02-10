@@ -107,6 +107,10 @@ interface Application {
     requiredDocuments: RequiredDocument[];
     eligibleBorrowerTypes: string;
     loanScheduleType: string;
+    earlySettlementEnabled: boolean;
+    earlySettlementLockInMonths: number;
+    earlySettlementDiscountType: string;
+    earlySettlementDiscountValue: string;
   };
   documents?: ApplicationDocument[];
   loan?: {
@@ -911,6 +915,16 @@ export default function ApplicationDetailPage() {
                 <span className="text-muted-foreground">Last Updated</span>
                 <span>{formatRelativeTime(application.updatedAt)}</span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Product</span>
+                <Link
+                  href={`/dashboard/products/${application.product.id}`}
+                  className="text-accent hover:underline inline-flex items-center gap-1"
+                >
+                  {application.product.name}
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Interest Model</span>
                 <span>{application.product.interestModel.replace("_", " ")}</span>
@@ -932,6 +946,26 @@ export default function ApplicationDetailPage() {
                       <span>{formatCurrency(toSafeNumber(application.collateralValue))}</span>
                     </div>
                   )}
+                </>
+              )}
+              {application.product.earlySettlementEnabled && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Early Settlement</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">Enabled</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Lock-in Period</span>
+                    <span>{application.product.earlySettlementLockInMonths > 0 ? `${application.product.earlySettlementLockInMonths} months` : "None"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Settlement Discount</span>
+                    <span>
+                      {application.product.earlySettlementDiscountType === "PERCENTAGE"
+                        ? `${application.product.earlySettlementDiscountValue}%`
+                        : `RM ${application.product.earlySettlementDiscountValue}`}
+                    </span>
+                  </div>
                 </>
               )}
               {application.loan && (

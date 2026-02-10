@@ -682,7 +682,7 @@ export class LateFeeProcessor {
     const readyToCompleteCount = readyToCompleteLoans.filter(loan => {
       const schedule = loan.scheduleVersions[0];
       if (!schedule || schedule.repayments.length === 0) return false;
-      return schedule.repayments.every(r => r.status === 'PAID');
+      return schedule.repayments.every(r => r.status === 'PAID' || r.status === 'CANCELLED');
     }).length;
 
     return {

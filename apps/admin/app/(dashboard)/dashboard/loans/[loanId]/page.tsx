@@ -43,6 +43,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -140,6 +146,12 @@ interface Loan {
   dischargeLetterPath: string | null;
   totalLateFees: string;
   repaymentRate: string | null;
+  // Early settlement fields
+  earlySettlementDate: string | null;
+  earlySettlementAmount: string | null;
+  earlySettlementDiscount: string | null;
+  earlySettlementNotes: string | null;
+  earlySettlementWaiveLateFees: boolean;
   readyForDefault: boolean;
   defaultReadyDate: string | null;
   arrearsStartDate: string | null;
@@ -186,6 +198,10 @@ interface Loan {
     legalFeeValue: string;
     stampingFeeType: string;
     stampingFeeValue: string;
+    earlySettlementEnabled: boolean;
+    earlySettlementLockInMonths: number;
+    earlySettlementDiscountType: string;
+    earlySettlementDiscountValue: string;
   };
   application: {
     id: string;
@@ -230,6 +246,11 @@ interface LoanMetrics {
   isInArrears: boolean;
   isDefaulted: boolean;
   progressPercent: number;
+  earlySettlement?: {
+    isEarlySettled: boolean;
+    settlementAmount: number | null;
+    discountAmount: number | null;
+  } | null;
 }
 
 interface TimelineEvent {
@@ -286,6 +307,7 @@ const repaymentStatusColors: Record<string, "default" | "success" | "warning" | 
   PARTIAL: "warning",
   PAID: "success",
   OVERDUE: "destructive",
+  CANCELLED: "secondary" as "default",
 };
 
 // ============================================
@@ -368,7 +390,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
       case "DELETE_RECEIPT":
         return { icon: Trash2, label: "Proof of Payment Deleted", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10" };
       case "STATUS_UPDATE":
-        return { icon: RefreshCw, label: "Status Updated", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10" };
+        return { icon: RefreshCw, label: "Status Updated", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
       case "COMPLETE":
         return { icon: CheckCircle, label: "Completed", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
       case "MARK_DEFAULT":
@@ -391,6 +413,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: FileText, label: "Arrears Letter Generated", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10" };
       case "GENERATE_DEFAULT_LETTER":
         return { icon: FileText, label: "Default Letter Generated", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+      case "GENERATE_DISCHARGE_LETTER":
+        return { icon: FileText, label: "Discharge Letter Generated", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+      case "EARLY_SETTLEMENT":
+        return { icon: Banknote, label: "Early Settlement", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+      case "EXPORT":
+        return { icon: Download, label: "Document Exported", color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10" };
       default:
         return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
     }
@@ -452,6 +480,53 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
             </div>
           );
         })()}
+        {event.newData && event.action === "STATUS_UPDATE" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          const prev = event.previousData as Record<string, unknown> | null;
+          const fromStatus = prev?.status as string | undefined;
+          const toStatus = data.status as string | undefined;
+          const reason = data.reason as string | undefined;
+          const isDefaultCleared = fromStatus === "DEFAULTED" && toStatus === "ACTIVE";
+          return (
+            <div className={`border rounded-lg p-3 ${isDefaultCleared ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"}`}>
+              <p className="text-xs text-muted-foreground">
+                {fromStatus && toStatus ? (
+                  <>
+                    <span className="font-medium">{fromStatus.replace(/_/g, " ")}</span>
+                    {" → "}
+                    <span className={`font-medium ${isDefaultCleared ? "text-emerald-600" : ""}`}>{toStatus.replace(/_/g, " ")}</span>
+                  </>
+                ) : (
+                  <span className="font-medium">{toStatus?.replace(/_/g, " ")}</span>
+                )}
+              </p>
+              {reason && (
+                <p className="text-xs text-muted-foreground mt-1">{reason}</p>
+              )}
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "EARLY_SETTLEMENT" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 space-y-1">
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Early Settlement</p>
+              <p className="text-xs text-muted-foreground">
+                Amount: <span className="font-medium">{formatCurrency(toSafeNumber(data.settlementAmount as number))}</span>
+                <span className="mx-1.5">|</span>
+                Discount: <span className="font-medium text-emerald-600">{formatCurrency(toSafeNumber(data.discountAmount as number))}</span>
+              </p>
+              {(data.waiveLateFees as boolean) && (
+                <p className="text-xs text-muted-foreground">Late fees waived</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Receipt: <span className="font-medium">{data.receiptNumber as string}</span>
+                <span className="mx-1.5">|</span>
+                {data.cancelledRepayments as number} installment{(data.cancelledRepayments as number) !== 1 ? "s" : ""} cancelled
+              </p>
+            </div>
+          );
+        })()}
         {event.newData && event.action === "DEFAULT_READY" && (() => {
           const data = event.newData as Record<string, unknown>;
           return (
@@ -460,6 +535,31 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
                 Days overdue: <span className="font-medium text-red-600">{data.daysOverdue as number}</span>
                 <span className="ml-2">(default period: {data.defaultPeriod as number} days)</span>
               </p>
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "EXPORT" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          const docType = data.documentType as string | undefined;
+          const docLabels: Record<string, string> = {
+            LAMPIRAN_A: "Lampiran A (Lejar Akaun Peminjam)",
+            KPKT: "KPKT Portal CSV",
+          };
+          const label = docType ? (docLabels[docType] || docType.replace(/_/g, " ")) : "Document";
+          return (
+            <div className="bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">
+                <Download className="inline h-3 w-3 mr-1 -mt-0.5" />
+                {label}
+              </p>
+              {typeof data.borrowerName === "string" && data.borrowerName && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Borrower: <span className="font-medium text-foreground">{data.borrowerName}</span>
+                  {typeof data.borrowerIc === "string" && data.borrowerIc && (
+                    <span className="ml-1.5 text-muted-foreground">({data.borrowerIc})</span>
+                  )}
+                </p>
+              )}
             </div>
           );
         })()}
@@ -496,6 +596,7 @@ export default function LoanDetailPage() {
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [showDefaultDialog, setShowDefaultDialog] = useState(false);
+  const [showEarlySettlementDialog, setShowEarlySettlementDialog] = useState(false);
 
   // Payment dialog state
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -507,6 +608,31 @@ export default function LoanDetailPage() {
 
   // Complete dialog state
   const [dischargeNotes, setDischargeNotes] = useState("");
+
+  // Early settlement state
+  interface EarlySettlementQuote {
+    eligible: boolean;
+    reason?: string;
+    remainingPrincipal?: number;
+    remainingInterest?: number;
+    remainingFutureInterest?: number;
+    discountType?: string;
+    discountValue?: number;
+    discountAmount?: number;
+    outstandingLateFees?: number;
+    totalWithoutLateFees?: number;
+    totalSettlement?: number;
+    totalSavings?: number;
+    lockInEndDate?: string | null;
+    unpaidInstallments?: number;
+  }
+  const [settlementQuote, setSettlementQuote] = useState<EarlySettlementQuote | null>(null);
+  const [settlementLoading, setSettlementLoading] = useState(false);
+  const [settlementReference, setSettlementReference] = useState("");
+  const [settlementNotes, setSettlementNotes] = useState("");
+  const [settlementPaymentDate, setSettlementPaymentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [settlementWaiveLateFees, setSettlementWaiveLateFees] = useState(false);
+  const [settlementProofFile, setSettlementProofFile] = useState<File | null>(null);
 
   // Default dialog state
   const [defaultReason, setDefaultReason] = useState("");
@@ -549,6 +675,9 @@ export default function LoanDetailPage() {
   const [showGenerateDefaultLetterDialog, setShowGenerateDefaultLetterDialog] = useState(false);
   const [generatingArrearsLetter, setGeneratingArrearsLetter] = useState(false);
   const [generatingDefaultLetter, setGeneratingDefaultLetter] = useState(false);
+
+  // Lampiran A download state
+  const [downloadingLampiranA, setDownloadingLampiranA] = useState(false);
 
   // ============================================
   // Data Fetching
@@ -724,8 +853,10 @@ export default function LoanDetailPage() {
     }
 
     // Show allocation breakdown in success message
-    const data = paymentRes.data as { allocationBreakdown?: { repaymentId: string; amount: number }[] };
-    if (data.allocationBreakdown && data.allocationBreakdown.length > 1) {
+    const data = paymentRes.data as { allocationBreakdown?: { repaymentId: string; amount: number }[]; defaultCleared?: boolean };
+    if (data.defaultCleared) {
+      toast.success("Payment recorded — default cleared! Loan is now active again.");
+    } else if (data.allocationBreakdown && data.allocationBreakdown.length > 1) {
       toast.success(`Payment recorded and allocated across ${data.allocationBreakdown.length} installments`);
     } else {
       toast.success("Payment recorded successfully");
@@ -749,6 +880,74 @@ export default function LoanDetailPage() {
       await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
     } else {
       toast.error(res.error || "Failed to complete loan");
+    }
+    setActionLoading(null);
+  };
+
+  const handleFetchSettlementQuote = async () => {
+    setSettlementLoading(true);
+    setSettlementQuote(null);
+    try {
+      const res = await api.get<EarlySettlementQuote>(`/api/loans/${loanId}/early-settlement/quote`);
+      if (res.success && res.data) {
+        setSettlementQuote(res.data);
+      } else {
+        toast.error(res.error || "Failed to fetch settlement quote");
+      }
+    } catch {
+      toast.error("Failed to fetch settlement quote");
+    }
+    setSettlementLoading(false);
+  };
+
+  const handleOpenEarlySettlement = () => {
+    setSettlementReference("");
+    setSettlementNotes("");
+    setSettlementPaymentDate(new Date().toISOString().split("T")[0]);
+    setSettlementWaiveLateFees(false);
+    setSettlementProofFile(null);
+    setShowEarlySettlementDialog(true);
+    handleFetchSettlementQuote();
+  };
+
+  const handleConfirmEarlySettlement = async () => {
+    setActionLoading("settlement");
+    try {
+      const res = await api.post(`/api/loans/${loanId}/early-settlement/confirm`, {
+        paymentDate: settlementPaymentDate ? new Date(settlementPaymentDate).toISOString() : undefined,
+        reference: settlementReference || undefined,
+        notes: settlementNotes || undefined,
+        waiveLateFees: settlementWaiveLateFees,
+      });
+      if (res.success) {
+        // Upload proof of payment if provided
+        const responseData = res.data as { transactionId?: string };
+        if (settlementProofFile && responseData?.transactionId) {
+          try {
+            const formData = new FormData();
+            formData.append("file", settlementProofFile);
+            const uploadRes = await fetch(`/api/proxy/schedules/transactions/${responseData.transactionId}/proof`, {
+              method: "POST",
+              credentials: "include",
+              body: formData,
+            });
+            const uploadJson = await uploadRes.json();
+            if (!uploadJson.success) {
+              toast.warning("Settlement completed but failed to upload proof of payment");
+            }
+          } catch {
+            toast.warning("Settlement completed but failed to upload proof of payment");
+          }
+        }
+
+        toast.success("Early settlement completed successfully. Loan is now discharged.");
+        setShowEarlySettlementDialog(false);
+        await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+      } else {
+        toast.error(res.error || "Failed to process early settlement");
+      }
+    } catch {
+      toast.error("Failed to process early settlement");
     }
     setActionLoading(null);
   };
@@ -810,6 +1009,44 @@ export default function LoanDetailPage() {
     setGeneratingDefaultLetter(false);
   };
 
+  // Handle Lampiran A PDF download
+  const handleDownloadLampiranA = async () => {
+    setDownloadingLampiranA(true);
+    try {
+      const response = await fetch(`/api/proxy/compliance/exports/lampiran-a/${loanId}`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        toast.error(errorData.error || "Failed to generate Lampiran A");
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const contentDisposition = response.headers.get("Content-Disposition");
+      const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
+      const filename = filenameMatch ? filenameMatch[1] : `Lampiran-A-${loanId.substring(0, 8)}.pdf`;
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Lampiran A downloaded successfully");
+
+      // Refresh timeline to show the new export audit entry
+      fetchTimeline();
+    } catch {
+      toast.error("Failed to generate Lampiran A");
+    }
+    setDownloadingLampiranA(false);
+  };
+
   const openPaymentDialog = () => {
     // Calculate next payment due amount (for the first unpaid/partial repayment)
     if (currentSchedule) {
@@ -818,7 +1055,9 @@ export default function LoanDetailPage() {
         const nextRepayment = unpaidRepayments[0];
         const paid = nextRepayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
         const remaining = safeSubtract(toSafeNumber(nextRepayment.totalDue), paid);
-        setPaymentAmount(remaining.toFixed(2));
+        const outstandingLateFees = Math.max(0, safeSubtract(toSafeNumber(nextRepayment.lateFeeAccrued), toSafeNumber(nextRepayment.lateFeesPaid)));
+        const totalRemaining = safeAdd(remaining, outstandingLateFees);
+        setPaymentAmount(totalRemaining.toFixed(2));
       }
     }
     setShowPaymentDialog(true);
@@ -1079,9 +1318,22 @@ export default function LoanDetailPage() {
     ? loan.borrower.companyName
     : loan.borrower.name;
 
-  // Check if all repayments are paid
-  const allRepaymentsPaid = currentSchedule?.repayments.every(r => r.status === "PAID") ?? false;
+  // Check if all repayments are paid (or cancelled via early settlement)
+  const allRepaymentsPaid = currentSchedule?.repayments.every(r => r.status === "PAID" || r.status === "CANCELLED") ?? false;
   const canComplete = (loan.status === "ACTIVE" || loan.status === "IN_ARREARS") && allRepaymentsPaid;
+
+  // Check if early settlement is available
+  const hasUnpaidRepayments = currentSchedule?.repayments.some(r => r.status !== "PAID" && r.status !== "CANCELLED") ?? false;
+  const canEarlySettle = (loan.status === "ACTIVE" || loan.status === "IN_ARREARS") 
+    && loan.product.earlySettlementEnabled 
+    && hasUnpaidRepayments;
+
+  // Determine early settlement disabled reason (for tooltip)
+  const earlySettlementDisabledReason = !hasUnpaidRepayments
+    ? "All repayments are already paid"
+    : !loan.product.earlySettlementEnabled
+      ? "Early settlement is not enabled for this product. Enable it in the product configuration."
+      : null;
 
   // ============================================
   // Main Render
@@ -1142,16 +1394,40 @@ export default function LoanDetailPage() {
           </Button>
           {(loan.status === "ACTIVE" || loan.status === "IN_ARREARS") && (
             <>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span tabIndex={0}>
+                      <Button
+                        variant="outline"
+                        onClick={handleOpenEarlySettlement}
+                        disabled={!canEarlySettle}
+                        className={!canEarlySettle ? "pointer-events-none opacity-50" : ""}
+                      >
+                        <Banknote className="h-4 w-4 mr-2" />
+                        Early Settlement
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {earlySettlementDisabledReason && (
+                    <TooltipContent className="max-w-xs">
+                      <p>{earlySettlementDisabledReason}</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
               {canComplete && (
                 <Button onClick={() => setShowCompleteDialog(true)}>
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Complete Loan
                 </Button>
               )}
-              <Button variant="destructive" onClick={() => setShowDefaultDialog(true)}>
-                <XCircle className="h-4 w-4 mr-2" />
-                Mark Default
-              </Button>
+              {loan.status === "IN_ARREARS" && (
+                <Button variant="destructive" onClick={() => setShowDefaultDialog(true)}>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Mark Default
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -1382,6 +1658,27 @@ export default function LoanDetailPage() {
                               Stamp Cert
                             </Button>
                           )}
+                          {loan.status !== "PENDING_DISBURSEMENT" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7"
+                              onClick={handleDownloadLampiranA}
+                              disabled={downloadingLampiranA}
+                            >
+                              {downloadingLampiranA ? (
+                                <>
+                                  <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                                  Generating...
+                                </>
+                              ) : (
+                                <>
+                                  <Download className="h-3 w-3 mr-1" />
+                                  Lampiran A
+                                </>
+                              )}
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1417,6 +1714,11 @@ export default function LoanDetailPage() {
                         <p className="text-sm text-muted-foreground">
                           of {formatCurrency(metrics.totalDue)}
                         </p>
+                        {metrics.earlySettlement?.discountAmount ? (
+                          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                            incl. {formatCurrency(metrics.earlySettlement.discountAmount)} discount
+                          </p>
+                        ) : null}
                         {metrics.totalDue - metrics.totalPaid > 0 && (
                           <p className="text-sm mt-1">
                             <span className="text-muted-foreground">Outstanding: </span>
@@ -1682,9 +1984,13 @@ export default function LoanDetailPage() {
                   <div className="flex-1">
                     <div className="flex items-start justify-between">
                       <div>
-                        <h3 className="font-semibold text-success">Loan Completed</h3>
+                        <h3 className="font-semibold text-success">
+                          {loan.earlySettlementDate ? "Early Settlement Completed" : "Loan Completed"}
+                        </h3>
                         <p className="text-sm text-muted-foreground">
-                          Completed on {loan.completedAt ? formatDate(loan.completedAt) : "N/A"}
+                          {loan.earlySettlementDate
+                            ? `Settled early on ${formatDate(loan.earlySettlementDate)}`
+                            : `Completed on ${loan.completedAt ? formatDate(loan.completedAt) : "N/A"}`}
                         </p>
                       </div>
                       <Button 
@@ -1696,14 +2002,95 @@ export default function LoanDetailPage() {
                         Discharge Letter
                       </Button>
                     </div>
-                    {loan.repaymentRate && (
+
+                    {/* Early Settlement Details */}
+                    {loan.earlySettlementDate && (() => {
+                      // Find the settlement transaction from cancelled repayments' allocations
+                      const cancelledRepayment = currentSchedule?.repayments.find(r => r.status === "CANCELLED");
+                      const settlementAlloc = cancelledRepayment?.allocations?.find(
+                        (a) => (a as { transaction?: { paymentType?: string } }).transaction?.paymentType === "EARLY_SETTLEMENT"
+                      );
+                      const settlementTx = (settlementAlloc as { transaction?: { id: string; receiptPath?: string; proofPath?: string } })?.transaction;
+
+                      return (
+                        <>
+                          <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-lg">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Settlement Amount</p>
+                              <p className="font-semibold">{formatCurrency(toSafeNumber(loan.earlySettlementAmount))}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Discount Given</p>
+                              <p className="font-semibold text-emerald-600">{formatCurrency(toSafeNumber(loan.earlySettlementDiscount))}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Late Fees</p>
+                              <p className="font-semibold">
+                                {loan.earlySettlementWaiveLateFees ? (
+                                  <span className="text-muted-foreground">Waived</span>
+                                ) : (
+                                  "Included"
+                                )}
+                              </p>
+                            </div>
+                            {loan.repaymentRate && (
+                              <div>
+                                <p className="text-xs text-muted-foreground">Repayment Rate</p>
+                                <p className="font-semibold">{toSafeNumber(loan.repaymentRate)}%</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Settlement Receipt & Proof */}
+                          {settlementTx && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {settlementTx.receiptPath && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs"
+                                  onClick={() => window.open(`/api/proxy/schedules/transactions/${settlementTx.id}/receipt`, "_blank")}
+                                >
+                                  <Receipt className="h-3.5 w-3.5 mr-1.5" />
+                                  Settlement Receipt
+                                </Button>
+                              )}
+                              {settlementTx.proofPath && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs"
+                                  onClick={() => window.open(`/api/proxy/schedules/transactions/${settlementTx.id}/proof`, "_blank")}
+                                >
+                                  <FileCheck className="h-3.5 w-3.5 mr-1.5" />
+                                  Proof of Payment
+                                </Button>
+                              )}
+                              {!settlementTx.proofPath && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs"
+                                  onClick={() => openUploadProofDialog(settlementTx.id)}
+                                >
+                                  <Upload className="h-3.5 w-3.5 mr-1.5" />
+                                  Upload Proof
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
+                    {!loan.earlySettlementDate && loan.repaymentRate && (
                       <p className="text-sm mt-2">
                         Repayment Rate: <span className="font-medium">{toSafeNumber(loan.repaymentRate)}%</span>
                       </p>
                     )}
                     {loan.dischargeNotes && (
-                      <div className="mt-3 p-3 bg-muted rounded-lg">
-                        <p className="text-sm font-medium">Discharge Notes</p>
+                      <div className="mt-3 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                        <p className="text-sm font-medium">{loan.earlySettlementDate ? "Settlement Notes" : "Discharge Notes"}</p>
                         <p className="text-sm text-muted-foreground whitespace-pre-wrap">{loan.dischargeNotes}</p>
                       </div>
                     )}
@@ -1714,21 +2101,44 @@ export default function LoanDetailPage() {
           )}
 
           {/* Defaulted Loan Info */}
-          {loan.status === "DEFAULTED" && (
-            <Card className="border-destructive">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-4">
-                  <XCircle className="h-8 w-8 text-destructive" />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-destructive">Loan Defaulted</h3>
-                    <p className="text-sm text-muted-foreground">
-                      This loan has been marked as defaulted
-                    </p>
+          {loan.status === "DEFAULTED" && currentSchedule && (() => {
+            const now = new Date();
+            const overdueRepayments = currentSchedule.repayments.filter(
+              r => new Date(r.dueDate) < now && r.status !== "PAID" && r.status !== "CANCELLED"
+            );
+            const overdueBalance = overdueRepayments.reduce((sum, r) => {
+              const paid = r.allocations.reduce((s, a) => s + toSafeNumber(a.amount), 0);
+              const outstanding = safeSubtract(toSafeNumber(r.totalDue), paid);
+              const outstandingLateFees = Math.max(0, safeSubtract(toSafeNumber(r.lateFeeAccrued), toSafeNumber(r.lateFeesPaid)));
+              return safeAdd(sum, safeAdd(outstanding, outstandingLateFees));
+            }, 0);
+
+            return (
+              <Card className="border-destructive">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-4">
+                    <XCircle className="h-8 w-8 text-destructive" />
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-destructive">Loan Defaulted</h3>
+                      <p className="text-sm text-muted-foreground">
+                        This loan has been marked as defaulted. Late interest continues to accrue.
+                      </p>
+                      {overdueBalance > 0 && (
+                        <div className="mt-3 p-3 bg-destructive/5 border border-destructive/20 rounded-lg">
+                          <p className="text-sm font-medium">
+                            Overdue Balance to Clear Default: <span className="text-destructive">{formatCurrency(overdueBalance)}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Once all overdue repayments (including late fees) are fully paid, the loan will automatically return to active status and continue from there.
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* Repayment Schedule (after disbursement) */}
           {currentSchedule && loan.status !== "PENDING_DISBURSEMENT" && (
@@ -1745,7 +2155,7 @@ export default function LoanDetailPage() {
                       {loan.disbursementDate && ` • Disbursed ${formatDate(loan.disbursementDate)}`}
                     </CardDescription>
                   </div>
-                  {loan.status !== "COMPLETED" && loan.status !== "DEFAULTED" && loan.status !== "WRITTEN_OFF" && (() => {
+                  {loan.status !== "COMPLETED" && loan.status !== "WRITTEN_OFF" && (() => {
                     const unpaidRepayments = currentSchedule.repayments.filter(r => r.status !== "PAID");
                     if (unpaidRepayments.length === 0) return null;
                     
@@ -1813,13 +2223,14 @@ export default function LoanDetailPage() {
                       const paid = repayment.allocations.reduce((s, a) => s + toSafeNumber(a.amount), 0);
                       const totalDue = toSafeNumber(repayment.totalDue);
                       const remaining = safeSubtract(totalDue, paid);
-                      const isOverdue = new Date(repayment.dueDate) < new Date() && repayment.status !== "PAID";
+                      const isCancelled = repayment.status === "CANCELLED";
+                      const isOverdue = new Date(repayment.dueDate) < new Date() && repayment.status !== "PAID" && !isCancelled;
                       const lateFeeAccrued = toSafeNumber(repayment.lateFeeAccrued);
                       const lateFeesPaid = toSafeNumber(repayment.lateFeesPaid);
                       const hasLateFees = lateFeeAccrued > 0;
 
                       return (
-                        <TableRow key={repayment.id} className={isOverdue ? "bg-destructive/5" : ""}>
+                        <TableRow key={repayment.id} className={isCancelled ? "opacity-50" : isOverdue ? "bg-destructive/5" : ""}>
                           <TableCell>{idx + 1}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -1864,8 +2275,8 @@ export default function LoanDetailPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={isOverdue ? "destructive" : repaymentStatusColors[repayment.status]}>
-                              {isOverdue && repayment.status !== "PAID" ? "OVERDUE" : repayment.status}
+                            <Badge variant={isCancelled ? "secondary" as "default" : isOverdue ? "destructive" : repaymentStatusColors[repayment.status]}>
+                              {isCancelled ? "SETTLED" : isOverdue && repayment.status !== "PAID" ? "OVERDUE" : repayment.status}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -1958,6 +2369,16 @@ export default function LoanDetailPage() {
                   <span>{formatDate(loan.disbursementDate)}</span>
                 </div>
               )}
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Product</span>
+                <Link
+                  href={`/dashboard/products/${loan.product.id}`}
+                  className="text-accent hover:underline inline-flex items-center gap-1"
+                >
+                  {loan.product.name}
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Arrears Period</span>
                 <span>{loan.product.arrearsPeriod} days</span>
@@ -1970,6 +2391,22 @@ export default function LoanDetailPage() {
                 <span className="text-muted-foreground">Late Payment Rate</span>
                 <span>{loan.product.latePaymentRate}% p.a.</span>
               </div>
+              {loan.product.earlySettlementEnabled && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Lock-in Period</span>
+                    <span>{loan.product.earlySettlementLockInMonths > 0 ? `${loan.product.earlySettlementLockInMonths} months` : "None"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Settlement Discount</span>
+                    <span>
+                      {loan.product.earlySettlementDiscountType === "PERCENTAGE"
+                        ? `${loan.product.earlySettlementDiscountValue}%`
+                        : `RM ${loan.product.earlySettlementDiscountValue}`}
+                    </span>
+                  </div>
+                </>
+              )}
               {toSafeNumber(loan.totalLateFees) > 0 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Late Fees</span>
@@ -1993,7 +2430,7 @@ export default function LoanDetailPage() {
                 <div className="pt-2 border-t space-y-2">
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Letters</span>
                   {/* Arrears Letter Section */}
-                  {(loan.status === "IN_ARREARS" || loan.status === "DEFAULTED") && (
+                  {(loan.arrearsLetterPath || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED") && (
                     <div className="space-y-1">
                       {loan.arrearsLetterPath && (() => {
                         const letterDate = parseLetterDate(loan.arrearsLetterPath!);
@@ -2012,19 +2449,21 @@ export default function LoanDetailPage() {
                           </button>
                         );
                       })()}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full h-7 text-xs"
-                        onClick={() => setShowGenerateArrearsLetterDialog(true)}
-                      >
-                        <FileText className="h-3 w-3 mr-1.5" />
-                        {loan.arrearsLetterPath ? "Regenerate Arrears Letter" : "Generate Arrears Letter"}
-                      </Button>
+                      {(loan.status === "IN_ARREARS" || loan.status === "DEFAULTED") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full h-7 text-xs"
+                          onClick={() => setShowGenerateArrearsLetterDialog(true)}
+                        >
+                          <FileText className="h-3 w-3 mr-1.5" />
+                          {loan.arrearsLetterPath ? "Regenerate Arrears Letter" : "Generate Arrears Letter"}
+                        </Button>
+                      )}
                     </div>
                   )}
                   {/* Default Letter Section */}
-                  {loan.status === "DEFAULTED" && (
+                  {(loan.defaultLetterPath || loan.status === "DEFAULTED") && (
                     <div className="space-y-1">
                       {loan.defaultLetterPath && (() => {
                         const letterDate = parseLetterDate(loan.defaultLetterPath!);
@@ -2043,15 +2482,17 @@ export default function LoanDetailPage() {
                           </button>
                         );
                       })()}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full h-7 text-xs"
-                        onClick={() => setShowGenerateDefaultLetterDialog(true)}
-                      >
-                        <FileText className="h-3 w-3 mr-1.5" />
-                        {loan.defaultLetterPath ? "Regenerate Default Letter" : "Generate Default Letter"}
-                      </Button>
+                      {loan.status === "DEFAULTED" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full h-7 text-xs"
+                          onClick={() => setShowGenerateDefaultLetterDialog(true)}
+                        >
+                          <FileText className="h-3 w-3 mr-1.5" />
+                          {loan.defaultLetterPath ? "Regenerate Default Letter" : "Generate Default Letter"}
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2474,6 +2915,203 @@ export default function LoanDetailPage() {
               <CheckCircle className="h-4 w-4 mr-2" />
               {actionLoading === "complete" ? "Completing..." : "Complete Loan"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Early Settlement Dialog */}
+      <Dialog open={showEarlySettlementDialog} onOpenChange={setShowEarlySettlementDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Early Settlement</DialogTitle>
+            <DialogDescription>
+              Settle the remaining loan balance with a discount on future interest.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            {settlementLoading && (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Calculating settlement...</span>
+              </div>
+            )}
+
+            {settlementQuote && !settlementQuote.eligible && (
+              <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" />
+                  <span className="font-medium">Not Eligible</span>
+                </div>
+                {settlementQuote.lockInEndDate ? (
+                  <p className="text-sm text-muted-foreground">
+                    Loan is in lock-in period. Eligible from: <span className="font-medium text-foreground">{formatDate(settlementQuote.lockInEndDate)}</span>
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{settlementQuote.reason}</p>
+                )}
+              </div>
+            )}
+
+            {settlementQuote && settlementQuote.eligible && (
+              <>
+                {/* Settlement Breakdown */}
+                <div className="space-y-2 p-4 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                  <h4 className="text-sm font-medium mb-3">Settlement Breakdown</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Remaining Principal</span>
+                      <span className="font-medium">{formatCurrency(settlementQuote.remainingPrincipal ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Remaining Interest</span>
+                      <span className="font-medium">{formatCurrency(settlementQuote.remainingInterest ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-600">
+                      <span>
+                        Discount ({settlementQuote.discountType === "PERCENTAGE" 
+                          ? `${settlementQuote.discountValue}% of future interest` 
+                          : `RM ${settlementQuote.discountValue} flat`})
+                      </span>
+                      <span className="font-medium">- {formatCurrency(settlementQuote.discountAmount ?? 0)}</span>
+                    </div>
+                    <div className="border-t border-border pt-2 flex justify-between">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="font-medium">{formatCurrency(settlementQuote.totalWithoutLateFees ?? 0)}</span>
+                    </div>
+                    {(settlementQuote.outstandingLateFees ?? 0) > 0 && (
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-muted-foreground ${settlementWaiveLateFees ? "line-through" : ""}`}>
+                            Outstanding Late Fees
+                          </span>
+                          <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={settlementWaiveLateFees}
+                              onChange={(e) => setSettlementWaiveLateFees(e.target.checked)}
+                              className="rounded"
+                            />
+                            Waive
+                          </label>
+                        </div>
+                        <span className={`font-medium ${settlementWaiveLateFees ? "line-through text-muted-foreground" : ""}`}>
+                          {formatCurrency(settlementQuote.outstandingLateFees ?? 0)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="border-t border-border pt-2 flex justify-between text-base font-semibold">
+                      <span>Total Settlement</span>
+                      <span>
+                        {formatCurrency(
+                          settlementWaiveLateFees
+                            ? (settlementQuote.totalWithoutLateFees ?? 0)
+                            : (settlementQuote.totalSettlement ?? 0)
+                        )}
+                      </span>
+                    </div>
+                    {(settlementQuote.totalSavings ?? 0) > 0 && (
+                      <div className="flex justify-between text-emerald-600 text-xs">
+                        <span>Total Savings</span>
+                        <span className="font-medium">{formatCurrency(settlementQuote.totalSavings ?? 0)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {settlementQuote.unpaidInstallments} remaining installment{(settlementQuote.unpaidInstallments ?? 0) !== 1 ? "s" : ""} will be cancelled
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 w-full text-xs gap-1.5"
+                    onClick={() => {
+                      const q = settlementQuote;
+                      const total = settlementWaiveLateFees
+                        ? (q.totalWithoutLateFees ?? 0)
+                        : (q.totalSettlement ?? 0);
+                      const discountDesc = q.discountType === "PERCENTAGE"
+                        ? `${q.discountValue}% of future interest`
+                        : `RM ${q.discountValue} flat`;
+                      let msg = `*Early Settlement Offer*\nLoan: ${loan?.id.substring(0, 12)}\n\nRemaining Principal: ${formatCurrency(q.remainingPrincipal ?? 0)}\nRemaining Interest: ${formatCurrency(q.remainingInterest ?? 0)}\nDiscount (${discountDesc}): -${formatCurrency(q.discountAmount ?? 0)}`;
+                      if ((q.outstandingLateFees ?? 0) > 0) {
+                        msg += settlementWaiveLateFees
+                          ? `\nLate Fees: Waived`
+                          : `\nLate Fees: ${formatCurrency(q.outstandingLateFees ?? 0)}`;
+                      }
+                      msg += `\n\n*Total: ${formatCurrency(total)}*`;
+                      if ((q.totalSavings ?? 0) > 0) {
+                        msg += `\nYou save: ${formatCurrency(q.totalSavings ?? 0)}`;
+                      }
+                      navigator.clipboard.writeText(msg);
+                      toast.success("Copied to clipboard");
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy for WhatsApp
+                  </Button>
+                </div>
+
+                {/* Admin Fields */}
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="settlement-date">Payment Date *</Label>
+                    <Input
+                      id="settlement-date"
+                      type="date"
+                      value={settlementPaymentDate}
+                      onChange={(e) => setSettlementPaymentDate(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="settlement-reference">Reference</Label>
+                    <Input
+                      id="settlement-reference"
+                      value={settlementReference}
+                      onChange={(e) => setSettlementReference(e.target.value)}
+                      placeholder="Payment reference (optional)"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="settlement-notes">Notes</Label>
+                    <Textarea
+                      id="settlement-notes"
+                      value={settlementNotes}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setSettlementNotes(e.target.value)}
+                      placeholder="Settlement notes (optional)"
+                      className="mt-1"
+                      rows={2}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="settlement-proof">Proof of Payment (Optional)</Label>
+                    <Input
+                      id="settlement-proof"
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,.webp"
+                      onChange={(e) => setSettlementProofFile(e.target.files?.[0] || null)}
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Bank slip, transfer receipt, or screenshot</p>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEarlySettlementDialog(false)}>
+              Cancel
+            </Button>
+            {settlementQuote?.eligible && (
+              <Button
+                onClick={handleConfirmEarlySettlement}
+                disabled={actionLoading === "settlement"}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                {actionLoading === "settlement" ? "Processing..." : "Confirm Settlement"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

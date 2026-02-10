@@ -60,6 +60,10 @@ interface Product {
   requiredDocuments: RequiredDocument[];
   eligibleBorrowerTypes: string;
   loanScheduleType: string;
+  earlySettlementEnabled: boolean;
+  earlySettlementLockInMonths: number;
+  earlySettlementDiscountType: string;
+  earlySettlementDiscountValue: string;
   createdAt: string;
   updatedAt: string;
   _count: {
@@ -153,6 +157,10 @@ function formatFieldName(field: string): string {
     stampingFeeType: "Stamping Fee Type",
     stampingFeeValue: "Stamping Fee",
     isActive: "Status",
+    earlySettlementEnabled: "Early Settlement",
+    earlySettlementLockInMonths: "Lock-in Period",
+    earlySettlementDiscountType: "Discount Type",
+    earlySettlementDiscountValue: "Discount Value",
   };
   return fieldLabels[field] || field.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
 }
@@ -492,6 +500,44 @@ export default function ProductDetailPage() {
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Early Settlement */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Percent className="h-5 w-5 text-accent" />
+                Early Settlement
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {product.earlySettlementEnabled ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <Badge variant="success">Enabled</Badge>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Lock-in Period</p>
+                    <p className="font-medium">
+                      {product.earlySettlementLockInMonths === 0
+                        ? "No lock-in"
+                        : `${product.earlySettlementLockInMonths} months`}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Discount</p>
+                    <p className="font-medium">
+                      {product.earlySettlementDiscountType === "PERCENTAGE"
+                        ? `${product.earlySettlementDiscountValue}% of remaining interest`
+                        : `${formatCurrency(toSafeNumber(product.earlySettlementDiscountValue))} flat`}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Early settlement is not enabled for this product</p>
+              )}
             </CardContent>
           </Card>
 

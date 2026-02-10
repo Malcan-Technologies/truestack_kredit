@@ -59,6 +59,10 @@ interface ProductFormData {
   requiredDocuments: RequiredDocument[];
   eligibleBorrowerTypes: string;
   loanScheduleType: string;
+  earlySettlementEnabled: boolean;
+  earlySettlementLockInMonths: number;
+  earlySettlementDiscountType: string;
+  earlySettlementDiscountValue: number;
 }
 
 // ============================================
@@ -115,6 +119,10 @@ const defaultFormData: ProductFormData = {
   requiredDocuments: [], // Start empty - user will add from recommendations
   eligibleBorrowerTypes: "BOTH",
   loanScheduleType: "JADUAL_J",
+  earlySettlementEnabled: false,
+  earlySettlementLockInMonths: 0,
+  earlySettlementDiscountType: "PERCENTAGE",
+  earlySettlementDiscountValue: 0,
 };
 
 const BORROWER_ELIGIBILITY_OPTIONS = [
@@ -568,6 +576,110 @@ export default function NewProductPage() {
                     </span>
                   </div>
                 </div>
+              </div>
+
+              {/* Early Settlement Configuration */}
+              <div className="space-y-4 p-4 border rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Early Settlement</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Allow borrowers to settle their full balance early with a discount on remaining interest
+                    </p>
+                  </div>
+                  <Switch
+                    checked={formData.earlySettlementEnabled}
+                    onCheckedChange={(checked) =>
+                      setFormData({ ...formData, earlySettlementEnabled: checked })
+                    }
+                  />
+                </div>
+
+                {formData.earlySettlementEnabled && (
+                  <div className="space-y-4 pt-2 border-t border-border">
+                    <div className="space-y-2">
+                      <Label>Lock-in Period (months)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="120"
+                        value={formData.earlySettlementLockInMonths}
+                        onChange={(e) => setFormData({ ...formData, earlySettlementLockInMonths: parseInt(e.target.value) || 0 })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Minimum months before a loan is eligible for early settlement. Set to 0 for no lock-in.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Label>Discount Type</Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <label
+                          className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                            formData.earlySettlementDiscountType === "PERCENTAGE"
+                              ? "border-accent bg-accent/10"
+                              : "border-border hover:border-accent/50"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="earlySettlementDiscountType"
+                            value="PERCENTAGE"
+                            checked={formData.earlySettlementDiscountType === "PERCENTAGE"}
+                            onChange={(e) => setFormData({ ...formData, earlySettlementDiscountType: e.target.value })}
+                            className="sr-only"
+                          />
+                          <Percent className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <span className="text-sm">Percentage of remaining interest</span>
+                            <p className="text-xs text-muted-foreground">e.g., 50% off future interest</p>
+                          </div>
+                        </label>
+                        <label
+                          className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                            formData.earlySettlementDiscountType === "FIXED"
+                              ? "border-accent bg-accent/10"
+                              : "border-border hover:border-accent/50"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="earlySettlementDiscountType"
+                            value="FIXED"
+                            checked={formData.earlySettlementDiscountType === "FIXED"}
+                            onChange={(e) => setFormData({ ...formData, earlySettlementDiscountType: e.target.value })}
+                            className="sr-only"
+                          />
+                          <span className="text-sm font-medium text-muted-foreground">RM</span>
+                          <div>
+                            <span className="text-sm">Fixed RM amount</span>
+                            <p className="text-xs text-muted-foreground">e.g., RM 500 flat discount</p>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Discount Value</Label>
+                      <div className="flex items-center gap-2">
+                        {formData.earlySettlementDiscountType === "FIXED" && (
+                          <span className="text-sm text-muted-foreground">RM</span>
+                        )}
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max={formData.earlySettlementDiscountType === "PERCENTAGE" ? 100 : undefined}
+                          value={formData.earlySettlementDiscountValue}
+                          onChange={(e) => setFormData({ ...formData, earlySettlementDiscountValue: parseFloat(e.target.value) || 0 })}
+                        />
+                        {formData.earlySettlementDiscountType === "PERCENTAGE" && (
+                          <span className="text-sm text-muted-foreground">%</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

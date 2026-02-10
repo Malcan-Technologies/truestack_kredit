@@ -74,12 +74,14 @@ async function proxyRequest(
       }
     });
 
-    // Check if this is a binary response (images, PDFs, etc.)
+    // Check if this is a binary response (images, PDFs, ZIPs, etc.)
     const responseContentType = response.headers.get("content-type") || "";
     const isBinaryResponse = 
       responseContentType.startsWith("image/") ||
       responseContentType.startsWith("application/pdf") ||
-      responseContentType.startsWith("application/octet-stream");
+      responseContentType.startsWith("application/octet-stream") ||
+      responseContentType.startsWith("application/zip") ||
+      responseContentType.startsWith("application/x-zip");
 
     if (isBinaryResponse) {
       // For binary files, return as ArrayBuffer to preserve data integrity

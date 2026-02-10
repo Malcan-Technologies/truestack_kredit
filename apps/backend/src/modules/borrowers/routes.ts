@@ -75,6 +75,7 @@ const corporateFieldsSchema = z.object({
   companyPhone: z.string().max(20).optional(),
   companyEmail: z.string().email().optional().or(z.literal('')),
   natureOfBusiness: z.string().max(200).optional(),
+  bumiStatus: z.enum(['BUMI', 'BUKAN_BUMI', 'ASING']).optional(),
   // Optional corporate fields
   dateOfIncorporation: z.string().datetime().optional().or(z.literal('')),
   paidUpCapital: z.number().positive().optional().or(z.literal(null)),
@@ -330,6 +331,7 @@ router.post('/', async (req, res, next) => {
       createData.companyPhone = data.companyPhone || null;
       createData.companyEmail = data.companyEmail || null;
       createData.natureOfBusiness = data.natureOfBusiness || null;
+      createData.bumiStatus = data.bumiStatus || null;
       // Optional corporate fields
       createData.dateOfIncorporation = data.dateOfIncorporation ? new Date(data.dateOfIncorporation) : null;
       createData.paidUpCapital = data.paidUpCapital ?? null;
@@ -472,6 +474,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
     if (data.companyPhone !== undefined) updateData.companyPhone = data.companyPhone || null;
     if (data.companyEmail !== undefined) updateData.companyEmail = data.companyEmail || null;
     if (data.natureOfBusiness !== undefined) updateData.natureOfBusiness = data.natureOfBusiness || null;
+    if (data.bumiStatus !== undefined) updateData.bumiStatus = data.bumiStatus || null;
     if (data.dateOfIncorporation !== undefined) updateData.dateOfIncorporation = data.dateOfIncorporation ? new Date(data.dateOfIncorporation) : null;
     if (data.paidUpCapital !== undefined) updateData.paidUpCapital = data.paidUpCapital ?? null;
     if (data.numberOfEmployees !== undefined) updateData.numberOfEmployees = data.numberOfEmployees ?? null;
@@ -516,6 +519,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
         companyPhone: existing.companyPhone,
         companyEmail: existing.companyEmail,
         natureOfBusiness: existing.natureOfBusiness,
+        bumiStatus: existing.bumiStatus,
         dateOfIncorporation: existing.dateOfIncorporation,
         paidUpCapital: existing.paidUpCapital,
         numberOfEmployees: existing.numberOfEmployees,
@@ -549,6 +553,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
         companyPhone: borrower.companyPhone,
         companyEmail: borrower.companyEmail,
         natureOfBusiness: borrower.natureOfBusiness,
+        bumiStatus: borrower.bumiStatus,
         dateOfIncorporation: borrower.dateOfIncorporation,
         paidUpCapital: borrower.paidUpCapital,
         numberOfEmployees: borrower.numberOfEmployees,

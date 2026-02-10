@@ -64,6 +64,7 @@ interface CorporateFormData {
   companyName: string;
   ssmRegistrationNo: string;
   businessAddress: string;
+  bumiStatus: string;
   authorizedRepName: string;
   authorizedRepIc: string;
   companyPhone: string;
@@ -108,6 +109,7 @@ const initialCorporateFormData: CorporateFormData = {
   companyName: "",
   ssmRegistrationNo: "",
   businessAddress: "",
+  bumiStatus: "",
   authorizedRepName: "",
   authorizedRepIc: "",
   companyPhone: "",
@@ -210,6 +212,12 @@ const EMPLOYMENT_OPTIONS = [
   { value: "UNEMPLOYED", label: "Tidak Bekerja" },
   { value: "RETIRED", label: "Bersara" },
   { value: "STUDENT", label: "Pelajar" },
+];
+
+const BUMI_STATUS_OPTIONS = [
+  { value: "BUMI", label: "Bumiputera" },
+  { value: "BUKAN_BUMI", label: "Bukan Bumiputera" },
+  { value: "ASING", label: "Asing" },
 ];
 
 const RELATIONSHIP_OPTIONS = [
@@ -357,6 +365,8 @@ export default function NewBorrowerPage() {
     if (!data.educationLevel) errors.educationLevel = "Education level is required";
     if (!data.occupation.trim()) errors.occupation = "Occupation is required";
     if (!data.employmentStatus) errors.employmentStatus = "Employment status is required";
+    if (!data.monthlyIncome.trim()) errors.monthlyIncome = "Monthly income is required";
+    else if (isNaN(parseFloat(data.monthlyIncome)) || parseFloat(data.monthlyIncome) < 0) errors.monthlyIncome = "Enter a valid income amount";
     if (!data.bankName) errors.bankName = "Bank is required";
     if (data.bankName === "OTHER" && !data.bankNameOther.trim()) {
       errors.bankNameOther = "Bank name is required";
@@ -377,6 +387,7 @@ export default function NewBorrowerPage() {
     if (!data.companyName.trim()) errors.companyName = "Company name is required";
     if (!data.ssmRegistrationNo.trim()) errors.ssmRegistrationNo = "SSM registration number is required";
     if (!data.businessAddress.trim()) errors.businessAddress = "Business address is required";
+    if (!data.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
     if (!data.authorizedRepName.trim()) errors.authorizedRepName = "Authorized representative name is required";
     if (!data.authorizedRepIc.trim()) errors.authorizedRepIc = "Authorized representative IC is required";
     if (!data.companyPhone.trim()) errors.companyPhone = "Company phone is required";
@@ -428,7 +439,7 @@ export default function NewBorrowerPage() {
           emergencyContactName: data.emergencyContactName || undefined,
           emergencyContactPhone: data.emergencyContactPhone || undefined,
           emergencyContactRelationship: data.emergencyContactRelationship || undefined,
-          monthlyIncome: data.monthlyIncome ? parseFloat(data.monthlyIncome) : undefined,
+          monthlyIncome: data.monthlyIncome.trim() !== "" ? parseFloat(data.monthlyIncome) : undefined,
         };
       } else {
         const data = corporateFormData;
@@ -443,6 +454,7 @@ export default function NewBorrowerPage() {
           companyName: data.companyName || undefined,
           ssmRegistrationNo: data.ssmRegistrationNo || undefined,
           businessAddress: data.businessAddress || undefined,
+          bumiStatus: data.bumiStatus || undefined,
           authorizedRepName: data.authorizedRepName || undefined,
           authorizedRepIc: data.authorizedRepIc || undefined,
           companyPhone: data.companyPhone || undefined,
@@ -671,6 +683,17 @@ export default function NewBorrowerPage() {
                       options={EMPLOYMENT_OPTIONS}
                       error={validationErrors.employmentStatus}
                     />
+                    <Field
+                      label="Monthly Income (RM)"
+                      value={individualFormData.monthlyIncome}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, monthlyIncome: val }));
+                        if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
+                      }}
+                      type="number"
+                      error={validationErrors.monthlyIncome}
+                      placeholder="e.g., 3500"
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -850,6 +873,17 @@ export default function NewBorrowerPage() {
                       }}
                       error={validationErrors.ssmRegistrationNo}
                       placeholder="202001012345 (1234567-X)"
+                    />
+                    <Field
+                      label="Taraf (Bumi Status)"
+                      value={corporateFormData.bumiStatus}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, bumiStatus: val }));
+                        if (validationErrors.bumiStatus) setValidationErrors((prev) => ({ ...prev, bumiStatus: "" }));
+                      }}
+                      type="select"
+                      options={BUMI_STATUS_OPTIONS}
+                      error={validationErrors.bumiStatus}
                     />
                     <Field
                       label="Nature of Business"

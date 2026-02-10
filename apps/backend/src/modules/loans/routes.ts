@@ -13,6 +13,264 @@ import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtrac
 import { createHash } from 'crypto';
 import { LateFeeProcessor } from '../../lib/lateFeeProcessor.js';
 import { generateDischargeLetter, generateDefaultLetter, generateArrearsLetter } from '../../lib/letterService.js';
+import PDFDocument from 'pdfkit';
+import http from 'http';
+import https from 'https';
+
+// Helper function to fetch image from URL or local file (for PDF logos)
+const fetchImageBuffer = (url: string): Promise<Buffer> => {
+  return new Promise((resolve, reject) => {
+    if (url.startsWith('/api/uploads/') || url.startsWith('/uploads/')) {
+      const relativePath = url.replace('/api/uploads/', '').replace('/uploads/', '');
+      const filePath = path.join(UPLOAD_DIR, relativePath);
+      if (fs.existsSync(filePath)) {
+        resolve(fs.readFileSync(filePath));
+      } else {
+        reject(new Error(`File not found: ${filePath}`));
+      }
+    } else if (url.startsWith('http://') || url.startsWith('https://')) {
+      const client = url.startsWith('https') ? https : http;
+      client.get(url, (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => resolve(Buffer.concat(chunks)));
+        response.on('error', reject);
+      }).on('error', reject);
+    } else {
+      reject(new Error(`Unsupported URL: ${url}`));
+    }
+  });
+};
+
+// Generate early settlement receipt PDF
+interface SettlementReceiptParams {
+  receiptNumber: string;
+  paymentDate: Date;
+  totalSettlement: number;
+  remainingPrincipal: number;
+  remainingInterest: number;
+  discountAmount: number;
+  discountType: string;
+  discountValue: number;
+  outstandingLateFees: number;
+  waiveLateFees: boolean;
+  reference?: string;
+  notes?: string;
+  cancelledInstallments: number;
+  loan: {
+    id: string;
+    principalAmount: unknown;
+    interestRate: unknown;
+    term: number;
+  };
+  borrower: {
+    displayName: string;
+    identificationNumber?: string;
+    phone?: string;
+    email?: string;
+  };
+  tenant: {
+    name: string;
+    registrationNumber?: string | null;
+    licenseNumber?: string | null;
+    businessAddress?: string | null;
+    contactNumber?: string | null;
+    email?: string | null;
+    logoUrl?: string | null;
+  };
+}
+
+async function generateSettlementReceipt(params: SettlementReceiptParams): Promise<string> {
+  const receiptsDir = path.join(UPLOAD_DIR, 'receipts');
+  if (!fs.existsSync(receiptsDir)) {
+    fs.mkdirSync(receiptsDir, { recursive: true });
+  }
+
+  const filename = `${params.receiptNumber}.pdf`;
+  const filePath = path.join(receiptsDir, filename);
+
+  const formatRM = (amount: unknown): string => {
+    const num = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
+    return `RM ${num.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const formatDate = (date: Date): string => {
+    return date.toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  return new Promise(async (resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const writeStream = fs.createWriteStream(filePath);
+      doc.pipe(writeStream);
+
+      // Add logo if available
+      let logoAdded = false;
+      if (params.tenant.logoUrl) {
+        try {
+          const logoBuffer = await fetchImageBuffer(params.tenant.logoUrl);
+          doc.image(logoBuffer, 50, 45, { width: 80 });
+          logoAdded = true;
+        } catch {
+          // Continue without logo
+        }
+      }
+
+      // Header - Company Info
+      const headerX = logoAdded ? 350 : 50;
+      const headerAlign: 'right' | 'center' = logoAdded ? 'right' : 'center';
+      const headerWidth = logoAdded ? 200 : 500;
+
+      doc.fontSize(16).font('Helvetica-Bold')
+         .text(params.tenant.name, headerX, 50, { width: headerWidth, align: headerAlign });
+      
+      if (params.tenant.registrationNumber) {
+        doc.fontSize(9).font('Helvetica')
+           .text(`SSM: ${params.tenant.registrationNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
+      }
+      if (params.tenant.licenseNumber) {
+        doc.fontSize(9).font('Helvetica')
+           .text(`License: ${params.tenant.licenseNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
+      }
+      if (params.tenant.businessAddress) {
+        doc.text(params.tenant.businessAddress, headerX, doc.y, { width: headerWidth, align: headerAlign });
+      }
+      if (params.tenant.contactNumber) {
+        doc.text(`Tel: ${params.tenant.contactNumber}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
+      }
+      if (params.tenant.email) {
+        doc.text(`Email: ${params.tenant.email}`, headerX, doc.y, { width: headerWidth, align: headerAlign });
+      }
+
+      // Line separator
+      doc.moveDown(2);
+      doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke('#E5E7EB');
+      doc.moveDown(1.5);
+
+      // Receipt Title
+      doc.fontSize(20).font('Helvetica-Bold').fillColor('#000000')
+         .text('EARLY SETTLEMENT RECEIPT', 50, doc.y, { align: 'center' });
+
+      doc.moveDown(0.5);
+      doc.fontSize(10).font('Helvetica').fillColor('#000000')
+         .text(`Receipt No: ${params.receiptNumber}`, { align: 'center' })
+         .text(`Date: ${formatDate(params.paymentDate)}`, { align: 'center' });
+
+      // Borrower Info Box
+      doc.moveDown(1.5);
+      const borrowerBoxY = doc.y;
+      doc.rect(50, borrowerBoxY, 500, 55).stroke('#E5E7EB');
+      doc.fontSize(9).font('Helvetica-Bold').text('RECEIVED FROM:', 60, borrowerBoxY + 10);
+      doc.font('Helvetica').text(params.borrower.displayName, 60, borrowerBoxY + 25);
+      if (params.borrower.identificationNumber) {
+        doc.text(`IC/Passport: ${params.borrower.identificationNumber}`, 300, borrowerBoxY + 25);
+      }
+      if (params.borrower.phone) {
+        doc.text(`Tel: ${params.borrower.phone}`, 60, borrowerBoxY + 40);
+      }
+      if (params.borrower.email) {
+        doc.text(`Email: ${params.borrower.email}`, 300, borrowerBoxY + 40);
+      }
+
+      // Loan Info
+      doc.moveDown(2.5);
+      doc.fontSize(9).font('Helvetica').fillColor('#6B7280');
+      doc.text(`Loan Amount: ${formatRM(params.loan.principalAmount)}   |   Interest Rate: ${toSafeNumber(params.loan.interestRate)}% p.a.   |   Term: ${params.loan.term} months`, 50);
+
+      // Settlement Breakdown
+      doc.moveDown(1.5);
+      doc.fontSize(12).font('Helvetica-Bold').fillColor('#000000')
+         .text('Settlement Breakdown', 50);
+      doc.moveDown(0.5);
+
+      const tableTop = doc.y;
+      let rowY = tableTop;
+
+      const drawRow = (label: string, value: string, bold = false, color = '#000000') => {
+        doc.fontSize(10).font(bold ? 'Helvetica-Bold' : 'Helvetica').fillColor(color);
+        doc.text(label, 60, rowY);
+        doc.text(value, 350, rowY, { width: 180, align: 'right' });
+        rowY += 22;
+      };
+
+      drawRow('Remaining Principal', formatRM(params.remainingPrincipal));
+      drawRow('Remaining Interest', formatRM(params.remainingInterest));
+      
+      const discountLabel = params.discountType === 'PERCENTAGE'
+        ? `Discount (${params.discountValue}% of future interest)`
+        : `Discount (Fixed RM ${params.discountValue})`;
+      drawRow(discountLabel, `- ${formatRM(params.discountAmount)}`, false, '#059669');
+
+      // Separator
+      doc.moveTo(60, rowY).lineTo(530, rowY).stroke('#E5E7EB');
+      rowY += 10;
+
+      const subtotal = safeSubtract(safeAdd(params.remainingPrincipal, params.remainingInterest), params.discountAmount);
+      drawRow('Subtotal', formatRM(subtotal));
+
+      if (params.outstandingLateFees > 0) {
+        if (params.waiveLateFees) {
+          drawRow('Late Fees (Waived)', formatRM(0), false, '#6B7280');
+        } else {
+          drawRow('Outstanding Late Fees', formatRM(params.outstandingLateFees));
+        }
+      }
+
+      // Total separator
+      doc.moveTo(60, rowY).lineTo(530, rowY).stroke('#E5E7EB');
+      rowY += 12;
+
+      doc.fontSize(14).font('Helvetica-Bold').fillColor('#000000');
+      doc.text('TOTAL SETTLEMENT', 60, rowY);
+      doc.text(formatRM(params.totalSettlement), 350, rowY, { width: 180, align: 'right' });
+      rowY += 28;
+
+      if (params.discountAmount > 0) {
+        doc.fontSize(10).font('Helvetica').fillColor('#059669');
+        doc.text(`You saved ${formatRM(params.discountAmount)} through early settlement`, 60, rowY);
+        rowY += 20;
+      }
+
+      // Reference and notes
+      if (params.reference) {
+        doc.moveDown(1);
+        doc.fontSize(9).font('Helvetica').fillColor('#6B7280')
+           .text(`Reference: ${params.reference}`, 50);
+      }
+
+      if (params.notes) {
+        doc.fontSize(9).font('Helvetica').fillColor('#6B7280')
+           .text(`Notes: ${params.notes}`, 50);
+      }
+
+      // Settlement summary box
+      doc.moveDown(2);
+      const summaryBoxY = doc.y;
+      doc.rect(50, summaryBoxY, 500, 50).fill('#F0FDF4');
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#059669')
+         .text('LOAN FULLY SETTLED', 60, summaryBoxY + 12);
+      doc.fontSize(9).font('Helvetica').fillColor('#6B7280')
+         .text(`${params.cancelledInstallments} remaining installment(s) settled  |  Outstanding balance: RM 0.00`, 60, summaryBoxY + 30);
+
+      // Footer
+      doc.fontSize(8).font('Helvetica').fillColor('#9CA3AF');
+      doc.text('This is a computer-generated receipt. No signature required.', 50, 730, { align: 'center' });
+      doc.text(`Loan ID: ${params.loan.id}`, 50, 745, { align: 'center' });
+      doc.moveDown(1);
+      doc.fontSize(9).font('Helvetica').fillColor('#3B82F6')
+         .text('Powered by TrueKredit', 50, 765, { align: 'center' });
+
+      doc.end();
+
+      writeStream.on('finish', () => {
+        resolve(`/api/uploads/receipts/${filename}`);
+      });
+      writeStream.on('error', reject);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
 
 const router = Router();
 
@@ -914,7 +1172,7 @@ router.get('/', async (req, res, next) => {
             take: 1,
             include: {
               repayments: {
-                select: { status: true },
+                select: { status: true, lateFeeAccrued: true, lateFeesPaid: true },
               },
             },
           },
@@ -923,20 +1181,30 @@ router.get('/', async (req, res, next) => {
       prisma.loan.count({ where: where }),
     ]);
 
-    // Transform loans to include progress data
+    // Transform loans to include progress data and late fee breakdown
     const loansWithProgress = loans.map(loan => {
       const schedule = loan.scheduleVersions[0];
       const repayments = schedule?.repayments || [];
       const totalRepayments = repayments.length;
-      const paidCount = repayments.filter(r => r.status === 'PAID').length;
+      const paidCount = repayments.filter(r => r.status === 'PAID' || r.status === 'CANCELLED').length;
       const readyToComplete = totalRepayments > 0 && paidCount === totalRepayments && 
         (loan.status === 'ACTIVE' || loan.status === 'IN_ARREARS');
+
+      // Calculate late fee breakdown
+      const totalLateFeesAccrued = repayments.reduce((sum, r) => safeAdd(sum, toSafeNumber(r.lateFeeAccrued)), 0);
+      const totalLateFeesPaid = repayments.reduce((sum, r) => safeAdd(sum, toSafeNumber(r.lateFeesPaid)), 0);
+      const unpaidLateFees = safeRound(Math.max(0, safeSubtract(totalLateFeesAccrued, totalLateFeesPaid)), 2);
       
       // Remove scheduleVersions from response to keep it clean
       const { scheduleVersions, ...loanData } = loan;
       
       return {
         ...loanData,
+        lateFeeBreakdown: {
+          total: safeRound(toSafeNumber(loan.totalLateFees), 2),
+          paid: safeRound(totalLateFeesPaid, 2),
+          unpaid: unpaidLateFees,
+        },
         progress: {
           paidCount,
           totalRepayments,
@@ -1157,9 +1425,9 @@ router.post('/:loanId/update-status', async (req, res, next) => {
     let oldestOverdueDays = 0;
     let hasUnpaidOverdue = false;
 
-    // Check each repayment for overdue status
+    // Check each repayment for overdue status (skip PAID and CANCELLED from early settlement)
     for (const repayment of currentSchedule.repayments) {
-      if (repayment.status === 'PAID') continue;
+      if (repayment.status === 'PAID' || repayment.status === 'CANCELLED') continue;
 
       const dueDate = new Date(repayment.dueDate);
       if (now > dueDate) {
@@ -1284,7 +1552,7 @@ router.post('/update-all-statuses', async (req, res, next) => {
       let hasUnpaidOverdue = false;
 
       for (const repayment of currentSchedule.repayments) {
-        if (repayment.status === 'PAID') continue;
+        if (repayment.status === 'PAID' || repayment.status === 'CANCELLED') continue;
 
         const dueDate = new Date(repayment.dueDate);
         if (now > dueDate) {
@@ -1523,6 +1791,7 @@ router.get('/:loanId/metrics', async (req, res, next) => {
     let paidCount = 0;
     let pendingCount = 0;
     let oldestOverdueDays = 0;
+    let cancelledDue = 0; // Track original totalDue of CANCELLED repayments
 
     for (const repayment of currentSchedule.repayments) {
       const repaymentTotalDue = toSafeNumber(repayment.totalDue);
@@ -1533,16 +1802,21 @@ router.get('/:loanId/metrics', async (req, res, next) => {
       totalPaid += repaymentPaid;
       totalOutstanding += Math.max(0, remaining);
 
-      if (repayment.status === 'PAID') {
+      if (repayment.status === 'PAID' || repayment.status === 'CANCELLED') {
         paidCount++;
-        // Check if paid on time (before or on due date)
-        const lastPaymentDate = repayment.allocations.length > 0
-          ? repayment.allocations[repayment.allocations.length - 1].allocatedAt
-          : null;
-        if (lastPaymentDate && lastPaymentDate <= repayment.dueDate) {
-          paidOnTime++;
+        if (repayment.status === 'PAID') {
+          // Check if paid on time (before or on due date)
+          const lastPaymentDate = repayment.allocations.length > 0
+            ? repayment.allocations[repayment.allocations.length - 1].allocatedAt
+            : null;
+          if (lastPaymentDate && lastPaymentDate <= repayment.dueDate) {
+            paidOnTime++;
+          } else {
+            paidLate++;
+          }
         } else {
-          paidLate++;
+          // CANCELLED repayments from early settlement - track their original amounts
+          cancelledDue += repaymentTotalDue;
         }
       } else if (repayment.dueDate < now && remaining > 0) {
         overdueCount++;
@@ -1555,6 +1829,22 @@ router.get('/:loanId/metrics', async (req, res, next) => {
       }
     }
 
+    // For early-settled loans, adjust totals to reflect the discounted settlement
+    // instead of the full original obligation of cancelled repayments.
+    // The settlement payment covers the discounted remaining balance, so we need to
+    // reconcile totalDue and totalPaid so they match for a completed loan.
+    const isEarlySettled = !!loan.earlySettlementDate;
+    if (isEarlySettled && loan.earlySettlementAmount && cancelledDue > 0) {
+      const settlementAmount = toSafeNumber(loan.earlySettlementAmount);
+      // Replace the original full totalDue of cancelled repayments with the actual settlement amount
+      totalDue = safeSubtract(totalDue, cancelledDue);
+      totalDue = safeAdd(totalDue, settlementAmount);
+      // Cap totalPaid to totalDue — the borrower's effective obligation was the adjusted totalDue
+      totalPaid = Math.min(totalPaid, totalDue);
+      // Outstanding should be 0 for completed early-settled loans
+      totalOutstanding = Math.max(0, safeSubtract(totalDue, totalPaid));
+    }
+
     const totalScheduled = paidCount + overdueCount + pendingCount;
     const repaymentRate = totalScheduled > 0 ? safeMultiply(safeDivide(paidOnTime, paidOnTime + paidLate + overdueCount), 100) : 0;
 
@@ -1563,6 +1853,13 @@ router.get('/:loanId/metrics', async (req, res, next) => {
     const defaultPeriod = loan.product.defaultPeriod;
     const isInArrears = oldestOverdueDays > arrearsPeriod;
     const isDefaulted = oldestOverdueDays > defaultPeriod;
+
+    // Early settlement details for progress display
+    const earlySettlementInfo = isEarlySettled ? {
+      isEarlySettled: true,
+      settlementAmount: loan.earlySettlementAmount ? safeRound(toSafeNumber(loan.earlySettlementAmount), 2) : null,
+      discountAmount: loan.earlySettlementDiscount ? safeRound(toSafeNumber(loan.earlySettlementDiscount), 2) : null,
+    } : null;
 
     res.json({
       success: true,
@@ -1590,8 +1887,10 @@ router.get('/:loanId/metrics', async (req, res, next) => {
         defaultPeriod,
         isInArrears,
         isDefaulted,
-        // Progress
-        progressPercent: safeRound(safeDivide(totalPaid, totalDue) * 100, 1),
+        // Progress (cap at 100% for completed/early-settled loans)
+        progressPercent: Math.min(100, safeRound(safeDivide(totalPaid, totalDue) * 100, 1)),
+        // Early settlement
+        earlySettlement: earlySettlementInfo,
       },
     });
   } catch (error) {
@@ -1639,10 +1938,10 @@ router.post('/:loanId/complete', async (req, res, next) => {
       throw new BadRequestError('Can only complete active or in-arrears loans');
     }
 
-    // Verify all repayments are paid
+    // Verify all repayments are paid (CANCELLED from early settlement counts as settled)
     const currentSchedule = loan.scheduleVersions[0];
     if (currentSchedule) {
-      const unpaidRepayments = currentSchedule.repayments.filter(r => r.status !== 'PAID');
+      const unpaidRepayments = currentSchedule.repayments.filter(r => r.status !== 'PAID' && r.status !== 'CANCELLED');
       if (unpaidRepayments.length > 0) {
         throw new BadRequestError(`Cannot complete loan: ${unpaidRepayments.length} unpaid repayment(s) remaining`);
       }
@@ -1725,6 +2024,18 @@ router.post('/:loanId/complete', async (req, res, next) => {
           dischargeLetterPath,
           dischargeLetterGenAt: new Date(),
         },
+      });
+
+      // Audit log for discharge letter generation
+      await AuditService.log({
+        tenantId: req.tenantId!,
+        memberId: req.memberId,
+        action: 'GENERATE_DISCHARGE_LETTER',
+        entityType: 'Loan',
+        entityId: loan.id,
+        previousData: { dischargeLetterPath: null },
+        newData: { dischargeLetterPath },
+        ipAddress: req.ip,
       });
     } catch (error) {
       console.error('Failed to generate discharge letter:', error);
@@ -2263,7 +2574,7 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
     try {
       const currentSchedule = loan.scheduleVersions[0];
       const overdueRepayments = currentSchedule?.repayments
-        .filter(r => r.status !== 'PAID' && new Date(r.dueDate) < new Date())
+        .filter(r => r.status !== 'PAID' && r.status !== 'CANCELLED' && new Date(r.dueDate) < new Date())
         .map((r, _idx) => {
           const repIdx = currentSchedule.repayments.findIndex(ar => ar.id === r.id);
           const totalDue = toSafeNumber(r.totalDue);
@@ -3129,6 +3440,649 @@ router.get('/:loanId/stamp-certificate', async (req, res, next) => {
       res.setHeader('Content-Length', fileBuffer.length);
       res.send(fileBuffer);
     }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// Early Settlement Endpoints
+// ============================================
+
+/**
+ * Get early settlement quote
+ * GET /api/loans/:loanId/early-settlement/quote
+ */
+router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
+  try {
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: req.params.loanId,
+        tenantId: req.tenantId,
+      },
+      include: {
+        product: true,
+        scheduleVersions: {
+          orderBy: { version: 'desc' },
+          take: 1,
+          include: {
+            repayments: {
+              orderBy: { dueDate: 'asc' },
+              include: { allocations: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    if (loan.status !== 'ACTIVE' && loan.status !== 'IN_ARREARS') {
+      throw new BadRequestError('Early settlement is only available for active or in-arrears loans');
+    }
+
+    const product = loan.product;
+    if (!product.earlySettlementEnabled) {
+      return res.json({
+        success: true,
+        data: {
+          eligible: false,
+          reason: 'Early settlement is not enabled for this product',
+        },
+      });
+    }
+
+    // Check lock-in period (using Malaysia timezone GMT+8)
+    const MYT_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const nowMYT = new Date(Date.now() + MYT_OFFSET_MS);
+
+    const lockInMonths = product.earlySettlementLockInMonths;
+    let lockInEndDate: Date | null = null;
+    if (lockInMonths > 0 && loan.disbursementDate) {
+      // Calculate lock-in end date in MYT
+      const disbursementMYT = new Date(new Date(loan.disbursementDate).getTime() + MYT_OFFSET_MS);
+      const lockInEndMYT = new Date(Date.UTC(
+        disbursementMYT.getUTCFullYear(),
+        disbursementMYT.getUTCMonth() + lockInMonths,
+        disbursementMYT.getUTCDate()
+      ));
+      // Convert back to UTC for storage/comparison
+      lockInEndDate = new Date(lockInEndMYT.getTime() - MYT_OFFSET_MS);
+
+      // Compare in MYT: current MYT date vs lock-in end MYT date
+      const todayMYTDate = `${nowMYT.getUTCFullYear()}-${String(nowMYT.getUTCMonth() + 1).padStart(2, '0')}-${String(nowMYT.getUTCDate()).padStart(2, '0')}`;
+      const lockInMYTDate = `${lockInEndMYT.getUTCFullYear()}-${String(lockInEndMYT.getUTCMonth() + 1).padStart(2, '0')}-${String(lockInEndMYT.getUTCDate()).padStart(2, '0')}`;
+
+      if (todayMYTDate < lockInMYTDate) {
+        return res.json({
+          success: true,
+          data: {
+            eligible: false,
+            reason: `Loan is in lock-in period until ${lockInMYTDate}`,
+            lockInEndDate: lockInEndDate.toISOString(),
+          },
+        });
+      }
+    }
+
+    const currentSchedule = loan.scheduleVersions[0];
+    if (!currentSchedule) {
+      throw new BadRequestError('No active schedule found for this loan');
+    }
+
+    // Use MYT start-of-day for interest calculations
+    const today = new Date(Date.UTC(nowMYT.getUTCFullYear(), nowMYT.getUTCMonth(), nowMYT.getUTCDate()));
+    today.setHours(0, 0, 0, 0);
+
+    // Calculate remaining balances from unpaid repayments
+    let remainingPrincipal = 0;
+    let remainingInterest = 0;
+    let remainingFutureInterest = 0; // interest on repayments not yet due
+    let outstandingLateFees = 0;
+
+    const unpaidRepayments = currentSchedule.repayments.filter(
+      r => r.status === 'PENDING' || r.status === 'PARTIAL' || r.status === 'OVERDUE'
+    );
+
+    for (const repayment of unpaidRepayments) {
+      const totalPaidOnRepayment = repayment.allocations.reduce(
+        (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
+        0
+      );
+      const lateFeesPaidOnRepayment = repayment.allocations.reduce(
+        (sum, a) => safeAdd(sum, toSafeNumber(a.lateFee || 0)),
+        0
+      );
+
+      // Principal + interest remaining (excluding late fees from allocation amounts)
+      const principalAndInterestPaid = safeSubtract(totalPaidOnRepayment, lateFeesPaidOnRepayment);
+
+      // For each repayment, determine how much principal and interest remain
+      const repaymentPrincipal = toSafeNumber(repayment.principal);
+      const repaymentInterest = toSafeNumber(repayment.interest);
+      const repaymentTotal = safeAdd(repaymentPrincipal, repaymentInterest);
+
+      // Remaining after payments (late fees -> interest -> principal allocation order)
+      const remaining = Math.max(0, safeSubtract(repaymentTotal, principalAndInterestPaid));
+
+      // Proportionally split remaining into principal and interest
+      if (repaymentTotal > 0 && remaining > 0) {
+        const principalRatio = safeDivide(repaymentPrincipal, repaymentTotal);
+        const interestRatio = safeDivide(repaymentInterest, repaymentTotal);
+        remainingPrincipal = safeAdd(remainingPrincipal, safeMultiply(remaining, principalRatio));
+        remainingInterest = safeAdd(remainingInterest, safeMultiply(remaining, interestRatio));
+
+        // Track future interest separately (for discount calculation)
+        const dueDate = new Date(repayment.dueDate);
+        dueDate.setHours(0, 0, 0, 0);
+        if (dueDate >= today) {
+          remainingFutureInterest = safeAdd(remainingFutureInterest, safeMultiply(remaining, interestRatio));
+        }
+      }
+
+      // Outstanding late fees
+      const lateFeesOwed = safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid));
+      outstandingLateFees = safeAdd(outstandingLateFees, Math.max(0, lateFeesOwed));
+    }
+
+    // Round to 2 decimal places
+    remainingPrincipal = safeRound(remainingPrincipal);
+    remainingInterest = safeRound(remainingInterest);
+    remainingFutureInterest = safeRound(remainingFutureInterest);
+    outstandingLateFees = safeRound(outstandingLateFees);
+
+    // Calculate discount
+    const discountType = product.earlySettlementDiscountType;
+    const discountValue = toSafeNumber(product.earlySettlementDiscountValue);
+    let discountAmount = 0;
+
+    if (discountType === 'PERCENTAGE') {
+      discountAmount = safeRound(safeMultiply(remainingFutureInterest, safeDivide(discountValue, 100)));
+    } else {
+      // FIXED - cap at remaining future interest
+      discountAmount = safeRound(Math.min(discountValue, remainingFutureInterest));
+    }
+
+    // Total settlement (late fees included by default, admin can toggle)
+    const totalWithoutLateFees = safeRound(safeSubtract(safeAdd(remainingPrincipal, remainingInterest), discountAmount));
+    const totalSettlement = safeRound(safeAdd(totalWithoutLateFees, outstandingLateFees));
+    const totalSavings = discountAmount;
+
+    res.json({
+      success: true,
+      data: {
+        eligible: true,
+        remainingPrincipal,
+        remainingInterest,
+        remainingFutureInterest,
+        discountType,
+        discountValue,
+        discountAmount,
+        outstandingLateFees,
+        totalWithoutLateFees,
+        totalSettlement,
+        totalSavings,
+        lockInEndDate: lockInEndDate?.toISOString() || null,
+        unpaidInstallments: unpaidRepayments.length,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Confirm early settlement
+ * POST /api/loans/:loanId/early-settlement/confirm
+ */
+router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
+  try {
+    const earlySettlementSchema = z.object({
+      paymentDate: z.string().optional(),
+      reference: z.string().max(200).optional(),
+      notes: z.string().max(1000).optional(),
+      waiveLateFees: z.boolean().default(false),
+    });
+
+    const data = earlySettlementSchema.parse(req.body);
+
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: req.params.loanId,
+        tenantId: req.tenantId,
+      },
+      include: {
+        product: true,
+        borrower: true,
+        tenant: true,
+        scheduleVersions: {
+          orderBy: { version: 'desc' },
+          take: 1,
+          include: {
+            repayments: {
+              orderBy: { dueDate: 'asc' },
+              include: { allocations: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    if (loan.status !== 'ACTIVE' && loan.status !== 'IN_ARREARS') {
+      throw new BadRequestError('Early settlement is only available for active or in-arrears loans');
+    }
+
+    const product = loan.product;
+    if (!product.earlySettlementEnabled) {
+      throw new BadRequestError('Early settlement is not enabled for this product');
+    }
+
+    // Check lock-in period (using Malaysia timezone GMT+8)
+    const MYT_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const nowMYT = new Date(Date.now() + MYT_OFFSET_MS);
+    const lockInMonths = product.earlySettlementLockInMonths;
+    if (lockInMonths > 0 && loan.disbursementDate) {
+      const disbursementMYT = new Date(new Date(loan.disbursementDate).getTime() + MYT_OFFSET_MS);
+      const lockInEndMYT = new Date(Date.UTC(
+        disbursementMYT.getUTCFullYear(),
+        disbursementMYT.getUTCMonth() + lockInMonths,
+        disbursementMYT.getUTCDate()
+      ));
+      const todayMYTDate = `${nowMYT.getUTCFullYear()}-${String(nowMYT.getUTCMonth() + 1).padStart(2, '0')}-${String(nowMYT.getUTCDate()).padStart(2, '0')}`;
+      const lockInMYTDate = `${lockInEndMYT.getUTCFullYear()}-${String(lockInEndMYT.getUTCMonth() + 1).padStart(2, '0')}-${String(lockInEndMYT.getUTCDate()).padStart(2, '0')}`;
+      if (todayMYTDate < lockInMYTDate) {
+        throw new BadRequestError('Loan is still in lock-in period');
+      }
+    }
+
+    const currentSchedule = loan.scheduleVersions[0];
+    if (!currentSchedule) {
+      throw new BadRequestError('No active schedule found for this loan');
+    }
+
+    // Use MYT start-of-day for interest calculations
+    const today = new Date(Date.UTC(nowMYT.getUTCFullYear(), nowMYT.getUTCMonth(), nowMYT.getUTCDate()));
+    today.setHours(0, 0, 0, 0);
+    const paymentDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
+
+    // Re-calculate settlement amount (same as quote, but authoritative)
+    let remainingPrincipal = 0;
+    let remainingInterest = 0;
+    let remainingFutureInterest = 0;
+    let outstandingLateFees = 0;
+
+    const unpaidRepayments = currentSchedule.repayments.filter(
+      r => r.status === 'PENDING' || r.status === 'PARTIAL' || r.status === 'OVERDUE'
+    );
+
+    if (unpaidRepayments.length === 0) {
+      throw new BadRequestError('All repayments are already paid');
+    }
+
+    for (const repayment of unpaidRepayments) {
+      const totalPaidOnRepayment = repayment.allocations.reduce(
+        (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
+        0
+      );
+      const lateFeesPaidOnRepayment = repayment.allocations.reduce(
+        (sum, a) => safeAdd(sum, toSafeNumber(a.lateFee || 0)),
+        0
+      );
+
+      const principalAndInterestPaid = safeSubtract(totalPaidOnRepayment, lateFeesPaidOnRepayment);
+      const repaymentPrincipal = toSafeNumber(repayment.principal);
+      const repaymentInterest = toSafeNumber(repayment.interest);
+      const repaymentTotal = safeAdd(repaymentPrincipal, repaymentInterest);
+
+      const remaining = Math.max(0, safeSubtract(repaymentTotal, principalAndInterestPaid));
+
+      if (repaymentTotal > 0 && remaining > 0) {
+        const principalRatio = safeDivide(repaymentPrincipal, repaymentTotal);
+        const interestRatio = safeDivide(repaymentInterest, repaymentTotal);
+        remainingPrincipal = safeAdd(remainingPrincipal, safeMultiply(remaining, principalRatio));
+        remainingInterest = safeAdd(remainingInterest, safeMultiply(remaining, interestRatio));
+
+        const dueDate = new Date(repayment.dueDate);
+        dueDate.setHours(0, 0, 0, 0);
+        if (dueDate >= today) {
+          remainingFutureInterest = safeAdd(remainingFutureInterest, safeMultiply(remaining, interestRatio));
+        }
+      }
+
+      const lateFeesOwed = safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid));
+      outstandingLateFees = safeAdd(outstandingLateFees, Math.max(0, lateFeesOwed));
+    }
+
+    remainingPrincipal = safeRound(remainingPrincipal);
+    remainingInterest = safeRound(remainingInterest);
+    remainingFutureInterest = safeRound(remainingFutureInterest);
+    outstandingLateFees = safeRound(outstandingLateFees);
+
+    // Calculate discount
+    const discountType = product.earlySettlementDiscountType;
+    const discountValue = toSafeNumber(product.earlySettlementDiscountValue);
+    let discountAmount = 0;
+
+    if (discountType === 'PERCENTAGE') {
+      discountAmount = safeRound(safeMultiply(remainingFutureInterest, safeDivide(discountValue, 100)));
+    } else {
+      discountAmount = safeRound(Math.min(discountValue, remainingFutureInterest));
+    }
+
+    const lateFeesForSettlement = data.waiveLateFees ? 0 : outstandingLateFees;
+    const totalSettlement = safeRound(
+      safeAdd(
+        safeSubtract(safeAdd(remainingPrincipal, remainingInterest), discountAmount),
+        lateFeesForSettlement
+      )
+    );
+
+    // Generate receipt number
+    const dateStr = paymentDate.toISOString().slice(0, 10).replace(/-/g, '');
+    const existingCount = await prisma.paymentTransaction.count({
+      where: {
+        tenantId: req.tenantId!,
+        receiptNumber: { startsWith: `RCP-${dateStr}` },
+      },
+    });
+    const receiptNumber = `RCP-${dateStr}-${String(existingCount + 1).padStart(3, '0')}`;
+
+    const previousStatus = loan.status;
+
+    // Execute everything in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Create payment transaction
+      const transaction = await tx.paymentTransaction.create({
+        data: {
+          tenantId: req.tenantId!,
+          loanId: loan.id,
+          totalAmount: totalSettlement,
+          paymentType: 'EARLY_SETTLEMENT',
+          reference: data.reference,
+          notes: data.notes || `Early settlement - Discount: ${discountType === 'PERCENTAGE' ? `${discountValue}%` : `RM ${discountValue}`}`,
+          paymentDate,
+          receiptNumber,
+        },
+      });
+
+      // 2. Create allocations for each remaining repayment and cancel them
+      for (const repayment of unpaidRepayments) {
+        const totalPaidOnRepayment = repayment.allocations.reduce(
+          (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
+          0
+        );
+
+        // Allocation amount = what's left to pay on this repayment
+        const repaymentRemaining = Math.max(0, safeSubtract(
+          toSafeNumber(repayment.totalDue),
+          totalPaidOnRepayment
+        ));
+
+        if (repaymentRemaining > 0) {
+          // The late fee portion allocated for this repayment
+          const lateFeesOnRepayment = data.waiveLateFees
+            ? 0
+            : Math.max(0, safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid)));
+
+          await tx.paymentAllocation.create({
+            data: {
+              transactionId: transaction.id,
+              repaymentId: repayment.id,
+              amount: repaymentRemaining,
+              lateFee: lateFeesOnRepayment > 0 ? lateFeesOnRepayment : null,
+            },
+          });
+        }
+
+        // Mark late fees as paid if waiving
+        const updateData: Record<string, unknown> = {
+          status: 'CANCELLED',
+        };
+
+        if (data.waiveLateFees) {
+          // Set lateFeesPaid = lateFeeAccrued to zero out
+          updateData.lateFeesPaid = repayment.lateFeeAccrued;
+        } else {
+          // Mark late fees as fully paid
+          updateData.lateFeesPaid = repayment.lateFeeAccrued;
+        }
+
+        await tx.loanRepayment.update({
+          where: { id: repayment.id },
+          data: updateData,
+        });
+      }
+
+      // 3. Calculate repayment rate for metrics
+      const allRepayments = currentSchedule.repayments;
+      let paidOnTime = 0;
+      let paidLate = 0;
+      for (const repayment of allRepayments) {
+        if (repayment.status === 'PAID') {
+          const lastPaymentDate = repayment.allocations.length > 0
+            ? repayment.allocations[repayment.allocations.length - 1].allocatedAt
+            : null;
+          if (lastPaymentDate && lastPaymentDate <= repayment.dueDate) {
+            paidOnTime++;
+          } else {
+            paidLate++;
+          }
+        }
+        // Cancelled (early settlement) repayments don't count for on-time rate
+      }
+      const totalPaidRepayments = paidOnTime + paidLate;
+      const repaymentRate = totalPaidRepayments > 0
+        ? safeMultiply(safeDivide(paidOnTime, totalPaidRepayments), 100)
+        : 100;
+
+      // 4. Update loan to COMPLETED with early settlement metadata
+      const completedAt = new Date();
+      const updatedLoan = await tx.loan.update({
+        where: { id: loan.id },
+        data: {
+          status: 'COMPLETED',
+          completedAt,
+          earlySettlementDate: completedAt,
+          earlySettlementAmount: totalSettlement,
+          earlySettlementDiscount: discountAmount,
+          earlySettlementNotes: data.notes || null,
+          earlySettlementWaiveLateFees: data.waiveLateFees,
+          dischargeNotes: data.notes || 'Early settlement',
+          repaymentRate,
+          // Clear arrears/default tracking
+          readyForDefault: false,
+          defaultReadyDate: null,
+          arrearsStartDate: null,
+        },
+      });
+
+      return { transaction, updatedLoan, completedAt, repaymentRate };
+    });
+
+    // Generate discharge letter (outside transaction - non-critical)
+    let dischargeLetterPath: string | null = null;
+    try {
+      const borrower = loan.borrower;
+      const totalPaid = safeAdd(
+        // Sum all previous payments
+        currentSchedule.repayments.reduce((sum, r) =>
+          safeAdd(sum, r.allocations.reduce((s, a) => safeAdd(s, toSafeNumber(a.amount)), 0)), 0),
+        // Plus this settlement
+        totalSettlement
+      );
+
+      dischargeLetterPath = await generateDischargeLetter({
+        loan: {
+          id: loan.id,
+          principalAmount: loan.principalAmount,
+          interestRate: loan.interestRate,
+          term: loan.term,
+          disbursementDate: loan.disbursementDate,
+          completedAt: result.completedAt,
+        },
+        borrower: {
+          displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName
+            ? borrower.companyName
+            : borrower.name,
+          identificationNumber: borrower.icNumber,
+          address: borrower.address,
+        },
+        tenant: {
+          name: loan.tenant.name,
+          registrationNumber: loan.tenant.registrationNumber,
+          licenseNumber: loan.tenant.licenseNumber,
+          businessAddress: loan.tenant.businessAddress,
+          contactNumber: loan.tenant.contactNumber,
+          email: loan.tenant.email,
+          logoUrl: loan.tenant.logoUrl,
+        },
+        totalPaid,
+        totalLateFees: toSafeNumber(loan.totalLateFees),
+        dischargeNotes: data.notes || 'Early settlement',
+        earlySettlement: {
+          settlementAmount: totalSettlement,
+          discountAmount,
+          discountType,
+          discountValue,
+          remainingPrincipal,
+          remainingInterest,
+          waiveLateFees: data.waiveLateFees,
+          outstandingLateFees,
+        },
+      });
+
+      await prisma.loan.update({
+        where: { id: loan.id },
+        data: {
+          dischargeLetterPath,
+          dischargeLetterGenAt: new Date(),
+        },
+      });
+
+      // Audit log for discharge letter generation
+      await AuditService.log({
+        tenantId: req.tenantId!,
+        memberId: req.memberId,
+        action: 'GENERATE_DISCHARGE_LETTER',
+        entityType: 'Loan',
+        entityId: loan.id,
+        previousData: { dischargeLetterPath: null },
+        newData: { dischargeLetterPath },
+        ipAddress: req.ip,
+      });
+    } catch (error) {
+      console.error('Failed to generate discharge letter:', error);
+    }
+
+    // Generate settlement receipt (outside transaction - non-critical)
+    let receiptPath: string | null = null;
+    try {
+      const borrower = loan.borrower;
+      receiptPath = await generateSettlementReceipt({
+        receiptNumber,
+        paymentDate,
+        totalSettlement,
+        remainingPrincipal,
+        remainingInterest,
+        discountAmount,
+        discountType,
+        discountValue,
+        outstandingLateFees,
+        waiveLateFees: data.waiveLateFees,
+        reference: data.reference,
+        notes: data.notes,
+        cancelledInstallments: unpaidRepayments.length,
+        loan: {
+          id: loan.id,
+          principalAmount: loan.principalAmount,
+          interestRate: loan.interestRate,
+          term: loan.term,
+        },
+        borrower: {
+          displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName
+            ? borrower.companyName
+            : borrower.name,
+          identificationNumber: borrower.icNumber,
+          phone: borrower.phone || undefined,
+          email: borrower.email || undefined,
+        },
+        tenant: {
+          name: loan.tenant.name,
+          registrationNumber: loan.tenant.registrationNumber,
+          licenseNumber: loan.tenant.licenseNumber,
+          businessAddress: loan.tenant.businessAddress,
+          contactNumber: loan.tenant.contactNumber,
+          email: loan.tenant.email,
+          logoUrl: loan.tenant.logoUrl,
+        },
+      });
+
+      await prisma.paymentTransaction.update({
+        where: { id: result.transaction.id },
+        data: {
+          receiptPath,
+          receiptGenAt: new Date(),
+        },
+      });
+    } catch (error) {
+      console.error('Failed to generate settlement receipt:', error);
+    }
+
+    // Audit log
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'EARLY_SETTLEMENT',
+      entityType: 'Loan',
+      entityId: loan.id,
+      previousData: { status: previousStatus },
+      newData: {
+        status: 'COMPLETED',
+        earlySettlement: true,
+        settlementAmount: totalSettlement,
+        discountType,
+        discountValue,
+        discountAmount,
+        remainingPrincipal,
+        remainingInterest,
+        outstandingLateFees,
+        waiveLateFees: data.waiveLateFees,
+        lateFeesSettled: data.waiveLateFees ? 0 : outstandingLateFees,
+        receiptNumber,
+        receiptGenerated: !!receiptPath,
+        paymentDate: paymentDate.toISOString(),
+        notes: data.notes || null,
+        dischargeLetterGenerated: !!dischargeLetterPath,
+        cancelledRepayments: unpaidRepayments.length,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        loan: result.updatedLoan,
+        transaction: result.transaction,
+        transactionId: result.transaction.id,
+        receiptNumber,
+        settlement: {
+          remainingPrincipal,
+          remainingInterest,
+          discountAmount,
+          outstandingLateFees,
+          waiveLateFees: data.waiveLateFees,
+          totalSettlement,
+          dischargeLetterPath,
+          receiptPath,
+        },
+      },
+    });
   } catch (error) {
     next(error);
   }

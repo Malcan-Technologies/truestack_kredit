@@ -240,7 +240,7 @@ export default function HelpPage() {
 
             {/* Document content */}
             <article className="prose prose-invert prose-orange max-w-none">
-              <MarkdownRenderer content={currentDoc.content} />
+              <MarkdownRenderer content={currentDoc.content} onNavigate={navigateToDoc} />
             </article>
 
             {/* Navigation */}
@@ -313,14 +313,25 @@ export default function HelpPage() {
 /**
  * Simple Markdown renderer component
  */
-function MarkdownRenderer({ content }: { content: string }) {
+function MarkdownRenderer({ content, onNavigate }: { content: string; onNavigate?: (slug: string) => void }) {
   // Convert markdown to HTML (basic implementation)
   const html = convertMarkdownToHtml(content);
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const anchor = target.closest('a[data-doc]') as HTMLAnchorElement | null;
+    if (anchor && onNavigate) {
+      e.preventDefault();
+      const slug = anchor.getAttribute('data-doc');
+      if (slug) onNavigate(slug);
+    }
+  };
 
   return (
     <div
       className="markdown-content"
       dangerouslySetInnerHTML={{ __html: html }}
+      onClick={handleClick}
     />
   );
 }
@@ -362,8 +373,14 @@ function convertMarkdownToHtml(markdown: string): string {
   // Italic
   html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-accent hover:underline" target="_blank" rel="noopener noreferrer">$1</a>');
+  // Links - internal doc links use data-doc attribute for SPA navigation
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+    if (url.startsWith('?doc=')) {
+      const slug = url.replace('?doc=', '');
+      return `<a href="/dashboard/help${url}" data-doc="${slug}" class="text-accent hover:underline">${text}</a>`;
+    }
+    return `<a href="${url}" class="text-accent hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  });
 
   // Tables - parse markdown tables properly
   html = html.replace(/(\|[^\n]+\|\n)+/g, (tableMatch) => {

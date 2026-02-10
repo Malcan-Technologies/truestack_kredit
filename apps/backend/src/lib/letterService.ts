@@ -103,6 +103,17 @@ export interface DischargeLetterParams {
   totalPaid: number;
   totalLateFees: number;
   dischargeNotes: string | null;
+  /** Early settlement details (only set when loan was settled early) */
+  earlySettlement?: {
+    settlementAmount: number;
+    discountAmount: number;
+    discountType: string;    // 'PERCENTAGE' or 'FIXED'
+    discountValue: number;   // e.g. 20 for 20% or RM amount
+    remainingPrincipal: number;
+    remainingInterest: number;
+    waiveLateFees: boolean;
+    outstandingLateFees: number;
+  };
 }
 
 export interface ArrearsLetterParams {
@@ -362,7 +373,7 @@ function createPdfWriter(
 // ============================================
 
 export async function generateDischargeLetter(params: DischargeLetterParams): Promise<string> {
-  const { loan, borrower, tenant, totalPaid, totalLateFees, dischargeNotes } = params;
+  const { loan, borrower, tenant, totalPaid, totalLateFees, dischargeNotes, earlySettlement } = params;
 
   // Special handling: discharge letters go to discharge-letters subdirectory for backward compat
   const lettersDir = path.join(UPLOAD_DIR, 'discharge-letters');
@@ -405,27 +416,26 @@ export async function generateDischargeLetter(params: DischargeLetterParams): Pr
       doc.font('Helvetica').text('Dear Sir/Madam,', { align: 'left' });
 
       doc.moveDown(1);
-      doc.font('Helvetica-Bold').text('RE: FULL SETTLEMENT AND DISCHARGE OF LOAN', { align: 'left' });
+      const subjectLine = earlySettlement
+        ? 'RE: EARLY SETTLEMENT AND DISCHARGE OF LOAN'
+        : 'RE: FULL SETTLEMENT AND DISCHARGE OF LOAN';
+      doc.font('Helvetica-Bold').text(subjectLine, { align: 'left' });
 
       doc.moveDown(1);
-      doc.font('Helvetica').text(
-        `We are pleased to confirm that the loan facility extended to you has been fully settled and discharged.`,
-        { align: 'justify' }
-      );
+      const introText = earlySettlement
+        ? `We are pleased to confirm that the loan facility extended to you has been settled early and discharged, subject to the early settlement terms detailed below.`
+        : `We are pleased to confirm that the loan facility extended to you has been fully settled and discharged.`;
+      doc.font('Helvetica').text(introText, { align: 'justify' });
 
       // Loan Details Box
       doc.moveDown(1.5);
       const boxY = doc.y;
-      const extraFields: { label: string; value: string }[] = [
-        { label: 'Settlement Date:', value: formatDate(loan.completedAt) },
-        { label: 'Total Amount Paid:', value: formatRM(totalPaid) },
-      ];
-      if (totalLateFees > 0) {
-        extraFields.push({ label: 'Late Fees Paid:', value: formatRM(totalLateFees) });
-      }
 
-      // Use the slightly taller box for discharge (has extra fields like settlement/total paid)
-      const boxHeight = 100;
+      // Determine how many right-column rows we need for dynamic box height
+      let rightRowCount = 3; // Disbursement Date, Settlement Date, Total Amount Paid
+      if (totalLateFees > 0) rightRowCount++;
+      if (earlySettlement && earlySettlement.discountAmount > 0) rightRowCount++;
+      const boxHeight = Math.max(100, 55 + rightRowCount * 15);
       doc.rect(50, boxY, 500, boxHeight).fill('#F9FAFB');
 
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#374151')
@@ -448,26 +458,90 @@ export async function generateDischargeLetter(params: DischargeLetterParams): Pr
       doc.text(`${toSafeNumber(loan.interestRate)}% p.a.`, 180, detailsY + 30);
       doc.text(`${loan.term} months`, 180, detailsY + 45);
 
-      // Right column
-      doc.font('Helvetica').fillColor('#6B7280');
-      doc.text('Disbursement Date:', 320, detailsY);
-      doc.text('Settlement Date:', 320, detailsY + 15);
-      doc.text('Total Amount Paid:', 320, detailsY + 30);
-      if (totalLateFees > 0) {
-        doc.text('Late Fees Paid:', 320, detailsY + 45);
-      }
+      // Right column — build rows dynamically
+      let rightY = detailsY;
+      const addRightRow = (label: string, value: string, valueColor?: string) => {
+        doc.font('Helvetica').fillColor('#6B7280').text(label, 320, rightY);
+        doc.font('Helvetica-Bold').fillColor(valueColor || '#000000').text(value, 440, rightY);
+        rightY += 15;
+      };
 
-      // Right values
-      doc.font('Helvetica-Bold').fillColor('#000000');
-      doc.text(loan.disbursementDate ? formatDate(loan.disbursementDate) : 'N/A', 440, detailsY);
-      doc.text(formatDate(loan.completedAt), 440, detailsY + 15);
-      doc.text(formatRM(totalPaid), 440, detailsY + 30);
+      addRightRow('Disbursement Date:', loan.disbursementDate ? formatDate(loan.disbursementDate) : 'N/A');
+      addRightRow('Settlement Date:', formatDate(loan.completedAt));
+      addRightRow('Total Amount Paid:', formatRM(totalPaid));
+      if (earlySettlement && earlySettlement.discountAmount > 0) {
+        addRightRow('Discount Given:', `- ${formatRM(earlySettlement.discountAmount)}`, '#059669');
+      }
       if (totalLateFees > 0) {
-        doc.text(formatRM(totalLateFees), 440, detailsY + 45);
+        addRightRow('Late Fees Paid:', formatRM(totalLateFees));
       }
 
       // Move past the box
-      doc.y = boxY + 115;
+      doc.y = boxY + boxHeight + 15;
+
+      // Early Settlement Breakdown (only for early-settled loans)
+      if (earlySettlement) {
+        doc.moveDown(0.5);
+        const esBoxY = doc.y;
+        const esRows: { label: string; value: string; color?: string; bold?: boolean }[] = [
+          { label: 'Remaining Principal', value: formatRM(earlySettlement.remainingPrincipal) },
+          { label: 'Remaining Interest', value: formatRM(earlySettlement.remainingInterest) },
+        ];
+
+        // Discount row
+        const discountLabel = earlySettlement.discountType === 'PERCENTAGE'
+          ? `Early Settlement Discount (${earlySettlement.discountValue}% of future interest)`
+          : `Early Settlement Discount (Fixed)`;
+        if (earlySettlement.discountAmount > 0) {
+          esRows.push({ label: discountLabel, value: `- ${formatRM(earlySettlement.discountAmount)}`, color: '#059669' });
+        }
+
+        // Late fees row
+        if (earlySettlement.outstandingLateFees > 0) {
+          if (earlySettlement.waiveLateFees) {
+            esRows.push({ label: 'Outstanding Late Fees (Waived)', value: `- ${formatRM(earlySettlement.outstandingLateFees)}`, color: '#059669' });
+          } else {
+            esRows.push({ label: 'Outstanding Late Fees', value: formatRM(earlySettlement.outstandingLateFees) });
+          }
+        }
+
+        // Total settlement
+        esRows.push({ label: 'Total Settlement Amount', value: formatRM(earlySettlement.settlementAmount), bold: true });
+
+        const esBoxHeight = 30 + (esRows.length * 16) + 10;
+        doc.rect(50, esBoxY, 500, esBoxHeight).fill('#ECFDF5');
+
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#065F46')
+           .text('EARLY SETTLEMENT BREAKDOWN', 70, esBoxY + 12);
+
+        let esRowY = esBoxY + 32;
+        for (const row of esRows) {
+          doc.fontSize(9);
+          if (row.bold) {
+            doc.font('Helvetica-Bold').fillColor('#000000');
+            // Draw a thin separator line before the total
+            doc.strokeColor('#A7F3D0').lineWidth(0.5)
+               .moveTo(70, esRowY - 3).lineTo(530, esRowY - 3).stroke();
+            esRowY += 2;
+          } else {
+            doc.font('Helvetica').fillColor('#6B7280');
+          }
+          doc.text(row.label, 70, esRowY);
+          doc.font(row.bold ? 'Helvetica-Bold' : 'Helvetica')
+             .fillColor(row.color || '#000000')
+             .text(row.value, 400, esRowY, { width: 130, align: 'right' });
+          esRowY += 16;
+        }
+
+        doc.y = esBoxY + esBoxHeight + 15;
+
+        // Savings callout
+        if (earlySettlement.discountAmount > 0) {
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#059669')
+             .text(`You saved ${formatRM(earlySettlement.discountAmount)} through early settlement.`, 50, doc.y, { align: 'left' });
+          doc.moveDown(1);
+        }
+      }
 
       // Confirmation paragraph
       doc.fontSize(10).font('Helvetica').fillColor('#000000')

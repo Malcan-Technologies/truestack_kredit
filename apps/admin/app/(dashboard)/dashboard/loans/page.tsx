@@ -45,6 +45,7 @@ interface Loan {
   disbursementDate: string | null;
   createdAt: string;
   totalLateFees: string;
+  earlySettlementDate: string | null;
   readyForDefault: boolean;
   defaultReadyDate: string | null;
   borrower: {
@@ -57,6 +58,11 @@ interface Loan {
   product: {
     id: string;
     name: string;
+  };
+  lateFeeBreakdown?: {
+    total: number;
+    paid: number;
+    unpaid: number;
   };
   progress?: LoanProgress;
 }
@@ -303,7 +309,7 @@ export default function LoansPage() {
             cmp = (a.progress?.progressPercent ?? -1) - (b.progress?.progressPercent ?? -1);
             break;
           case "lateFees":
-            cmp = Number(a.totalLateFees) - Number(b.totalLateFees);
+            cmp = (a.lateFeeBreakdown?.unpaid ?? 0) - (b.lateFeeBreakdown?.unpaid ?? 0);
             break;
           case "disbursed":
             cmp = (a.disbursementDate || "").localeCompare(b.disbursementDate || "");
@@ -646,10 +652,19 @@ export default function LoansPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {Number(loan.totalLateFees) > 0 ? (
-                        <span className="text-sm text-destructive font-medium">
-                          {formatCurrency(Number(loan.totalLateFees))}
-                        </span>
+                      {loan.lateFeeBreakdown && loan.lateFeeBreakdown.total > 0 ? (
+                        <div>
+                          <span className={`text-sm font-medium ${loan.lateFeeBreakdown.unpaid > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                            {loan.lateFeeBreakdown.unpaid > 0
+                              ? formatCurrency(loan.lateFeeBreakdown.unpaid)
+                              : "Settled"}
+                          </span>
+                          {loan.lateFeeBreakdown.paid > 0 && (
+                            <p className="text-[10px] text-muted-foreground">
+                              {formatCurrency(loan.lateFeeBreakdown.paid)} paid
+                            </p>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
@@ -659,6 +674,11 @@ export default function LoansPage() {
                         <Badge variant={statusColors[loan.status] || "default"}>
                           {loan.status.replace(/_/g, " ")}
                         </Badge>
+                        {loan.earlySettlementDate && loan.status === "COMPLETED" && (
+                          <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300 dark:border-emerald-700">
+                            Settled Early
+                          </Badge>
+                        )}
                         {progress?.readyToComplete && (
                           <Tooltip>
                             <TooltipTrigger asChild>

@@ -317,3 +317,21 @@ No, IC numbers must be unique within your tenant. The system will reject duplica
 ### How do I find a borrower quickly?
 
 Use the search bar on the Borrowers page. You can search by name, IC, phone, or email.
+
+### Why is "Monthly Income" mandatory for individual borrowers?
+
+Monthly Income is required for generating [Lampiran A](?doc=compliance/lampiran-a), a regulatory document mandated by KPKT. It appears as the "Pendapatan Sebulan" field on the form. A value of 0 is accepted if the borrower has no income.
+
+### Why is "Taraf (Bumi Status)" mandatory for corporate borrowers?
+
+The Bumi Status field is required for both the [Lampiran A](?doc=compliance/lampiran-a) and [KPKT Portal Export](?doc=compliance/kpkt-ideal-export). It classifies the borrower as Bumi, Bukan Bumi, or Asing for regulatory reporting purposes.
+
+---
+
+## Related Documentation
+
+- [Lampiran A (Borrower Ledger)](?doc=compliance/lampiran-a) — How borrower details appear in the Lampiran A regulatory document
+- [KPKT Portal Export (iDeal CSV)](?doc=compliance/kpkt-ideal-export) — How borrower data is used in the KPKT export
+- [Compliance & Exports Overview](?doc=compliance/compliance-overview) — Overview of all compliance and data export features
+- [Loan Applications](?doc=loan-management/loan-applications) — How borrower records are used in loan applications
+- [Data Exports](?doc=compliance/data-exports) — Exporting borrower records as CSV

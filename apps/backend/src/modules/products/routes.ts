@@ -62,6 +62,11 @@ const createProductSchema = z.object({
   eligibleBorrowerTypes: z.enum(['INDIVIDUAL', 'CORPORATE', 'BOTH']).default('BOTH'),
   // Loan schedule type per KPKT regulations
   loanScheduleType: z.enum(['JADUAL_J', 'JADUAL_K']).default('JADUAL_J'),
+  // Early settlement configuration
+  earlySettlementEnabled: z.boolean().default(false),
+  earlySettlementLockInMonths: z.number().int().min(0).max(120).default(0),
+  earlySettlementDiscountType: z.enum(['PERCENTAGE', 'FIXED']).default('PERCENTAGE'),
+  earlySettlementDiscountValue: z.number().min(0).default(0),
 }).refine(data => data.minAmount <= data.maxAmount, {
   message: 'minAmount must be less than or equal to maxAmount',
   path: ['minAmount'],
@@ -71,6 +76,14 @@ const createProductSchema = z.object({
 }).refine(data => data.arrearsPeriod <= data.defaultPeriod, {
   message: 'Arrears period must be less than or equal to default period',
   path: ['arrearsPeriod'],
+}).refine(data => {
+  if (data.earlySettlementEnabled && data.earlySettlementDiscountType === 'PERCENTAGE' && data.earlySettlementDiscountValue > 100) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Percentage discount cannot exceed 100%',
+  path: ['earlySettlementDiscountValue'],
 });
 
 const updateProductSchema = z.object({
@@ -97,6 +110,11 @@ const updateProductSchema = z.object({
   eligibleBorrowerTypes: z.enum(['INDIVIDUAL', 'CORPORATE', 'BOTH']).optional(),
   // Loan schedule type per KPKT regulations
   loanScheduleType: z.enum(['JADUAL_J', 'JADUAL_K']).optional(),
+  // Early settlement configuration
+  earlySettlementEnabled: z.boolean().optional(),
+  earlySettlementLockInMonths: z.number().int().min(0).max(120).optional(),
+  earlySettlementDiscountType: z.enum(['PERCENTAGE', 'FIXED']).optional(),
+  earlySettlementDiscountValue: z.number().min(0).optional(),
 });
 
 /**

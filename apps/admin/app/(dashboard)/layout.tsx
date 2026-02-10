@@ -13,7 +13,6 @@ import {
   Wallet,
   Package,
   ClipboardList,
-  BarChart3,
   Menu,
   X,
   HelpCircle,
@@ -77,7 +76,6 @@ const navigationSections: NavSection[] = [
   {
     title: "Business",
     items: [
-      { name: "Reports", href: "/dashboard/reports", icon: BarChart3 },
       { name: "Compliance", href: "/dashboard/compliance", icon: Shield },
       { name: "Billing", href: "/dashboard/billing", icon: Wallet },
     ],

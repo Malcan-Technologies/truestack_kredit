@@ -403,9 +403,13 @@ router.get('/loan/:loanId', async (req, res, next) => {
       summary.totalPaid += totalPaid;
       summary.totalOutstanding += Math.max(0, totalDue - totalPaid);
 
-      if (repayment.status === 'PAID') {
+      const status = repayment.status as string;
+      if (status === 'PAID') {
         summary.paidCount++;
-      } else if (repayment.status === 'OVERDUE' || (repayment.dueDate < now && !['PAID'].includes(repayment.status))) {
+      } else if (status === 'CANCELLED') {
+        // Cancelled repayments (early settlement) - don't count as outstanding
+        summary.paidCount++;
+      } else if (status === 'OVERDUE' || (repayment.dueDate < now && !['PAID', 'CANCELLED'].includes(status))) {
         summary.overdueCount++;
       } else {
         summary.pendingCount++;
@@ -634,8 +638,8 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       throw new BadRequestError('Loan is already completed');
     }
 
-    if (loan.status === 'DEFAULTED' || loan.status === 'WRITTEN_OFF') {
-      throw new BadRequestError('Cannot record payments on a defaulted or written-off loan');
+    if (loan.status === 'WRITTEN_OFF') {
+      throw new BadRequestError('Cannot record payments on a written-off loan');
     }
 
     const currentSchedule = loan.scheduleVersions[0];
@@ -643,8 +647,8 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       throw new BadRequestError('No active schedule found for this loan');
     }
 
-    // Find unpaid/partial repayments in chronological order
-    const unpaidRepayments = currentSchedule.repayments.filter(r => r.status !== 'PAID');
+    // Find unpaid/partial repayments in chronological order (exclude PAID and CANCELLED)
+    const unpaidRepayments = currentSchedule.repayments.filter(r => r.status !== 'PAID' && r.status !== 'CANCELLED');
     if (unpaidRepayments.length === 0) {
       throw new BadRequestError('All repayments are already paid');
     }
@@ -827,6 +831,53 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       return { transaction, allocations: createdAllocations };
     });
 
+    // Check if a DEFAULTED loan should be reactivated (evaluated here, but audit logged after RECORD_PAYMENT)
+    let defaultCleared = false;
+    if (loan.status === 'DEFAULTED') {
+      // Re-read the current state of all repayments after payment allocation
+      const freshSchedule = await prisma.loanScheduleVersion.findFirst({
+        where: { loanId },
+        orderBy: { version: 'desc' },
+        include: {
+          repayments: {
+            orderBy: { dueDate: 'asc' },
+            include: { allocations: true },
+          },
+        },
+      });
+
+      if (freshSchedule) {
+        const now = new Date();
+        // Find all overdue repayments (due date is in the past, exclude CANCELLED from early settlement)
+        const overdueRepayments = freshSchedule.repayments.filter(r => r.status !== 'CANCELLED' && new Date(r.dueDate) < now);
+        
+        // Check if all overdue repayments are fully paid (principal + interest + late fees)
+        const allOverduePaid = overdueRepayments.length > 0 && overdueRepayments.every(r => {
+          const totalDue = toSafeNumber(r.totalDue);
+          const paid = r.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
+          const lateFeeAccrued = toSafeNumber(r.lateFeeAccrued);
+          const lateFeesPaid = toSafeNumber(r.lateFeesPaid);
+          const principalInterestPaid = paid >= totalDue - 0.01;
+          const lateFeesCovered = lateFeesPaid >= lateFeeAccrued - 0.01;
+          return principalInterestPaid && lateFeesCovered;
+        });
+
+        if (allOverduePaid) {
+          // Clear default status - reactivate the loan
+          await prisma.loan.update({
+            where: { id: loanId },
+            data: {
+              status: 'ACTIVE',
+              readyForDefault: false,
+              defaultReadyDate: null,
+              arrearsStartDate: null,
+            },
+          });
+          defaultCleared = true;
+        }
+      }
+    }
+
     // Generate and store receipt PDF
     const borrower = loan.borrower;
     const receiptPath = await generateAndStoreReceipt({
@@ -892,6 +943,24 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       ipAddress: req.ip,
     });
 
+    // Audit log: default cleared (after RECORD_PAYMENT so it appears in correct order)
+    if (defaultCleared) {
+      await AuditService.log({
+        tenantId: req.tenantId!,
+        memberId: req.memberId,
+        action: 'STATUS_UPDATE',
+        entityType: 'Loan',
+        entityId: loanId,
+        previousData: { status: 'DEFAULTED' },
+        newData: {
+          status: 'ACTIVE',
+          reason: 'All overdue repayments fully paid - default cleared',
+          paymentTransactionId: result.transaction.id,
+        },
+        ipAddress: req.ip,
+      });
+    }
+
     res.status(201).json({
       success: true,
       data: {
@@ -905,6 +974,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
           principalAllocated: a.principalAllocated,
         })),
         totalLateFeesPaid,
+        defaultCleared,
       },
     });
   } catch (error) {

@@ -74,6 +74,7 @@ enum RepaymentStatus {
   PARTIAL
   PAID
   OVERDUE
+  CANCELLED // Repayment cancelled due to early settlement
 }
 
 enum InterestModel {
@@ -425,6 +426,7 @@ model Borrower {
   companyPhone      String? // Company contact number
   companyEmail      String? // Company email
   natureOfBusiness  String? // Industry/business type
+  bumiStatus        String? // BUMI, BUKAN_BUMI, ASING - Taraf for Lampiran A compliance
 
   // Optional corporate fields
   dateOfIncorporation DateTime? // Company incorporation date
@@ -477,6 +479,12 @@ model Product {
   // Loan schedule type per KPKT regulations
   // JADUAL_J = No collateral, JADUAL_K = With collateral (12% max rate)
   loanScheduleType String @default("JADUAL_J")
+
+  // Early settlement configuration
+  earlySettlementEnabled       Boolean @default(false)
+  earlySettlementLockInMonths  Int     @default(0) // 0 = no lock-in period
+  earlySettlementDiscountType  String  @default("PERCENTAGE") // PERCENTAGE or FIXED
+  earlySettlementDiscountValue Decimal @default(0) @db.Decimal(12, 2) // % of remaining interest or RM amount
 
   // Relations
   tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -608,6 +616,13 @@ model Loan {
   totalLateFees Decimal  @default(0) @db.Decimal(12, 2) // Total late fees charged
   repaymentRate Decimal? @db.Decimal(5, 2) // Percentage of payments made on time
 
+  // Early settlement fields
+  earlySettlementDate         DateTime? // When the early settlement was confirmed
+  earlySettlementAmount       Decimal?  @db.Decimal(12, 2) // Total settlement amount paid
+  earlySettlementDiscount     Decimal?  @db.Decimal(12, 2) // Discount amount given
+  earlySettlementNotes        String? // Admin notes for settlement
+  earlySettlementWaiveLateFees Boolean  @default(false) // Whether late fees were waived
+
   // Late fee / default tracking
   readyForDefault   Boolean   @default(false) // True when default period exceeded (admin must manually mark)
   defaultReadyDate  DateTime? // When it became ready for default (UTC)
@@ -677,6 +692,7 @@ model PaymentTransaction {
   tenantId    String
   loanId      String
   totalAmount Decimal  @db.Decimal(12, 2) // Total amount paid in this transaction
+  paymentType String   @default("REGULAR") // REGULAR or EARLY_SETTLEMENT
   reference   String? // Payment reference (e.g., bank transfer ref)
   notes       String?
   paymentDate DateTime // When the payment was made

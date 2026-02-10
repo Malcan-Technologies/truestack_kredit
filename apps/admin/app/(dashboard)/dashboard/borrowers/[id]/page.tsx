@@ -92,6 +92,7 @@ interface Borrower {
   companyName: string | null;
   ssmRegistrationNo: string | null;
   businessAddress: string | null;
+  bumiStatus: string | null;
   authorizedRepName: string | null;
   authorizedRepIc: string | null;
   companyPhone: string | null;
@@ -159,6 +160,7 @@ interface FormData {
   companyName: string;
   ssmRegistrationNo: string;
   businessAddress: string;
+  bumiStatus: string;
   authorizedRepName: string;
   authorizedRepIc: string;
   companyPhone: string;
@@ -276,6 +278,12 @@ const EMPLOYMENT_OPTIONS = [
   { value: "UNEMPLOYED", label: "Tidak Bekerja" },
   { value: "RETIRED", label: "Bersara" },
   { value: "STUDENT", label: "Pelajar" },
+];
+
+const BUMI_STATUS_OPTIONS = [
+  { value: "BUMI", label: "Bumiputera" },
+  { value: "BUKAN_BUMI", label: "Bukan Bumiputera" },
+  { value: "ASING", label: "Asing" },
 ];
 
 const RELATIONSHIP_OPTIONS = [
@@ -567,6 +575,7 @@ export default function BorrowerDetailPage() {
     companyName: "",
     ssmRegistrationNo: "",
     businessAddress: "",
+    bumiStatus: "",
     authorizedRepName: "",
     authorizedRepIc: "",
     companyPhone: "",
@@ -659,6 +668,7 @@ export default function BorrowerDetailPage() {
       companyName: data.companyName || "",
       ssmRegistrationNo: data.ssmRegistrationNo || "",
       businessAddress: data.businessAddress || "",
+      bumiStatus: data.bumiStatus || "",
       authorizedRepName: data.authorizedRepName || "",
       authorizedRepIc: data.authorizedRepIc || "",
       companyPhone: data.companyPhone || "",
@@ -712,6 +722,7 @@ export default function BorrowerDetailPage() {
       if (!formData.companyName.trim()) errors.companyName = "Company name is required";
       if (!formData.ssmRegistrationNo.trim()) errors.ssmRegistrationNo = "SSM registration number is required";
       if (!formData.businessAddress.trim()) errors.businessAddress = "Business address is required";
+      if (!formData.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
       if (!formData.authorizedRepName.trim()) errors.authorizedRepName = "Representative name is required";
       if (!formData.authorizedRepIc.trim()) errors.authorizedRepIc = "Representative IC is required";
       if (!formData.companyPhone.trim()) errors.companyPhone = "Company phone is required";
@@ -734,6 +745,8 @@ export default function BorrowerDetailPage() {
       if (!formData.educationLevel) errors.educationLevel = "Education level is required";
       if (!formData.occupation.trim()) errors.occupation = "Occupation is required";
       if (!formData.employmentStatus) errors.employmentStatus = "Employment status is required";
+      if (!formData.monthlyIncome.trim()) errors.monthlyIncome = "Monthly income is required";
+      else if (isNaN(parseFloat(formData.monthlyIncome)) || parseFloat(formData.monthlyIncome) < 0) errors.monthlyIncome = "Enter a valid income amount";
       if (!formData.bankName) errors.bankName = "Bank is required";
       if (formData.bankName === "OTHER" && !formData.bankNameOther.trim()) {
         errors.bankNameOther = "Bank name is required";
@@ -768,6 +781,7 @@ export default function BorrowerDetailPage() {
           companyName: formData.companyName || undefined,
           ssmRegistrationNo: formData.ssmRegistrationNo || undefined,
           businessAddress: formData.businessAddress || undefined,
+          bumiStatus: formData.bumiStatus || undefined,
           authorizedRepName: formData.authorizedRepName || undefined,
           authorizedRepIc: formData.authorizedRepIc || undefined,
           companyPhone: formData.companyPhone || undefined,
@@ -801,7 +815,7 @@ export default function BorrowerDetailPage() {
           emergencyContactName: formData.emergencyContactName || undefined,
           emergencyContactPhone: formData.emergencyContactPhone || undefined,
           emergencyContactRelationship: formData.emergencyContactRelationship || undefined,
-          monthlyIncome: formData.monthlyIncome ? parseFloat(formData.monthlyIncome) : undefined,
+          monthlyIncome: formData.monthlyIncome.trim() !== "" ? parseFloat(formData.monthlyIncome) : undefined,
         };
       }
 
@@ -1036,6 +1050,19 @@ export default function BorrowerDetailPage() {
                       }}
                       error={validationErrors.ssmRegistrationNo}
                       placeholder="202001012345"
+                      isEditing={isEditing}
+                    />
+                    <Field
+                      label="Taraf (Bumi Status)"
+                      value={getOptionLabel(BUMI_STATUS_OPTIONS, borrower.bumiStatus)}
+                      editValue={formData.bumiStatus}
+                      onChange={(val) => {
+                        setFormData((prev) => ({ ...prev, bumiStatus: val }));
+                        if (validationErrors.bumiStatus) setValidationErrors((prev) => ({ ...prev, bumiStatus: "" }));
+                      }}
+                      type="select"
+                      options={BUMI_STATUS_OPTIONS}
+                      error={validationErrors.bumiStatus}
                       isEditing={isEditing}
                     />
                     <Field
@@ -1348,6 +1375,31 @@ export default function BorrowerDetailPage() {
                       error={validationErrors.employmentStatus}
                       isEditing={isEditing}
                     />
+                    {!isEditing ? (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Monthly Income</p>
+                        <p className="font-medium">
+                          {borrower.monthlyIncome != null ? `RM ${Number(borrower.monthlyIncome).toLocaleString()}` : "-"}
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-xs text-muted-foreground">Monthly Income (RM) *</label>
+                        <Input
+                          type="number"
+                          value={formData.monthlyIncome}
+                          onChange={(e) => {
+                            setFormData((prev) => ({ ...prev, monthlyIncome: e.target.value }));
+                            if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
+                          }}
+                          placeholder="e.g., 3500"
+                          className={validationErrors.monthlyIncome ? "border-red-500" : ""}
+                        />
+                        {validationErrors.monthlyIncome && (
+                          <p className="text-xs text-red-500 mt-1">{validationErrors.monthlyIncome}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

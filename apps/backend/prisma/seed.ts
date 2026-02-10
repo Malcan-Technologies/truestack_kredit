@@ -178,6 +178,11 @@ async function main() {
       requiredDocuments: DEFAULT_REQUIRED_DOCUMENTS,
       eligibleBorrowerTypes: 'BOTH',
       loanScheduleType: 'JADUAL_J',
+      // Early settlement: 20% discount on future interest, 2-month lock-in
+      earlySettlementEnabled: true,
+      earlySettlementLockInMonths: 2,
+      earlySettlementDiscountType: 'PERCENTAGE',
+      earlySettlementDiscountValue: 20,
     },
     create: {
       id: 'demo-flat-product',
@@ -203,6 +208,11 @@ async function main() {
       // Eligibility and loan type
       eligibleBorrowerTypes: 'BOTH',
       loanScheduleType: 'JADUAL_J',
+      // Early settlement: 20% discount on future interest, 2-month lock-in
+      earlySettlementEnabled: true,
+      earlySettlementLockInMonths: 2,
+      earlySettlementDiscountType: 'PERCENTAGE',
+      earlySettlementDiscountValue: 20,
     },
   });
 
@@ -223,6 +233,11 @@ async function main() {
       eligibleBorrowerTypes: 'INDIVIDUAL',
       loanScheduleType: 'JADUAL_K',
       interestRate: 12.0, // Jadual K max rate
+      // Early settlement: RM 500 fixed discount, 3-month lock-in
+      earlySettlementEnabled: true,
+      earlySettlementLockInMonths: 3,
+      earlySettlementDiscountType: 'FIXED',
+      earlySettlementDiscountValue: 500,
     },
     create: {
       id: 'demo-declining-product',
@@ -251,6 +266,11 @@ async function main() {
       // Eligibility and loan type
       eligibleBorrowerTypes: 'INDIVIDUAL',
       loanScheduleType: 'JADUAL_K',
+      // Early settlement: RM 500 fixed discount, 3-month lock-in
+      earlySettlementEnabled: true,
+      earlySettlementLockInMonths: 3,
+      earlySettlementDiscountType: 'FIXED',
+      earlySettlementDiscountValue: 500,
     },
   });
 
@@ -267,6 +287,11 @@ async function main() {
       requiredDocuments: CORPORATE_REQUIRED_DOCUMENTS,
       eligibleBorrowerTypes: 'CORPORATE',
       loanScheduleType: 'JADUAL_J',
+      // Early settlement: 50% discount, no lock-in
+      earlySettlementEnabled: true,
+      earlySettlementLockInMonths: 0,
+      earlySettlementDiscountType: 'PERCENTAGE',
+      earlySettlementDiscountValue: 50,
     },
     create: {
       id: 'demo-corporate-product',
@@ -292,6 +317,11 @@ async function main() {
       // Eligibility and loan type
       eligibleBorrowerTypes: 'CORPORATE',
       loanScheduleType: 'JADUAL_J',
+      // Early settlement: 50% discount, no lock-in
+      earlySettlementEnabled: true,
+      earlySettlementLockInMonths: 0,
+      earlySettlementDiscountType: 'PERCENTAGE',
+      earlySettlementDiscountValue: 50,
     },
   });
 
@@ -1131,6 +1161,532 @@ async function main() {
 
   console.log('  ✓ Loan F: 6-month loan, 1 paid, 1 partially paid (Jan 1 = 38 days overdue, RM 500/908.33 paid)');
 
+  // ============================================
+  // SHOWCASE LOANS - Various statuses to demo all features
+  // ============================================
+  console.log('\n🎯 Creating showcase loans...');
+
+  // Loan G: Fully completed (all repayments paid naturally)
+  const appG = await prisma.loanApplication.upsert({
+    where: { id: 'demo-showcase-app-g' },
+    update: {},
+    create: {
+      id: 'demo-showcase-app-g',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: flatProduct.id,
+      amount: 3000,
+      term: 3,
+      status: 'APPROVED',
+      notes: 'Short-term loan - fully repaid',
+    },
+  });
+
+  const disbDateG = new Date('2025-09-01');
+  const loanG = await prisma.loan.upsert({
+    where: { applicationId: 'demo-showcase-app-g' },
+    update: {},
+    create: {
+      id: 'demo-showcase-loan-g',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: flatProduct.id,
+      applicationId: appG.id,
+      principalAmount: 3000,
+      interestRate: 18.0,
+      term: 3,
+      status: 'COMPLETED',
+      disbursementDate: disbDateG,
+      completedAt: new Date('2025-12-05'),
+      repaymentRate: 100,
+      dischargeNotes: 'All repayments settled on time. Discharge letter issued.',
+    },
+  });
+
+  const totalInterestG = 3000 * 0.18 * (3 / 12); // 135
+  const monthlyPaymentG = (3000 + totalInterestG) / 3; // 1045
+  const monthlyPrincipalG = 3000 / 3;
+  const monthlyInterestG = totalInterestG / 3;
+
+  const scheduleVersionG = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanG.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanG.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 3000, interestRate: 18, term: 3, disbursementDate: disbDateG.toISOString() },
+      outputsHash: 'seed-hash-g',
+    },
+  });
+
+  for (let i = 1; i <= 3; i++) {
+    const dueDate = addMonths(disbDateG, i);
+    const repaymentId = `demo-repayment-g-${i}`;
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionG.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalG * 100) / 100,
+        interest: Math.round(monthlyInterestG * 100) / 100,
+        totalDue: Math.round(monthlyPaymentG * 100) / 100,
+        status: 'PAID',
+      },
+    });
+    await prisma.paymentAllocation.upsert({
+      where: { id: `demo-alloc-g-${i}` },
+      update: {},
+      create: {
+        id: `demo-alloc-g-${i}`,
+        repaymentId,
+        amount: Math.round(monthlyPaymentG * 100) / 100,
+        allocatedAt: dueDate,
+      },
+    });
+  }
+
+  console.log('  ✓ Loan G: 3-month loan, COMPLETED (all paid on time)');
+
+  // Loan H: Early settled loan (completed via early settlement with discount)
+  const appH = await prisma.loanApplication.upsert({
+    where: { id: 'demo-showcase-app-h' },
+    update: {},
+    create: {
+      id: 'demo-showcase-app-h',
+      tenantId: tenant.id,
+      borrowerId: borrower2.id,
+      productId: flatProduct.id,
+      amount: 20000,
+      term: 12,
+      status: 'APPROVED',
+      notes: 'Borrower requested early settlement after 4 months',
+    },
+  });
+
+  const disbDateH = new Date('2025-07-01');
+  const loanH = await prisma.loan.upsert({
+    where: { applicationId: 'demo-showcase-app-h' },
+    update: {},
+    create: {
+      id: 'demo-showcase-loan-h',
+      tenantId: tenant.id,
+      borrowerId: borrower2.id,
+      productId: flatProduct.id,
+      applicationId: appH.id,
+      principalAmount: 20000,
+      interestRate: 18.0,
+      term: 12,
+      status: 'COMPLETED',
+      disbursementDate: disbDateH,
+      completedAt: new Date('2025-11-15'),
+      repaymentRate: 100,
+      dischargeNotes: 'Early settlement - borrower received bonus and chose to settle early.',
+      // Early settlement metadata
+      earlySettlementDate: new Date('2025-11-15'),
+      earlySettlementAmount: 15250.67, // Calculated settlement amount
+      earlySettlementDiscount: 480, // 20% of remaining future interest
+      earlySettlementNotes: 'Borrower received year-end bonus. Settled via bank transfer.',
+      earlySettlementWaiveLateFees: false,
+    },
+  });
+
+  const totalInterestH = 20000 * 0.18 * (12 / 12); // 3600
+  const monthlyPaymentH = (20000 + totalInterestH) / 12; // 1966.67
+  const monthlyPrincipalH = 20000 / 12;
+  const monthlyInterestH = totalInterestH / 12;
+
+  const scheduleVersionH = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanH.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanH.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 20000, interestRate: 18, term: 12, disbursementDate: disbDateH.toISOString() },
+      outputsHash: 'seed-hash-h',
+    },
+  });
+
+  for (let i = 1; i <= 12; i++) {
+    const dueDate = addMonths(disbDateH, i);
+    const isPaid = i <= 4; // First 4 months paid normally (Aug, Sep, Oct, Nov)
+    const isCancelled = i > 4; // Remaining 8 months cancelled via early settlement
+    const repaymentId = `demo-repayment-h-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionH.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalH * 100) / 100,
+        interest: Math.round(monthlyInterestH * 100) / 100,
+        totalDue: Math.round(monthlyPaymentH * 100) / 100,
+        status: isPaid ? 'PAID' : isCancelled ? 'CANCELLED' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-h-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-h-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentH * 100) / 100,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+
+    // Early settlement allocations for cancelled repayments
+    if (isCancelled) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-h-${i}-settle` },
+        update: {},
+        create: {
+          id: `demo-alloc-h-${i}-settle`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentH * 100) / 100,
+          allocatedAt: new Date('2025-11-15'),
+          reference: 'EARLY-SETTLEMENT',
+        },
+      });
+    }
+  }
+
+  // Create settlement payment transaction
+  await prisma.paymentTransaction.upsert({
+    where: { id: 'demo-txn-h-settlement' },
+    update: {},
+    create: {
+      id: 'demo-txn-h-settlement',
+      tenantId: tenant.id,
+      loanId: loanH.id,
+      totalAmount: 15250.67,
+      paymentType: 'EARLY_SETTLEMENT',
+      reference: 'FPX-20251115-001',
+      notes: 'Early settlement - 20% discount on future interest',
+      paymentDate: new Date('2025-11-15'),
+      receiptNumber: 'RCP-20251115-001',
+    },
+  });
+
+  console.log('  ✓ Loan H: 12-month loan, EARLY SETTLED after 4 months (20% discount)');
+
+  // Loan I: Pending disbursement (approved but not yet disbursed)
+  const appI = await prisma.loanApplication.upsert({
+    where: { id: 'demo-showcase-app-i' },
+    update: {},
+    create: {
+      id: 'demo-showcase-app-i',
+      tenantId: tenant.id,
+      borrowerId: borrower3.id,
+      productId: decliningProduct.id,
+      amount: 45000,
+      term: 36,
+      status: 'APPROVED',
+      notes: 'Approved, awaiting disbursement - secured with vehicle',
+      collateralType: 'Kenderaan - Honda Civic 2023 (WCD 5678)',
+      collateralValue: 95000,
+    },
+  });
+
+  await prisma.loan.upsert({
+    where: { applicationId: 'demo-showcase-app-i' },
+    update: {},
+    create: {
+      id: 'demo-showcase-loan-i',
+      tenantId: tenant.id,
+      borrowerId: borrower3.id,
+      productId: decliningProduct.id,
+      applicationId: appI.id,
+      principalAmount: 45000,
+      interestRate: 12.0,
+      term: 36,
+      status: 'PENDING_DISBURSEMENT',
+      collateralType: 'Kenderaan - Honda Civic 2023 (WCD 5678)',
+      collateralValue: 95000,
+    },
+  });
+
+  console.log('  ✓ Loan I: RM 45,000 declining balance, PENDING DISBURSEMENT');
+
+  // Loan J: Active loan performing well (all current, next payment not yet due)
+  const appJ = await prisma.loanApplication.upsert({
+    where: { id: 'demo-showcase-app-j' },
+    update: {},
+    create: {
+      id: 'demo-showcase-app-j',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: flatProduct.id,
+      amount: 15000,
+      term: 12,
+      status: 'APPROVED',
+      notes: 'Good performing loan - all payments on time',
+    },
+  });
+
+  const disbDateJ = new Date('2025-10-15');
+  const loanJ = await prisma.loan.upsert({
+    where: { applicationId: 'demo-showcase-app-j' },
+    update: {},
+    create: {
+      id: 'demo-showcase-loan-j',
+      tenantId: tenant.id,
+      borrowerId: borrower1.id,
+      productId: flatProduct.id,
+      applicationId: appJ.id,
+      principalAmount: 15000,
+      interestRate: 18.0,
+      term: 12,
+      status: 'ACTIVE',
+      disbursementDate: disbDateJ,
+    },
+  });
+
+  const totalInterestJ = 15000 * 0.18 * (12 / 12); // 2700
+  const monthlyPaymentJ = (15000 + totalInterestJ) / 12; // 1475
+  const monthlyPrincipalJ = 15000 / 12;
+  const monthlyInterestJ = totalInterestJ / 12;
+
+  const scheduleVersionJ = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanJ.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanJ.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 15000, interestRate: 18, term: 12, disbursementDate: disbDateJ.toISOString() },
+      outputsHash: 'seed-hash-j',
+    },
+  });
+
+  // Nov 15, Dec 15, Jan 15 paid; Feb 15 not yet due (future); remaining also future
+  for (let i = 1; i <= 12; i++) {
+    const dueDate = addMonths(disbDateJ, i);
+    const isPaid = i <= 3; // Nov, Dec, Jan paid on time
+    const repaymentId = `demo-repayment-j-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionJ.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalJ * 100) / 100,
+        interest: Math.round(monthlyInterestJ * 100) / 100,
+        totalDue: Math.round(monthlyPaymentJ * 100) / 100,
+        status: isPaid ? 'PAID' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      // Paid a few days before due date (good borrower)
+      const payDate = new Date(dueDate);
+      payDate.setDate(payDate.getDate() - 3);
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-j-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-j-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentJ * 100) / 100,
+          allocatedAt: payDate,
+          isEarlyPayment: true,
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan J: 12-month loan, ACTIVE (3 paid on time, good performer - eligible for early settlement)');
+
+  // Loan K: Active loan still in lock-in period (recently disbursed)
+  const appK = await prisma.loanApplication.upsert({
+    where: { id: 'demo-showcase-app-k' },
+    update: {},
+    create: {
+      id: 'demo-showcase-app-k',
+      tenantId: tenant.id,
+      borrowerId: borrower2.id,
+      productId: decliningProduct.id, // 3-month lock-in
+      amount: 25000,
+      term: 24,
+      status: 'APPROVED',
+      notes: 'Recently disbursed - still in early settlement lock-in period',
+      collateralType: 'Kenderaan - Perodua Myvi 2024 (WVH 3344)',
+      collateralValue: 55000,
+    },
+  });
+
+  const disbDateK = new Date('2025-12-15'); // Disbursed Dec 15 → lock-in until Mar 15
+  const loanK = await prisma.loan.upsert({
+    where: { applicationId: 'demo-showcase-app-k' },
+    update: {},
+    create: {
+      id: 'demo-showcase-loan-k',
+      tenantId: tenant.id,
+      borrowerId: borrower2.id,
+      productId: decliningProduct.id,
+      applicationId: appK.id,
+      principalAmount: 25000,
+      interestRate: 12.0,
+      term: 24,
+      status: 'ACTIVE',
+      disbursementDate: disbDateK,
+      collateralType: 'Kenderaan - Perodua Myvi 2024 (WVH 3344)',
+      collateralValue: 55000,
+    },
+  });
+
+  // Declining balance schedule (simplified for seed - approximate EMI)
+  const monthlyRateK = 12.0 / 100 / 12;
+  const emiK = Math.round(25000 * monthlyRateK * Math.pow(1 + monthlyRateK, 24) / (Math.pow(1 + monthlyRateK, 24) - 1) * 100) / 100;
+
+  const scheduleVersionK = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanK.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanK.id,
+      version: 1,
+      interestModel: 'DECLINING_BALANCE',
+      inputs: { principal: 25000, interestRate: 12, term: 24, disbursementDate: disbDateK.toISOString() },
+      outputsHash: 'seed-hash-k',
+    },
+  });
+
+  let remainingBalK = 25000;
+  for (let i = 1; i <= 24; i++) {
+    const dueDate = addMonths(disbDateK, i);
+    const interestK = Math.round(remainingBalK * monthlyRateK * 100) / 100;
+    const principalK = Math.round((emiK - interestK) * 100) / 100;
+    remainingBalK -= principalK;
+    const isPaid = i <= 1; // Jan 15 paid
+    const repaymentId = `demo-repayment-k-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionK.id,
+        dueDate,
+        principal: principalK,
+        interest: interestK,
+        totalDue: emiK,
+        status: isPaid ? 'PAID' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-k-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-k-${i}`,
+          repaymentId,
+          amount: emiK,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan K: 24-month declining balance, ACTIVE (1 paid, in lock-in period until Mar 15)');
+
+  // Loan L: Corporate loan - active and performing (Business Working Capital)
+  const appL = await prisma.loanApplication.upsert({
+    where: { id: 'demo-showcase-app-l' },
+    update: {},
+    create: {
+      id: 'demo-showcase-app-l',
+      tenantId: tenant.id,
+      borrowerId: corporateBorrower.id,
+      productId: corporateProduct.id,
+      amount: 80000,
+      term: 12,
+      status: 'APPROVED',
+      notes: 'Corporate working capital - Tech Solutions Sdn Bhd',
+    },
+  });
+
+  const disbDateL = new Date('2025-10-01');
+  const loanL = await prisma.loan.upsert({
+    where: { applicationId: 'demo-showcase-app-l' },
+    update: {},
+    create: {
+      id: 'demo-showcase-loan-l',
+      tenantId: tenant.id,
+      borrowerId: corporateBorrower.id,
+      productId: corporateProduct.id,
+      applicationId: appL.id,
+      principalAmount: 80000,
+      interestRate: 15.0,
+      term: 12,
+      status: 'ACTIVE',
+      disbursementDate: disbDateL,
+    },
+  });
+
+  const totalInterestL = 80000 * 0.15 * (12 / 12); // 12000
+  const monthlyPaymentL = (80000 + totalInterestL) / 12; // 7666.67
+  const monthlyPrincipalL = 80000 / 12;
+  const monthlyInterestL = totalInterestL / 12;
+
+  const scheduleVersionL = await prisma.loanScheduleVersion.upsert({
+    where: { loanId_version: { loanId: loanL.id, version: 1 } },
+    update: {},
+    create: {
+      loanId: loanL.id,
+      version: 1,
+      interestModel: 'FLAT',
+      inputs: { principal: 80000, interestRate: 15, term: 12, disbursementDate: disbDateL.toISOString() },
+      outputsHash: 'seed-hash-l',
+    },
+  });
+
+  // Nov, Dec, Jan paid on time; Feb not yet due
+  for (let i = 1; i <= 12; i++) {
+    const dueDate = addMonths(disbDateL, i);
+    const isPaid = i <= 4; // Nov, Dec, Jan, Feb paid on time
+    const repaymentId = `demo-repayment-l-${i}`;
+
+    await prisma.loanRepayment.upsert({
+      where: { id: repaymentId },
+      update: {},
+      create: {
+        id: repaymentId,
+        scheduleVersionId: scheduleVersionL.id,
+        dueDate,
+        principal: Math.round(monthlyPrincipalL * 100) / 100,
+        interest: Math.round(monthlyInterestL * 100) / 100,
+        totalDue: Math.round(monthlyPaymentL * 100) / 100,
+        status: isPaid ? 'PAID' : 'PENDING',
+      },
+    });
+
+    if (isPaid) {
+      await prisma.paymentAllocation.upsert({
+        where: { id: `demo-alloc-l-${i}` },
+        update: {},
+        create: {
+          id: `demo-alloc-l-${i}`,
+          repaymentId,
+          amount: Math.round(monthlyPaymentL * 100) / 100,
+          allocatedAt: dueDate,
+        },
+      });
+    }
+  }
+
+  console.log('  ✓ Loan L: RM 80,000 corporate loan, ACTIVE (4 paid, eligible for early settlement - 50% discount, no lock-in)');
+
   // Create audit logs for the applications
   await prisma.auditLog.createMany({
     data: [
@@ -1216,10 +1772,10 @@ async function main() {
   console.log('   - Demo Company Sdn Bhd (OWNER) - PPW (Money Lender)');
   console.log('   - ACME Lending Sdn Bhd (ADMIN) - PPW (Money Lender)');
   console.log('\n📦 Demo data created:');
-  console.log('   - 3 Products with eligibility & loan type configuration');
-  console.log('     • Personal Loan (Flat Rate) - Both borrowers, Jadual J');
-  console.log('     • Home Improvement Loan (Secured) - Individual only, Jadual K');
-  console.log('     • Business Working Capital - Corporate only, Jadual J');
+  console.log('   - 3 Products with early settlement & fee configuration:');
+  console.log('     • Personal Loan (Flat Rate) - 20% discount, 2-month lock-in, Jadual J');
+  console.log('     • Home Improvement Loan (Secured) - RM 500 fixed discount, 3-month lock-in, Jadual K');
+  console.log('     • Business Working Capital - 50% discount, no lock-in, Jadual J');
   console.log('   - 4 Borrowers (2 IC, 1 Passport, 1 Corporate)');
   console.log('   - 3 Loan Applications (1 Draft, 2 Submitted)');
   console.log('     • 1 Jadual K application with collateral (Kenderaan)');
@@ -1230,10 +1786,19 @@ async function main() {
   console.log('     • Loan D: ~16 days overdue (just entered arrears period)');
   console.log('     • Loan E: 2 months unpaid (Dec 15 = 55 days, Jan 15 = 24 days - deep arrears)');
   console.log('     • Loan F: Partial payment (Jan 1 = 38 days, RM 500/908.33 paid)');
-  console.log('\n💡 To test late fees:');
-  console.log('   1. Run the seed, then click "Process Late Fees" on the Loans page');
-  console.log('   2. Or wait for the cron job at 12:30 AM MYT');
-  console.log('   3. Safe to run multiple times - backfill catches missed days, no double-charging');
+  console.log('   - 6 Showcase Loans (for feature demos):');
+  console.log('     • Loan G: COMPLETED (3-month, all paid on time)');
+  console.log('     • Loan H: EARLY SETTLED (12-month, settled after 4 months, 20% discount)');
+  console.log('     • Loan I: PENDING DISBURSEMENT (RM 45K declining balance, with collateral)');
+  console.log('     • Loan J: ACTIVE good performer (3 paid on time, eligible for early settlement)');
+  console.log('     • Loan K: ACTIVE in lock-in (declining balance, 1 paid, lock-in until Mar 15)');
+  console.log('     • Loan L: ACTIVE corporate (RM 80K, 4 paid, 50% discount, no lock-in)');
+  console.log('\n💡 To test features:');
+  console.log('   1. Late fees: Click "Process Late Fees" on the Loans page');
+  console.log('   2. Early settlement: Try on Loan J (eligible) or Loan K (shows lock-in message)');
+  console.log('   3. Lock-in period: Loan K shows "Eligible from: 15 Mar 2026"');
+  console.log('   4. Already settled: Loan H shows "Early Settled" badge and settlement details');
+  console.log('   5. Corporate: Loan L shows 50% discount with no lock-in');
 }
 
 main()

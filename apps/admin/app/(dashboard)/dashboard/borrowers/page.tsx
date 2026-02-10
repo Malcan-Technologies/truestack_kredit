@@ -170,6 +170,9 @@ export default function BorrowersPage() {
           case "type":
             cmp = a.borrowerType.localeCompare(b.borrowerType);
             break;
+          case "verification":
+            cmp = Number(a.documentVerified) - Number(b.documentVerified);
+            break;
           case "created":
             cmp = a.createdAt.localeCompare(b.createdAt);
             break;
@@ -254,11 +257,12 @@ export default function BorrowersPage() {
         <CardContent>
           {loading ? (
             <TableSkeleton
-              headers={["Name", "Type", "Identity", "Contact", "Created", "Updated", "Loans"]}
+              headers={["Name", "Type", "Identity", "Verification", "Contact", "Created", "Updated", "Loans"]}
               columns={[
                 { width: "w-32", subLine: true },
                 { badge: true, width: "w-20" },
                 { width: "w-28", subLine: true },
+                { badge: true, width: "w-16" },
                 { width: "w-24", subLine: true },
                 { width: "w-28" },
                 { width: "w-28" },
@@ -319,6 +323,12 @@ export default function BorrowersPage() {
                       </button>
                     </TableHead>
                     <TableHead>Identity</TableHead>
+                    <TableHead>
+                      <button onClick={() => toggleSort("verification")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                        Verification
+                        {sortField === "verification" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>
                       <button onClick={() => toggleSort("created")} className="flex items-center gap-1 hover:text-foreground transition-colors">
@@ -367,39 +377,39 @@ export default function BorrowersPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">
-                              {borrower.borrowerType === "CORPORATE" 
-                                ? "SSM" 
-                                : borrower.documentType === "IC" ? "IC" : "Passport"}
-                            </span>
-                            {borrower.documentVerified ? (
-                              <Badge
-                                variant="verified"
-                                className="text-[10px] px-1.5 py-0 h-4 font-medium"
-                                title="Verified via e-KYC"
-                              >
-                                <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
-                                e-KYC
-                              </Badge>
-                            ) : (
-                              <Badge
-                                variant="unverified"
-                                className="text-[10px] px-1.5 py-0 h-4 font-medium"
-                                title="Manually verified by admin - exercise caution"
-                              >
-                                <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                                Manual
-                              </Badge>
-                            )}
-                          </div>
+                        <div className="space-y-0.5">
+                          <span className="text-xs text-muted-foreground">
+                            {borrower.borrowerType === "CORPORATE" 
+                              ? "SSM" 
+                              : borrower.documentType === "IC" ? "IC" : "Passport"}
+                          </span>
                           <div className="font-mono text-sm">
                             {borrower.borrowerType === "INDIVIDUAL" && borrower.documentType === "IC"
                               ? formatICForDisplay(borrower.icNumber)
                               : borrower.icNumber}
                           </div>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {borrower.documentVerified ? (
+                          <Badge
+                            variant="verified"
+                            className="text-[10px] px-1.5 py-0 h-4 font-medium"
+                            title="Verified via e-KYC"
+                          >
+                            <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
+                            e-KYC
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="unverified"
+                            className="text-[10px] px-1.5 py-0 h-4 font-medium"
+                            title="Manually verified by admin - exercise caution"
+                          >
+                            <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                            Manual
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="space-y-0.5">

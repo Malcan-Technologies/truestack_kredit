@@ -9,7 +9,6 @@ import {
   CircleDollarSign,
   BarChart3,
   ArrowUpRight,
-  Gift,
   ShieldAlert,
   CheckCircle,
   Percent,
@@ -46,6 +45,7 @@ import {
 } from "@/components/ui/chart";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { PromotionsCarousel } from "@/components/promotions-carousel";
 
 // ============================================
 // Types
@@ -417,29 +417,8 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Promotions Banner (placeholder) */}
-          <Card className="lg:col-span-2 overflow-hidden relative bg-gradient-to-br from-primary/5 via-card to-primary/10 border-primary/20">
-            <CardContent className="py-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                  <Gift className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-heading font-semibold text-sm">
-                    Refer &amp; Earn
-                  </p>
-                  <p className="text-xs text-muted mt-0.5">
-                    Invite a friend and get RM499 in cash!
-                  </p>
-                </div>
-              </div>
-              <div className="mt-3">
-                <Badge variant="default" className="text-[10px]">
-                  Coming Soon
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Promotions Carousel */}
+          <PromotionsCarousel />
         </div>
 
         {/* ============================================ */}

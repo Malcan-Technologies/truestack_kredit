@@ -540,11 +540,28 @@ export default function DashboardPage() {
                     <ChartTooltip
                       content={
                         <ChartTooltipContent
-                          formatter={(value, name) =>
-                            name === "count"
-                              ? `${value} loan${Number(value) !== 1 ? "s" : ""}`
-                              : formatCurrency(Number(value))
-                          }
+                          formatter={(value, name, item) => {
+                            const cfg = disbursementChartConfig[name as keyof typeof disbursementChartConfig];
+                            const indicatorColor = cfg?.color || item?.color || "hsl(217, 91%, 60%)";
+                            return (
+                              <>
+                                <div
+                                  className="shrink-0 rounded-[2px] h-2.5 w-2.5"
+                                  style={{ backgroundColor: indicatorColor }}
+                                />
+                                <div className="flex items-center justify-between gap-4 flex-1">
+                                  <span className="text-muted-foreground">
+                                    {cfg?.label || name}
+                                  </span>
+                                  <span className="font-medium font-heading tabular-nums">
+                                    {name === "count"
+                                      ? `${value} loan${Number(value) !== 1 ? "s" : ""}`
+                                      : formatCurrency(Number(value))}
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          }}
                         />
                       }
                     />
@@ -580,9 +597,25 @@ export default function DashboardPage() {
                     <ChartTooltip
                       content={
                         <ChartTooltipContent
-                          formatter={(value, name) =>
-                            `${value} loan${Number(value) !== 1 ? "s" : ""}`
-                          }
+                          formatter={(value, name, item) => {
+                            const indicatorColor = item?.payload?.fill || item?.color || "hsl(215, 20%, 65%)";
+                            return (
+                              <>
+                                <div
+                                  className="shrink-0 rounded-[2px] h-2.5 w-2.5"
+                                  style={{ backgroundColor: indicatorColor }}
+                                />
+                                <div className="flex items-center justify-between gap-4 flex-1">
+                                  <span className="text-muted-foreground">
+                                    {name}
+                                  </span>
+                                  <span className="font-medium font-heading tabular-nums">
+                                    {value} loan{Number(value) !== 1 ? "s" : ""}
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          }}
                         />
                       }
                     />
@@ -662,9 +695,26 @@ export default function DashboardPage() {
                     <ChartTooltip
                       content={
                         <ChartTooltipContent
-                          formatter={(value) =>
-                            formatCurrency(Number(value))
-                          }
+                          formatter={(value, name, item) => {
+                            const cfg = collectionChartConfig[name as keyof typeof collectionChartConfig];
+                            const indicatorColor = cfg?.color || item?.color || "hsl(215, 20%, 65%)";
+                            return (
+                              <>
+                                <div
+                                  className="shrink-0 rounded-[2px] h-2.5 w-2.5"
+                                  style={{ backgroundColor: indicatorColor }}
+                                />
+                                <div className="flex items-center justify-between gap-4 flex-1">
+                                  <span className="text-muted-foreground">
+                                    {cfg?.label || name}
+                                  </span>
+                                  <span className="font-medium font-heading tabular-nums">
+                                    {formatCurrency(Number(value))}
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          }}
                         />
                       }
                     />

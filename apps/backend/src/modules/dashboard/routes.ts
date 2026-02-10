@@ -325,7 +325,51 @@ router.get('/stats', async (req, res, next) => {
     }));
 
     // ========================================
-    // 6. Recent activity
+    // 6. Loans breakdown by product
+    // ========================================
+    const loansByProductRaw = await prisma.loan.groupBy({
+      by: ['productId', 'status'],
+      where: { tenantId },
+      _count: { id: true },
+      _sum: { principalAmount: true },
+    });
+
+    // Fetch product names
+    const productIds = [...new Set(loansByProductRaw.map((r) => r.productId))];
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds }, tenantId },
+      select: { id: true, name: true },
+    });
+    const productNameMap = new Map(products.map((p) => [p.id, p.name]));
+
+    // Aggregate by product
+    const productAggMap = new Map<string, { productName: string; totalLoans: number; activeLoans: number; completedLoans: number; defaultedLoans: number; totalDisbursed: number }>();
+    for (const row of loansByProductRaw) {
+      const productName = productNameMap.get(row.productId) || 'Unknown';
+      const existing = productAggMap.get(row.productId) || {
+        productName,
+        totalLoans: 0,
+        activeLoans: 0,
+        completedLoans: 0,
+        defaultedLoans: 0,
+        totalDisbursed: 0,
+      };
+      existing.totalLoans += row._count.id;
+      existing.totalDisbursed = safeAdd(existing.totalDisbursed, toSafeNumber(row._sum.principalAmount));
+      if (row.status === 'ACTIVE' || row.status === 'IN_ARREARS') {
+        existing.activeLoans += row._count.id;
+      } else if (row.status === 'COMPLETED') {
+        existing.completedLoans += row._count.id;
+      } else if (row.status === 'DEFAULTED' || row.status === 'WRITTEN_OFF') {
+        existing.defaultedLoans += row._count.id;
+      }
+      productAggMap.set(row.productId, existing);
+    }
+
+    const loansByProduct = [...productAggMap.values()].sort((a, b) => b.totalLoans - a.totalLoans);
+
+    // ========================================
+    // 7. Recent activity
     // ========================================
     const [recentLoansRaw, recentApplicationsRaw] = await Promise.all([
       prisma.loan.findMany({
@@ -387,6 +431,7 @@ router.get('/stats', async (req, res, next) => {
         disbursementTrend,
         collectionTrend,
         applicationsByStatus,
+        loansByProduct,
         recentLoans,
         recentApplications,
         portfolioAtRisk,

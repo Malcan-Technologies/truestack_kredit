@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   CheckCircle,
   Percent,
+  Package,
 } from "lucide-react";
 import {
   Bar,
@@ -89,6 +90,14 @@ interface DashboardStats {
   disbursementTrend: { month: string; amount: number; count: number }[];
   collectionTrend: { month: string; collected: number; due: number }[];
   applicationsByStatus: { status: string; count: number }[];
+  loansByProduct: {
+    productName: string;
+    totalLoans: number;
+    activeLoans: number;
+    completedLoans: number;
+    defaultedLoans: number;
+    totalDisbursed: number;
+  }[];
   recentLoans: {
     id: string;
     borrowerName: string;
@@ -791,7 +800,124 @@ export default function DashboardPage() {
         </div>
 
         {/* ============================================ */}
-        {/* Row 6: PAR Metrics + Quick Stats */}
+        {/* Row 6: Loans by Product */}
+        {/* ============================================ */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-heading flex items-center gap-2">
+                  <Package className="h-4 w-4 text-accent" />
+                  Loans by Product
+                </CardTitle>
+                <p className="text-xs text-muted">
+                  Breakdown of loan portfolio across products
+                </p>
+              </div>
+              <Link
+                href="/dashboard/products"
+                className="text-xs text-accent hover:underline flex items-center gap-1"
+              >
+                View products <ArrowUpRight className="h-3 w-3" />
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {stats?.loansByProduct && stats.loansByProduct.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Product</th>
+                      <th className="text-right py-2 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Total Loans</th>
+                      <th className="text-right py-2 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Active</th>
+                      <th className="text-right py-2 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Completed</th>
+                      <th className="text-right py-2 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Default / W.Off</th>
+                      <th className="text-right py-2 pl-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Total Disbursed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.loansByProduct.map((product, idx) => {
+                      const totalAll = stats.loansByProduct.reduce((s, p) => s + p.totalLoans, 0);
+                      const pct = totalAll > 0 ? ((product.totalLoans / totalAll) * 100).toFixed(1) : "0";
+                      return (
+                        <tr key={idx} className="border-b border-border/50 last:border-0 hover:bg-secondary/30 transition-colors">
+                          <td className="py-3 pr-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium truncate">{product.productName}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <div className="h-1.5 flex-1 max-w-[120px] bg-secondary rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-accent transition-all duration-500"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-[11px] text-muted tabular-nums">{pct}%</span>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums">
+                            {product.totalLoans}
+                          </td>
+                          <td className="text-right py-3 px-4">
+                            <Badge variant="info" className="text-[10px] px-1.5 py-0">
+                              {product.activeLoans}
+                            </Badge>
+                          </td>
+                          <td className="text-right py-3 px-4">
+                            <Badge variant="success" className="text-[10px] px-1.5 py-0">
+                              {product.completedLoans}
+                            </Badge>
+                          </td>
+                          <td className="text-right py-3 px-4">
+                            <Badge variant={product.defaultedLoans > 0 ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
+                              {product.defaultedLoans}
+                            </Badge>
+                          </td>
+                          <td className="text-right py-3 pl-4 font-heading font-medium tabular-nums">
+                            {formatCurrency(product.totalDisbursed)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {stats.loansByProduct.length > 1 && (
+                    <tfoot>
+                      <tr className="border-t border-border">
+                        <td className="py-3 pr-4 font-medium text-muted-foreground">Total</td>
+                        <td className="text-right py-3 px-4 font-heading font-bold tabular-nums">
+                          {stats.loansByProduct.reduce((s, p) => s + p.totalLoans, 0)}
+                        </td>
+                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-blue-600 dark:text-blue-400">
+                          {stats.loansByProduct.reduce((s, p) => s + p.activeLoans, 0)}
+                        </td>
+                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                          {stats.loansByProduct.reduce((s, p) => s + p.completedLoans, 0)}
+                        </td>
+                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-red-600 dark:text-red-400">
+                          {stats.loansByProduct.reduce((s, p) => s + p.defaultedLoans, 0)}
+                        </td>
+                        <td className="text-right py-3 pl-4 font-heading font-bold tabular-nums">
+                          {formatCurrency(stats.loansByProduct.reduce((s, p) => s + p.totalDisbursed, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted">
+                <Package className="h-10 w-10 mb-2 opacity-30" />
+                <p className="text-sm">No products with loans yet</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ============================================ */}
+        {/* Row 7: PAR Metrics + Quick Stats */}
         {/* ============================================ */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Portfolio at Risk */}

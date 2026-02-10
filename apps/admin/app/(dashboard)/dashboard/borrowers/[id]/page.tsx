@@ -1015,6 +1015,34 @@ export default function BorrowerDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Borrower Details */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Summary */}
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex items-center gap-6 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Borrower Type</span>
+                  <Badge variant={borrower.borrowerType === "CORPORATE" ? "secondary" : "outline"}>
+                    {borrower.borrowerType === "CORPORATE" ? "Corporate" : "Individual"}
+                  </Badge>
+                </div>
+                <div className="h-4 w-px bg-border" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Active Loans</span>
+                  <Badge variant="outline">{borrower.loans.length}</Badge>
+                </div>
+                <div className="h-4 w-px bg-border" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Applications</span>
+                  <Badge variant="outline">{borrower.applications.length}</Badge>
+                </div>
+                <div className="h-4 w-px bg-border" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Member Since</span>
+                  <span className="text-sm font-medium">{formatDate(borrower.createdAt)}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
           {/* Conditional rendering based on borrower type */}
           {borrower.borrowerType === "CORPORATE" ? (
             <>
@@ -1604,33 +1632,6 @@ export default function BorrowerDetailPage() {
                     />
                   </>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Summary */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Borrower Type</span>
-                <Badge variant={borrower.borrowerType === "CORPORATE" ? "secondary" : "outline"}>
-                  {borrower.borrowerType === "CORPORATE" ? "Corporate" : "Individual"}
-                </Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Active Loans</span>
-                <Badge variant="outline">{borrower.loans.length}</Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Applications</span>
-                <Badge variant="outline">{borrower.applications.length}</Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Member Since</span>
-                <span className="text-sm">{formatDate(borrower.createdAt)}</span>
               </div>
             </CardContent>
           </Card>

@@ -425,204 +425,210 @@ export default function ProductDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Product Details */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Basic Info */}
+          {/* Usage Summary - Full Width */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5 text-accent" />
-                Basic Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Interest Model</p>
-                  <p className="font-medium">{interestModelLabels[product.interestModel]}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Borrower Eligibility</p>
-                  <div className="flex items-center gap-1 font-medium">
-                    {product.eligibleBorrowerTypes === "INDIVIDUAL" && <User className="h-4 w-4" />}
-                    {product.eligibleBorrowerTypes === "CORPORATE" && <Building2 className="h-4 w-4" />}
-                    {product.eligibleBorrowerTypes === "BOTH" && <Users className="h-4 w-4" />}
-                    {product.eligibleBorrowerTypes === "INDIVIDUAL" && "Individual Only"}
-                    {product.eligibleBorrowerTypes === "CORPORATE" && "Corporate Only"}
-                    {product.eligibleBorrowerTypes === "BOTH" && "All Borrowers"}
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between gap-6">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Active Loans</span>
+                    <Badge variant="outline">{product._count.loans}</Badge>
                   </div>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Loan Schedule Type</p>
-                  <div className="flex items-center gap-1 font-medium">
-                    {product.loanScheduleType === "JADUAL_K" ? (
-                      <ShieldCheck className="h-4 w-4" />
-                    ) : (
-                      <Shield className="h-4 w-4" />
-                    )}
-                    {product.loanScheduleType === "JADUAL_K" ? "Jadual K" : "Jadual J"}
+                  <div className="h-4 w-px bg-border" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Applications</span>
+                    <Badge variant="outline">{product._count.applications}</Badge>
+                  </div>
+                  <div className="h-4 w-px bg-border" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Last Updated</span>
+                    <span className="text-sm font-medium">{formatDate(product.updatedAt)}</span>
                   </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Rates & Fees */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Percent className="h-5 w-5 text-accent" />
-                Rates & Fees
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Interest Rate</p>
-                  <p className="font-medium">{product.interestRate}% p.a.</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Late Payment Rate</p>
-                  <p className="font-medium">{product.latePaymentRate}% p.a.</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Legal Fee</p>
-                  <p className="font-medium">
-                    {product.legalFeeType === "PERCENTAGE"
-                      ? `${product.legalFeeValue}%`
-                      : formatCurrency(toSafeNumber(product.legalFeeValue))}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Stamping Fee</p>
-                  <p className="font-medium">
-                    {product.stampingFeeType === "PERCENTAGE"
-                      ? `${product.stampingFeeValue}%`
-                      : formatCurrency(toSafeNumber(product.stampingFeeValue))}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Early Settlement */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Percent className="h-5 w-5 text-accent" />
-                Early Settlement
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {product.earlySettlementEnabled ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Basic Info */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="h-5 w-5 text-accent" />
+                  Basic Information
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <p className="text-xs text-muted-foreground">Status</p>
-                    <Badge variant="success">Enabled</Badge>
+                    <p className="text-xs text-muted-foreground">Interest Model</p>
+                    <p className="font-medium">{interestModelLabels[product.interestModel]}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Lock-in Period</p>
+                    <p className="text-xs text-muted-foreground">Borrower Eligibility</p>
+                    <div className="flex items-center gap-1 font-medium">
+                      {product.eligibleBorrowerTypes === "INDIVIDUAL" && <User className="h-4 w-4" />}
+                      {product.eligibleBorrowerTypes === "CORPORATE" && <Building2 className="h-4 w-4" />}
+                      {product.eligibleBorrowerTypes === "BOTH" && <Users className="h-4 w-4" />}
+                      {product.eligibleBorrowerTypes === "INDIVIDUAL" && "Individual Only"}
+                      {product.eligibleBorrowerTypes === "CORPORATE" && "Corporate Only"}
+                      {product.eligibleBorrowerTypes === "BOTH" && "All Borrowers"}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Loan Schedule Type</p>
+                    <div className="flex items-center gap-1 font-medium">
+                      {product.loanScheduleType === "JADUAL_K" ? (
+                        <ShieldCheck className="h-4 w-4" />
+                      ) : (
+                        <Shield className="h-4 w-4" />
+                      )}
+                      {product.loanScheduleType === "JADUAL_K" ? "Jadual K" : "Jadual J"}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Rates & Fees */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Percent className="h-5 w-5 text-accent" />
+                  Rates & Fees
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Interest Rate</p>
+                    <p className="font-medium">{product.interestRate}% p.a.</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Late Payment Rate</p>
+                    <p className="font-medium">{product.latePaymentRate}% p.a.</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Legal Fee</p>
                     <p className="font-medium">
-                      {product.earlySettlementLockInMonths === 0
-                        ? "No lock-in"
-                        : `${product.earlySettlementLockInMonths} months`}
+                      {product.legalFeeType === "PERCENTAGE"
+                        ? `${product.legalFeeValue}%`
+                        : formatCurrency(toSafeNumber(product.legalFeeValue))}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Discount</p>
+                    <p className="text-xs text-muted-foreground">Stamping Fee</p>
                     <p className="font-medium">
-                      {product.earlySettlementDiscountType === "PERCENTAGE"
-                        ? `${product.earlySettlementDiscountValue}% of remaining interest`
-                        : `${formatCurrency(toSafeNumber(product.earlySettlementDiscountValue))} flat`}
+                      {product.stampingFeeType === "PERCENTAGE"
+                        ? `${product.stampingFeeValue}%`
+                        : formatCurrency(toSafeNumber(product.stampingFeeValue))}
                     </p>
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Early settlement is not enabled for this product</p>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          {/* Limits */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5 text-accent" />
-                Limits & Collection Settings
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Amount Range</p>
-                  <p className="font-medium">
-                    {formatCurrency(toSafeNumber(product.minAmount))} - {formatCurrency(toSafeNumber(product.maxAmount))}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Term Range</p>
-                  <p className="font-medium">{product.minTerm} - {product.maxTerm} months</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Arrears Period</p>
-                  <p className="font-medium">{product.arrearsPeriod} days</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Default Period</p>
-                  <p className="font-medium">{product.defaultPeriod} days</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            {/* Early Settlement */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Percent className="h-5 w-5 text-accent" />
+                  Early Settlement
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {product.earlySettlementEnabled ? (
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Status</p>
+                      <Badge variant="success">Enabled</Badge>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Lock-in Period</p>
+                      <p className="font-medium">
+                        {product.earlySettlementLockInMonths === 0
+                          ? "No lock-in"
+                          : `${product.earlySettlementLockInMonths} months`}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Discount</p>
+                      <p className="font-medium">
+                        {product.earlySettlementDiscountType === "PERCENTAGE"
+                          ? `${product.earlySettlementDiscountValue}% of remaining interest`
+                          : `${formatCurrency(toSafeNumber(product.earlySettlementDiscountValue))} flat`}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Early settlement is not enabled for this product</p>
+                )}
+              </CardContent>
+            </Card>
 
-          {/* Required Documents */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-accent" />
-                Required Documents
-              </CardTitle>
-              <CardDescription>
-                Documents required for loan applications using this product
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {product.requiredDocuments && product.requiredDocuments.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {product.requiredDocuments.map((doc) => (
-                    <Badge
-                      key={doc.key}
-                      variant={doc.required ? "default" : "outline"}
-                    >
-                      {doc.label}
-                      {doc.required && " *"}
-                    </Badge>
-                  ))}
+            {/* Limits */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5 text-accent" />
+                  Limits & Collection
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Amount Range</p>
+                    <p className="font-medium">
+                      {formatCurrency(toSafeNumber(product.minAmount))} - {formatCurrency(toSafeNumber(product.maxAmount))}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Term Range</p>
+                    <p className="font-medium">{product.minTerm} - {product.maxTerm} months</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Arrears Period</p>
+                    <p className="font-medium">{product.arrearsPeriod} days</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Default Period</p>
+                    <p className="font-medium">{product.defaultPeriod} days</p>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No documents configured</p>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          {/* Summary Stats */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Usage Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Active Loans</span>
-                <Badge variant="outline">{product._count.loans}</Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Applications</span>
-                <Badge variant="outline">{product._count.applications}</Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Last Updated</span>
-                <span className="text-sm">{formatDate(product.updatedAt)}</span>
-              </div>
-            </CardContent>
-          </Card>
+            {/* Required Documents */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-accent" />
+                  Required Documents
+                </CardTitle>
+                <CardDescription>
+                  Documents required for loan applications
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {product.requiredDocuments && product.requiredDocuments.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {product.requiredDocuments.map((doc) => (
+                      <Badge
+                        key={doc.key}
+                        variant={doc.required ? "default" : "outline"}
+                      >
+                        {doc.label}
+                        {doc.required && " *"}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No documents configured</p>
+                )}
+              </CardContent>
+            </Card>
+
+          </div>
         </div>
 
         {/* Right Column - Activity Timeline */}

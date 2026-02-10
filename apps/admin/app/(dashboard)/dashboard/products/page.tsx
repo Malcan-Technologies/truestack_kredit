@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { TableActionButton } from "@/components/ui/table-action-button";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
@@ -300,7 +300,7 @@ export default function ProductsPage() {
           {filteredProducts.map((product) => (
             <Card
               key={product.id}
-              className={`group relative overflow-hidden transition-all hover:shadow-md ${
+              className={`group relative overflow-hidden transition-all hover:shadow-md flex flex-col ${
                 !product.isActive ? "opacity-60" : ""
               }`}
             >
@@ -363,7 +363,7 @@ export default function ProductsPage() {
                 </div>
               </CardHeader>
 
-              <CardContent className="pt-0 space-y-4">
+              <CardContent className="pt-0 space-y-4 flex-1">
                 {/* Key Metrics - Highlighted */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="flex flex-col items-center text-center p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50">
@@ -425,33 +425,32 @@ export default function ProductsPage() {
                   </div>
                 )}
 
-                {/* Footer - Stats and Actions */}
-                <div className="flex items-center justify-between pt-3 border-t border-border">
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <span>{product._count.loans} loans</span>
-                    {product._count.applications > 0 && (
-                      <>
-                        <span className="text-border">|</span>
-                        <span>{product._count.applications} applications</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="flex gap-1">
-                    <Link href={`/dashboard/products/${product.id}`}>
-                      <TableActionButton icon={Eye} label="View" onClick={() => {}} />
-                    </Link>
-                    <Link href={`/dashboard/products/${product.id}/edit`}>
-                      <TableActionButton icon={Edit2} label="Edit" onClick={() => {}} />
-                    </Link>
-                    <TableActionButton
-                      icon={product.isActive ? PowerOff : Power}
-                      label={product.isActive ? "Deactivate" : "Activate"}
-                      variant={product.isActive ? "destructive" : "success"}
-                      onClick={() => handleToggleActive(product)}
-                    />
-                  </div>
-                </div>
               </CardContent>
+              <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
+                <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                  <span>{product._count.loans} loans</span>
+                  {product._count.applications > 0 && (
+                    <>
+                      <span className="text-border">|</span>
+                      <span>{product._count.applications} applications</span>
+                    </>
+                  )}
+                </div>
+                <div className="flex gap-1">
+                  <Link href={`/dashboard/products/${product.id}`}>
+                    <TableActionButton icon={Eye} label="View" onClick={() => {}} />
+                  </Link>
+                  <Link href={`/dashboard/products/${product.id}/edit`}>
+                    <TableActionButton icon={Edit2} label="Edit" onClick={() => {}} />
+                  </Link>
+                  <TableActionButton
+                    icon={product.isActive ? PowerOff : Power}
+                    label={product.isActive ? "Deactivate" : "Activate"}
+                    variant={product.isActive ? "destructive" : "success"}
+                    onClick={() => handleToggleActive(product)}
+                  />
+                </div>
+              </CardFooter>
             </Card>
           ))}
         </div>

@@ -93,6 +93,44 @@ router.get('/stats', async (req, res, next) => {
       },
     });
 
+    // Action needed counts
+    const [submittedApplications, loansPendingDisbursement, loansReadyForDefault, readyToCompleteLoans] = await Promise.all([
+      prisma.loanApplication.count({
+        where: { tenantId, status: 'SUBMITTED' },
+      }),
+      prisma.loan.count({
+        where: { tenantId, status: 'PENDING_DISBURSEMENT' },
+      }),
+      prisma.loan.count({
+        where: { tenantId, readyForDefault: true, status: { not: 'DEFAULTED' } },
+      }),
+      prisma.loan.findMany({
+        where: {
+          tenantId,
+          status: { in: ['ACTIVE', 'IN_ARREARS'] },
+        },
+        select: {
+          id: true,
+          scheduleVersions: {
+            orderBy: { version: 'desc' },
+            take: 1,
+            select: {
+              repayments: {
+                select: { status: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    // Count loans where every repayment in the latest schedule version is PAID/CANCELLED
+    const loansReadyToComplete = readyToCompleteLoans.filter(loan => {
+      const schedule = loan.scheduleVersions[0];
+      if (!schedule || schedule.repayments.length === 0) return false;
+      return schedule.repayments.every(r => r.status === 'PAID' || r.status === 'CANCELLED');
+    }).length;
+
     // Financial aggregates - from loans with schedules
     const loans = await prisma.loan.findMany({
       where: {
@@ -435,6 +473,12 @@ router.get('/stats', async (req, res, next) => {
         recentLoans,
         recentApplications,
         portfolioAtRisk,
+        actionNeeded: {
+          submittedApplications,
+          loansPendingDisbursement,
+          loansReadyToComplete,
+          loansReadyForDefault,
+        },
         dateRange: {
           from: fromDate.toISOString(),
           to: toDate.toISOString(),

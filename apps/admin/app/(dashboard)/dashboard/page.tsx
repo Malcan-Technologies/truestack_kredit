@@ -13,6 +13,9 @@ import {
   CheckCircle,
   Percent,
   Package,
+  Bell,
+  ClipboardList,
+  Banknote,
 } from "lucide-react";
 import {
   Bar,
@@ -116,6 +119,12 @@ interface DashboardStats {
     par30: number;
     par60: number;
     par90: number;
+  };
+  actionNeeded: {
+    submittedApplications: number;
+    loansPendingDisbursement: number;
+    loansReadyToComplete: number;
+    loansReadyForDefault: number;
   };
   dateRange: {
     from: string;
@@ -358,7 +367,70 @@ export default function DashboardPage() {
         </div>
 
         {/* ============================================ */}
-        {/* Row 2: Billing Status + Promotions */}
+        {/* Row 2: Action Needed Bar */}
+        {/* ============================================ */}
+        {stats?.actionNeeded && (
+          stats.actionNeeded.submittedApplications > 0 ||
+          stats.actionNeeded.loansPendingDisbursement > 0 ||
+          stats.actionNeeded.loansReadyToComplete > 0 ||
+          stats.actionNeeded.loansReadyForDefault > 0
+        ) && (
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
+              <Bell className="h-4 w-4 text-amber-500" />
+            </div>
+            <span className="text-sm font-medium text-amber-600 dark:text-amber-400 mr-1">Action Needed</span>
+            <div className="flex items-center gap-2 flex-wrap text-sm">
+              {[
+                stats.actionNeeded.submittedApplications > 0 && (
+                  <Link
+                    key="submitted"
+                    href="/dashboard/applications?filter=SUBMITTED"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-amber-500/10 transition-colors"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    <span className="text-foreground">{stats.actionNeeded.submittedApplications} pending review</span>
+                  </Link>
+                ),
+                stats.actionNeeded.loansPendingDisbursement > 0 && (
+                  <Link
+                    key="disbursement"
+                    href="/dashboard/loans?filter=PENDING_DISBURSEMENT"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-amber-500/10 transition-colors"
+                  >
+                    <Banknote className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    <span className="text-foreground">{stats.actionNeeded.loansPendingDisbursement} pending disbursement</span>
+                  </Link>
+                ),
+                stats.actionNeeded.loansReadyToComplete > 0 && (
+                  <Link
+                    key="complete"
+                    href="/dashboard/loans?filter=READY_TO_COMPLETE"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-emerald-500/10 transition-colors"
+                  >
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-foreground">{stats.actionNeeded.loansReadyToComplete} ready to complete</span>
+                  </Link>
+                ),
+                stats.actionNeeded.loansReadyForDefault > 0 && (
+                  <Link
+                    key="default"
+                    href="/dashboard/loans?filter=READY_FOR_DEFAULT"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-red-500/10 transition-colors"
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                    <span className="text-foreground">{stats.actionNeeded.loansReadyForDefault} ready for default</span>
+                  </Link>
+                ),
+              ].filter(Boolean).flatMap((item, i, arr) =>
+                i < arr.length - 1 ? [item, <span key={`dot-${i}`} className="text-muted-foreground">•</span>] : [item]
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ============================================ */}
+        {/* Row 3: Billing Status + Promotions */}
         {/* ============================================ */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
           {/* Billing Status */}

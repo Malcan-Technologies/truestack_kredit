@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Plus, ClipboardList, Eye, Building2, User, Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, ClipboardList, Eye, Building2, User, Search, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TableActionButton } from "@/components/ui/table-action-button";
@@ -21,6 +22,11 @@ import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
+
+interface ApplicationCounts {
+  submitted: number;
+  underReview: number;
+}
 
 interface Application {
   id: string;
@@ -54,9 +60,12 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 };
 
 export default function ApplicationsPage() {
+  const searchParams = useSearchParams();
+  const initialFilter = searchParams.get("filter") || "";
+
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>("");
+  const [filter, setFilter] = useState<string>(initialFilter);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -66,6 +75,9 @@ export default function ApplicationsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+
+  // Action needed counts
+  const [counts, setCounts] = useState<ApplicationCounts>({ submitted: 0, underReview: 0 });
 
   // Sort state
   const [sortField, setSortField] = useState<string | null>(null);
@@ -115,12 +127,29 @@ export default function ApplicationsPage() {
     }
   }, [filter, debouncedSearch, currentPage, pageSize]);
 
+  const fetchCounts = useCallback(async () => {
+    try {
+      // Fetch counts for SUBMITTED and UNDER_REVIEW separately
+      const [submittedRes, underReviewRes] = await Promise.all([
+        api.get<Application[]>(`/api/loans/applications?status=SUBMITTED&page=1&pageSize=1`),
+        api.get<Application[]>(`/api/loans/applications?status=UNDER_REVIEW&page=1&pageSize=1`),
+      ]);
+      setCounts({
+        submitted: submittedRes.pagination?.total || 0,
+        underReview: underReviewRes.pagination?.total || 0,
+      });
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
   useEffect(() => {
     fetchApplications();
-  }, [fetchApplications]);
+    fetchCounts();
+  }, [fetchApplications, fetchCounts]);
 
   const handleRefresh = async () => {
-    await fetchApplications();
+    await Promise.all([fetchApplications(), fetchCounts()]);
   };
 
   const handlePageChange = (page: number) => {
@@ -183,8 +212,31 @@ export default function ApplicationsPage() {
         </Link>
       </div>
 
+      {/* Status Alert Bar */}
+      {(counts.submitted > 0 || counts.underReview > 0) && (
+        <div className="flex items-center gap-4 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+          <div className="flex items-center gap-2 text-sm flex-wrap">
+            {[
+              counts.submitted > 0 && (
+                <span key="submitted" className="text-amber-600 dark:text-amber-400">
+                  {counts.submitted} application{counts.submitted !== 1 ? "s" : ""} awaiting review
+                </span>
+              ),
+              counts.underReview > 0 && (
+                <span key="review" className="text-blue-600 dark:text-blue-400">
+                  {counts.underReview} application{counts.underReview !== 1 ? "s" : ""} under review
+                </span>
+              ),
+            ].filter(Boolean).flatMap((item, i, arr) =>
+              i < arr.length - 1 ? [item, <span key={`dot-${i}`} className="text-muted-foreground">•</span>] : [item]
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center">
         <Button
           variant={filter === "" ? "default" : "outline"}
           size="sm"
@@ -200,11 +252,11 @@ export default function ApplicationsPage() {
           Draft
         </Button>
         <Button
-          variant={filter === "SUBMITTED" ? "default" : "outline"}
+          variant={filter === "UNDER_REVIEW" ? "default" : "outline"}
           size="sm"
-          onClick={() => { setFilter("SUBMITTED"); setCurrentPage(1); }}
+          onClick={() => { setFilter("UNDER_REVIEW"); setCurrentPage(1); }}
         >
-          Submitted
+          Under Review
         </Button>
         <Button
           variant={filter === "APPROVED" ? "default" : "outline"}
@@ -221,6 +273,21 @@ export default function ApplicationsPage() {
           className={filter === "REJECTED" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
         >
           Rejected
+        </Button>
+        {/* Action Needed section */}
+        <span className="border-l border-border mx-1 h-6" />
+        <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Action Needed</span>
+        <Button
+          variant={filter === "SUBMITTED" ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setFilter("SUBMITTED"); setCurrentPage(1); }}
+        >
+          Pending Review
+          {counts.submitted > 0 && (
+            <span className="ml-1.5 bg-amber-500 text-white rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {counts.submitted}
+            </span>
+          )}
         </Button>
       </div>
 

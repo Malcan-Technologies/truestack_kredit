@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { FileText, Eye, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -149,9 +150,12 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 };
 
 export default function LoansPage() {
+  const searchParams = useSearchParams();
+  const initialFilter = searchParams.get("filter") || "";
+
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>("");
+  const [filter, setFilter] = useState<string>(initialFilter);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -364,20 +368,39 @@ export default function LoansPage() {
         </div>
       </div>
 
-      {/* Late Fee Status Bar */}
-      {lateFeeStatus && (lateFeeStatus.loansInArrears > 0 || lateFeeStatus.loansReadyForDefault > 0) && (
+      {/* Status Alert Bar */}
+      {lateFeeStatus && (
+        lateFeeStatus.loansPendingDisbursement > 0 ||
+        lateFeeStatus.loansInArrears > 0 ||
+        lateFeeStatus.loansReadyToComplete > 0 ||
+        lateFeeStatus.loansReadyForDefault > 0
+      ) && (
         <div className="flex items-center gap-4 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
           <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-          <div className="flex items-center gap-4 text-sm flex-wrap">
-            {lateFeeStatus.loansInArrears > 0 && (
-              <span className="text-amber-600 dark:text-amber-400">
-                {lateFeeStatus.loansInArrears} loan{lateFeeStatus.loansInArrears !== 1 ? "s" : ""} in arrears
-              </span>
-            )}
-            {lateFeeStatus.loansReadyForDefault > 0 && (
-              <span className="text-red-600 dark:text-red-400">
-                {lateFeeStatus.loansReadyForDefault} loan{lateFeeStatus.loansReadyForDefault !== 1 ? "s" : ""} ready for default
-              </span>
+          <div className="flex items-center gap-2 text-sm flex-wrap">
+            {[
+              lateFeeStatus.loansPendingDisbursement > 0 && (
+                <span key="pending" className="text-amber-600 dark:text-amber-400">
+                  {lateFeeStatus.loansPendingDisbursement} loan{lateFeeStatus.loansPendingDisbursement !== 1 ? "s" : ""} pending disbursement
+                </span>
+              ),
+              lateFeeStatus.loansInArrears > 0 && (
+                <span key="arrears" className="text-amber-600 dark:text-amber-400">
+                  {lateFeeStatus.loansInArrears} loan{lateFeeStatus.loansInArrears !== 1 ? "s" : ""} in arrears
+                </span>
+              ),
+              lateFeeStatus.loansReadyToComplete > 0 && (
+                <span key="complete" className="text-emerald-600 dark:text-emerald-400">
+                  {lateFeeStatus.loansReadyToComplete} loan{lateFeeStatus.loansReadyToComplete !== 1 ? "s" : ""} ready to complete
+                </span>
+              ),
+              lateFeeStatus.loansReadyForDefault > 0 && (
+                <span key="default" className="text-red-600 dark:text-red-400">
+                  {lateFeeStatus.loansReadyForDefault} loan{lateFeeStatus.loansReadyForDefault !== 1 ? "s" : ""} ready for default
+                </span>
+              ),
+            ].filter(Boolean).flatMap((item, i, arr) =>
+              i < arr.length - 1 ? [item, <span key={`dot-${i}`} className="text-muted-foreground">•</span>] : [item]
             )}
           </div>
         </div>

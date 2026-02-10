@@ -81,7 +81,7 @@ export const PROMOTIONS: Promotion[] = [
     badgeVariant: "default",
     gradient: "from-primary/10 via-card to-primary/5",
     borderColor: "border-primary/20",
-    href: "/dashboard/promotions#refer-and-earn",
+    href: "/dashboard/profile",
     features: [
       "RM499 cash reward per successful referral",
       "No limit on the number of referrals",

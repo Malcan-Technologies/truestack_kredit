@@ -35,8 +35,8 @@ export const PROMOTIONS: Promotion[] = [
     icon: Mail,
     badge: "Add-on",
     badgeVariant: "info",
-    gradient: "from-blue-500/10 via-card to-blue-500/5",
-    borderColor: "border-blue-500/20",
+    gradient: "from-blue-500/15 via-card to-blue-500/[0.07]",
+    borderColor: "border-blue-500/25",
     href: "/dashboard/promotions#automated-emails",
     features: [
       "Payment receipts sent instantly after each repayment",
@@ -57,8 +57,8 @@ export const PROMOTIONS: Promotion[] = [
     icon: Fingerprint,
     badge: "Add-on",
     badgeVariant: "info",
-    gradient: "from-emerald-500/10 via-card to-emerald-500/5",
-    borderColor: "border-emerald-500/20",
+    gradient: "from-emerald-500/15 via-card to-emerald-500/[0.07]",
+    borderColor: "border-emerald-500/25",
     href: "/dashboard/promotions#trueidentity",
     features: [
       "QR-based flow — borrowers verify from anywhere, no visit needed",
@@ -79,8 +79,8 @@ export const PROMOTIONS: Promotion[] = [
     icon: Gift,
     badge: "Coming Soon",
     badgeVariant: "default",
-    gradient: "from-primary/10 via-card to-primary/5",
-    borderColor: "border-primary/20",
+    gradient: "from-primary/15 via-card to-primary/[0.07]",
+    borderColor: "border-primary/25",
     href: "/dashboard/profile",
     features: [
       "RM499 cash reward per successful referral",

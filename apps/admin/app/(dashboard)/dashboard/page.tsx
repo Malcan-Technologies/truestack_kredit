@@ -16,6 +16,8 @@ import {
   Bell,
   ClipboardList,
   Banknote,
+  Send,
+  Fingerprint,
 } from "lucide-react";
 import {
   Bar,
@@ -243,9 +245,15 @@ function formatMonthLabel(month: string): string {
 // Main Dashboard Component
 // ============================================
 
+interface AddOnStatus {
+  addOnType: string;
+  status: string;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [tenant, setTenant] = useState<TenantStats | null>(null);
+  const [addOns, setAddOns] = useState<AddOnStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [datePreset, setDatePreset] = useState<DatePreset>("6m");
 
@@ -253,9 +261,10 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const { from, to } = getDateRange(preset);
-      const [tenantRes, dashRes] = await Promise.all([
+      const [tenantRes, dashRes, addOnsRes] = await Promise.all([
         api.get<TenantStats>("/api/tenants/current"),
         api.get<DashboardStats>(`/api/dashboard/stats?from=${from}&to=${to}`),
+        api.get<{ addOns: AddOnStatus[] }>("/api/billing/add-ons"),
       ]);
 
       if (tenantRes.success && tenantRes.data) {
@@ -263,6 +272,9 @@ export default function DashboardPage() {
       }
       if (dashRes.success && dashRes.data) {
         setStats(dashRes.data);
+      }
+      if (addOnsRes.success && addOnsRes.data) {
+        setAddOns(addOnsRes.data.addOns);
       }
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
@@ -437,57 +449,61 @@ export default function DashboardPage() {
           <Card className="lg:col-span-3">
             <CardContent className="py-4">
               {tenant?.subscription ? (
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/10">
-                      <CreditCard className="h-5 w-5 text-accent" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-heading font-semibold">
-                          {tenant.subscription.plan.charAt(0).toUpperCase() +
-                            tenant.subscription.plan.slice(1)}{" "}
-                          Plan
-                        </p>
-                        <Badge
-                          variant={
-                            tenant.subscription.status === "ACTIVE"
-                              ? "success"
-                              : tenant.subscription.status === "GRACE_PERIOD"
-                                ? "warning"
-                                : "destructive"
-                          }
-                        >
-                          {tenant.subscription.status === "ACTIVE"
-                            ? "Active"
-                            : tenant.subscription.status === "GRACE_PERIOD"
-                              ? "Grace Period"
-                              : tenant.subscription.status}
-                        </Badge>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/10">
+                        <CreditCard className="h-5 w-5 text-accent" />
                       </div>
-                      <p className="text-sm text-muted mt-0.5">
-                        {tenant.subscription.status === "GRACE_PERIOD"
-                          ? `Grace period ends ${formatDate(tenant.subscription.gracePeriodEnd!)}`
-                          : `Renews ${formatDate(tenant.subscription.currentPeriodEnd)}`}
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-heading font-semibold">
+                            {tenant.subscription.plan.charAt(0).toUpperCase() +
+                              tenant.subscription.plan.slice(1)}{" "}
+                            Plan
+                          </p>
+                          <Badge
+                            variant={
+                              tenant.subscription.status === "ACTIVE"
+                                ? "success"
+                                : tenant.subscription.status === "GRACE_PERIOD"
+                                  ? "warning"
+                                  : "destructive"
+                            }
+                          >
+                            {tenant.subscription.status === "ACTIVE"
+                              ? "Active"
+                              : tenant.subscription.status === "GRACE_PERIOD"
+                                ? "Grace Period"
+                                : tenant.subscription.status}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted mt-0.5">
+                          {tenant.subscription.status === "GRACE_PERIOD"
+                            ? `Grace period ends ${formatDate(tenant.subscription.gracePeriodEnd!)}`
+                            : `Renews ${formatDate(tenant.subscription.currentPeriodEnd)}`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="hidden sm:flex items-center gap-6">
+                      {/* Loan usage */}
+                      <LoanUsage
+                        used={stats?.kpiCards.totalLoans || 0}
+                        limit={500}
+                      />
+                      <div className="h-8 w-px bg-border" />
+                      <BillingCountdown
+                        date={
+                          tenant.subscription.status === "GRACE_PERIOD"
+                            ? tenant.subscription.gracePeriodEnd!
+                            : tenant.subscription.currentPeriodEnd
+                        }
+                        isGrace={tenant.subscription.status === "GRACE_PERIOD"}
+                      />
                     </div>
                   </div>
-                  <div className="hidden sm:flex items-center gap-6">
-                    {/* Loan usage */}
-                    <LoanUsage
-                      used={stats?.kpiCards.totalLoans || 0}
-                      limit={500}
-                    />
-                    <div className="h-8 w-px bg-border" />
-                    <BillingCountdown
-                      date={
-                        tenant.subscription.status === "GRACE_PERIOD"
-                          ? tenant.subscription.gracePeriodEnd!
-                          : tenant.subscription.currentPeriodEnd
-                      }
-                      isGrace={tenant.subscription.status === "GRACE_PERIOD"}
-                    />
-                  </div>
+                  {/* Add-ons row */}
+                  <AddOnIndicators addOns={addOns} />
                 </div>
               ) : (
                 <div className="flex items-center gap-3 text-muted">
@@ -1233,6 +1249,41 @@ function KPICard({
   }
 
   return cardContent;
+}
+
+function AddOnIndicators({ addOns }: { addOns: AddOnStatus[] }) {
+  const trueSendActive = addOns.some(a => a.addOnType === "TRUESEND" && a.status === "ACTIVE");
+  const trueIdentityActive = addOns.some(a => a.addOnType === "TRUEIDENTITY" && a.status === "ACTIVE");
+
+  const items = [
+    { label: "TrueSend", icon: Send, active: trueSendActive, color: "text-purple-500", bg: "bg-purple-500/10" },
+    { label: "TrueIdentity", icon: Fingerprint, active: trueIdentityActive, color: "text-emerald-700 dark:text-emerald-500", bg: "bg-emerald-500/10" },
+  ];
+
+  return (
+    <div className="flex items-center gap-2 pt-2 border-t border-border/50">
+      <span className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium mr-1">Add-ons</span>
+      {items.map((item) => (
+        <Link
+          key={item.label}
+          href="/dashboard/add-ons"
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+            item.active
+              ? `border-transparent ${item.bg} ${item.color} font-medium`
+              : "border-dashed border-border/70 text-muted-foreground/50 hover:text-muted-foreground hover:border-border"
+          }`}
+        >
+          <item.icon className="h-3 w-3" />
+          {item.label}
+          {item.active ? (
+            <CheckCircle className="h-3 w-3 ml-0.5" />
+          ) : (
+            <span className="text-[10px] opacity-60">Off</span>
+          )}
+        </Link>
+      ))}
+    </div>
+  );
 }
 
 function LoanUsage({ used, limit }: { used: number; limit: number }) {

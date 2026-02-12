@@ -35,6 +35,7 @@ import {
   Copy,
   Eye,
   Mail,
+  Send,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -84,7 +85,10 @@ import {
   safeAdd,
   safeSubtract,
   safePercentage,
+  formatSmartDateTime,
 } from "@/lib/utils";
+import { TrueSendEmailLog } from "@/components/truesend-email-log";
+import { TrueSendBadge } from "@/components/truesend-badge";
 
 // ============================================
 // Types
@@ -419,6 +423,10 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: Banknote, label: "Early Settlement", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
       case "EXPORT":
         return { icon: Download, label: "Document Exported", color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10" };
+      case "TRUESEND_EMAIL_SENT":
+        return { icon: Send, label: "TrueSend Email Sent", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
+      case "TRUESEND_EMAIL_RESENT":
+        return { icon: Send, label: "TrueSend Email Resent", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
       default:
         return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
     }
@@ -679,6 +687,10 @@ export default function LoanDetailPage() {
   // Lampiran A download state
   const [downloadingLampiranA, setDownloadingLampiranA] = useState(false);
 
+  // TrueSend email log refresh key — increment to trigger re-fetch
+  const [emailLogRefreshKey, setEmailLogRefreshKey] = useState(0);
+  const refreshEmailLog = useCallback(() => setEmailLogRefreshKey((k) => k + 1), []);
+
   // ============================================
   // Data Fetching
   // ============================================
@@ -738,7 +750,7 @@ export default function LoanDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchLoan(), fetchTimeline()]);
+      await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       setLoading(false);
     };
     loadData();
@@ -794,7 +806,7 @@ export default function LoanDetailPage() {
         setShowDisburseDialog(false);
         setDisbursementReference("");
         setDisbursementProofFile(null);
-        await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+        await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
       } else {
         toast.error(res.error || "Failed to disburse loan");
       }
@@ -864,7 +876,7 @@ export default function LoanDetailPage() {
 
     setShowPaymentDialog(false);
     resetPaymentDialog();
-    await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+    await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
     setActionLoading(null);
   };
 
@@ -877,7 +889,7 @@ export default function LoanDetailPage() {
       toast.success("Loan completed and discharged successfully");
       setShowCompleteDialog(false);
       setDischargeNotes("");
-      await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+      await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
     } else {
       toast.error(res.error || "Failed to complete loan");
     }
@@ -942,7 +954,7 @@ export default function LoanDetailPage() {
 
         toast.success("Early settlement completed successfully. Loan is now discharged.");
         setShowEarlySettlementDialog(false);
-        await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+        await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
       } else {
         toast.error(res.error || "Failed to process early settlement");
       }
@@ -961,7 +973,7 @@ export default function LoanDetailPage() {
       toast.success("Loan marked as defaulted");
       setShowDefaultDialog(false);
       setDefaultReason("");
-      await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+      await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
     } else {
       toast.error(res.error || "Failed to mark loan as defaulted");
     }
@@ -970,7 +982,7 @@ export default function LoanDetailPage() {
 
   const handleRefreshPage = async () => {
     setActionLoading("status");
-    await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+    await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
     toast.success("Loan data refreshed");
     setActionLoading(null);
   };
@@ -982,7 +994,7 @@ export default function LoanDetailPage() {
       if (res.success) {
         toast.success("Arrears letter generated successfully");
         setShowGenerateArrearsLetterDialog(false);
-        await Promise.all([fetchLoan(), fetchTimeline()]);
+        await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       } else {
         toast.error(res.error || "Failed to generate arrears letter");
       }
@@ -999,7 +1011,7 @@ export default function LoanDetailPage() {
       if (res.success) {
         toast.success("Default letter generated successfully");
         setShowGenerateDefaultLetterDialog(false);
-        await Promise.all([fetchLoan(), fetchTimeline()]);
+        await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       } else {
         toast.error(res.error || "Failed to generate default letter");
       }
@@ -1103,7 +1115,7 @@ export default function LoanDetailPage() {
         setShowUploadProofDialog(false);
         setSelectedTransactionId(null);
         setProofFile(null);
-        await Promise.all([fetchLoan(), fetchTimeline()]);
+        await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       } else {
         toast.error(result.error || "Failed to upload proof of payment");
       }
@@ -1136,7 +1148,7 @@ export default function LoanDetailPage() {
         toast.success("Proof of disbursement uploaded successfully");
         setShowUploadDisbursementProofDialog(false);
         setDisbursementProofUploadFile(null);
-        await Promise.all([fetchLoan(), fetchTimeline()]);
+        await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       } else {
         toast.error(result.error || "Failed to upload proof of disbursement");
       }
@@ -1216,7 +1228,7 @@ export default function LoanDetailPage() {
         toast.success("Signed agreement uploaded successfully");
         setShowUploadAgreementDialog(false);
         setAgreementFile(null);
-        await Promise.all([fetchLoan(), fetchTimeline()]);
+        await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       } else {
         toast.error(result.error || "Failed to upload signed agreement");
       }
@@ -1250,7 +1262,7 @@ export default function LoanDetailPage() {
         toast.success("Stamp certificate uploaded successfully");
         setShowUploadStampCertDialog(false);
         setStampCertFile(null);
-        await Promise.all([fetchLoan(), fetchTimeline()]);
+        await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       } else {
         toast.error(result.error || "Failed to upload stamp certificate");
       }
@@ -2523,6 +2535,9 @@ export default function LoanDetailPage() {
             </CardContent>
           </Card>
 
+          {/* TrueSend Email Log */}
+          <TrueSendEmailLog loanId={loan.id} refreshKey={emailLogRefreshKey} />
+
           {/* Activity Timeline */}
           <Card>
             <CardHeader>
@@ -3188,15 +3203,18 @@ export default function LoanDetailPage() {
             </div>
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                <p className="text-sm text-muted-foreground">
-                  If your company has subscribed to the{" "}
-                  <Link href="/dashboard/help?doc=add-ons/automated-emails" target="_blank" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-primary">
-                    Automated Emails
-                    <ExternalLink className="h-3 w-3" />
-                  </Link>{" "}
-                  add-on, this letter will also be sent via email to the borrower automatically.
-                </p>
+                <Send className="h-5 w-5 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <TrueSendBadge showTooltip={false} />
+                  <p>
+                    If your company has subscribed to the{" "}
+                    <Link href="/dashboard/add-ons" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-primary">
+                      TrueSend
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>{" "}
+                    add-on, this letter will also be sent via email to the borrower automatically.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -3241,15 +3259,18 @@ export default function LoanDetailPage() {
             </div>
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                <p className="text-sm text-muted-foreground">
-                  If your company has subscribed to the{" "}
-                  <Link href="/dashboard/help?doc=add-ons/automated-emails" target="_blank" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-primary">
-                    Automated Emails
-                    <ExternalLink className="h-3 w-3" />
-                  </Link>{" "}
-                  add-on, this letter will also be sent via email to the borrower automatically.
-                </p>
+                <Send className="h-5 w-5 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <TrueSendBadge showTooltip={false} />
+                  <p>
+                    If your company has subscribed to the{" "}
+                    <Link href="/dashboard/add-ons" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-primary">
+                      TrueSend
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>{" "}
+                    add-on, this letter will also be sent via email to the borrower automatically.
+                  </p>
+                </div>
               </div>
             </div>
           </div>

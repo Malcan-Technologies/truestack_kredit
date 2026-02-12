@@ -6,6 +6,7 @@ import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireAdmin } from '../../middleware/requireRole.js';
 import { nanoid } from 'nanoid';
 import { config } from '../../lib/config.js';
+import { AddOnService } from '../../lib/addOnService.js';
 
 const router = Router();
 
@@ -309,6 +310,104 @@ router.post('/invoices/generate', requireAdmin, async (req, res, next) => {
       success: true,
       data: invoice,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// Add-ons
+// ============================================
+
+/**
+ * Get tenant's add-on statuses and email stats
+ * GET /api/billing/add-ons
+ */
+router.get('/add-ons', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+
+    // Get all add-ons for this tenant
+    const addOns = await AddOnService.getAllAddOns(tenantId);
+
+    // Get email stats for this month (if TrueSend is active)
+    let emailStats: { total: number; delivered: number; failed: number; pending: number } | null = null;
+    const hasTrueSend = addOns.some(a => a.addOnType === 'TRUESEND' && a.status === 'ACTIVE');
+
+    if (hasTrueSend) {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const [total, delivered, failed, pending] = await Promise.all([
+        prisma.emailLog.count({ where: { tenantId, createdAt: { gte: monthStart } } }),
+        prisma.emailLog.count({ where: { tenantId, status: 'delivered', createdAt: { gte: monthStart } } }),
+        prisma.emailLog.count({ where: { tenantId, status: { in: ['failed', 'bounced', 'complained'] }, createdAt: { gte: monthStart } } }),
+        prisma.emailLog.count({ where: { tenantId, status: { in: ['pending', 'sent', 'delayed'] }, createdAt: { gte: monthStart } } }),
+      ]);
+
+      emailStats = { total, delivered, failed, pending };
+    }
+
+    res.json({
+      success: true,
+      data: {
+        addOns: addOns.map(a => ({
+          addOnType: a.addOnType,
+          status: a.status,
+          enabledAt: a.enabledAt,
+        })),
+        emailStats,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Toggle an add-on subscription (subscribe / cancel)
+ * POST /api/billing/add-ons/toggle
+ *
+ * For development/testing — in production this would go through a payment gateway.
+ */
+router.post('/add-ons/toggle', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { addOnType } = req.body as { addOnType: string };
+
+    if (!addOnType || !['TRUESEND', 'TRUEIDENTITY'].includes(addOnType)) {
+      return res.status(400).json({ success: false, error: 'Invalid addOnType' });
+    }
+
+    // Check if add-on record already exists
+    const existing = await prisma.tenantAddOn.findUnique({
+      where: { tenantId_addOnType: { tenantId, addOnType } },
+    });
+
+    if (existing) {
+      // Toggle: ACTIVE -> CANCELLED, anything else -> ACTIVE
+      const newStatus = existing.status === 'ACTIVE' ? 'CANCELLED' : 'ACTIVE';
+      const updated = await prisma.tenantAddOn.update({
+        where: { id: existing.id },
+        data: {
+          status: newStatus,
+          ...(newStatus === 'ACTIVE' ? { enabledAt: new Date(), cancelledAt: null } : { cancelledAt: new Date() }),
+        },
+      });
+
+      res.json({ success: true, data: { addOnType: updated.addOnType, status: updated.status } });
+    } else {
+      // Create new subscription
+      const created = await prisma.tenantAddOn.create({
+        data: {
+          tenantId,
+          addOnType,
+          status: 'ACTIVE',
+        },
+      });
+
+      res.json({ success: true, data: { addOnType: created.addOnType, status: created.status } });
+    }
   } catch (error) {
     next(error);
   }

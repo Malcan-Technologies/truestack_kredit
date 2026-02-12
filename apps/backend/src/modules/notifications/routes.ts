@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
 import { NotificationService } from './service.js';
+import { TrueSendService } from './trueSendService.js';
 
 const router = Router();
 
@@ -111,6 +112,38 @@ router.post('/:notificationId/retry', async (req, res, next) => {
     res.json({
       success: true,
       data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// TrueSend Resend
+// ============================================
+
+/**
+ * Resend a failed TrueSend email
+ * POST /api/notifications/truesend/:id/resend
+ *
+ * Rate limited to 1x per day per email.
+ * Only allowed for failed/bounced/complained emails.
+ */
+router.post('/truesend/:id/resend', async (req, res, next) => {
+  try {
+    const result = await TrueSendService.resendEmail(req.params.id, req.tenantId!);
+
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        error: result.message,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: { message: result.message },
     });
   } catch (error) {
     next(error);

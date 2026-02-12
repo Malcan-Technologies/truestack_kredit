@@ -21,6 +21,7 @@ import notificationRoutes from './modules/notifications/routes.js';
 import docsRoutes from './modules/docs/routes.js';
 import referralsRoutes from './modules/referrals/routes.js';
 import dashboardRoutes from './modules/dashboard/routes.js';
+import resendWebhookRoutes from './modules/webhooks/resendWebhook.js';
 
 const app = express();
 
@@ -58,6 +59,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/docs', docsRoutes);
 app.use('/api/referrals', referralsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/webhooks/resend', resendWebhookRoutes);
 
 // Error handling
 app.use(errorHandler);

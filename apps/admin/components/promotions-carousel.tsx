@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { PROMOTIONS, type Promotion } from "@/lib/promotions";
+import { PROMOTIONS } from "@/lib/promotions";
 
 const AUTO_ROTATE_INTERVAL = 6000; // 6 seconds
 
@@ -36,23 +36,24 @@ export function PromotionsCarousel() {
 
   return (
     <Card
-      className={cn(
-        "lg:col-span-2 overflow-hidden relative bg-gradient-to-br border transition-all duration-500",
-        current.gradient,
-        current.borderColor
-      )}
+      className="lg:col-span-2 overflow-hidden relative bg-gradient-to-br from-blue-500/15 via-blue-400/[0.06] to-sky-500/10 border border-blue-500/20 ring-1 ring-inset ring-blue-400/[0.06] shadow-sm transition-all duration-500"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
+      {/* Subtle top-edge highlight */}
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/20 to-transparent" />
       <CardContent className="py-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-foreground/5">
-              <current.icon className="h-5 w-5 text-foreground/70" />
+            <div className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+              "bg-foreground/[0.07] ring-1 ring-foreground/[0.06]"
+            )}>
+              <current.icon className="h-5 w-5 text-foreground/80" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <p className="font-heading font-semibold text-sm truncate">
+                <p className="font-heading font-semibold text-sm truncate text-foreground">
                   {current.title}
                 </p>
                 <Badge
@@ -62,7 +63,7 @@ export function PromotionsCarousel() {
                   {current.badge}
                 </Badge>
               </div>
-              <p className="text-xs text-muted mt-0.5 truncate">
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">
                 {current.tagline}
               </p>
             </div>

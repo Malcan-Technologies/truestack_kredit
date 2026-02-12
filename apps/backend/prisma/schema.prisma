@@ -128,6 +128,8 @@ model Tenant {
   adminAuditLogs       AdminAuditLog[] // Admin actions audit trail
   paymentTransactions  PaymentTransaction[] // Payment transactions with receipts
   lateFeeEntries       LateFeeEntry[] // Daily late fee accrual entries
+  addOns               TenantAddOn[] // Subscribed add-ons (TrueSend, TrueIdentity)
+  emailLogs            EmailLog[] // TrueSend email delivery logs
 }
 
 // ============================================
@@ -438,6 +440,7 @@ model Borrower {
   applications LoanApplication[]
   loans        Loan[]
   documents    BorrowerDocument[]
+  emailLogs    EmailLog[] // TrueSend email delivery logs
 
   @@unique([tenantId, icNumber])
   @@index([tenantId])
@@ -638,6 +641,7 @@ model Loan {
   scheduleVersions LoanScheduleVersion[]
   transactions     PaymentTransaction[]
   lateFeeEntries   LateFeeEntry[]
+  emailLogs        EmailLog[] // TrueSend email delivery logs
 
   @@index([tenantId])
   @@index([status])
@@ -864,6 +868,65 @@ model LateFeeEntry {
   @@index([loanId])
   @@index([repaymentId])
   @@index([accrualDate])
+}
+
+// ============================================
+// Add-on Models (TrueSend, TrueIdentity)
+// ============================================
+
+model TenantAddOn {
+  id          String    @id @default(cuid())
+  tenantId    String
+  addOnType   String // "TRUESEND", "TRUEIDENTITY"
+  status      String    @default("ACTIVE") // ACTIVE, CANCELLED, EXPIRED
+  enabledAt   DateTime  @default(now())
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, addOnType])
+  @@index([tenantId])
+  @@index([addOnType])
+}
+
+// ============================================
+// TrueSend Email Log (delivery tracking via Resend webhooks)
+// ============================================
+
+model EmailLog {
+  id              String    @id @default(cuid())
+  tenantId        String
+  loanId          String?
+  borrowerId      String?
+  emailType       String // PAYMENT_REMINDER, LATE_PAYMENT, ARREARS_NOTICE, DEFAULT_NOTICE, DISBURSEMENT, COMPLETION
+  recipientEmail  String
+  recipientName   String?
+  subject         String
+  resendMessageId String? // Resend's email ID for webhook matching
+  status          String    @default("pending") // pending, sent, delivered, bounced, failed, delayed, complained
+  attachmentPath  String? // Path to attached PDF
+  failureReason   String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  lastEventAt     DateTime?
+  resentAt        DateTime? // Track last resend time (1x/day limit)
+  resentCount     Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  loan     Loan?     @relation(fields: [loanId], references: [id])
+  borrower Borrower? @relation(fields: [borrowerId], references: [id])
+
+  @@index([tenantId])
+  @@index([loanId])
+  @@index([resendMessageId])
+  @@index([emailType])
+  @@index([status])
 }
 
 // Audit trail for each cron / manual late fee processing run

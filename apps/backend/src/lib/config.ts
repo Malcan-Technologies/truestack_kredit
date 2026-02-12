@@ -36,6 +36,7 @@ export const config = {
   // Notifications (optional)
   notifications: {
     resendApiKey: process.env.RESEND_API_KEY,
+    resendWebhookSecret: process.env.RESEND_WEBHOOK_SECRET,
     whatsapp: {
       accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
       phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,

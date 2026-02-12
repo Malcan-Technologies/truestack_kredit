@@ -25,6 +25,7 @@ import { prisma } from './prisma.js';
 import { toSafeNumber, safeRound, safeAdd, safeSubtract, dailyLateFeeRate, calculateDailyLateFee } from './math.js';
 import { generateArrearsLetter } from './letterService.js';
 import { AuditService } from '../modules/compliance/auditService.js';
+import { TrueSendService } from '../modules/notifications/trueSendService.js';
 
 // Advisory lock ID for late fee processing
 const LATE_FEE_LOCK_ID = 789012345;
@@ -452,6 +453,14 @@ export class LateFeeProcessor {
                     trigger: trigger === 'CRON' ? 'auto' : 'manual_late_fee_run',
                   },
                 });
+
+                // TrueSend: send arrears notice email with letter attached
+                try {
+                  await TrueSendService.sendArrearsNotice(loan.tenantId, loanId, letterPath);
+                } catch (emailErr) {
+                  // Don't fail the main flow if email fails
+                  console.error(`[LateFeeProcessor] TrueSend arrears email failed for loan ${loanId}:`, emailErr);
+                }
               } catch (letterErr) {
                 errors.push(`Arrears letter for loan ${loanId}: ${letterErr instanceof Error ? letterErr.message : 'Unknown error'}`);
               }

@@ -14,6 +14,7 @@ import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtrac
 import { createHash } from 'crypto';
 import { LateFeeProcessor } from '../../lib/lateFeeProcessor.js';
 import { generateDischargeLetter, generateDefaultLetter, generateArrearsLetter } from '../../lib/letterService.js';
+import { TrueSendService } from '../notifications/trueSendService.js';
 import PDFDocument from 'pdfkit';
 import http from 'http';
 import https from 'https';
@@ -2062,6 +2063,15 @@ router.post('/:loanId/complete', async (req, res, next) => {
       ipAddress: req.ip,
     });
 
+    // TrueSend: send completion notification with discharge letter
+    if (dischargeLetterPath) {
+      try {
+        await TrueSendService.sendCompletionNotification(req.tenantId!, loan.id, dischargeLetterPath);
+      } catch (emailErr) {
+        console.error(`[CompleteLoan] TrueSend email failed for loan ${loan.id}:`, emailErr);
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -2213,8 +2223,8 @@ router.get('/:loanId/default-letter', async (req, res, next) => {
  * 
  * Allowed for IN_ARREARS and DEFAULTED status.
  * Does NOT overwrite old letters — generates a new PDF with fresh data.
- * Enforces a 3-day cooldown: if the current arrearsLetterPath was generated 
- * within the last 3 days, the request is rejected.
+ * Enforces a 7-day cooldown: if the current arrearsLetterPath was generated 
+ * within the last 7 days, the request is rejected.
  */
 router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
   try {
@@ -2248,7 +2258,7 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
       throw new BadRequestError('Arrears letter can only be generated for loans in arrears or default status');
     }
 
-    // 3-day cooldown check: parse date from the most recent arrears letter filename
+    // 7-day cooldown check: parse date from the most recent arrears letter filename
     if (loan.arrearsLetterPath) {
       const filename = loan.arrearsLetterPath.split('/').pop() || '';
       // Filename format: ARR-YYYYMMDD-HHmmss-loanId.pdf
@@ -2257,9 +2267,9 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
         const [, y, m, d, hh, mm, ss] = match;
         const letterDate = new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`);
         const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSince < 3) {
+        if (daysSince < 7) {
           throw new BadRequestError(
-            `An arrears letter was generated ${Math.floor(daysSince * 24)} hours ago. Please wait at least 3 days between letters.`
+            `An arrears letter was generated ${Math.floor(daysSince * 24)} hours ago. Please wait at least 7 days between letters.`
           );
         }
       } else {
@@ -2269,9 +2279,9 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
           const [, y, m, d] = legacyMatch;
           const letterDate = new Date(`${y}-${m}-${d}T00:00:00Z`);
           const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
-          if (daysSince < 3) {
+          if (daysSince < 7) {
             throw new BadRequestError(
-              `An arrears letter was generated recently. Please wait at least 3 days between letters.`
+              `An arrears letter was generated recently. Please wait at least 7 days between letters.`
             );
           }
         }
@@ -2358,6 +2368,13 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
       ipAddress: req.ip,
     });
 
+    // TrueSend: send arrears notice email with letter attached
+    try {
+      await TrueSendService.sendArrearsNotice(req.tenantId!, loan.id, letterPath);
+    } catch (emailErr) {
+      console.error(`[GenerateArrearsLetter] TrueSend email failed for loan ${loan.id}:`, emailErr);
+    }
+
     res.json({
       success: true,
       data: { arrearsLetterPath: letterPath },
@@ -2373,7 +2390,7 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
  * 
  * Allowed for DEFAULTED status only.
  * Does NOT overwrite old letters — generates a new PDF with fresh data.
- * Enforces a 3-day cooldown from the last generated default letter.
+ * Enforces a 7-day cooldown from the last generated default letter.
  */
 router.post('/:loanId/generate-default-letter', async (req, res, next) => {
   try {
@@ -2407,7 +2424,7 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
       throw new BadRequestError('Default letter can only be generated for defaulted loans');
     }
 
-    // 3-day cooldown check
+    // 7-day cooldown check
     if (loan.defaultLetterPath) {
       const filename = loan.defaultLetterPath.split('/').pop() || '';
       // Filename format: DEF-YYYYMMDD-HHmmss-loanId.pdf
@@ -2416,9 +2433,9 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
         const [, y, m, d, hh, mm, ss] = match;
         const letterDate = new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`);
         const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSince < 3) {
+        if (daysSince < 7) {
           throw new BadRequestError(
-            `A default letter was generated ${Math.floor(daysSince * 24)} hours ago. Please wait at least 3 days between letters.`
+            `A default letter was generated ${Math.floor(daysSince * 24)} hours ago. Please wait at least 7 days between letters.`
           );
         }
       } else {
@@ -2428,9 +2445,9 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
           const [, y, m, d] = legacyMatch;
           const letterDate = new Date(`${y}-${m}-${d}T00:00:00Z`);
           const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
-          if (daysSince < 3) {
+          if (daysSince < 7) {
             throw new BadRequestError(
-              `A default letter was generated recently. Please wait at least 3 days between letters.`
+              `A default letter was generated recently. Please wait at least 7 days between letters.`
             );
           }
         }
@@ -2515,6 +2532,13 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
       newData: { defaultLetterPath: letterPath },
       ipAddress: req.ip,
     });
+
+    // TrueSend: send default notice email with letter attached
+    try {
+      await TrueSendService.sendDefaultNotice(req.tenantId!, loan.id, letterPath);
+    } catch (emailErr) {
+      console.error(`[GenerateDefaultLetter] TrueSend email failed for loan ${loan.id}:`, emailErr);
+    }
 
     res.json({
       success: true,
@@ -2668,6 +2692,15 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
       },
       ipAddress: req.ip,
     });
+
+    // TrueSend: send default notice email with letter attached
+    if (defaultLetterPath) {
+      try {
+        await TrueSendService.sendDefaultNotice(req.tenantId!, loan.id, defaultLetterPath);
+      } catch (emailErr) {
+        console.error(`[MarkDefault] TrueSend email failed for loan ${loan.id}:`, emailErr);
+      }
+    }
 
     res.json({
       success: true,
@@ -2885,6 +2918,13 @@ router.post('/:loanId/disburse', async (req, res, next) => {
         },
         ipAddress: req.ip,
       });
+    }
+
+    // TrueSend: send disbursement notification email
+    try {
+      await TrueSendService.sendDisbursementNotification(req.tenantId!, loan.id);
+    } catch (emailErr) {
+      console.error(`[Disburse] TrueSend email failed for loan ${loan.id}:`, emailErr);
     }
 
     res.json({
@@ -3979,6 +4019,13 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         newData: { dischargeLetterPath },
         ipAddress: req.ip,
       });
+
+      // TrueSend: send completion notification with discharge letter (early settlement)
+      try {
+        await TrueSendService.sendCompletionNotification(req.tenantId!, loan.id, dischargeLetterPath);
+      } catch (emailErr) {
+        console.error(`[EarlySettlement] TrueSend email failed for loan ${loan.id}:`, emailErr);
+      }
     } catch (error) {
       console.error('Failed to generate discharge letter:', error);
     }
@@ -4067,6 +4114,22 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       ipAddress: req.ip,
     });
 
+    // TrueSend: send early settlement receipt email with PDF attached
+    if (receiptPath) {
+      try {
+        await TrueSendService.sendPaymentReceipt(
+          req.tenantId!,
+          loan.id,
+          receiptPath,
+          totalSettlement,
+          receiptNumber,
+          true // isEarlySettlement
+        );
+      } catch (emailErr) {
+        console.error(`[EarlySettlement] TrueSend receipt email failed for loan ${loan.id}:`, emailErr);
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -4085,6 +4148,59 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
           receiptPath,
         },
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// TrueSend Email Logs
+// ============================================
+
+/**
+ * Get email logs for a specific loan
+ * GET /api/loans/:loanId/email-logs
+ */
+router.get('/:loanId/email-logs', async (req, res, next) => {
+  try {
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: req.params.loanId,
+        tenantId: req.tenantId,
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    const emailLogs = await prisma.emailLog.findMany({
+      where: {
+        loanId: loan.id,
+        tenantId: req.tenantId!,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        emailType: true,
+        recipientEmail: true,
+        recipientName: true,
+        subject: true,
+        status: true,
+        attachmentPath: true,
+        failureReason: true,
+        sentAt: true,
+        deliveredAt: true,
+        resentAt: true,
+        resentCount: true,
+        createdAt: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: emailLogs,
     });
   } catch (error) {
     next(error);

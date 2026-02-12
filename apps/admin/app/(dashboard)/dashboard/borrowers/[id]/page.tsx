@@ -49,6 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { TrueIdentityBox } from "@/components/trueidentity-box";
 
 // ============================================
 // Types
@@ -1045,7 +1046,7 @@ export default function BorrowerDetailPage() {
                 </div>
                 <div className="h-4 w-px bg-border" />
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Member Since</span>
+                  <span className="text-sm text-muted-foreground">Added</span>
                   <span className="text-sm font-medium">{formatDate(borrower.createdAt)}</span>
                 </div>
               </div>
@@ -1671,6 +1672,9 @@ export default function BorrowerDetailPage() {
 
         {/* Right Column - Documents & Activity Timeline */}
         <div className="space-y-6">
+          {/* TrueIdentity e-KYC */}
+          <TrueIdentityBox borrowerId={borrower.id} />
+
           {/* Identity Documents */}
           <Card>
             <CardHeader>

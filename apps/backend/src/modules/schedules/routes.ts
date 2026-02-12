@@ -10,6 +10,7 @@ import { requireActiveSubscription } from '../../middleware/billingGuard.js';
 import { previewSchedule, generateSchedule } from './service.js';
 import { parseFileUpload, savePaymentReceiptFile, deleteDocumentFile, UPLOAD_DIR } from '../../lib/upload.js';
 import { AuditService } from '../compliance/auditService.js';
+import { TrueSendService } from '../notifications/trueSendService.js';
 import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtract } from '../../lib/math.js';
 import { createHash } from 'crypto';
 import https from 'https';
@@ -959,6 +960,21 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         },
         ipAddress: req.ip,
       });
+    }
+
+    // TrueSend: send payment receipt email with PDF attached
+    if (receiptPath) {
+      try {
+        await TrueSendService.sendPaymentReceipt(
+          req.tenantId!,
+          loanId,
+          receiptPath,
+          data.amount,
+          receiptNumber
+        );
+      } catch (emailErr) {
+        console.error(`[RecordPayment] TrueSend email failed for loan ${loanId}:`, emailErr);
+      }
     }
 
     res.status(201).json({

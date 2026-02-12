@@ -7,6 +7,7 @@
 
 import cron from 'node-cron';
 import { LateFeeProcessor } from './lateFeeProcessor.js';
+import { PaymentReminderProcessor } from './paymentReminderProcessor.js';
 
 /**
  * Initialize all cron jobs.
@@ -44,4 +45,25 @@ export function initCronJobs(): void {
   });
 
   console.log('  ✓ Late fee processing: 12:30 AM MYT daily');
+
+  // TrueSend payment reminders: 9:00 AM Malaysia Time daily
+  cron.schedule('0 9 * * *', async () => {
+    console.log('[CRON] Starting TrueSend payment reminders...');
+    try {
+      const result = await PaymentReminderProcessor.processReminders();
+      console.log(
+        `[CRON] Payment reminders complete: ` +
+        `${result.tenantsChecked} tenants, ${result.remindersSent} reminders sent`
+      );
+      if (result.errors.length > 0) {
+        console.error(`[CRON] Payment reminder errors:`, result.errors);
+      }
+    } catch (error) {
+      console.error('[CRON] Payment reminders failed:', error);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+
+  console.log('  ✓ TrueSend payment reminders: 9:00 AM MYT daily');
 }

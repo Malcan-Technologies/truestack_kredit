@@ -26,6 +26,7 @@ import {
   Lock,
   ChevronsLeft,
   ChevronsRight,
+  Puzzle,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -91,6 +92,7 @@ const navigationSections: NavSection[] = [
     items: [
       { name: "Compliance", href: "/dashboard/compliance", icon: Shield },
       { name: "Billing", href: "/dashboard/billing", icon: Wallet },
+      { name: "Add-ons", href: "/dashboard/add-ons", icon: Puzzle },
       { name: "Promotions", href: "/dashboard/promotions", icon: Megaphone },
     ],
   },

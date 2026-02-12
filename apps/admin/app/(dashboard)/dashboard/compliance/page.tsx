@@ -232,15 +232,9 @@ export default function CompliancePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-heading font-bold text-gradient">Compliance & Exports</h1>
-          <p className="text-muted">Export data for KPKT regulatory compliance and internal reporting</p>
-        </div>
-        <Badge variant="outline" className="text-sm">
-          <Shield className="h-3.5 w-3.5 mr-1.5" />
-          Admin Only
-        </Badge>
+      <div>
+        <h1 className="text-2xl font-heading font-bold text-gradient">Compliance & Exports</h1>
+        <p className="text-muted">Export data for KPKT regulatory compliance and internal reporting</p>
       </div>
 
       {/* Tabs for categories */}

@@ -140,7 +140,7 @@ No, tenants cannot be merged. Each tenant represents a separate legal entity wit
 
 ### Can I transfer ownership of a tenant?
 
-Yes, but this requires contacting support. Ownership transfer involves legal verification.
+Yes. As the Owner, go to **Settings** > **Team Members**, find an active user, and click the crown icon to transfer ownership. You will be demoted to Admin and the selected user becomes the new Owner.
 
 ### Do team members automatically have access to all my tenants?
 

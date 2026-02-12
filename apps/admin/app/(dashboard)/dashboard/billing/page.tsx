@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CreditCard, FileText, Receipt, AlertTriangle } from "lucide-react";
+import { CreditCard, FileText, Receipt, AlertTriangle, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { RoleGate } from "@/components/role-gate";
 
 interface Subscription {
   id: string;
@@ -105,11 +106,18 @@ export default function BillingPage() {
   }
 
   return (
+    <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-heading font-bold text-gradient">Billing</h1>
-        <p className="text-muted">Manage your subscription and invoices</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-heading font-bold text-gradient">Billing</h1>
+          <p className="text-muted">Manage your subscription and invoices</p>
+        </div>
+        <Badge variant="outline" className="text-sm">
+          <Shield className="h-3.5 w-3.5 mr-1.5" />
+          Admin Only
+        </Badge>
       </div>
 
       {/* Subscription status */}
@@ -204,5 +212,6 @@ export default function BillingPage() {
         </CardContent>
       </Card>
     </div>
+    </RoleGate>
   );
 }

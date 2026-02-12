@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
+import { requireAdmin } from '../../middleware/requireRole.js';
 import { generateSchedule } from '../schedules/service.js';
 import { parseDocumentUpload, parseFileUpload, saveDocumentFile, deleteDocumentFile, UPLOAD_DIR } from '../../lib/upload.js';
 import { AuditService } from '../compliance/auditService.js';
@@ -727,11 +728,12 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
  * Approve application and create loan with schedule
  * POST /api/loans/applications/:applicationId/approve
  */
-router.post('/applications/:applicationId/approve', async (req, res, next) => {
+router.post('/applications/:applicationId/approve', requireAdmin, async (req, res, next) => {
   try {
+    const applicationId = req.params.applicationId as string;
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: applicationId,
         tenantId: req.tenantId,
       },
       include: { product: true },
@@ -819,13 +821,14 @@ router.post('/applications/:applicationId/approve', async (req, res, next) => {
  * Reject application
  * POST /api/loans/applications/:applicationId/reject
  */
-router.post('/applications/:applicationId/reject', async (req, res, next) => {
+router.post('/applications/:applicationId/reject', requireAdmin, async (req, res, next) => {
   try {
+    const applicationId = req.params.applicationId as string;
     const { reason } = req.body;
 
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: applicationId,
         tenantId: req.tenantId,
       },
     });
@@ -841,7 +844,7 @@ router.post('/applications/:applicationId/reject', async (req, res, next) => {
     const previousStatus = application.status;
 
     const updated = await prisma.loanApplication.update({
-      where: { id: req.params.applicationId },
+      where: { id: applicationId },
       data: {
         status: 'REJECTED',
         notes: reason ? `${application.notes || ''}\n\nRejection reason: ${reason}` : application.notes,

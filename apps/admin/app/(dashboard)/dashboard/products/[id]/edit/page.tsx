@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { formatCurrency, toSafeNumber } from "@/lib/utils";
+import { RoleGate } from "@/components/role-gate";
 
 // ============================================
 // Types
@@ -393,6 +394,7 @@ export default function EditProductPage() {
   }
 
   return (
+    <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
@@ -1199,5 +1201,6 @@ export default function EditProductPage() {
         )}
       </div>
     </div>
+    </RoleGate>
   );
 }

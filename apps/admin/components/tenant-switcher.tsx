@@ -13,6 +13,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { useTenantContext } from "@/components/tenant-context";
 import { cn } from "@/lib/utils";
@@ -29,6 +35,7 @@ interface Membership {
 
 interface TenantSwitcherProps {
   className?: string;
+  collapsed?: boolean;
 }
 
 interface TenantLogoProps {
@@ -61,7 +68,7 @@ function TenantLogo({ logoUrl, name, size = "md" }: TenantLogoProps) {
   );
 }
 
-export function TenantSwitcher({ className }: TenantSwitcherProps) {
+export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherProps) {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [activeTenantId, setActiveTenantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -138,7 +145,15 @@ export function TenantSwitcher({ className }: TenantSwitcherProps) {
     (m) => m.tenantId === activeTenantId
   );
 
+  // Loading state
   if (loading) {
+    if (collapsed) {
+      return (
+        <div className={cn("flex items-center justify-center h-16 border-b border-border", className)}>
+          <div className="h-8 w-8 bg-surface animate-pulse rounded" />
+        </div>
+      );
+    }
     return (
       <div className={cn("px-4 py-3 border-b border-border", className)}>
         <div className="h-5 w-32 bg-surface animate-pulse rounded" />
@@ -147,7 +162,87 @@ export function TenantSwitcher({ className }: TenantSwitcherProps) {
     );
   }
 
-  // If only one tenant, show static display
+  // Collapsed mode — show just the tenant logo (clickable if multiple tenants)
+  if (collapsed) {
+    if (memberships.length <= 1) {
+      return (
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className={cn("flex items-center justify-center h-16 border-b border-border", className)}>
+                <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>{activeMembership?.tenantName || "No tenant"}</p>
+              <p className="opacity-70 text-xs">{activeMembership?.tenantSlug || ""}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    // Multiple tenants — collapsed dropdown
+    return (
+      <DropdownMenu>
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <DropdownMenuTrigger asChild>
+              <TooltipTrigger asChild>
+                <button
+                  className={cn(
+                    "flex items-center justify-center w-full h-16 border-b border-border hover:bg-surface transition-colors outline-none",
+                    className,
+                  )}
+                  disabled={switching}
+                  aria-label="Switch tenant"
+                >
+                  <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
+                </button>
+              </TooltipTrigger>
+            </DropdownMenuTrigger>
+            <TooltipContent side="right">
+              <p>{activeMembership?.tenantName || "Select tenant"}</p>
+              <p className="opacity-70 text-xs">Click to switch</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <DropdownMenuContent className="w-[240px]" side="right" align="start">
+          <DropdownMenuLabel>Switch Tenant</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {memberships.map((membership) => (
+            <DropdownMenuItem
+              key={membership.tenantId}
+              onClick={() => handleSwitchTenant(membership.tenantId)}
+              className="cursor-pointer"
+            >
+              <div className="flex items-center justify-between w-full gap-2">
+                <TenantLogo logoUrl={membership.tenantLogoUrl} name={membership.tenantName} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">
+                    {membership.tenantName}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs text-muted truncate">
+                      {membership.tenantSlug}
+                    </p>
+                    <Badge variant="outline" className="text-[10px] px-1 py-0">
+                      {membership.role}
+                    </Badge>
+                  </div>
+                </div>
+                {membership.tenantId === activeTenantId && (
+                  <Check className="h-4 w-4 text-accent shrink-0" />
+                )}
+              </div>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  // Expanded mode — single tenant static display
   if (memberships.length <= 1) {
     return (
       <div className={cn("px-4 py-3 border-b border-border flex items-center gap-3", className)}>
@@ -164,7 +259,7 @@ export function TenantSwitcher({ className }: TenantSwitcherProps) {
     );
   }
 
-  // Multiple tenants - show switcher
+  // Expanded mode — multiple tenants switcher
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

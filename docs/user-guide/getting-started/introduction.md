@@ -57,10 +57,10 @@ Once you have products and borrowers:
 
 ### Step 4: Approve and Disburse
 
-After an application is submitted:
+After an application is submitted, an **Owner or Admin** must approve it:
 
 1. Review the application details
-2. Click **Approve** to create the loan
+2. Click **Approve** to create the loan (Owner/Admin only)
 3. Click **Disburse** when funds are released
 4. The system will generate the repayment schedule
 
@@ -80,11 +80,12 @@ Go to **Loans** and select a loan to:
 |---------|-------------|
 | **Dashboard** | Overview of your loan portfolio and key metrics |
 | **Borrowers** | Manage borrower records |
-| **Products** | Configure loan products and settings |
+| **Products** | Configure loan products and settings (Admin/Owner) |
 | **Applications** | Create and review loan applications |
 | **Loans** | View active loans and record payments |
-| **Billing** | Manage your subscription and invoices |
-| **Reports** | Generate portfolio reports and exports |
+| **Compliance** | Export data for KPKT regulatory compliance |
+| **Billing** | Manage your subscription and invoices (Admin/Owner) |
+| **Admin Logs** | Track administrative actions (Admin/Owner) |
 | **Settings** | Manage team members and tenant settings |
 | **Help** | Access documentation (you are here!) |
 
@@ -92,13 +93,15 @@ Go to **Loans** and select a loan to:
 
 ## User Roles
 
-Your account has one of these roles:
+Your account has one of three roles within each tenant:
 
 | Role | Capabilities |
 |------|--------------|
-| **Owner** | Full access. Can manage users, billing, and all loan operations. Cannot be deleted. |
-| **Admin** | Can manage loans, borrowers, products, and view reports. Cannot manage billing or users. |
-| **Staff** | Limited access. Can view and record payments on existing loans. |
+| **Owner** | Full access to all features including billing, team management, and ownership transfer |
+| **Admin** | Manage loans, borrowers, products, approve applications, access admin logs and billing |
+| **Staff** | Day-to-day loan operations — create borrowers, applications, record payments, access compliance. Cannot approve applications, manage products, or access billing/admin logs |
+
+For a detailed breakdown, see [Roles & Permissions](?doc=getting-started/roles-and-permissions).
 
 ---
 
@@ -112,4 +115,5 @@ Your account has one of these roles:
 
 ## Next Steps
 
-- [Creating Loan Products](creating-loan-products) - Learn how to configure loan products
+- [Roles & Permissions](?doc=getting-started/roles-and-permissions) - Understand what each role can do
+- [Creating Loan Products](?doc=loan-management/creating-loan-products) - Learn how to configure loan products

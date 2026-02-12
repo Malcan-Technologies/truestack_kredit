@@ -2,7 +2,7 @@ import { Router, Request } from 'express';
 import { z } from 'zod';
 import path from 'path';
 import { prisma } from '../../lib/prisma.js';
-import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.js';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireAdmin, requireOwner } from '../../middleware/requireRole.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
@@ -313,7 +313,7 @@ router.delete('/current/logo', requireAdmin, async (req, res, next) => {
  * List members in tenant
  * GET /api/tenants/users
  */
-router.get('/users', requireAdmin, async (req, res, next) => {
+router.get('/users', async (req, res, next) => {
   try {
     const members = await prisma.tenantMember.findMany({
       where: { tenantId: req.tenantId },
@@ -537,6 +537,11 @@ router.patch('/users/:userId', requireAdmin, async (req, res, next) => {
 
     if (!membership) {
       throw new NotFoundError('Member');
+    }
+
+    // Only OWNER can change roles
+    if (data.role && req.user!.role !== 'OWNER') {
+      throw new ForbiddenError('Only the owner can change member roles');
     }
 
     // Prevent demoting or deactivating OWNER

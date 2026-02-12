@@ -29,6 +29,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { formatCurrency, toSafeNumber } from "@/lib/utils";
+import { useCurrentRole } from "@/components/tenant-context";
+import { canManageProducts } from "@/lib/permissions";
 
 // ============================================
 // Types
@@ -83,6 +85,7 @@ const interestModelLabels: Record<string, string> = {
 };
 
 export default function ProductsPage() {
+  const currentRole = useCurrentRole();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [hideInactive, setHideInactive] = useState(true);
@@ -176,12 +179,14 @@ export default function ProductsPage() {
               Hide inactive
             </Label>
           </div>
-          <Link href="/dashboard/products/new">
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Product
-            </Button>
-          </Link>
+          {canManageProducts(currentRole) && (
+            <Link href="/dashboard/products/new">
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Product
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -440,15 +445,19 @@ export default function ProductsPage() {
                   <Link href={`/dashboard/products/${product.id}`}>
                     <TableActionButton icon={Eye} label="View" onClick={() => {}} />
                   </Link>
-                  <Link href={`/dashboard/products/${product.id}/edit`}>
-                    <TableActionButton icon={Edit2} label="Edit" onClick={() => {}} />
-                  </Link>
-                  <TableActionButton
-                    icon={product.isActive ? PowerOff : Power}
-                    label={product.isActive ? "Deactivate" : "Activate"}
-                    variant={product.isActive ? "destructive" : "success"}
-                    onClick={() => handleToggleActive(product)}
-                  />
+                  {canManageProducts(currentRole) && (
+                    <>
+                      <Link href={`/dashboard/products/${product.id}/edit`}>
+                        <TableActionButton icon={Edit2} label="Edit" onClick={() => {}} />
+                      </Link>
+                      <TableActionButton
+                        icon={product.isActive ? PowerOff : Power}
+                        label={product.isActive ? "Deactivate" : "Activate"}
+                        variant={product.isActive ? "destructive" : "success"}
+                        onClick={() => handleToggleActive(product)}
+                      />
+                    </>
+                  )}
                 </div>
               </CardFooter>
             </Card>

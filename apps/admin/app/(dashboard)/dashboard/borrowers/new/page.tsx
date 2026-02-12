@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -305,6 +306,7 @@ export default function NewBorrowerPage() {
   const [individualFormData, setIndividualFormData] = useState<IndividualFormData>(initialIndividualFormData);
   const [corporateFormData, setCorporateFormData] = useState<CorporateFormData>(initialCorporateFormData);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [noMonthlyIncome, setNoMonthlyIncome] = useState(false);
 
   const isIC = individualFormData.documentType === "IC";
 
@@ -365,8 +367,10 @@ export default function NewBorrowerPage() {
     if (!data.educationLevel) errors.educationLevel = "Education level is required";
     if (!data.occupation.trim()) errors.occupation = "Occupation is required";
     if (!data.employmentStatus) errors.employmentStatus = "Employment status is required";
-    if (!data.monthlyIncome.trim()) errors.monthlyIncome = "Monthly income is required";
-    else if (isNaN(parseFloat(data.monthlyIncome)) || parseFloat(data.monthlyIncome) < 0) errors.monthlyIncome = "Enter a valid income amount";
+    if (!noMonthlyIncome) {
+      if (!data.monthlyIncome.trim()) errors.monthlyIncome = "Monthly income is required";
+      else if (isNaN(parseFloat(data.monthlyIncome)) || parseFloat(data.monthlyIncome) < 0) errors.monthlyIncome = "Enter a valid income amount";
+    }
     if (!data.bankName) errors.bankName = "Bank is required";
     if (data.bankName === "OTHER" && !data.bankNameOther.trim()) {
       errors.bankNameOther = "Bank name is required";
@@ -439,7 +443,7 @@ export default function NewBorrowerPage() {
           emergencyContactName: data.emergencyContactName || undefined,
           emergencyContactPhone: data.emergencyContactPhone || undefined,
           emergencyContactRelationship: data.emergencyContactRelationship || undefined,
-          monthlyIncome: data.monthlyIncome.trim() !== "" ? parseFloat(data.monthlyIncome) : undefined,
+          monthlyIncome: noMonthlyIncome ? 0 : (data.monthlyIncome.trim() !== "" ? parseFloat(data.monthlyIncome) : undefined),
         };
       } else {
         const data = corporateFormData;
@@ -484,6 +488,7 @@ export default function NewBorrowerPage() {
   const handleBorrowerTypeChange = (type: "INDIVIDUAL" | "CORPORATE") => {
     setBorrowerType(type);
     setValidationErrors({});
+    setNoMonthlyIncome(false);
   };
 
   return (
@@ -683,17 +688,41 @@ export default function NewBorrowerPage() {
                       options={EMPLOYMENT_OPTIONS}
                       error={validationErrors.employmentStatus}
                     />
-                    <Field
-                      label="Monthly Income (RM)"
-                      value={individualFormData.monthlyIncome}
-                      onChange={(val) => {
-                        setIndividualFormData((prev) => ({ ...prev, monthlyIncome: val }));
-                        if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
-                      }}
-                      type="number"
-                      error={validationErrors.monthlyIncome}
-                      placeholder="e.g., 3500"
-                    />
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Monthly Income (RM) *</Label>
+                      <Input
+                        type="number"
+                        value={noMonthlyIncome ? "0" : individualFormData.monthlyIncome}
+                        onChange={(e) => {
+                          setIndividualFormData((prev) => ({ ...prev, monthlyIncome: e.target.value }));
+                          if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
+                        }}
+                        placeholder="e.g., 3500"
+                        disabled={noMonthlyIncome}
+                        className={validationErrors.monthlyIncome ? "border-red-500" : ""}
+                      />
+                      {validationErrors.monthlyIncome && (
+                        <p className="text-xs text-red-500 mt-1">{validationErrors.monthlyIncome}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-2">
+                        <Checkbox
+                          id="no-monthly-income"
+                          checked={noMonthlyIncome}
+                          onCheckedChange={(checked) => {
+                            setNoMonthlyIncome(checked === true);
+                            if (checked) {
+                              setIndividualFormData((prev) => ({ ...prev, monthlyIncome: "0" }));
+                              if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
+                            } else {
+                              setIndividualFormData((prev) => ({ ...prev, monthlyIncome: "" }));
+                            }
+                          }}
+                        />
+                        <label htmlFor="no-monthly-income" className="text-xs text-muted-foreground cursor-pointer">
+                          No monthly income (Tiada Pendapatan)
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

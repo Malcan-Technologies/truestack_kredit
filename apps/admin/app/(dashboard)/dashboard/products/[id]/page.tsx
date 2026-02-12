@@ -28,6 +28,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { formatDate, formatRelativeTime, formatCurrency, toSafeNumber } from "@/lib/utils";
+import { useCurrentRole } from "@/components/tenant-context";
+import { canManageProducts } from "@/lib/permissions";
 
 // ============================================
 // Types
@@ -272,6 +274,7 @@ export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
   const productId = params.id as string;
+  const currentRole = useCurrentRole();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -395,31 +398,33 @@ export default function ProductDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={handleToggleActive}
-            disabled={toggling}
-          >
-            {product.isActive ? (
-              <>
-                <PowerOff className="h-4 w-4 mr-2" />
-                Deactivate
-              </>
-            ) : (
-              <>
-                <Power className="h-4 w-4 mr-2" />
-                Activate
-              </>
-            )}
-          </Button>
-          <Link href={`/dashboard/products/${product.id}/edit`}>
-            <Button>
-              <Pencil className="h-4 w-4 mr-2" />
-              Edit Product
+        {canManageProducts(currentRole) && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleToggleActive}
+              disabled={toggling}
+            >
+              {product.isActive ? (
+                <>
+                  <PowerOff className="h-4 w-4 mr-2" />
+                  Deactivate
+                </>
+              ) : (
+                <>
+                  <Power className="h-4 w-4 mr-2" />
+                  Activate
+                </>
+              )}
             </Button>
-          </Link>
-        </div>
+            <Link href={`/dashboard/products/${product.id}/edit`}>
+              <Button>
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit Product
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

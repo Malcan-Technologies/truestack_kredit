@@ -376,8 +376,10 @@ export async function generateLampiranAPdf(data: LampiranAData): Promise<Buffer>
         ? `Pekerjaan : ${getPekerjaan(data.borrower.occupation)}`
         : 'Pekerjaan :';
       drawCell(doc, x + col1W, y, col2W, rowH, pekerjaanValue, { fontSize: 9 });
-      const pendapatanValue = !data.borrower.isCorporate && data.borrower.monthlyIncome
-        ? `Pendapatan : RM ${data.borrower.monthlyIncome}`
+      const pendapatanValue = !data.borrower.isCorporate && data.borrower.monthlyIncome != null
+        ? (Number(data.borrower.monthlyIncome) === 0
+          ? 'Pendapatan : Tiada Pendapatan'
+          : `Pendapatan : RM ${data.borrower.monthlyIncome}`)
         : 'Pendapatan :';
       drawCell(doc, x + col1W + col2W, y, col3W, rowH, pendapatanValue, { fontSize: 9 });
       y += rowH;

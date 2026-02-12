@@ -61,7 +61,7 @@ const individualFieldsSchema = z.object({
   emergencyContactName: z.string().max(200).optional(),
   emergencyContactPhone: z.string().max(20).optional(),
   emergencyContactRelationship: z.string().max(100).optional(),
-  monthlyIncome: z.number().positive().optional().or(z.literal(null)),
+  monthlyIncome: z.number().min(0).optional().or(z.literal(null)),
 });
 
 // Corporate borrower fields schema

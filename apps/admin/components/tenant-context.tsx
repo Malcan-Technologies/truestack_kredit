@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
+import type { TenantRole } from "@/lib/permissions";
 
 interface TenantContextValue {
   /**
@@ -13,19 +14,38 @@ interface TenantContextValue {
    * to notify other components to refetch their data.
    */
   refreshTenantData: () => void;
+  /**
+   * The current user's role within the active tenant.
+   * Defaults to "STAFF" until membership data is loaded.
+   */
+  currentRole: TenantRole;
 }
 
 const TenantContext = createContext<TenantContextValue | null>(null);
 
-export function TenantProvider({ children }: { children: ReactNode }) {
+interface TenantProviderProps {
+  children: ReactNode;
+  /** Role passed from the layout after membership is fetched */
+  role?: TenantRole;
+}
+
+export function TenantProvider({ children, role }: TenantProviderProps) {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [currentRole, setCurrentRole] = useState<TenantRole>(role || "STAFF");
+
+  // Sync role prop from layout into state
+  useEffect(() => {
+    if (role) {
+      setCurrentRole(role);
+    }
+  }, [role]);
 
   const refreshTenantData = useCallback(() => {
     setRefreshKey((prev) => prev + 1);
   }, []);
 
   return (
-    <TenantContext.Provider value={{ refreshKey, refreshTenantData }}>
+    <TenantContext.Provider value={{ refreshKey, refreshTenantData, currentRole }}>
       {children}
     </TenantContext.Provider>
   );
@@ -37,4 +57,10 @@ export function useTenantContext() {
     throw new Error("useTenantContext must be used within a TenantProvider");
   }
   return context;
+}
+
+/** Convenience hook to get just the current tenant role */
+export function useCurrentRole(): TenantRole {
+  const { currentRole } = useTenantContext();
+  return currentRole;
 }

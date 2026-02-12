@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Users, Building2, Shield, Eye, EyeOff, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle } from "lucide-react";
+import { Users, Building2, Shield, Eye, EyeOff, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,8 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { useTenantContext } from "@/components/tenant-context";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
+import { canManageSettings } from "@/lib/permissions";
+import type { TenantRole } from "@/lib/permissions";
 
 interface TenantInfo {
   id: string;
@@ -203,6 +205,28 @@ export default function SettingsPage() {
       }
     } catch (error) {
       toast.error("Failed to update user");
+    }
+  };
+
+  const handleChangeRole = async (user: User) => {
+    const newRole = user.role === "ADMIN" ? "STAFF" : "ADMIN";
+    try {
+      const response = await fetch(`/api/proxy/tenants/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ role: newRole }),
+      });
+      const res = await response.json();
+
+      if (res.success) {
+        toast.success(`${user.name || user.email} is now ${newRole}`);
+        fetchData();
+      } else {
+        toast.error(res.error || "Failed to change role");
+      }
+    } catch (error) {
+      toast.error("Failed to change role");
     }
   };
 
@@ -417,7 +441,7 @@ export default function SettingsPage() {
                 </CardDescription>
               </div>
             </div>
-            {(currentRole === "OWNER" || currentRole === "ADMIN") && !showEditTenant && (
+            {canManageSettings(currentRole as TenantRole) && !showEditTenant && (
               <Button
                 variant="outline"
                 onClick={() => {
@@ -675,7 +699,7 @@ export default function SettingsPage() {
               </CardDescription>
             </div>
           </div>
-          {(currentRole === "OWNER" || currentRole === "ADMIN") && (
+          {canManageSettings(currentRole as TenantRole) && (
             <Button 
               onClick={() => setShowAddUser(!showAddUser)}
               disabled={users.length >= 5}
@@ -778,6 +802,13 @@ export default function SettingsPage() {
                             variant={user.isActive ? "destructive" : "success"}
                             onClick={() => handleToggleUserActive(user)}
                           />
+                          {user.isActive && (
+                            <TableActionButton
+                              icon={ArrowLeftRight}
+                              label={user.role === "ADMIN" ? "Switch to Staff" : "Switch to Admin"}
+                              onClick={() => handleChangeRole(user)}
+                            />
+                          )}
                           {user.isActive && (
                             <TableActionButton
                               icon={Crown}

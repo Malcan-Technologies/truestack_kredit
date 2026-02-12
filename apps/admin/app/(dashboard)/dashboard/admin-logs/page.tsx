@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
+import { RoleGate } from "@/components/role-gate";
 
 interface AuditLogUser {
   id: string;
@@ -197,11 +198,18 @@ export default function AdminLogsPage() {
   }
 
   return (
+    <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-heading font-bold text-gradient">Admin Logs</h1>
-        <p className="text-muted">Track user management, company settings, and administrative actions</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-heading font-bold text-gradient">Admin Logs</h1>
+          <p className="text-muted">Track user management, company settings, and administrative actions</p>
+        </div>
+        <Badge variant="outline" className="text-sm">
+          <Shield className="h-3.5 w-3.5 mr-1.5" />
+          Admin Only
+        </Badge>
       </div>
 
       {/* Logs Table */}
@@ -312,5 +320,6 @@ export default function AdminLogsPage() {
         </CardContent>
       </Card>
     </div>
+    </RoleGate>
   );
 }

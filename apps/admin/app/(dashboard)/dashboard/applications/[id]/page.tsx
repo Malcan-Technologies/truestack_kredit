@@ -49,6 +49,8 @@ import {
   safeAdd,
   safeSubtract,
 } from "@/lib/utils";
+import { useCurrentRole } from "@/components/tenant-context";
+import { canApproveApplications } from "@/lib/permissions";
 
 // ============================================
 // Types
@@ -214,6 +216,7 @@ export default function ApplicationDetailPage() {
   const params = useParams();
   const router = useRouter();
   const applicationId = params.id as string;
+  const currentRole = useCurrentRole();
 
   const [application, setApplication] = useState<Application | null>(null);
   const [documents, setDocuments] = useState<ApplicationDocument[]>([]);
@@ -523,7 +526,7 @@ export default function ApplicationDetailPage() {
               {actionLoading === "submit" ? "Submitting..." : "Submit"}
             </Button>
           )}
-          {(application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") && (
+          {(application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") && canApproveApplications(currentRole) && (
             <>
               <Button
                 variant="destructive"

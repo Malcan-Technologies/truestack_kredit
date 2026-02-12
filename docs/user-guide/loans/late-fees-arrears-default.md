@@ -149,7 +149,7 @@ The initial arrears letter is generated automatically when the loan first enters
 
 **Important notes:**
 
-- A **3-day cooldown** applies — you must wait at least 3 days between generating arrears letters (auto or manual)
+- A **24-hour cooldown** applies — you must wait at least 24 hours between generating arrears letters (auto or manual)
 - Old letters are **never deleted** — each generation creates a new file. The download link always points to the most recent letter
 - The letter generation is recorded in the loan's **audit trail / timeline**
 - This option is available for loans in **In Arrears** or **Defaulted** status
@@ -207,7 +207,7 @@ For loans in **Defaulted** status, admins can regenerate **both** the arrears le
 
 To regenerate, go to the loan detail page and use the **"Regenerate Arrears Letter"** or **"Regenerate Default Letter"** buttons in the **Quick Info → Letters** section.
 
-The same **3-day cooldown** applies to each letter type independently. Old letters are preserved on disk and are never overwritten. Each generation is logged in the audit trail.
+The same **24-hour cooldown** applies to each letter type independently. Old letters are preserved on disk and are never overwritten. Each generation is logged in the audit trail.
 
 ---
 
@@ -301,7 +301,7 @@ If the borrower settles all overdue amounts (including late fees), the repayment
 
 ### Can I regenerate the arrears or default letter?
 
-Yes. You can manually regenerate these letters from the loan detail page under **Quick Info → Letters**. The new letter will use the latest outstanding amounts and late fees. A 3-day cooldown applies between each generation to prevent excessive letter creation. Old letters are never deleted — the system always creates a new file.
+Yes. You can manually regenerate these letters from the loan detail page under **Quick Info → Letters**. The new letter will use the latest outstanding amounts and late fees. A 24-hour cooldown applies between each generation to prevent excessive letter creation. Old letters are never deleted — the system always creates a new file.
 
 ### What happens to old letters when I regenerate?
 

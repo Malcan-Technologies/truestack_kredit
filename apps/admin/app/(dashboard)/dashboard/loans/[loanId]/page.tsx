@@ -799,6 +799,7 @@ export default function LoanDetailPage() {
       
       if (res.success) {
         toast.success("Loan disbursed successfully");
+        if (res.emailSent) toast("TrueSend™ email sent to borrower", { icon: "📨" });
         setShowDisburseDialog(false);
         setDisbursementReference("");
         setDisbursementProofFile(null);
@@ -869,6 +870,7 @@ export default function LoanDetailPage() {
     } else {
       toast.success("Payment recorded successfully");
     }
+    if (paymentRes.emailSent) toast("TrueSend™ receipt emailed to borrower", { icon: "📨" });
 
     setShowPaymentDialog(false);
     resetPaymentDialog();
@@ -883,6 +885,7 @@ export default function LoanDetailPage() {
     });
     if (res.success) {
       toast.success("Loan completed and discharged successfully");
+      if (res.emailSent) toast("TrueSend™ discharge letter emailed to borrower", { icon: "📨" });
       setShowCompleteDialog(false);
       setDischargeNotes("");
       await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
@@ -949,6 +952,7 @@ export default function LoanDetailPage() {
         }
 
         toast.success("Early settlement completed successfully. Loan is now discharged.");
+        if (res.emailSent) toast("TrueSend™ email sent to borrower", { icon: "📨" });
         setShowEarlySettlementDialog(false);
         await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
       } else {
@@ -967,6 +971,7 @@ export default function LoanDetailPage() {
     });
     if (res.success) {
       toast.success("Loan marked as defaulted");
+      if (res.emailSent) toast("TrueSend™ default notice emailed to borrower", { icon: "📨" });
       setShowDefaultDialog(false);
       setDefaultReason("");
       await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
@@ -989,6 +994,7 @@ export default function LoanDetailPage() {
       const res = await api.post(`/api/loans/${loanId}/generate-arrears-letter`, {});
       if (res.success) {
         toast.success("Arrears letter generated successfully");
+        if (res.emailSent) toast("TrueSend™ arrears notice emailed to borrower", { icon: "📨" });
         setShowGenerateArrearsLetterDialog(false);
         await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       } else {
@@ -1006,6 +1012,7 @@ export default function LoanDetailPage() {
       const res = await api.post(`/api/loans/${loanId}/generate-default-letter`, {});
       if (res.success) {
         toast.success("Default letter generated successfully");
+        if (res.emailSent) toast("TrueSend™ default notice emailed to borrower", { icon: "📨" });
         setShowGenerateDefaultLetterDialog(false);
         await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
       } else {

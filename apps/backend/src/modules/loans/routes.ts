@@ -2066,9 +2066,10 @@ router.post('/:loanId/complete', async (req, res, next) => {
     });
 
     // TrueSend: send completion notification with discharge letter
+    let emailSent = false;
     if (dischargeLetterPath) {
       try {
-        await TrueSendService.sendCompletionNotification(req.tenantId!, loan.id, dischargeLetterPath);
+        emailSent = await TrueSendService.sendCompletionNotification(req.tenantId!, loan.id, dischargeLetterPath);
       } catch (emailErr) {
         console.error(`[CompleteLoan] TrueSend email failed for loan ${loan.id}:`, emailErr);
       }
@@ -2080,6 +2081,7 @@ router.post('/:loanId/complete', async (req, res, next) => {
         ...updatedLoan,
         dischargeLetterPath,
       },
+      emailSent,
     });
   } catch (error) {
     next(error);
@@ -2225,8 +2227,8 @@ router.get('/:loanId/default-letter', async (req, res, next) => {
  * 
  * Allowed for IN_ARREARS and DEFAULTED status.
  * Does NOT overwrite old letters — generates a new PDF with fresh data.
- * Enforces a 7-day cooldown: if the current arrearsLetterPath was generated 
- * within the last 7 days, the request is rejected.
+ * Enforces a 1-day cooldown: if the current arrearsLetterPath was generated 
+ * within the last 24 hours, the request is rejected.
  */
 router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
   try {
@@ -2260,7 +2262,7 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
       throw new BadRequestError('Arrears letter can only be generated for loans in arrears or default status');
     }
 
-    // 7-day cooldown check: parse date from the most recent arrears letter filename
+    // 1-day cooldown check: parse date from the most recent arrears letter filename
     if (loan.arrearsLetterPath) {
       const filename = loan.arrearsLetterPath.split('/').pop() || '';
       // Filename format: ARR-YYYYMMDD-HHmmss-loanId.pdf
@@ -2268,10 +2270,10 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
       if (match) {
         const [, y, m, d, hh, mm, ss] = match;
         const letterDate = new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`);
-        const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSince < 7) {
+        const hoursSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60);
+        if (hoursSince < 24) {
           throw new BadRequestError(
-            `An arrears letter was generated ${Math.floor(daysSince * 24)} hours ago. Please wait at least 7 days between letters.`
+            `An arrears letter was generated ${Math.floor(hoursSince)} hours ago. Please wait at least 24 hours between letters.`
           );
         }
       } else {
@@ -2280,10 +2282,10 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
         if (legacyMatch) {
           const [, y, m, d] = legacyMatch;
           const letterDate = new Date(`${y}-${m}-${d}T00:00:00Z`);
-          const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
-          if (daysSince < 7) {
+          const hoursSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60);
+          if (hoursSince < 24) {
             throw new BadRequestError(
-              `An arrears letter was generated recently. Please wait at least 7 days between letters.`
+              `An arrears letter was generated recently. Please wait at least 24 hours between letters.`
             );
           }
         }
@@ -2371,8 +2373,9 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
     });
 
     // TrueSend: send arrears notice email with letter attached
+    let emailSent = false;
     try {
-      await TrueSendService.sendArrearsNotice(req.tenantId!, loan.id, letterPath);
+      emailSent = await TrueSendService.sendArrearsNotice(req.tenantId!, loan.id, letterPath);
     } catch (emailErr) {
       console.error(`[GenerateArrearsLetter] TrueSend email failed for loan ${loan.id}:`, emailErr);
     }
@@ -2380,6 +2383,7 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
     res.json({
       success: true,
       data: { arrearsLetterPath: letterPath },
+      emailSent,
     });
   } catch (error) {
     next(error);
@@ -2392,7 +2396,7 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
  * 
  * Allowed for DEFAULTED status only.
  * Does NOT overwrite old letters — generates a new PDF with fresh data.
- * Enforces a 7-day cooldown from the last generated default letter.
+ * Enforces a 1-day cooldown from the last generated default letter.
  */
 router.post('/:loanId/generate-default-letter', async (req, res, next) => {
   try {
@@ -2426,7 +2430,7 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
       throw new BadRequestError('Default letter can only be generated for defaulted loans');
     }
 
-    // 7-day cooldown check
+    // 1-day cooldown check
     if (loan.defaultLetterPath) {
       const filename = loan.defaultLetterPath.split('/').pop() || '';
       // Filename format: DEF-YYYYMMDD-HHmmss-loanId.pdf
@@ -2434,10 +2438,10 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
       if (match) {
         const [, y, m, d, hh, mm, ss] = match;
         const letterDate = new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`);
-        const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSince < 7) {
+        const hoursSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60);
+        if (hoursSince < 24) {
           throw new BadRequestError(
-            `A default letter was generated ${Math.floor(daysSince * 24)} hours ago. Please wait at least 7 days between letters.`
+            `A default letter was generated ${Math.floor(hoursSince)} hours ago. Please wait at least 24 hours between letters.`
           );
         }
       } else {
@@ -2446,10 +2450,10 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
         if (legacyMatch) {
           const [, y, m, d] = legacyMatch;
           const letterDate = new Date(`${y}-${m}-${d}T00:00:00Z`);
-          const daysSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60 * 24);
-          if (daysSince < 7) {
+          const hoursSince = (Date.now() - letterDate.getTime()) / (1000 * 60 * 60);
+          if (hoursSince < 24) {
             throw new BadRequestError(
-              `A default letter was generated recently. Please wait at least 7 days between letters.`
+              `A default letter was generated recently. Please wait at least 24 hours between letters.`
             );
           }
         }
@@ -2536,8 +2540,9 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
     });
 
     // TrueSend: send default notice email with letter attached
+    let emailSent = false;
     try {
-      await TrueSendService.sendDefaultNotice(req.tenantId!, loan.id, letterPath);
+      emailSent = await TrueSendService.sendDefaultNotice(req.tenantId!, loan.id, letterPath);
     } catch (emailErr) {
       console.error(`[GenerateDefaultLetter] TrueSend email failed for loan ${loan.id}:`, emailErr);
     }
@@ -2545,6 +2550,7 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
     res.json({
       success: true,
       data: { defaultLetterPath: letterPath },
+      emailSent,
     });
   } catch (error) {
     next(error);
@@ -2696,9 +2702,10 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
     });
 
     // TrueSend: send default notice email with letter attached
+    let emailSent = false;
     if (defaultLetterPath) {
       try {
-        await TrueSendService.sendDefaultNotice(req.tenantId!, loan.id, defaultLetterPath);
+        emailSent = await TrueSendService.sendDefaultNotice(req.tenantId!, loan.id, defaultLetterPath);
       } catch (emailErr) {
         console.error(`[MarkDefault] TrueSend email failed for loan ${loan.id}:`, emailErr);
       }
@@ -2707,6 +2714,7 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
     res.json({
       success: true,
       data: updatedLoan,
+      emailSent,
     });
   } catch (error) {
     next(error);
@@ -2923,8 +2931,9 @@ router.post('/:loanId/disburse', async (req, res, next) => {
     }
 
     // TrueSend: send disbursement notification email
+    let emailSent = false;
     try {
-      await TrueSendService.sendDisbursementNotification(req.tenantId!, loan.id);
+      emailSent = await TrueSendService.sendDisbursementNotification(req.tenantId!, loan.id);
     } catch (emailErr) {
       console.error(`[Disburse] TrueSend email failed for loan ${loan.id}:`, emailErr);
     }
@@ -2932,6 +2941,7 @@ router.post('/:loanId/disburse', async (req, res, next) => {
     res.json({
       success: true,
       data: result,
+      emailSent,
     });
   } catch (error) {
     next(error);
@@ -3684,6 +3694,7 @@ router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
  */
 router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
   try {
+    let emailSent = false;
     const earlySettlementSchema = z.object({
       paymentDate: z.string().optional(),
       reference: z.string().max(200).optional(),
@@ -4024,7 +4035,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
 
       // TrueSend: send completion notification with discharge letter (early settlement)
       try {
-        await TrueSendService.sendCompletionNotification(req.tenantId!, loan.id, dischargeLetterPath);
+        emailSent = await TrueSendService.sendCompletionNotification(req.tenantId!, loan.id, dischargeLetterPath);
       } catch (emailErr) {
         console.error(`[EarlySettlement] TrueSend email failed for loan ${loan.id}:`, emailErr);
       }
@@ -4119,7 +4130,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
     // TrueSend: send early settlement receipt email with PDF attached
     if (receiptPath) {
       try {
-        await TrueSendService.sendPaymentReceipt(
+        const receiptEmailSent = await TrueSendService.sendPaymentReceipt(
           req.tenantId!,
           loan.id,
           receiptPath,
@@ -4127,6 +4138,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
           receiptNumber,
           true // isEarlySettlement
         );
+        if (receiptEmailSent) emailSent = true;
       } catch (emailErr) {
         console.error(`[EarlySettlement] TrueSend receipt email failed for loan ${loan.id}:`, emailErr);
       }
@@ -4150,6 +4162,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
           receiptPath,
         },
       },
+      emailSent,
     });
   } catch (error) {
     next(error);

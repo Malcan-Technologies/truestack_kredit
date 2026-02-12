@@ -162,7 +162,7 @@ export class TrueSendService {
   /**
    * Core email sending method — all public methods funnel through this
    */
-  private static async sendEmail(params: SendEmailParams): Promise<void> {
+  private static async sendEmail(params: SendEmailParams): Promise<boolean> {
     const { tenantId, loanId, borrowerId, emailType, recipientEmail, recipientName, subject, htmlBody, attachmentPath, attachmentFilename } = params;
 
     // Resolve the primary attachment path for logging (first attachment or legacy single)
@@ -192,7 +192,7 @@ export class TrueSendService {
           where: { id: emailLog.id },
           data: { status: 'sent', sentAt: new Date(), lastEventAt: new Date() },
         });
-        return;
+        return true;
       }
 
       // Build attachments array from multiple sources
@@ -259,6 +259,7 @@ export class TrueSendService {
       });
 
       console.log(`[TrueSend] Sent ${emailType} to ${recipientEmail} (resendId: ${data.id})`);
+      return true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error(`[TrueSend] Failed to send ${emailType} to ${recipientEmail}:`, errorMessage);
@@ -271,6 +272,7 @@ export class TrueSendService {
           lastEventAt: new Date(),
         },
       });
+      return false;
     }
   }
 
@@ -302,13 +304,13 @@ export class TrueSendService {
     amount: number,
     milestoneNumber: number,
     daysUntilDue: number
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Check add-on
     const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return;
+    if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return;
+    if (!loan || !loan.borrower.email) return false;
 
     const amountFormatted = formatCurrency(safeRound(amount, 2));
     const dueDateFormatted = formatDate(dueDate);
@@ -330,7 +332,7 @@ export class TrueSendService {
       <p>Thank you.</p>
     `;
 
-    await this.sendEmail({
+    return await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -349,12 +351,12 @@ export class TrueSendService {
     tenantId: string,
     loanId: string,
     overdueMilestones: Array<{ milestoneNumber: number; dueDate: Date; amount: number; daysOverdue: number }>
-  ): Promise<void> {
+  ): Promise<boolean> {
     const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return;
+    if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return;
+    if (!loan || !loan.borrower.email) return false;
 
     const tenantName = loan.tenant.name;
     const totalOverdue = overdueMilestones.reduce((sum, m) => sum + m.amount, 0);
@@ -386,7 +388,7 @@ export class TrueSendService {
       <p>Thank you.</p>
     `;
 
-    await this.sendEmail({
+    return await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -405,12 +407,12 @@ export class TrueSendService {
     tenantId: string,
     loanId: string,
     letterPath: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return;
+    if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return;
+    if (!loan || !loan.borrower.email) return false;
 
     const tenantName = loan.tenant.name;
 
@@ -429,7 +431,7 @@ export class TrueSendService {
     // Extract filename from path
     const letterFilename = letterPath.split('/').pop() || 'arrears-letter.pdf';
 
-    await this.sendEmail({
+    return await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -450,12 +452,12 @@ export class TrueSendService {
     tenantId: string,
     loanId: string,
     letterPath: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return;
+    if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return;
+    if (!loan || !loan.borrower.email) return false;
 
     const tenantName = loan.tenant.name;
 
@@ -472,7 +474,7 @@ export class TrueSendService {
 
     const letterFilename = letterPath.split('/').pop() || 'default-letter.pdf';
 
-    await this.sendEmail({
+    return await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -492,12 +494,12 @@ export class TrueSendService {
   static async sendDisbursementNotification(
     tenantId: string,
     loanId: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return;
+    if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return;
+    if (!loan || !loan.borrower.email) return false;
 
     const tenantName = loan.tenant.name;
     const principal = toSafeNumber(loan.principalAmount);
@@ -542,7 +544,7 @@ export class TrueSendService {
       });
     }
 
-    await this.sendEmail({
+    return await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -563,12 +565,12 @@ export class TrueSendService {
     tenantId: string,
     loanId: string,
     dischargePath: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return;
+    if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return;
+    if (!loan || !loan.borrower.email) return false;
 
     const tenantName = loan.tenant.name;
     const isEarlySettlement = !!loan.earlySettlementDate;
@@ -586,7 +588,7 @@ export class TrueSendService {
 
     const letterFilename = dischargePath.split('/').pop() || 'discharge-letter.pdf';
 
-    await this.sendEmail({
+    return await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -611,12 +613,12 @@ export class TrueSendService {
     paymentAmount: number,
     receiptNumber: string,
     isEarlySettlement: boolean = false
-  ): Promise<void> {
+  ): Promise<boolean> {
     const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return;
+    if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return;
+    if (!loan || !loan.borrower.email) return false;
 
     const tenantName = loan.tenant.name;
     const amountFormatted = formatCurrency(safeRound(paymentAmount, 2));
@@ -639,7 +641,7 @@ export class TrueSendService {
 
     const receiptFilename = receiptPath.split('/').pop() || `receipt-${receiptNumber}.pdf`;
 
-    await this.sendEmail({
+    return await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,

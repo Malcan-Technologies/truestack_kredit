@@ -963,9 +963,10 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
     }
 
     // TrueSend: send payment receipt email with PDF attached
+    let emailSent = false;
     if (receiptPath) {
       try {
-        await TrueSendService.sendPaymentReceipt(
+        emailSent = await TrueSendService.sendPaymentReceipt(
           req.tenantId!,
           loanId,
           receiptPath,
@@ -992,6 +993,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         totalLateFeesPaid,
         defaultCleared,
       },
+      emailSent,
     });
   } catch (error) {
     next(error);

@@ -50,7 +50,7 @@ Triggered when a loan enters the arrears period, or when an admin manually gener
 | Detail | Value |
 |--------|-------|
 | Trigger | Loan status changes to In Arrears, or admin generates arrears letter |
-| Frequency | Up to 4x per month (1x automatic + manual every 7 days) |
+| Frequency | 1x automatic + manual 1x per day |
 | Attachment | Arrears letter PDF |
 
 ### Default Notices
@@ -60,7 +60,7 @@ Sent when a loan is marked as defaulted, or when an admin manually generates an 
 | Detail | Value |
 |--------|-------|
 | Trigger | Loan status changes to Default, or admin generates default letter |
-| Frequency | Up to 4x per month (1x automatic + manual every 7 days) |
+| Frequency | 1x automatic + manual 1x per day |
 | Attachment | Default letter PDF |
 
 ### Disbursement Confirmations

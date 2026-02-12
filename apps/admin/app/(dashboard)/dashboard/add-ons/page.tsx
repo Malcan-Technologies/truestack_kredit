@@ -76,6 +76,7 @@ const ADD_ON_DEFINITIONS: AddOnDefinition[] = [
       "Full audit trail for all email activity",
     ],
     pricing: "RM 50/month per 500 active loans",
+    learnMoreUrl: "/dashboard/help?doc=add-ons/automated-emails",
   },
   {
     id: "trueidentity",
@@ -258,15 +259,25 @@ export default function AddOnsPage() {
                       <p className="text-xs text-muted-foreground">Pricing</p>
                       <p className="text-sm font-heading font-semibold">{addOn.pricing}</p>
                       {addOn.learnMoreUrl && (
-                        <a
-                          href={addOn.learnMoreUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`inline-flex items-center gap-1 text-xs mt-1 hover:underline ${addOn.accentColor}`}
-                        >
-                          Learn more
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
+                        addOn.learnMoreUrl.startsWith("/") ? (
+                          <Link
+                            href={addOn.learnMoreUrl}
+                            className={`inline-flex items-center gap-1 text-xs mt-1 hover:underline ${addOn.accentColor}`}
+                          >
+                            Learn more
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        ) : (
+                          <a
+                            href={addOn.learnMoreUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`inline-flex items-center gap-1 text-xs mt-1 hover:underline ${addOn.accentColor}`}
+                          >
+                            Learn more
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )
                       )}
                     </div>
                     {addOn.comingSoon ? (

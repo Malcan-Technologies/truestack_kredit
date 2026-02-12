@@ -423,10 +423,6 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: Banknote, label: "Early Settlement", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
       case "EXPORT":
         return { icon: Download, label: "Document Exported", color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10" };
-      case "TRUESEND_EMAIL_SENT":
-        return { icon: Send, label: "TrueSend Email Sent", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
-      case "TRUESEND_EMAIL_RESENT":
-        return { icon: Send, label: "TrueSend Email Resent", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
       default:
         return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
     }

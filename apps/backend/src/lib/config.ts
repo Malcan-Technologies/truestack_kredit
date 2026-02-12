@@ -33,6 +33,12 @@ export const config = {
     gracePeriodDays: 3,
   },
 
+  // Email
+  email: {
+    fromName: process.env.EMAIL_FROM_NAME || 'TrueKredit',
+    fromAddress: process.env.EMAIL_FROM_ADDRESS || 'kredit-no-reply@send.truestack.my',
+  },
+
   // Notifications (optional)
   notifications: {
     resendApiKey: process.env.RESEND_API_KEY,

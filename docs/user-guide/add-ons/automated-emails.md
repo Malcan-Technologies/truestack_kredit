@@ -65,13 +65,13 @@ Sent when a loan is marked as defaulted, or when an admin manually generates an 
 
 ### Disbursement Confirmations
 
-Sent once when a loan is disbursed. The borrower receives confirmation of the loan amount, interest rate, term, and disbursement reference.
+Sent once when a loan is disbursed. The borrower receives confirmation of the loan amount, interest rate, term, and disbursement reference along with the signed agreement and stamp certificate.
 
 | Detail | Value |
 |--------|-------|
 | Trigger | Loan disbursed |
 | Frequency | 1x per loan |
-| Attachment | None |
+| Attachment | Signed agreement (Jadual J/K) + Stamp certificate |
 
 ### Discharge Letters
 

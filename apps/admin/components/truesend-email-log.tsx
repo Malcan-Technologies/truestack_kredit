@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Send, RefreshCw, Mail, Clock, ChevronDown, Sparkles } from "lucide-react";
+import { Send, RefreshCw, Mail, Clock, ChevronDown, Sparkles, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -242,6 +242,16 @@ export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) 
                       <span className="text-sm font-medium truncate">
                         {EMAIL_TYPE_LABELS[email.emailType] || email.emailType}
                       </span>
+                      {email.attachmentPath && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Includes attachment</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                       {email.resentCount > 0 && (
                         <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                           (resent {email.resentCount}x)

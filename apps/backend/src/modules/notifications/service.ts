@@ -106,7 +106,7 @@ export class NotificationService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'TrueKredit <noreply@kredit.truestack.my>',
+        from: `${config.email.fromName} <${config.email.fromAddress}>`,
         to,
         subject,
         html: body,

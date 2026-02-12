@@ -25,6 +25,7 @@ export class AddOnService {
       });
 
       if (!addOn || addOn.status !== 'ACTIVE') {
+        console.log(`[AddOnService] ${addOnType} check failed: addOn=${addOn ? addOn.status : 'NOT_FOUND'} for tenant ${tenantId}`);
         return false;
       }
 
@@ -34,10 +35,15 @@ export class AddOnService {
       });
 
       if (!subscription) {
+        console.log(`[AddOnService] ${addOnType} check failed: no subscription for tenant ${tenantId}`);
         return false;
       }
 
-      return subscription.status === 'ACTIVE' || subscription.status === 'GRACE_PERIOD';
+      const isValid = subscription.status === 'ACTIVE' || subscription.status === 'GRACE_PERIOD';
+      if (!isValid) {
+        console.log(`[AddOnService] ${addOnType} check failed: subscription status=${subscription.status} for tenant ${tenantId}`);
+      }
+      return isValid;
     } catch (error) {
       console.error(`[AddOnService] Error checking add-on ${addOnType} for tenant ${tenantId}:`, error);
       return false;

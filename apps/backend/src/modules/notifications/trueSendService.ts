@@ -9,13 +9,17 @@
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { AddOnService } from '../../lib/addOnService.js';
-import { AuditService } from '../compliance/auditService.js';
 import { getFile } from '../../lib/storage.js';
 import { safeRound, toSafeNumber } from '../../lib/math.js';
 
 // ============================================
 // Types
 // ============================================
+
+interface EmailAttachment {
+  path: string;
+  filename: string;
+}
 
 interface SendEmailParams {
   tenantId: string;
@@ -26,8 +30,12 @@ interface SendEmailParams {
   recipientName?: string;
   subject: string;
   htmlBody: string;
+  /** @deprecated Use `attachments` array instead for multiple files */
   attachmentPath?: string;
+  /** @deprecated Use `attachments` array instead for multiple files */
   attachmentFilename?: string;
+  /** Multiple file attachments */
+  attachments?: EmailAttachment[];
 }
 
 interface ResendApiResponse {
@@ -38,7 +46,48 @@ interface ResendApiResponse {
 // Email HTML Builder
 // ============================================
 
-function buildEmailWrapper(tenantName: string, content: string): string {
+interface TenantEmailInfo {
+  name: string;
+  logoUrl?: string | null;
+  registrationNumber?: string | null;
+  email?: string | null;
+  contactNumber?: string | null;
+  businessAddress?: string | null;
+}
+
+async function buildEmailWrapper(tenant: TenantEmailInfo, content: string): Promise<string> {
+  const tenantName = tenant.name;
+
+  // Build tenant logo as inline base64 data URI (email clients can't resolve relative URLs)
+  let logoHtml = '';
+  if (tenant.logoUrl) {
+    try {
+      const logoBuffer = await getFile(tenant.logoUrl);
+      if (logoBuffer) {
+        const ext = tenant.logoUrl.split('.').pop()?.toLowerCase() || 'png';
+        const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+          : ext === 'svg' ? 'image/svg+xml'
+          : ext === 'webp' ? 'image/webp'
+          : 'image/png';
+        const base64 = logoBuffer.toString('base64');
+        logoHtml = `<img src="data:${mimeType};base64,${base64}" alt="${tenantName}" style="max-height:40px;max-width:180px;margin-bottom:8px;display:block;" />`;
+      }
+    } catch (err) {
+      console.warn(`[TrueSend] Could not load tenant logo: ${tenant.logoUrl}`, err);
+    }
+  }
+
+  // Build tenant details for footer
+  const tenantDetails: string[] = [];
+  if (tenant.registrationNumber) tenantDetails.push(`SSM: ${tenant.registrationNumber}`);
+  if (tenant.email) tenantDetails.push(tenant.email);
+  if (tenant.contactNumber) tenantDetails.push(tenant.contactNumber);
+  if (tenant.businessAddress) tenantDetails.push(tenant.businessAddress);
+
+  const tenantDetailsHtml = tenantDetails.length > 0
+    ? `<p class="footer-text" style="margin-top:8px;line-height:1.5;">${tenantDetails.join('<br />')}</p>`
+    : '';
+
   return `
 <!DOCTYPE html>
 <html>
@@ -54,10 +103,11 @@ function buildEmailWrapper(tenantName: string, content: string): string {
     .body { padding: 32px; }
     .footer { padding: 24px 32px; background: #fafafa; border-top: 1px solid #eee; }
     .footer-text { color: #999; font-size: 12px; margin: 0; }
-    .badge { display: inline-block; background: #f97316; color: #fff; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.5px; margin-left: 8px; vertical-align: middle; }
+    .footer-tenant { padding: 16px 32px; background: #f5f5f5; border-top: 1px solid #eee; text-align: center; }
+    .badge { display: inline-block; background: #a855f7; color: #fff; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.5px; margin-left: 8px; vertical-align: middle; }
     h2 { color: #1a1a1a; margin: 0 0 16px 0; font-size: 20px; }
     p { margin: 0 0 12px 0; }
-    .highlight { background: #fff7ed; border-left: 4px solid #f97316; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0; }
+    .highlight { background: #faf5ff; border-left: 4px solid #a855f7; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0; }
     .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
     .detail-label { color: #666; font-size: 14px; }
     .detail-value { color: #1a1a1a; font-size: 14px; font-weight: 500; }
@@ -70,6 +120,7 @@ function buildEmailWrapper(tenantName: string, content: string): string {
 <body>
   <div class="container">
     <div class="header">
+      ${logoHtml}
       <p class="header-text">${tenantName}<span class="badge">TrueSend</span></p>
       <p class="header-sub">Powered by TrueKredit</p>
     </div>
@@ -77,9 +128,14 @@ function buildEmailWrapper(tenantName: string, content: string): string {
       ${content}
     </div>
     <div class="footer">
-      <p class="footer-text">This is an automated email sent via TrueSend by TrueKredit on behalf of ${tenantName}.</p>
+      <p class="footer-text">This is an automated email sent by TrueKredit™ on behalf of ${tenantName}.</p>
       <p class="footer-text">If you believe you received this email in error, please contact ${tenantName} directly.</p>
     </div>
+    ${tenantDetails.length > 0 ? `
+    <div class="footer-tenant">
+      <p class="footer-text" style="font-weight:600;color:#666;">${tenantName}</p>
+      ${tenantDetailsHtml}
+    </div>` : ''}
   </div>
 </body>
 </html>`;
@@ -109,6 +165,9 @@ export class TrueSendService {
   private static async sendEmail(params: SendEmailParams): Promise<void> {
     const { tenantId, loanId, borrowerId, emailType, recipientEmail, recipientName, subject, htmlBody, attachmentPath, attachmentFilename } = params;
 
+    // Resolve the primary attachment path for logging (first attachment or legacy single)
+    const primaryAttachmentPath = params.attachments?.[0]?.path || attachmentPath || undefined;
+
     // Create EmailLog record
     const emailLog = await prisma.emailLog.create({
       data: {
@@ -120,7 +179,7 @@ export class TrueSendService {
         recipientName,
         subject,
         status: 'pending',
-        attachmentPath,
+        attachmentPath: primaryAttachmentPath,
       },
     });
 
@@ -136,15 +195,33 @@ export class TrueSendService {
         return;
       }
 
-      // Build attachments array if we have a PDF
-      let attachments: Array<{ filename: string; content: string }> | undefined;
-      if (attachmentPath) {
+      // Build attachments array from multiple sources
+      const resendAttachments: Array<{ filename: string; content: string }> = [];
+
+      // Support new multi-attachment array
+      if (params.attachments && params.attachments.length > 0) {
+        for (const att of params.attachments) {
+          const fileBuffer = await getFile(att.path);
+          if (fileBuffer) {
+            resendAttachments.push({
+              filename: att.filename,
+              content: fileBuffer.toString('base64'),
+            });
+          } else {
+            console.warn(`[TrueSend] Could not load attachment: ${att.path}`);
+          }
+        }
+      }
+      // Legacy single attachment fallback
+      else if (attachmentPath) {
         const fileBuffer = await getFile(attachmentPath);
         if (fileBuffer) {
-          attachments = [{
+          resendAttachments.push({
             filename: attachmentFilename || 'document.pdf',
             content: fileBuffer.toString('base64'),
-          }];
+          });
+        } else {
+          console.warn(`[TrueSend] Could not load attachment: ${attachmentPath}`);
         }
       }
 
@@ -155,11 +232,11 @@ export class TrueSendService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: 'TrueKredit <kredit-no-reply@truestack.my>',
+          from: `${config.email.fromName} <${config.email.fromAddress}>`,
           to: recipientEmail,
           subject,
           html: htmlBody,
-          ...(attachments ? { attachments } : {}),
+          ...(resendAttachments.length > 0 ? { attachments: resendAttachments } : {}),
         }),
       });
 
@@ -180,23 +257,6 @@ export class TrueSendService {
           lastEventAt: new Date(),
         },
       });
-
-      // Audit log
-      if (loanId) {
-        await AuditService.log({
-          tenantId,
-          action: 'TRUESEND_EMAIL_SENT',
-          entityType: 'Loan',
-          entityId: loanId,
-          newData: {
-            emailLogId: emailLog.id,
-            emailType,
-            recipient: recipientEmail,
-            subject,
-            hasAttachment: !!attachmentPath,
-          },
-        });
-      }
 
       console.log(`[TrueSend] Sent ${emailType} to ${recipientEmail} (resendId: ${data.id})`);
     } catch (error) {
@@ -278,7 +338,7 @@ export class TrueSendService {
       recipientEmail: loan.borrower.email,
       recipientName: loan.borrower.name,
       subject: `Payment Reminder — ${amountFormatted} due ${dueDateFormatted}`,
-      htmlBody: buildEmailWrapper(tenantName, content),
+      htmlBody: await buildEmailWrapper(loan.tenant, content),
     });
   }
 
@@ -334,7 +394,7 @@ export class TrueSendService {
       recipientEmail: loan.borrower.email,
       recipientName: loan.borrower.name,
       subject: `Late Payment Notice — ${formatCurrency(safeRound(totalOverdue, 2))} overdue`,
-      htmlBody: buildEmailWrapper(tenantName, content),
+      htmlBody: await buildEmailWrapper(loan.tenant, content),
     });
   }
 
@@ -377,7 +437,7 @@ export class TrueSendService {
       recipientEmail: loan.borrower.email,
       recipientName: loan.borrower.name,
       subject: `Arrears Notice — Immediate Attention Required`,
-      htmlBody: buildEmailWrapper(tenantName, content),
+      htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: letterPath,
       attachmentFilename: letterFilename,
     });
@@ -420,14 +480,14 @@ export class TrueSendService {
       recipientEmail: loan.borrower.email,
       recipientName: loan.borrower.name,
       subject: `Default Notice — Urgent Action Required`,
-      htmlBody: buildEmailWrapper(tenantName, content),
+      htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: letterPath,
       attachmentFilename: letterFilename,
     });
   }
 
   /**
-   * Disbursement Notification — email-only, no PDF attachment
+   * Disbursement Notification — attaches signed agreement (Jadual J/K) and stamp certificate
    */
   static async sendDisbursementNotification(
     tenantId: string,
@@ -443,6 +503,9 @@ export class TrueSendService {
     const principal = toSafeNumber(loan.principalAmount);
     const rate = toSafeNumber(loan.interestRate);
 
+    // Determine agreement type label
+    const scheduleLabel = loan.product.loanScheduleType === 'JADUAL_K' ? 'Jadual K' : 'Jadual J';
+
     const content = `
       <h2>Loan Disbursement Confirmation</h2>
       <p>Dear ${loan.borrower.name},</p>
@@ -456,10 +519,28 @@ export class TrueSendService {
           ${loan.disbursementReference ? `<tr><td>Reference</td><td>${loan.disbursementReference}</td></tr>` : ''}
         </table>
       </div>
+      <p>Attached are your signed loan agreement (${scheduleLabel}) and stamp certificate for your records.</p>
       <p>Your repayment schedule will begin as per the agreed terms. Please ensure timely payments to maintain a good repayment record.</p>
       <p>If you have any questions, please contact ${tenantName} directly.</p>
       <p>Thank you for your trust.</p>
     `;
+
+    // Build attachments — agreement and stamp cert (both required before disbursement)
+    const emailAttachments: EmailAttachment[] = [];
+
+    if (loan.agreementPath) {
+      emailAttachments.push({
+        path: loan.agreementPath,
+        filename: loan.agreementOriginalName || `Loan_Agreement_${scheduleLabel.replace(' ', '_')}.pdf`,
+      });
+    }
+
+    if (loan.stampCertPath) {
+      emailAttachments.push({
+        path: loan.stampCertPath,
+        filename: loan.stampCertOriginalName || 'Stamp_Certificate.pdf',
+      });
+    }
 
     await this.sendEmail({
       tenantId,
@@ -469,7 +550,8 @@ export class TrueSendService {
       recipientEmail: loan.borrower.email,
       recipientName: loan.borrower.name,
       subject: `Loan Disbursement Confirmation — ${formatCurrency(principal)}`,
-      htmlBody: buildEmailWrapper(tenantName, content),
+      htmlBody: await buildEmailWrapper(loan.tenant, content),
+      attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
     });
   }
 
@@ -512,7 +594,7 @@ export class TrueSendService {
       recipientEmail: loan.borrower.email,
       recipientName: loan.borrower.name,
       subject: `Loan ${isEarlySettlement ? 'Early Settlement' : 'Completion'} — Discharge Letter`,
-      htmlBody: buildEmailWrapper(tenantName, content),
+      htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: dischargePath,
       attachmentFilename: letterFilename,
     });
@@ -565,7 +647,7 @@ export class TrueSendService {
       recipientEmail: loan.borrower.email,
       recipientName: loan.borrower.name,
       subject: `Payment Receipt — ${amountFormatted} (${receiptNumber})`,
-      htmlBody: buildEmailWrapper(tenantName, content),
+      htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: receiptPath,
       attachmentFilename: receiptFilename,
     });
@@ -649,15 +731,22 @@ export class TrueSendService {
         }
       }
 
-      // Re-fetch tenant name for the email wrapper
+      // Re-fetch tenant for the email wrapper
       const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-      const tenantName = tenant?.name || 'Your Lender';
+      const tenantInfo: TenantEmailInfo = {
+        name: tenant?.name || 'Your Lender',
+        logoUrl: tenant?.logoUrl,
+        registrationNumber: tenant?.registrationNumber,
+        email: tenant?.email,
+        contactNumber: tenant?.contactNumber,
+        businessAddress: tenant?.businessAddress,
+      };
 
       // Build a simple resend body
-      const htmlBody = buildEmailWrapper(tenantName, `
+      const htmlBody = await buildEmailWrapper(tenantInfo, `
         <p>This is a re-delivery of a previous email notification.</p>
         <p><em>Original email type: ${emailLog.emailType}</em></p>
-        <p>If you have any questions about this notice, please contact ${tenantName} directly.</p>
+        <p>If you have any questions about this notice, please contact ${tenantInfo.name} directly.</p>
       `);
 
       const response = await fetch('https://api.resend.com/emails', {
@@ -667,7 +756,7 @@ export class TrueSendService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: 'TrueKredit <kredit-no-reply@truestack.my>',
+          from: `${config.email.fromName} <${config.email.fromAddress}>`,
           to: emailLog.recipientEmail,
           subject: `[Resent] ${emailLog.subject}`,
           html: htmlBody,
@@ -694,22 +783,6 @@ export class TrueSendService {
           failureReason: null,
         },
       });
-
-      // Audit log
-      if (emailLog.loanId) {
-        await AuditService.log({
-          tenantId,
-          action: 'TRUESEND_EMAIL_RESENT',
-          entityType: 'Loan',
-          entityId: emailLog.loanId,
-          newData: {
-            emailLogId: emailLog.id,
-            emailType: emailLog.emailType,
-            recipient: emailLog.recipientEmail,
-            newResendMessageId: data.id,
-          },
-        });
-      }
 
       return { success: true, message: 'Email resent successfully' };
     } catch (error) {

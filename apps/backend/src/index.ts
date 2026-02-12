@@ -33,6 +33,10 @@ app.use(cors({
   origin: config.corsOrigins,
   credentials: true,
 }));
+
+// Webhook routes MUST be registered before express.json() to preserve raw body for signature verification
+app.use('/api/webhooks/resend', express.raw({ type: 'application/json' }), resendWebhookRoutes);
+
 app.use(express.json());
 app.use(requestLogger);
 
@@ -59,7 +63,6 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/docs', docsRoutes);
 app.use('/api/referrals', referralsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/webhooks/resend', resendWebhookRoutes);
 
 // Error handling
 app.use(errorHandler);

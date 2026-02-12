@@ -1690,11 +1690,13 @@ router.get('/:loanId/timeline', async (req, res, next) => {
     }
 
     // Fetch audit logs for this loan with cursor-based pagination
+    // Exclude TrueSend email entries — they have their own dedicated section
     const auditLogs = await prisma.auditLog.findMany({
       where: {
         tenantId: req.tenantId,
         entityType: 'Loan',
         entityId: loanId,
+        action: { notIn: ['TRUESEND_EMAIL_SENT', 'TRUESEND_EMAIL_RESENT'] },
         ...(cursor && { createdAt: { lt: new Date(cursor as string) } }),
       },
       orderBy: { createdAt: 'desc' },

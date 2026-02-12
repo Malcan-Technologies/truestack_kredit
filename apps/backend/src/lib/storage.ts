@@ -67,10 +67,15 @@ async function saveToLocal(
 
 async function getFromLocal(filePath: string): Promise<Buffer | null> {
   // Convert URL path to filesystem path
-  const relativePath = filePath.replace(getUploadBaseUrl(), '').replace(/^\//, '');
+  // Handle both /uploads/... and /api/uploads/... path formats
+  const relativePath = filePath
+    .replace(/^\/api\/uploads\//, '')
+    .replace(getUploadBaseUrl(), '')
+    .replace(/^\//, '');
   const fullPath = path.join(UPLOAD_DIR, relativePath);
   
   if (!fs.existsSync(fullPath)) {
+    console.warn(`[Storage] File not found: ${fullPath} (original: ${filePath})`);
     return null;
   }
   
@@ -79,7 +84,7 @@ async function getFromLocal(filePath: string): Promise<Buffer | null> {
 
 async function deleteFromLocal(filePath: string): Promise<void> {
   // Convert URL path to filesystem path
-  const relativePath = filePath.replace(getUploadBaseUrl(), '').replace(/^\//, '');
+  const relativePath = filePath.replace(/^\/api\/uploads\//, '').replace(getUploadBaseUrl(), '').replace(/^\//, '');
   const fullPath = path.join(UPLOAD_DIR, relativePath);
   
   if (fs.existsSync(fullPath)) {
@@ -88,7 +93,7 @@ async function deleteFromLocal(filePath: string): Promise<void> {
 }
 
 function getLocalFilePath(filePath: string): string {
-  const relativePath = filePath.replace(getUploadBaseUrl(), '').replace(/^\//, '');
+  const relativePath = filePath.replace(/^\/api\/uploads\//, '').replace(getUploadBaseUrl(), '').replace(/^\//, '');
   return path.join(UPLOAD_DIR, relativePath);
 }
 

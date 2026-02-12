@@ -51,6 +51,7 @@ interface AddOnDefinition {
   features: string[];
   pricing: string;
   comingSoon?: boolean;
+  learnMoreUrl?: string;
 }
 
 const ADD_ON_DEFINITIONS: AddOnDefinition[] = [
@@ -94,6 +95,7 @@ const ADD_ON_DEFINITIONS: AddOnDefinition[] = [
       "Up to 3 retries per session at no extra cost",
     ],
     pricing: "RM 4 per verification",
+    learnMoreUrl: "https://www.truestack.my/trueidentity",
   },
 ];
 
@@ -194,7 +196,7 @@ export default function AddOnsPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-lg font-heading font-semibold">
+                        <h3 className="text-2xl font-heading font-bold">
                           {addOn.title}
                         </h3>
                         {addOn.comingSoon ? (
@@ -255,6 +257,17 @@ export default function AddOnsPage() {
                     <div>
                       <p className="text-xs text-muted-foreground">Pricing</p>
                       <p className="text-sm font-heading font-semibold">{addOn.pricing}</p>
+                      {addOn.learnMoreUrl && (
+                        <a
+                          href={addOn.learnMoreUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`inline-flex items-center gap-1 text-xs mt-1 hover:underline ${addOn.accentColor}`}
+                        >
+                          Learn more
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
                     </div>
                     {addOn.comingSoon ? (
                       <Button variant="outline" size="sm" disabled>

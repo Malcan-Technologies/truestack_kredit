@@ -53,6 +53,9 @@
     
     /* Radius */
     --radius: 0.5rem;
+
+    /* Text selection - visible in inputs and everywhere */
+    --selection-bg: 217 91% 60% / 0.3;
     
     /* Chart colors - diverse palette since chrome is neutral */
     --chart-1: 217 91% 60%;
@@ -127,6 +130,10 @@
     --chart-4: 0 84% 65%;
     --chart-5: 270 50% 65%;
     --chart-cursor: 0 0% 16% / 0.5;
+
+    /* Text selection - visible on dark backgrounds */
+    --selection-bg: 217 91% 65% / 0.45;
+
     --sidebar-background: 0 0% 4%;
     --sidebar-foreground: 0 0% 90%;
     --sidebar-primary: 0 0% 98%;
@@ -257,9 +264,9 @@
   @apply bg-muted;
 }
 
-/* Selection */
+/* Selection - visible in both light and dark themes (inputs, textareas, etc.) */
 ::selection {
-  @apply bg-accent/30;
+  background: hsl(var(--selection-bg));
 }
 
 /* Markdown content styles */

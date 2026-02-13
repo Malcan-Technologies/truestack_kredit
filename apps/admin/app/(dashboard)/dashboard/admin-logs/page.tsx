@@ -192,7 +192,7 @@ export default function AdminLogsPage() {
   if (loading && logs.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-muted">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     );
   }
@@ -203,8 +203,8 @@ export default function AdminLogsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-heading font-bold text-gradient">Admin Logs</h1>
-          <p className="text-muted">Track user management, company settings, and administrative actions</p>
+          <h1 className="text-2xl font-heading font-bold text-foreground">Admin Logs</h1>
+          <p className="text-base text-muted-foreground">Track user management, company settings, and administrative actions</p>
         </div>
         <Badge variant="outline" className="text-sm">
           <Shield className="h-3.5 w-3.5 mr-1.5" />
@@ -222,7 +222,7 @@ export default function AdminLogsPage() {
         </CardHeader>
         <CardContent>
           {logs.length === 0 ? (
-            <div className="text-center py-8 text-muted">
+            <div className="text-center py-8 text-base text-muted-foreground">
               No admin logs yet. User management, company settings updates,
               logo changes, and ownership transfers will appear here.
             </div>
@@ -248,37 +248,37 @@ export default function AdminLogsPage() {
                       <TableRow key={log.id}>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <Icon className="h-4 w-4 text-muted" />
+                            <Icon className="h-4 w-4 text-muted-foreground" />
                             <Badge variant={config.variant}>{config.label}</Badge>
                           </div>
                         </TableCell>
                         <TableCell>
                           <div>
                             <p className="font-medium">{log.user.name || "Unknown"}</p>
-                            <p className="text-xs text-muted">{log.user.email}</p>
+                            <p className="text-xs text-muted-foreground">{log.user.email}</p>
                           </div>
                         </TableCell>
                         <TableCell>
                           {details ? (
                             <div className="space-y-0.5">
-                              <p className="text-sm">{details.main}</p>
+                              <p>{details.main}</p>
                               {details.secondary && (
                                 <p className="text-xs text-muted-foreground">{details.secondary}</p>
                               )}
                             </div>
                           ) : (
-                            <span className="text-muted">-</span>
+                            <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm text-muted">
+                          <span className="text-muted-foreground">
                             {log.ipAddress || "-"}
                           </span>
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="text-sm">{formatRelativeTime(log.createdAt)}</p>
-                            <p className="text-xs text-muted">{formatDate(log.createdAt)}</p>
+                            <p>{formatRelativeTime(log.createdAt)}</p>
+                            <p className="text-xs text-muted-foreground">{formatDate(log.createdAt)}</p>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -290,7 +290,7 @@ export default function AdminLogsPage() {
               {/* Pagination */}
               {pagination && pagination.totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
-                  <p className="text-sm text-muted">
+                  <p className="text-sm text-muted-foreground">
                     Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
                   </p>
                   <div className="flex gap-2">

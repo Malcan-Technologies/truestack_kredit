@@ -1,5 +1,19 @@
 import type { Config } from "tailwindcss";
 
+/*
+ * Typography Scale (bumped ~25-30% from Tailwind defaults for readability)
+ *
+ * Hierarchy (use these semantic names in code):
+ *   text-xs    -> 13px  (was 12px) — badges, captions, timestamps
+ *   text-sm    -> 14.5px (was 14px) — nav links, secondary body, table cells
+ *   text-base  -> 16.5px (was 16px) — primary body, inputs, buttons
+ *   text-lg    -> 20px  (was 18px) — card section titles
+ *   text-xl    -> 24px  (was 20px) — card titles
+ *   text-2xl   -> 30px  (was 24px) — page headings
+ *   text-3xl   -> 38px  (was 30px) — large headings
+ *   text-4xl   -> 48px  (was 36px) — hero headings
+ */
+
 const config: Config = {
   darkMode: ["class"],
   content: [
@@ -9,6 +23,16 @@ const config: Config = {
   ],
   theme: {
   	extend: {
+  		fontSize: {
+  			xs:   ['0.8125rem',  { lineHeight: '1.125rem' }],   // 13px
+  			sm:   ['0.9075rem',  { lineHeight: '1.375rem' }],   // ~14.5px
+  			base: ['1.03125rem', { lineHeight: '1.625rem' }],   // ~16.5px
+  			lg:   ['1.25rem',    { lineHeight: '1.75rem' }],    // 20px
+  			xl:   ['1.5rem',     { lineHeight: '2rem' }],       // 24px
+  			'2xl': ['1.875rem',  { lineHeight: '2.25rem' }],    // 30px
+  			'3xl': ['2.375rem',  { lineHeight: '2.75rem' }],    // 38px
+  			'4xl': ['3rem',      { lineHeight: '3.25rem' }],    // 48px
+  		},
   		colors: {
   			background: 'hsl(var(--background))',
   			surface: 'hsl(var(--surface))',

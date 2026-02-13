@@ -433,7 +433,7 @@ export default function SettingsPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Building2 className="h-5 w-5 text-accent" />
+              <Building2 className="h-5 w-5 text-muted-foreground" />
               <div>
                 <CardTitle>Tenant Information</CardTitle>
                 <CardDescription>
@@ -691,7 +691,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div className="flex items-center gap-3">
-            <Users className="h-5 w-5 text-accent" />
+            <Users className="h-5 w-5 text-muted-foreground" />
             <div>
               <CardTitle>Team Members</CardTitle>
               <CardDescription>
@@ -894,7 +894,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <Shield className="h-5 w-5 text-accent" />
+            <Shield className="h-5 w-5 text-muted-foreground" />
             <div>
               <CardTitle>Security</CardTitle>
               <CardDescription>Account security settings</CardDescription>

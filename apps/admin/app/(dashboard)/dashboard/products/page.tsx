@@ -15,9 +15,6 @@ import {
   Shield,
   ShieldCheck,
   Filter,
-  TrendingUp,
-  Clock,
-  Banknote,
   FileText,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -28,7 +25,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
-import { formatCurrency, toSafeNumber } from "@/lib/utils";
+import { formatCurrency, formatCompactCurrency, toSafeNumber } from "@/lib/utils";
 import { useCurrentRole } from "@/components/tenant-context";
 import { canManageProducts } from "@/lib/permissions";
 
@@ -191,7 +188,7 @@ export default function ProductsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4 p-4 rounded-lg bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+      <div className="flex flex-wrap gap-4 p-4 rounded-lg bg-secondary border border-border">
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Filters:</span>
@@ -314,7 +311,7 @@ export default function ProductsPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <Link href={`/dashboard/products/${product.id}`}>
-                      <CardTitle className="text-lg hover:text-primary hover:underline cursor-pointer truncate">
+                      <CardTitle className="text-lg hover:text-muted-foreground hover:underline cursor-pointer truncate">
                         {product.name}
                       </CardTitle>
                     </Link>
@@ -369,28 +366,25 @@ export default function ProductsPage() {
               </CardHeader>
 
               <CardContent className="pt-0 space-y-4 flex-1">
-                {/* Key Metrics - Highlighted */}
+                {/* Key Metrics */}
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="flex flex-col items-center text-center p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50">
-                    <TrendingUp className="h-4 w-4 text-primary mb-1.5" />
+                  <div className="flex flex-col items-center text-center p-2.5 rounded-lg bg-secondary">
                     <span className="text-lg font-heading font-bold">{product.interestRate}%</span>
-                    <span className="text-[11px] text-muted-foreground leading-tight">p.a.</span>
+                    <span className="text-xs text-muted-foreground leading-tight">p.a.</span>
                   </div>
-                  <div className="flex flex-col items-center text-center p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50">
-                    <Clock className="h-4 w-4 text-primary mb-1.5" />
+                  <div className="flex flex-col items-center text-center p-2.5 rounded-lg bg-secondary">
                     <span className="text-lg font-heading font-bold">
                       {product.minTerm}-{product.maxTerm}
                     </span>
-                    <span className="text-[11px] text-muted-foreground leading-tight">months</span>
+                    <span className="text-xs text-muted-foreground leading-tight">months</span>
                   </div>
-                  <div className="flex flex-col items-center text-center p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50">
-                    <Banknote className="h-4 w-4 text-primary mb-1.5" />
+                  <div className="flex flex-col items-center text-center p-2.5 rounded-lg bg-secondary">
                     <span className="text-lg font-heading font-bold">
                       {Number(product.maxAmount) >= 1000
                         ? `${Math.round(Number(product.maxAmount) / 1000)}K`
                         : formatCurrency(Number(product.maxAmount))}
                     </span>
-                    <span className="text-[11px] text-muted-foreground leading-tight">max</span>
+                    <span className="text-xs text-muted-foreground leading-tight">max</span>
                   </div>
                 </div>
 
@@ -400,8 +394,7 @@ export default function ProductsPage() {
                     <span className="text-muted-foreground">Amount Range</span>
                   </div>
                   <span className="font-medium text-right">
-                    {formatCurrency(Number(product.minAmount))} -{" "}
-                    {formatCurrency(Number(product.maxAmount))}
+                    {formatCompactCurrency(Number(product.minAmount))} - {formatCompactCurrency(Number(product.maxAmount))}
                   </span>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Legal Fee</span>
@@ -431,8 +424,8 @@ export default function ProductsPage() {
                 )}
 
               </CardContent>
-              <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
-                <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <CardFooter className="flex flex-col gap-3 border-t border-border pt-4 mt-auto">
+                <div className="flex items-center gap-3 text-sm text-muted-foreground w-full">
                   <span>{product._count.loans} loans</span>
                   {product._count.applications > 0 && (
                     <>
@@ -441,7 +434,7 @@ export default function ProductsPage() {
                     </>
                   )}
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-1 w-full">
                   <Link href={`/dashboard/products/${product.id}`}>
                     <TableActionButton icon={Eye} label="View" onClick={() => {}} />
                   </Link>

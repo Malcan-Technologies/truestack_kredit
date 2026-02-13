@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, ClipboardList, Eye, Building2, User, Search, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
+import { Plus, ClipboardList, Building2, User, Search, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { TableActionButton } from "@/components/ui/table-action-button";
+
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -52,7 +52,7 @@ interface Application {
 
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   DRAFT: "secondary" as "default",
-  SUBMITTED: "info",
+  SUBMITTED: "default",
   UNDER_REVIEW: "warning",
   APPROVED: "success",
   REJECTED: "destructive",
@@ -61,6 +61,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 
 export default function ApplicationsPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const initialFilter = searchParams.get("filter") || "";
 
   const [applications, setApplications] = useState<Application[]>([]);
@@ -176,9 +177,6 @@ export default function ApplicationsPage() {
     ? [...applications].sort((a, b) => {
         let cmp = 0;
         switch (sortField) {
-          case "type":
-            cmp = a.borrower.borrowerType.localeCompare(b.borrower.borrowerType);
-            break;
           case "product":
             cmp = a.product.name.localeCompare(b.product.name);
             break;
@@ -214,17 +212,17 @@ export default function ApplicationsPage() {
 
       {/* Status Alert Bar */}
       {(counts.submitted > 0 || counts.underReview > 0) && (
-        <div className="flex items-center gap-4 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
-          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+        <div className="flex items-center gap-4 p-3 rounded-lg border border-border bg-secondary">
+          <AlertTriangle className="h-4 w-4 text-foreground shrink-0" />
           <div className="flex items-center gap-2 text-sm flex-wrap">
             {[
               counts.submitted > 0 && (
-                <span key="submitted" className="text-amber-600 dark:text-amber-400">
+                <span key="submitted" className="text-foreground font-medium">
                   {counts.submitted} application{counts.submitted !== 1 ? "s" : ""} awaiting review
                 </span>
               ),
               counts.underReview > 0 && (
-                <span key="review" className="text-blue-600 dark:text-blue-400">
+                <span key="review" className="text-foreground font-medium">
                   {counts.underReview} application{counts.underReview !== 1 ? "s" : ""} under review
                 </span>
               ),
@@ -262,7 +260,6 @@ export default function ApplicationsPage() {
           variant={filter === "APPROVED" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("APPROVED"); setCurrentPage(1); }}
-          className={filter === "APPROVED" ? "" : "text-emerald-600 border-emerald-500/50 hover:bg-emerald-500/10"}
         >
           Approved
         </Button>
@@ -270,7 +267,6 @@ export default function ApplicationsPage() {
           variant={filter === "REJECTED" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("REJECTED"); setCurrentPage(1); }}
-          className={filter === "REJECTED" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
         >
           Rejected
         </Button>
@@ -284,7 +280,7 @@ export default function ApplicationsPage() {
         >
           Pending Review
           {counts.submitted > 0 && (
-            <span className="ml-1.5 bg-amber-500 text-white rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {counts.submitted}
             </span>
           )}
@@ -297,7 +293,7 @@ export default function ApplicationsPage() {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <ClipboardList className="h-5 w-5 text-accent" />
+                <ClipboardList className="h-5 w-5 text-muted-foreground" />
                 All Applications
               </CardTitle>
               <CardDescription className="mt-1.5">
@@ -321,16 +317,14 @@ export default function ApplicationsPage() {
         <CardContent className="p-0">
           {loading ? (
             <TableSkeleton
-              headers={["Borrower", "Type", "Product", "Amount", "Term", "Status", "Created", "Actions"]}
+              headers={["Borrower", "Product", "Amount", "Term", "Status", "Created"]}
               columns={[
                 { width: "w-32", subLine: true },
-                { badge: true, width: "w-20" },
                 { width: "w-24" },
                 { width: "w-20" },
                 { width: "w-16" },
                 { badge: true, width: "w-20" },
                 { width: "w-20" },
-                { width: "w-8" },
               ]}
             />
           ) : applications.length === 0 ? (
@@ -349,12 +343,6 @@ export default function ApplicationsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Borrower</TableHead>
-                  <TableHead>
-                    <button onClick={() => toggleSort("type")} className="flex items-center gap-1 hover:text-foreground transition-colors">
-                      Type
-                      {sortField === "type" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                    </button>
-                  </TableHead>
                   <TableHead>
                     <button onClick={() => toggleSort("product")} className="flex items-center gap-1 hover:text-foreground transition-colors">
                       Product
@@ -380,7 +368,6 @@ export default function ApplicationsPage() {
                       {sortField === "created" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
                     </button>
                   </TableHead>
-                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -391,30 +378,28 @@ export default function ApplicationsPage() {
                     : app.borrower.name;
                   
                   return (
-                  <TableRow key={app.id}>
+                  <TableRow
+                    key={app.id}
+                    className="cursor-pointer transition-colors hover:bg-muted/20"
+                    onClick={() => router.push(`/dashboard/applications/${app.id}`)}
+                  >
                     <TableCell>
-                      <Link href={`/dashboard/applications/${app.id}`} className="block">
-                        <div>
-                          <p className="font-medium hover:text-primary hover:underline">{displayName}</p>
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5 shrink-0">
+                          {isCorporate ? (
+                            <Building2 className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <User className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{displayName}</p>
                           {isCorporate && app.borrower.companyName && (
                             <p className="text-xs text-muted-foreground">Rep: {app.borrower.name}</p>
                           )}
                           <p className="text-xs text-muted">{app.borrower.icNumber}</p>
                         </div>
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {isCorporate ? (
-                        <Badge variant="secondary" className="text-xs">
-                          <Building2 className="h-3 w-3 mr-1" />
-                          Corporate
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-xs">
-                          <User className="h-3 w-3 mr-1" />
-                          Individual
-                        </Badge>
-                      )}
+                      </div>
                     </TableCell>
                     <TableCell>{app.product.name}</TableCell>
                     <TableCell>{formatCurrency(Number(app.amount))}</TableCell>
@@ -425,15 +410,6 @@ export default function ApplicationsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDate(app.createdAt)}</TableCell>
-                    <TableCell>
-                      <Link href={`/dashboard/applications/${app.id}`}>
-                        <TableActionButton
-                          icon={Eye}
-                          label="View"
-                          onClick={() => {}}
-                        />
-                      </Link>
-                    </TableCell>
                   </TableRow>
                   );
                 })}

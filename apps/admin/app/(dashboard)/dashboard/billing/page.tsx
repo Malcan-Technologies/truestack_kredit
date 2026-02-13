@@ -126,7 +126,7 @@ export default function BillingPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <CreditCard className="h-6 w-6 text-accent" />
+                <CreditCard className="h-6 w-6 text-muted-foreground" />
                 <div>
                   <CardTitle>
                     {subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)} Plan

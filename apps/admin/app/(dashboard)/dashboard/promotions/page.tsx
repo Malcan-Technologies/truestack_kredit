@@ -20,13 +20,12 @@ export default function PromotionsPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Link>
-          <h1 className="text-2xl font-heading font-bold text-gradient">
-            Add-ons & Promotions
+          <h1 className="text-2xl font-heading font-bold text-foreground">
+            Promotions
           </h1>
         </div>
-        <p className="text-muted text-sm ml-6">
-          Explore optional add-ons and special offers to enhance your TrueKredit
-          experience
+        <p className="text-base text-muted-foreground ml-6">
+          Special offers to enhance your TrueKredit experience
         </p>
       </div>
 
@@ -38,11 +37,10 @@ export default function PromotionsPage() {
       </div>
 
       {/* Contact CTA */}
-      <Card className="border-dashed">
+      <Card className="border-dashed border-border">
         <CardContent className="py-8 text-center">
-          <p className="text-muted text-sm">
-            Interested in any of these add-ons? Contact your TrueKredit account
-            manager or reach out to us.
+          <p className="text-base text-muted-foreground">
+            Interested? Contact your TrueKredit account manager or reach out to us.
           </p>
           <div className="mt-4 flex items-center justify-center gap-3">
             <Button variant="outline" size="sm" asChild>
@@ -76,16 +74,16 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
   return (
     <Card
       id={promotion.id}
-      className={`overflow-hidden bg-gradient-to-br flex flex-col ${promotion.gradient} ${promotion.borderColor} scroll-mt-24`}
+      className={`overflow-hidden bg-gradient-to-br flex flex-col border ${promotion.gradient} ${promotion.borderColor} scroll-mt-24`}
     >
       <CardHeader className="pb-3">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground/5">
-            <promotion.icon className="h-5.5 w-5.5 text-foreground/70" />
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground/5 dark:bg-white/5">
+            <promotion.icon className="h-5.5 w-5.5 text-foreground/70 dark:text-white/70" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <CardTitle className="text-lg font-heading">
+              <CardTitle className="text-xl font-heading text-foreground">
                 {promotion.title}
               </CardTitle>
               <Badge
@@ -95,15 +93,15 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
                 {promotion.badge}
               </Badge>
             </div>
-            <p className="text-sm text-muted mt-1">{promotion.tagline}</p>
+            <p className="text-base text-muted-foreground mt-1">{promotion.tagline}</p>
           </div>
         </div>
         {promotion.pricing && (
-          <div className="mt-3 flex items-center justify-between rounded-lg bg-foreground/[0.03] border border-foreground/[0.06] px-3 py-2">
-            <p className="text-xs text-muted uppercase tracking-wide">
+          <div className="mt-3 flex items-center justify-between rounded-lg bg-foreground/[0.03] dark:bg-white/[0.03] border border-foreground/[0.06] dark:border-white/[0.06] px-3 py-2">
+            <p className="text-sm text-muted-foreground uppercase tracking-wide font-medium">
               Pricing
             </p>
-            <p className="text-sm font-heading font-semibold">
+            <p className="text-base font-heading font-semibold text-foreground">
               {promotion.pricing}
             </p>
           </div>
@@ -111,7 +109,7 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
       </CardHeader>
 
       <CardContent className="space-y-4 flex-1 flex flex-col">
-        <p className="text-sm text-muted-foreground leading-relaxed">
+        <p className="text-base text-muted-foreground leading-relaxed">
           {promotion.description}
         </p>
 
@@ -119,16 +117,16 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
 
         {/* Features list */}
         <div className="flex-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted mb-3">
+          <p className="text-sm font-medium uppercase tracking-wide text-muted-foreground mb-3">
             Key Features
           </p>
           <div className="space-y-2">
             {promotion.features.map((feature, idx) => (
               <div key={idx} className="flex items-start gap-2.5">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success/10 mt-0.5">
-                  <Check className="h-3 w-3 text-success" />
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 dark:bg-white/10 mt-0.5">
+                  <Check className="h-3 w-3 text-foreground dark:text-white" />
                 </div>
-                <p className="text-sm text-muted-foreground">{feature}</p>
+                <p className="text-base text-muted-foreground">{feature}</p>
               </div>
             ))}
           </div>
@@ -138,7 +136,7 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
 
         {/* CTA */}
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted-foreground">
             {promotion.badge === "Coming Soon"
               ? "Under development. Stay tuned!"
               : "Contact your account manager to enable."}

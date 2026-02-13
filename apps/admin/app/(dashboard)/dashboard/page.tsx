@@ -9,9 +9,7 @@ import {
   CircleDollarSign,
   BarChart3,
   ArrowUpRight,
-  ShieldAlert,
   CheckCircle,
-  Percent,
   Package,
   Bell,
   ClipboardList,
@@ -50,7 +48,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { api } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, safePercentage } from "@/lib/utils";
 import { PromotionsCarousel } from "@/components/promotions-carousel";
 
 // ============================================
@@ -181,18 +179,18 @@ const DATE_PRESETS: { label: string; value: DatePreset }[] = [
 const disbursementChartConfig: ChartConfig = {
   amount: {
     label: "Disbursed",
-    color: "hsl(217, 91%, 60%)",
+    theme: { light: "hsl(0, 0%, 15%)", dark: "hsl(0, 0%, 85%)" },
   },
   count: {
     label: "Loans",
-    color: "hsl(217, 91%, 60%)",
+    theme: { light: "hsl(0, 0%, 15%)", dark: "hsl(0, 0%, 85%)" },
   },
 };
 
 const collectionChartConfig: ChartConfig = {
   due: {
     label: "Due",
-    color: "hsl(215, 20%, 65%)",
+    color: "hsl(0, 0%, 65%)",
   },
   collected: {
     label: "Collected",
@@ -201,19 +199,19 @@ const collectionChartConfig: ChartConfig = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: "hsl(217, 91%, 60%)",
+  ACTIVE: "hsl(0, 0%, 20%)",
   IN_ARREARS: "hsl(38, 92%, 50%)",
   COMPLETED: "hsl(142, 71%, 45%)",
   DEFAULTED: "hsl(0, 84%, 60%)",
-  WRITTEN_OFF: "hsl(215, 20%, 65%)",
+  WRITTEN_OFF: "hsl(0, 0%, 65%)",
   PENDING_DISBURSEMENT: "hsl(142, 71%, 65%)",
   // Application statuses
-  DRAFT: "hsl(215, 20%, 65%)",
+  DRAFT: "hsl(0, 0%, 65%)",
   SUBMITTED: "hsl(217, 91%, 60%)",
   UNDER_REVIEW: "hsl(38, 92%, 50%)",
   APPROVED: "hsl(142, 71%, 45%)",
   REJECTED: "hsl(0, 84%, 60%)",
-  CANCELLED: "hsl(215, 20%, 50%)",
+  CANCELLED: "hsl(0, 0%, 50%)",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -355,11 +353,11 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-heading font-bold text-gradient">
               Dashboard
             </h1>
-            <p className="text-muted text-sm mt-1">
+            <p className="text-muted text-base mt-1">
               Financial overview and portfolio performance
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-1">
+          <div className="flex items-center gap-1 bg-secondary border border-border rounded-lg p-1">
             {DATE_PRESETS.map((preset) => (
               <Button
                 key={preset.value}
@@ -391,8 +389,8 @@ export default function DashboardPage() {
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
               <Bell className="h-4 w-4 text-amber-500" />
             </div>
-            <span className="text-sm font-medium text-amber-600 dark:text-amber-400 mr-1">Action Needed</span>
-            <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className="text-base font-medium text-amber-600 dark:text-amber-400 mr-1">Action Needed</span>
+            <div className="flex items-center gap-2 flex-wrap text-base">
               {[
                 stats.actionNeeded.submittedApplications > 0 && (
                   <Link
@@ -452,8 +450,8 @@ export default function DashboardPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4 min-w-0">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/10">
-                        <CreditCard className="h-5 w-5 text-accent" />
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary/80">
+                        <CreditCard className="h-5 w-5 text-muted-foreground" />
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -478,7 +476,7 @@ export default function DashboardPage() {
                                 : tenant.subscription.status}
                           </Badge>
                         </div>
-                        <p className="text-sm text-muted mt-0.5">
+                        <p className="text-base text-muted mt-0.5">
                           {tenant.subscription.status === "GRACE_PERIOD"
                             ? `Grace period ends ${formatDate(tenant.subscription.gracePeriodEnd!)}`
                             : `Renews ${formatDate(tenant.subscription.currentPeriodEnd)}`}
@@ -521,41 +519,43 @@ export default function DashboardPage() {
         {/* ============================================ */}
         {/* Row 3: KPI Cards */}
         {/* ============================================ */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <KPICard
             title="Total Disbursed"
             value={formatCurrency(stats?.kpiCards.totalDisbursed || 0)}
             icon={CircleDollarSign}
             subtitle={`Net: ${formatCurrency(stats?.kpiCards.totalNetDisbursed || 0)}`}
-            accentColor="text-accent"
+            accentColor="text-foreground"
+            secondaryLabel="Fees"
+            secondaryValue={`${safePercentage(
+              (stats?.kpiCards.totalDisbursed || 0) - (stats?.kpiCards.totalNetDisbursed || 0),
+              stats?.kpiCards.totalDisbursed || 0
+            )}%`}
+            secondaryColor="text-foreground"
           />
           <KPICard
             title="Outstanding"
             value={formatCurrency(stats?.kpiCards.totalOutstanding || 0)}
             icon={Wallet}
             subtitle={`${stats?.kpiCards.activeLoans || 0} active loans`}
-            accentColor="text-accent"
+            accentColor="text-foreground"
+            secondaryLabel="As % of Disbursed"
+            secondaryValue={`${safePercentage(
+              stats?.kpiCards.totalOutstanding || 0,
+              stats?.kpiCards.totalDisbursed || 0
+            )}%`}
+            secondaryColor="text-foreground"
           />
           <KPICard
             title="Collected"
             value={formatCurrency(stats?.kpiCards.totalCollected || 0)}
             icon={CheckCircle}
             subtitle="Total repayments received"
-            accentColor="text-success"
-          />
-          <KPICard
-            title="Overdue"
-            value={formatCurrency(stats?.kpiCards.overdueAmount || 0)}
-            icon={AlertTriangle}
-            subtitle={`${stats?.kpiCards.loansInArrears || 0} loans in arrears`}
-            accentColor="text-destructive"
-          />
-          <KPICard
-            title="Collection Rate"
-            value={`${stats?.kpiCards.collectionRate || 0}%`}
-            icon={Percent}
-            subtitle="Collected / total due"
-            accentColor={
+            accentColor="text-foreground"
+            iconColor="text-success"
+            secondaryLabel="Collection Rate"
+            secondaryValue={`${stats?.kpiCards.collectionRate || 0}%`}
+            secondaryColor={
               (stats?.kpiCards.collectionRate || 0) >= 80
                 ? "text-success"
                 : (stats?.kpiCards.collectionRate || 0) >= 50
@@ -564,18 +564,22 @@ export default function DashboardPage() {
             }
           />
           <KPICard
-            title="PAR 30"
-            value={`${stats?.portfolioAtRisk.par30 || 0}%`}
-            icon={ShieldAlert}
-            subtitle="Portfolio at risk (30+ days)"
-            accentColor={
+            title="Overdue"
+            value={formatCurrency(stats?.kpiCards.overdueAmount || 0)}
+            icon={AlertTriangle}
+            subtitle={`${stats?.kpiCards.loansInArrears || 0} loans in arrears`}
+            accentColor="text-foreground"
+            iconColor="text-destructive"
+            secondaryLabel="PAR 30"
+            secondaryValue={`${stats?.portfolioAtRisk.par30 || 0}%`}
+            secondaryColor={
               (stats?.portfolioAtRisk.par30 || 0) <= 5
                 ? "text-success"
                 : (stats?.portfolioAtRisk.par30 || 0) <= 15
                   ? "text-warning"
                   : "text-destructive"
             }
-            tooltipText="Percentage of outstanding loan balance with repayments overdue by 30+ days. Industry benchmark: below 5% is excellent."
+            tooltipText="PAR 30: Percentage of outstanding loan balance with repayments overdue by 30+ days. Industry benchmark: below 5% is excellent."
           />
         </div>
 
@@ -586,10 +590,10 @@ export default function DashboardPage() {
           {/* Disbursement Trend */}
           <Card className="lg:col-span-2">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-heading">
+              <CardTitle className="font-heading">
                 Disbursement Trend
               </CardTitle>
-              <p className="text-xs text-muted">
+              <p className="text-sm text-muted">
                 Monthly principal disbursed to borrowers
               </p>
             </CardHeader>
@@ -670,10 +674,10 @@ export default function DashboardPage() {
           {/* Loan Portfolio Distribution (Pie) */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-heading">
+              <CardTitle className="font-heading">
                 Loan Portfolio
               </CardTitle>
-              <p className="text-xs text-muted">Distribution by status</p>
+              <p className="text-sm text-muted">Distribution by status</p>
             </CardHeader>
             <CardContent>
               {loanStatusData.length > 0 ? (
@@ -741,10 +745,10 @@ export default function DashboardPage() {
           {/* Collection Performance (Area) */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-heading">
+              <CardTitle className="font-heading">
                 Collection Performance
               </CardTitle>
-              <p className="text-xs text-muted">
+              <p className="text-sm text-muted">
                 Scheduled repayments due vs actual payments received
               </p>
             </CardHeader>
@@ -872,10 +876,10 @@ export default function DashboardPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-base font-heading">
+                  <CardTitle className="font-heading">
                     Application Pipeline
                   </CardTitle>
-                  <p className="text-xs text-muted">
+                  <p className="text-sm text-muted">
                     Applications by current status
                   </p>
                 </div>
@@ -897,7 +901,7 @@ export default function DashboardPage() {
                       maxCount > 0 ? (item.count / maxCount) * 100 : 0;
                     return (
                       <div key={item.status} className="space-y-1.5">
-                        <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center justify-between text-base">
                           <div className="flex items-center gap-2">
                             <div
                               className="h-2.5 w-2.5 rounded-sm shrink-0"
@@ -944,17 +948,17 @@ export default function DashboardPage() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-base font-heading flex items-center gap-2">
-                  <Package className="h-4 w-4 text-accent" />
+                <CardTitle className="font-heading text-xl flex items-center gap-2">
+                  <Package className="h-4 w-4 text-muted-foreground" />
                   Loans by Product
                 </CardTitle>
-                <p className="text-xs text-muted">
+                <p className="text-sm text-muted-foreground">
                   Breakdown of loan portfolio across products
                 </p>
               </div>
               <Link
                 href="/dashboard/products"
-                className="text-xs text-accent hover:underline flex items-center gap-1"
+                className="text-sm text-muted-foreground hover:text-foreground hover:underline flex items-center gap-1"
               >
                 View products <ArrowUpRight className="h-3 w-3" />
               </Link>
@@ -963,15 +967,15 @@ export default function DashboardPage() {
           <CardContent>
             {stats?.loansByProduct && stats.loansByProduct.length > 0 ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-base">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Product</th>
-                      <th className="text-right py-2 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Total Loans</th>
-                      <th className="text-right py-2 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Active</th>
-                      <th className="text-right py-2 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Completed</th>
-                      <th className="text-right py-2 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Default / W.Off</th>
-                      <th className="text-right py-2 pl-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Total Disbursed</th>
+                      <th className="text-left py-2.5 pr-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Product</th>
+                      <th className="text-right py-2.5 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Total Loans</th>
+                      <th className="text-right py-2.5 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Active</th>
+                      <th className="text-right py-2.5 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Completed</th>
+                      <th className="text-right py-2.5 px-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Default / W.Off</th>
+                      <th className="text-right py-2.5 pl-4 font-medium text-muted-foreground text-xs uppercase tracking-wide">Total Disbursed</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -987,11 +991,11 @@ export default function DashboardPage() {
                                 <div className="flex items-center gap-2 mt-1">
                                   <div className="h-1.5 flex-1 max-w-[120px] bg-secondary rounded-full overflow-hidden">
                                     <div
-                                      className="h-full rounded-full bg-accent transition-all duration-500"
+                                      className="h-full rounded-full bg-foreground transition-all duration-500"
                                       style={{ width: `${pct}%` }}
                                     />
                                   </div>
-                                  <span className="text-[11px] text-muted tabular-nums">{pct}%</span>
+                                  <span className="text-xs text-muted-foreground tabular-nums">{pct}%</span>
                                 </div>
                               </div>
                             </div>
@@ -1000,17 +1004,17 @@ export default function DashboardPage() {
                             {product.totalLoans}
                           </td>
                           <td className="text-right py-3 px-4">
-                            <Badge variant="info" className="text-[10px] px-1.5 py-0">
+                            <Badge variant="info">
                               {product.activeLoans}
                             </Badge>
                           </td>
                           <td className="text-right py-3 px-4">
-                            <Badge variant="success" className="text-[10px] px-1.5 py-0">
+                            <Badge variant="success">
                               {product.completedLoans}
                             </Badge>
                           </td>
                           <td className="text-right py-3 px-4">
-                            <Badge variant={product.defaultedLoans > 0 ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
+                            <Badge variant={product.defaultedLoans > 0 ? "destructive" : "secondary"}>
                               {product.defaultedLoans}
                             </Badge>
                           </td>
@@ -1028,13 +1032,13 @@ export default function DashboardPage() {
                         <td className="text-right py-3 px-4 font-heading font-bold tabular-nums">
                           {stats.loansByProduct.reduce((s, p) => s + p.totalLoans, 0)}
                         </td>
-                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-blue-600 dark:text-blue-400">
+                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-info">
                           {stats.loansByProduct.reduce((s, p) => s + p.activeLoans, 0)}
                         </td>
-                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-success">
                           {stats.loansByProduct.reduce((s, p) => s + p.completedLoans, 0)}
                         </td>
-                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-red-600 dark:text-red-400">
+                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-destructive">
                           {stats.loansByProduct.reduce((s, p) => s + p.defaultedLoans, 0)}
                         </td>
                         <td className="text-right py-3 pl-4 font-heading font-bold tabular-nums">
@@ -1061,10 +1065,10 @@ export default function DashboardPage() {
           {/* Portfolio at Risk */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-heading">
+              <CardTitle className="font-heading text-xl">
                 Portfolio at Risk
               </CardTitle>
-              <p className="text-xs text-muted">
+              <p className="text-sm text-muted-foreground">
                 Outstanding balance with overdue payments
               </p>
             </CardHeader>
@@ -1085,8 +1089,8 @@ export default function DashboardPage() {
                 description="90+ days overdue"
               />
               <div className="pt-2 border-t border-border">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted">Total Late Fees</span>
+                <div className="flex items-center justify-between text-base">
+                  <span className="text-muted-foreground">Total Late Fees</span>
                   <span className="font-heading font-semibold text-warning">
                     {formatCurrency(stats?.kpiCards.totalLateFees || 0)}
                   </span>
@@ -1099,12 +1103,12 @@ export default function DashboardPage() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-heading">
+                <CardTitle className="font-heading">
                   Recent Loans
                 </CardTitle>
                 <Link
                   href="/dashboard/loans"
-                  className="text-xs text-accent hover:underline flex items-center gap-1"
+                  className="text-sm text-muted-foreground hover:text-foreground hover:underline flex items-center gap-1"
                 >
                   View all <ArrowUpRight className="h-3 w-3" />
                 </Link>
@@ -1120,15 +1124,15 @@ export default function DashboardPage() {
                       className="flex items-center justify-between py-1.5 hover:bg-secondary/50 -mx-2 px-2 rounded-md transition-colors"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
+                        <p className="text-base font-medium truncate">
                           {loan.borrowerName}
                         </p>
-                        <p className="text-xs text-muted">
+                        <p className="text-sm text-muted">
                           {formatDate(loan.date)}
                         </p>
                       </div>
                       <div className="text-right shrink-0 ml-3">
-                        <p className="text-sm font-heading font-medium tabular-nums">
+                        <p className="text-base font-heading font-medium tabular-nums">
                           {formatCurrency(loan.amount)}
                         </p>
                         <LoanStatusBadge status={loan.status} />
@@ -1148,12 +1152,12 @@ export default function DashboardPage() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-heading">
+                <CardTitle className="font-heading">
                   Recent Applications
                 </CardTitle>
                 <Link
                   href="/dashboard/applications"
-                  className="text-xs text-accent hover:underline flex items-center gap-1"
+                  className="text-sm text-muted-foreground hover:text-foreground hover:underline flex items-center gap-1"
                 >
                   View all <ArrowUpRight className="h-3 w-3" />
                 </Link>
@@ -1170,15 +1174,15 @@ export default function DashboardPage() {
                       className="flex items-center justify-between py-1.5 hover:bg-secondary/50 -mx-2 px-2 rounded-md transition-colors"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
+                        <p className="text-base font-medium truncate">
                           {app.borrowerName}
                         </p>
-                        <p className="text-xs text-muted">
+                        <p className="text-sm text-muted">
                           {formatDate(app.date)}
                         </p>
                       </div>
                       <div className="text-right shrink-0 ml-3">
-                        <p className="text-sm font-heading font-medium tabular-nums">
+                        <p className="text-base font-heading font-medium tabular-nums">
                           {formatCurrency(app.amount)}
                         </p>
                         <ApplicationStatusBadge status={app.status} />
@@ -1208,31 +1212,46 @@ function KPICard({
   value,
   icon: Icon,
   subtitle,
-  accentColor = "text-accent",
+  accentColor = "text-foreground",
+  iconColor,
   tooltipText,
+  secondaryLabel,
+  secondaryValue,
+  secondaryColor,
 }: {
   title: string;
   value: string;
   icon: React.ElementType;
   subtitle: string;
   accentColor?: string;
+  iconColor?: string;
   tooltipText?: string;
+  secondaryLabel?: string;
+  secondaryValue?: string;
+  secondaryColor?: string;
 }) {
+  const iconClass = iconColor ?? accentColor;
   const cardContent = (
-    <Card className="hover:border-accent/30 transition-colors">
-      <CardContent className="pt-4 pb-3 px-4">
+    <Card className="hover:border-border transition-colors">
+      <CardContent className="pt-5 pb-4 px-5">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[11px] text-muted font-medium uppercase tracking-wide">
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
             {title}
           </p>
-          <div className="h-7 w-7 rounded-md bg-accent/10 flex items-center justify-center shrink-0">
-            <Icon className={`h-3.5 w-3.5 ${accentColor}`} />
+          <div className="h-8 w-8 rounded-md bg-secondary flex items-center justify-center shrink-0">
+            <Icon className={`h-4 w-4 ${iconClass}`} />
           </div>
         </div>
-        <p className={`text-xl font-heading font-bold ${accentColor} truncate`}>
+        <p className={`text-2xl font-heading font-bold ${accentColor} truncate`}>
           {value}
         </p>
-        <p className="text-[11px] text-muted mt-1 truncate">{subtitle}</p>
+        <p className="text-sm text-muted-foreground mt-1 truncate">{subtitle}</p>
+        {secondaryLabel && secondaryValue && (
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{secondaryLabel}</span>
+            <span className={`text-base font-heading font-bold tabular-nums ${secondaryColor || "text-foreground"}`}>{secondaryValue}</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -1262,7 +1281,7 @@ function AddOnIndicators({ addOns }: { addOns: AddOnStatus[] }) {
 
   return (
     <div className="flex items-center gap-2 pt-2 border-t border-border/50">
-      <span className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium mr-1">Add-ons</span>
+      <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium mr-1">Add-ons</span>
       {items.map((item) => (
         <Link
           key={item.label}
@@ -1278,7 +1297,7 @@ function AddOnIndicators({ addOns }: { addOns: AddOnStatus[] }) {
           {item.active ? (
             <CheckCircle className="h-3 w-3 ml-0.5" />
           ) : (
-            <span className="text-[10px] opacity-60">Off</span>
+            <span className="text-xs opacity-60">Off</span>
           )}
         </Link>
       ))}
@@ -1314,12 +1333,12 @@ function LoanUsage({ used, limit }: { used: number; limit: number }) {
               ? "bg-destructive"
               : isNearLimit
                 ? "bg-warning"
-                : "bg-accent"
+                : "bg-foreground"
           }`}
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <p className="text-[10px] text-muted mt-0.5">loans used</p>
+      <p className="text-xs text-muted mt-0.5">loans used</p>
     </div>
   );
 }
@@ -1345,7 +1364,7 @@ function BillingCountdown({
       >
         {daysRemaining}
       </p>
-      <p className="text-[11px] text-muted">days remaining</p>
+      <p className="text-xs text-muted">days remaining</p>
     </div>
   );
 }
@@ -1367,13 +1386,13 @@ function PARBar({
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-sm">
-        <div>
-          <span className="font-medium">{label}</span>
-          <span className="text-muted text-xs ml-2">{description}</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-medium">{label}</span>
+          <span className="text-xs text-muted-foreground">{description}</span>
         </div>
         <span
-          className={`font-heading font-semibold tabular-nums ${
+          className={`text-base font-heading font-semibold tabular-nums ${
             value <= 5
               ? "text-success"
               : value <= 15
@@ -1407,7 +1426,6 @@ function LoanStatusBadge({ status }: { status: string }) {
   return (
     <Badge
       variant={variantMap[status] || "secondary"}
-      className="text-[10px] px-1.5 py-0"
     >
       {STATUS_LABELS[status] || status}
     </Badge>
@@ -1427,7 +1445,6 @@ function ApplicationStatusBadge({ status }: { status: string }) {
   return (
     <Badge
       variant={variantMap[status] || "secondary"}
-      className="text-[10px] px-1.5 py-0"
     >
       {STATUS_LABELS[status] || status}
     </Badge>

@@ -12,10 +12,11 @@ import {
   generateLampiranAPdf,
   getLoanStatusCode,
   getLoanNota,
-  getBangsa,
+  getBangsaForKPKT,
   getPekerjaan,
   getMajikan,
   getJantina,
+  getJenisCagaran,
   type LampiranAData,
   type LampiranARepayment,
 } from '../../lib/lampiranAService.js';
@@ -1030,13 +1031,30 @@ router.get('/exports/kpkt', requireAdmin, async (req, res, next) => {
       'Nota',
     ];
 
-    // Helper: format date as DD/MM/YYYY for KPKT
+    // Helper: format date as dd/mm/yyyy in Malaysia timezone (GMT+8)
     const formatKPKTDate = (date: Date | null): string => {
       if (!date) return '';
-      const day = date.getDate().toString().padStart(2, '0');
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const year = date.getFullYear();
+      const ms = date.getTime() + 8 * 60 * 60 * 1000;
+      const d = new Date(ms);
+      const day = d.getUTCDate().toString().padStart(2, '0');
+      const month = (d.getUTCMonth() + 1).toString().padStart(2, '0');
+      const year = d.getUTCFullYear();
       return `${day}/${month}/${year}`;
+    };
+
+    // Helper: format numeric money fields with 2 decimals, no commas (spec: 5000.00)
+    const formatKPKTNumber = (value: number): string => safeRound(value, 2).toFixed(2);
+
+    // Helper: NoKp - digits only, no dashes (spec: XXXXXXXXXXXX)
+    const formatNoKp = (ic: string | null | undefined): string =>
+      (ic || '').replace(/\D/g, '');
+
+    // Helper: NomborTelefon - digits only, no dashes, no +6 prefix (spec: 017XXXXXXX)
+    const formatNomborTelefon = (phone: string | null | undefined): string => {
+      const digits = (phone || '').replace(/\D/g, '');
+      if (digits.startsWith('60') && digits.length === 11) return '0' + digits.slice(2);
+      if (digits.startsWith('6') && digits.length === 10) return '0' + digits.slice(1);
+      return digits.slice(0, 10); // max 10 per spec
     };
 
     // Helper: format address
@@ -1046,7 +1064,7 @@ router.get('/exports/kpkt', requireAdmin, async (req, res, next) => {
 
     const rows = loans.map(loan => {
       const borrower = loan.borrower;
-      const isCompany = borrower.borrowerType === 'CORPORATE';
+      const isCompany = borrower.borrowerType === 'CORPORATE'; // Syarikat vs Individu
 
       // Calculate financials
       const principal = toSafeNumber(loan.principalAmount);
@@ -1101,30 +1119,36 @@ router.get('/exports/kpkt', requireAdmin, async (req, res, next) => {
         return 'Bukan Bumi';
       })();
 
+      // Jadual K = Bercagar (secured), Jadual J = Tidak Bercagar (unsecured)
+      const isSecured = (loan.product?.loanScheduleType ?? 'JADUAL_J') === 'JADUAL_K';
+      const tarikhPinjaman = formatKPKTDate(
+        loan.agreementDate || loan.disbursementDate || loan.createdAt,
+      );
+
       return [
         isCompany ? 'Syarikat' : 'Individu',                                    // JenisPemohon
         isCompany ? (borrower.companyName || borrower.name) : borrower.name,     // NamaPemohon
         isCompany ? corporateBumiStatus : '',                                    // JenisSyarikat
         isCompany ? (borrower.ssmRegistrationNo || '') : '',                     // NomborPerniagaan
-        !isCompany ? borrower.icNumber : '',                                     // NoKp
-        !isCompany ? (borrower.phone || '') : '',                                // NomborTelefon
-        !isCompany ? getBangsa(borrower.race || undefined) : '',                   // Bangsa
-        !isCompany ? getJantina(borrower.gender || undefined) : '',              // Jantina
-        !isCompany ? getPekerjaan(borrower.occupation || undefined) : '',        // Pekerjaan
-        !isCompany ? (borrower.monthlyIncome?.toString() || '') : '',            // Pendapatan
+        !isCompany ? formatNoKp(borrower.icNumber) : '',                         // NoKp (digits only)
+        !isCompany ? formatNomborTelefon(borrower.phone) : '',                   // NomborTelefon (no dashes, no +6)
+        !isCompany ? getBangsaForKPKT(borrower.race || undefined) : '',             // Bangsa (strict enum for Individu)
+        !isCompany ? getJantina(borrower.gender || undefined) : '',               // Jantina
+        !isCompany ? getPekerjaan(borrower.occupation || undefined) : '',         // Pekerjaan
+        !isCompany ? formatKPKTNumber(toSafeNumber(borrower.monthlyIncome ?? 0)) : '', // Pendapatan
         !isCompany ? getMajikan(borrower.employmentStatus || undefined) : '',    // Majikan
-        !isCompany ? formatAddress(borrower.address) : formatAddress(borrower.businessAddress), // Alamat
-        loan.product.loanScheduleType === 'JADUAL_K' ? 'Bercagar' : 'Tidak Bercagar', // StatusCagaran
-        loan.collateralType || '',                                               // JenisCagaran
-        loan.collateralValue ? Math.round(toSafeNumber(loan.collateralValue)).toString() : '', // NilaiCagaran
-        formatKPKTDate(loan.disbursementDate || loan.createdAt),                 // TarikhPinjaman
-        Math.round(principal).toString(),                                        // PinjamanPokok
-        Math.round(totalInterest).toString(),                                    // JumlahFaedahKeseluruhan
-        Math.round(totalAmount).toString(),                                      // JumlahPinjamanKeseluruhan
-        annualizedRate.toString(),                                               // KadarFaedah
+        !isCompany ? formatAddress(borrower.address) : '',                                     // Alamat (individual-only; blank for Syarikat)
+        isSecured ? 'Bercagar' : 'Tidak Bercagar',                                // StatusCagaran
+        getJenisCagaran(loan.collateralType, isSecured),                          // JenisCagaran (spec enum)
+        isSecured ? formatKPKTNumber(toSafeNumber(loan.collateralValue ?? 0)) : '', // NilaiCagaran (required when Bercagar)
+        tarikhPinjaman,                                                          // TarikhPinjaman
+        formatKPKTNumber(principal),                                             // PinjamanPokok
+        formatKPKTNumber(totalInterest),                                         // JumlahFaedahKeseluruhan
+        formatKPKTNumber(totalAmount),                                           // JumlahPinjamanKeseluruhan
+        annualizedRate.toString(),                                               // KadarFaedah (no %)
         loan.term.toString(),                                                    // TempohBayaran
-        Math.round(outstandingBalance).toString(),                               // BakiPinjamanKeseluruhan
-        nplAmount.toString(),                                                    // JumlahNpl
+        formatKPKTNumber(outstandingBalance),                                     // BakiPinjamanKeseluruhan
+        formatKPKTNumber(nplAmount),                                             // JumlahNpl
         nota,                                                                    // Nota
       ];
     });

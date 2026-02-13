@@ -149,13 +149,13 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
   if (loading) {
     if (collapsed) {
       return (
-        <div className={cn("flex items-center justify-center h-16 border-b border-border", className)}>
+        <div className={cn("flex items-center justify-center h-16", className)}>
           <div className="h-8 w-8 bg-surface animate-pulse rounded" />
         </div>
       );
     }
     return (
-      <div className={cn("px-4 py-3 border-b border-border", className)}>
+      <div className={cn("px-4 py-3", className)}>
         <div className="h-5 w-32 bg-surface animate-pulse rounded" />
         <div className="h-4 w-24 bg-surface animate-pulse rounded mt-1" />
       </div>
@@ -169,7 +169,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
         <TooltipProvider delayDuration={0}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className={cn("flex items-center justify-center h-16 border-b border-border", className)}>
+              <div className={cn("flex items-center justify-center h-16", className)}>
                 <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
               </div>
             </TooltipTrigger>
@@ -191,7 +191,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
               <TooltipTrigger asChild>
                 <button
                   className={cn(
-                    "flex items-center justify-center w-full h-16 border-b border-border hover:bg-surface transition-colors outline-none",
+                    "flex items-center justify-center w-full h-16 hover:bg-surface transition-colors outline-none",
                     className,
                   )}
                   disabled={switching}
@@ -232,7 +232,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
                   </div>
                 </div>
                 {membership.tenantId === activeTenantId && (
-                  <Check className="h-4 w-4 text-accent shrink-0" />
+                  <Check className="h-4 w-4 text-foreground shrink-0" />
                 )}
               </div>
             </DropdownMenuItem>
@@ -245,7 +245,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
   // Expanded mode — single tenant static display
   if (memberships.length <= 1) {
     return (
-      <div className={cn("px-4 py-3 border-b border-border flex items-center gap-3", className)}>
+      <div className={cn("px-4 py-3 flex items-center gap-3", className)}>
         <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
         <div className="min-w-0">
           <p className="text-sm font-medium truncate">
@@ -266,7 +266,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
         <Button
           variant="ghost"
           className={cn(
-            "w-full justify-between px-4 py-6 h-auto border-b border-border rounded-none hover:bg-surface hover:text-foreground",
+            "w-full justify-between px-4 py-6 h-auto rounded-none hover:bg-surface hover:text-foreground",
             className
           )}
           disabled={switching}
@@ -310,7 +310,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
                 </div>
               </div>
               {membership.tenantId === activeTenantId && (
-                <Check className="h-4 w-4 text-accent shrink-0" />
+                <Check className="h-4 w-4 text-foreground shrink-0" />
               )}
             </div>
           </DropdownMenuItem>

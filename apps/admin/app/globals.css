@@ -7,43 +7,43 @@
 
 @layer base {
   :root {
-    /* Light theme - matching truestack.my */
+    /* Light theme - Neutral / Vercel-inspired */
     --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --surface: 210 40% 98%;
-    --border: 214 32% 91%;
-    --muted: 215 16% 47%;
-    --muted-foreground: 215 16% 47%;
+    --foreground: 0 0% 4%;
+    --surface: 0 0% 98%;
+    --border: 0 0% 90%;
+    --muted: 0 0% 45%;
+    --muted-foreground: 0 0% 45%;
     
     /* Card */
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 0 0% 4%;
     
     /* Popover */
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 0 0% 4%;
     
     /* Input */
-    --input: 214 32% 91%;
-    --ring: 217 91% 60%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 4%;
     
-    /* Primary (blue accent - TrueStack blue) */
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
+    /* Primary (neutral - near-black for CTA) */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
     
     /* Secondary */
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
     
     /* Destructive */
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     
-    /* Accent colors (blue gradient - TrueStack style) */
-    --accent: 217 91% 60%;
-    --accent-start: 217 91% 60%;
-    --accent-end: 224 76% 48%;
-    --accent-foreground: 0 0% 100%;
+    /* Accent (subtle neutral for hover states) */
+    --accent: 0 0% 96%;
+    --accent-start: 0 0% 9%;
+    --accent-end: 0 0% 20%;
+    --accent-foreground: 0 0% 9%;
     
     /* Status colors */
     --success: 142 71% 45%;
@@ -54,65 +54,65 @@
     /* Radius */
     --radius: 0.5rem;
     
-    /* Chart colors */
+    /* Chart colors - diverse palette since chrome is neutral */
     --chart-1: 217 91% 60%;
     --chart-2: 142 71% 45%;
     --chart-3: 38 92% 50%;
     --chart-4: 0 84% 60%;
-    --chart-5: 215 20% 65%;
-    --chart-cursor: 214 32% 91% / 0.6;
+    --chart-5: 270 50% 60%;
+    --chart-cursor: 0 0% 90% / 0.6;
     
     /* Legacy variables for backward compatibility */
-    --color-accent-start: #3B82F6;
-    --color-accent-end: #2563EB;
+    --color-accent-start: #171717;
+    --color-accent-end: #333333;
     --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-foreground: 0 0% 15%;
+    --sidebar-primary: 0 0% 9%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 0 0% 96%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 90%;
+    --sidebar-ring: 0 0% 9%;
   }
 
   .dark {
-    /* Dark theme - matching truestack.my dark sections */
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    --surface: 217 33% 17%;
-    --border: 217 33% 25%;
-    --muted: 215 20% 65%;
-    --muted-foreground: 215 20% 65%;
+    /* Dark theme - True black / Vercel-inspired */
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --surface: 0 0% 9%;
+    --border: 0 0% 16%;
+    --muted: 0 0% 55%;
+    --muted-foreground: 0 0% 55%;
     
     /* Card */
-    --card: 217 33% 17%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 98%;
     
     /* Popover */
-    --popover: 222 47% 13%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 98%;
     
     /* Input */
-    --input: 217 33% 25%;
-    --ring: 217 91% 60%;
+    --input: 0 0% 16%;
+    --ring: 0 0% 98%;
     
-    /* Primary (blue accent - TrueStack blue) */
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
+    /* Primary (white on dark for CTA) */
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 4%;
     
     /* Secondary */
-    --secondary: 217 33% 25%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 98%;
     
     /* Destructive */
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     
-    /* Accent colors (blue gradient - TrueStack style) */
-    --accent: 217 91% 60%;
-    --accent-start: 217 91% 60%;
-    --accent-end: 224 76% 48%;
-    --accent-foreground: 0 0% 100%;
+    /* Accent (subtle neutral for hover states) */
+    --accent: 0 0% 14%;
+    --accent-start: 0 0% 98%;
+    --accent-end: 0 0% 80%;
+    --accent-foreground: 0 0% 98%;
     
     /* Status colors */
     --success: 142 71% 45%;
@@ -125,16 +125,16 @@
     --chart-2: 142 71% 50%;
     --chart-3: 38 92% 55%;
     --chart-4: 0 84% 65%;
-    --chart-5: 215 20% 70%;
-    --chart-cursor: 217 33% 25% / 0.5;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --chart-5: 270 50% 65%;
+    --chart-cursor: 0 0% 16% / 0.5;
+    --sidebar-background: 0 0% 4%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 0 0% 4%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 12%;
+    --sidebar-ring: 0 0% 98%;
   }
 
   * {
@@ -151,18 +151,18 @@
 }
 
 @layer components {
-  /* Primary gradient button */
+  /* Primary button - solid neutral */
   .btn-primary {
-    @apply bg-gradient-accent text-white font-medium px-4 py-2 rounded-lg;
+    @apply bg-primary text-primary-foreground font-medium px-4 py-2 rounded-lg;
     @apply hover:opacity-90 transition-opacity;
-    @apply focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
   }
 
   /* Secondary button */
   .btn-secondary {
-    @apply bg-surface text-foreground border border-accent font-medium px-4 py-2 rounded-lg;
-    @apply hover:bg-accent/10 transition-colors;
-    @apply focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background;
+    @apply bg-surface text-foreground border border-border font-medium px-4 py-2 rounded-lg;
+    @apply hover:bg-secondary transition-colors;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
   }
 
   /* Ghost button */
@@ -179,13 +179,13 @@
   /* Input component */
   .input {
     @apply bg-background border border-border rounded-lg px-4 py-2 text-foreground;
-    @apply placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent;
+    @apply placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent;
     @apply transition-colors;
   }
 
   /* Badge styles */
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium;
   }
 
   .badge-success {
@@ -206,7 +206,7 @@
 
   /* Table styles */
   .table-header {
-    @apply bg-surface text-muted text-left text-sm font-medium;
+    @apply bg-surface text-muted text-left text-base font-medium;
   }
 
   .table-row {
@@ -219,9 +219,9 @@
 }
 
 @layer utilities {
-  /* Gradient text */
+  /* Gradient text - now uses foreground for a clean look */
   .text-gradient {
-    @apply bg-gradient-accent bg-clip-text text-transparent;
+    @apply text-foreground font-bold;
   }
 
   /* Glassmorphism */
@@ -229,13 +229,13 @@
     @apply backdrop-blur-md bg-surface/70;
   }
 
-  /* Theme-aware background tints */
+  /* Theme-aware background tints - flat for neutral theme */
   .bg-tint {
-    @apply bg-gradient-to-br from-primary/[0.03] via-background to-primary/[0.02];
+    @apply bg-background;
   }
 
   .bg-tint-subtle {
-    @apply bg-gradient-to-br from-primary/[0.02] via-background to-primary/[0.01];
+    @apply bg-background;
   }
 }
 
@@ -268,27 +268,23 @@
 }
 
 .markdown-content h1 {
-  @apply text-3xl font-heading font-bold mb-6 mt-0;
+  @apply text-4xl font-heading font-bold mb-6 mt-0;
 }
 
 .markdown-content h2 {
-  @apply text-2xl font-bold mt-10 mb-4;
-  background: linear-gradient(135deg, var(--color-accent-start), var(--color-accent-end));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  @apply text-3xl font-bold mt-10 mb-4 text-foreground;
 }
 
 .markdown-content h3 {
-  @apply text-xl font-semibold mt-8 mb-3;
+  @apply text-2xl font-semibold mt-8 mb-3;
 }
 
 .markdown-content h4 {
-  @apply text-lg font-medium mt-6 mb-3;
+  @apply text-xl font-medium mt-6 mb-3;
 }
 
 .markdown-content p {
-  @apply my-4 leading-relaxed;
+  @apply my-4 leading-relaxed text-base;
 }
 
 .markdown-content ul {
@@ -304,15 +300,15 @@
 }
 
 .markdown-content a {
-  @apply text-accent hover:underline;
+  @apply text-foreground underline underline-offset-4 hover:text-muted;
 }
 
 .markdown-content code {
-  @apply bg-background px-1.5 py-0.5 rounded text-sm text-accent;
+  @apply bg-secondary px-1.5 py-0.5 rounded text-sm text-foreground;
 }
 
 .markdown-content pre {
-  @apply bg-background rounded-lg p-4 overflow-x-auto my-4 border border-border;
+  @apply bg-secondary rounded-lg p-4 overflow-x-auto my-4 border border-border;
 }
 
 .markdown-content pre code {
@@ -320,7 +316,7 @@
 }
 
 .markdown-content blockquote {
-  @apply border-l-4 border-accent pl-4 my-4 italic text-muted;
+  @apply border-l-4 border-border pl-4 my-4 italic text-muted;
 }
 
 .markdown-content table {
@@ -328,11 +324,11 @@
 }
 
 .markdown-content th {
-  @apply px-4 py-3 text-left text-sm font-semibold bg-surface border-b border-border;
+  @apply px-4 py-3 text-left text-base font-semibold bg-surface border-b border-border;
 }
 
 .markdown-content td {
-  @apply px-4 py-3 text-sm;
+  @apply px-4 py-3 text-base;
 }
 
 .markdown-content tr {

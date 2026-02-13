@@ -150,7 +150,7 @@ export default function HelpPage() {
       >
         <div className="p-4 border-b border-border">
           <h2 className="text-lg font-heading font-bold flex items-center gap-2">
-            <Book className="h-5 w-5 text-accent" />
+            <Book className="h-5 w-5 text-muted-foreground" />
             Help Center
           </h2>
           <div className="mt-3 relative">
@@ -200,7 +200,7 @@ export default function HelpPage() {
                             className={cn(
                               "w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors text-left",
                               docSlug === doc.slug
-                                ? "bg-accent/10 text-accent font-medium"
+                                ? "bg-secondary text-foreground font-medium"
                                 : "text-muted hover:text-foreground hover:bg-background"
                             )}
                           >
@@ -294,7 +294,7 @@ export default function HelpPage() {
                     onClick={() => navigateToDoc(doc.slug)}
                   >
                     <CardContent className="p-4 flex items-center gap-3">
-                      <FileText className="h-5 w-5 text-accent" />
+                      <FileText className="h-5 w-5 text-muted-foreground" />
                       <span className="text-sm font-medium truncate">
                         {doc.title}
                       </span>
@@ -365,7 +365,7 @@ function convertMarkdownToHtml(markdown: string): string {
   });
 
   // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-background px-1.5 py-0.5 rounded text-sm text-accent">$1</code>');
+  html = html.replace(/`([^`]+)`/g, '<code class="bg-secondary px-1.5 py-0.5 rounded text-sm text-foreground">$1</code>');
 
   // Bold
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold">$1</strong>');
@@ -377,9 +377,9 @@ function convertMarkdownToHtml(markdown: string): string {
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
     if (url.startsWith('?doc=')) {
       const slug = url.replace('?doc=', '');
-      return `<a href="/dashboard/help${url}" data-doc="${slug}" class="text-accent hover:underline">${text}</a>`;
+      return `<a href="/dashboard/help${url}" data-doc="${slug}" class="text-foreground hover:underline">${text}</a>`;
     }
-    return `<a href="${url}" class="text-accent hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    return `<a href="${url}" class="text-foreground hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
   });
 
   // Tables - parse markdown tables properly

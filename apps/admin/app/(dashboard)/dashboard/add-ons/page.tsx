@@ -63,8 +63,8 @@ const ADD_ON_DEFINITIONS: AddOnDefinition[] = [
     description:
       "TrueKredit already generates all loan documents — TrueSend™ sends them straight to your borrowers' inbox automatically with full delivery tracking.",
     icon: Send,
-    accentColor: "text-purple-500",
-    iconBg: "bg-purple-500/10",
+    accentColor: "text-muted-foreground",
+    iconBg: "bg-secondary",
     features: [
       "Payment receipts sent automatically after each payment",
       "Payment reminders 3 days and 1 day before due dates",
@@ -86,8 +86,8 @@ const ADD_ON_DEFINITIONS: AddOnDefinition[] = [
     description:
       "Integrated e-KYC verification. Generate a QR code, let borrowers scan to photograph their IC and complete a face liveness check. Results are saved for KPKT audit & compliance.",
     icon: Fingerprint,
-    accentColor: "text-emerald-700 dark:text-emerald-500",
-    iconBg: "bg-emerald-500/10",
+    accentColor: "text-muted-foreground",
+    iconBg: "bg-secondary",
     features: [
       "QR-based flow — borrowers verify from anywhere",
       "IC (MyKad) photo capture with automatic OCR data extraction",
@@ -171,11 +171,11 @@ export default function AddOnsPage() {
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <h1 className="text-2xl font-heading font-bold text-gradient">
+            <h1 className="text-2xl font-heading font-bold text-foreground">
               Add-ons
             </h1>
           </div>
-          <p className="text-muted text-sm ml-6">
+          <p className="text-base text-muted-foreground ml-6">
             Extend your TrueKredit platform with powerful add-on features
           </p>
         </div>
@@ -201,14 +201,14 @@ export default function AddOnsPage() {
                           {addOn.title}
                         </h3>
                         {addOn.comingSoon ? (
-                          <Badge variant="secondary" className="text-[10px]">Coming Soon</Badge>
+                          <Badge variant="secondary" className="text-xs">Coming Soon</Badge>
                         ) : isActive ? (
-                          <Badge variant="success" className="text-[10px]">Active</Badge>
+                          <Badge variant="success" className="text-xs">Active</Badge>
                         ) : (
-                          <Badge variant="outline" className="text-[10px] text-muted-foreground">Not Subscribed</Badge>
+                          <Badge variant="outline" className="text-xs text-muted-foreground">Not Subscribed</Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground mt-0.5">
+                      <p className="text-base text-muted-foreground mt-0.5">
                         {addOn.tagline}
                       </p>
                     </div>
@@ -218,26 +218,26 @@ export default function AddOnsPage() {
                   {showTrueSendStats && (
                     <div className="grid grid-cols-4 gap-1 text-center py-2 border-y border-border/50">
                       <div>
-                        <p className="text-xl font-heading font-bold tabular-nums">{formatNumber(emailStats.total, 0)}</p>
-                        <p className="text-[10px] text-muted-foreground">Sent</p>
+                        <p className="text-xl font-heading font-bold tabular-nums text-foreground">{formatNumber(emailStats.total, 0)}</p>
+                        <p className="text-xs text-muted-foreground">Sent</p>
                       </div>
                       <div>
                         <p className="text-xl font-heading font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{formatNumber(emailStats.delivered, 0)}</p>
-                        <p className="text-[10px] text-muted-foreground">Delivered</p>
+                        <p className="text-xs text-muted-foreground">Delivered</p>
                       </div>
                       <div>
                         <p className="text-xl font-heading font-bold tabular-nums text-red-500">{formatNumber(emailStats.failed, 0)}</p>
-                        <p className="text-[10px] text-muted-foreground">Failed</p>
+                        <p className="text-xs text-muted-foreground">Failed</p>
                       </div>
                       <div>
                         <p className="text-xl font-heading font-bold tabular-nums text-muted-foreground">{formatNumber(emailStats.pending, 0)}</p>
-                        <p className="text-[10px] text-muted-foreground">Pending</p>
+                        <p className="text-xs text-muted-foreground">Pending</p>
                       </div>
                     </div>
                   )}
 
                   {/* Description */}
-                  <p className="text-sm text-muted-foreground leading-relaxed">
+                  <p className="text-base text-muted-foreground leading-relaxed">
                     {addOn.description}
                   </p>
 
@@ -246,8 +246,8 @@ export default function AddOnsPage() {
                     <div className="space-y-1.5">
                       {addOn.features.map((feature, idx) => (
                         <div key={idx} className="flex items-start gap-2">
-                          <Check className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${addOn.accentColor}`} />
-                          <p className="text-sm text-muted-foreground">{feature}</p>
+                          <Check className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                          <p className="text-base text-muted-foreground">{feature}</p>
                         </div>
                       ))}
                     </div>
@@ -256,13 +256,13 @@ export default function AddOnsPage() {
                   {/* Footer: pricing + CTA */}
                   <div className="flex items-center justify-between gap-3 pt-4 border-t border-border">
                     <div>
-                      <p className="text-xs text-muted-foreground">Pricing</p>
-                      <p className="text-sm font-heading font-semibold">{addOn.pricing}</p>
+                      <p className="text-sm text-muted-foreground">Pricing</p>
+                      <p className="text-base font-heading font-semibold text-foreground">{addOn.pricing}</p>
                       {addOn.learnMoreUrl && (
                         addOn.learnMoreUrl.startsWith("/") ? (
                           <Link
                             href={addOn.learnMoreUrl}
-                            className={`inline-flex items-center gap-1 text-xs mt-1 hover:underline ${addOn.accentColor}`}
+                            className="inline-flex items-center gap-1 text-sm mt-1 text-foreground hover:text-muted-foreground hover:underline"
                           >
                             Learn more
                             <ExternalLink className="h-3 w-3" />
@@ -272,7 +272,7 @@ export default function AddOnsPage() {
                             href={addOn.learnMoreUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={`inline-flex items-center gap-1 text-xs mt-1 hover:underline ${addOn.accentColor}`}
+                            className="inline-flex items-center gap-1 text-sm mt-1 text-foreground hover:text-muted-foreground hover:underline"
                           >
                             Learn more
                             <ExternalLink className="h-3 w-3" />
@@ -317,10 +317,10 @@ export default function AddOnsPage() {
 
         {/* Billing link */}
         <div className="text-center">
-          <p className="text-xs text-muted-foreground mb-2">
+          <p className="text-sm text-muted-foreground mb-2">
             Add-on subscriptions are tied to your billing cycle and appear on your monthly invoice.
           </p>
-          <Button variant="link" size="sm" asChild className="text-xs gap-1">
+          <Button variant="link" size="sm" asChild className="text-sm gap-1">
             <Link href="/dashboard/billing">
               Go to Billing
               <ExternalLink className="h-3 w-3" />

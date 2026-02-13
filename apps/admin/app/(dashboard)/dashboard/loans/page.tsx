@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Eye, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { FileText, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { TableActionButton } from "@/components/ui/table-action-button";
+
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
@@ -27,7 +27,7 @@ import {
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
-import { formatCurrency, formatDate, formatSmartDateTime } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatSmartDateTime } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface LoanProgress {
@@ -59,6 +59,7 @@ interface Loan {
   product: {
     id: string;
     name: string;
+    loanScheduleType?: string;
   };
   lateFeeBreakdown?: {
     total: number;
@@ -85,27 +86,27 @@ function ProgressDonut({
   size = 32, 
   strokeWidth = 4,
   readyToComplete = false,
+  status,
 }: { 
   percent: number; 
   size?: number; 
   strokeWidth?: number;
   readyToComplete?: boolean;
+  status?: string;
 }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percent / 100) * circumference;
   const center = size / 2;
   
-  // Determine color based on progress
-  let strokeColor = "stroke-primary";
-  if (percent === 100) {
+  // Color follows status: green for completed, red for defaulted/written-off, amber for in-arrears, black otherwise
+  let strokeColor = "stroke-foreground";
+  if (status === "COMPLETED") {
     strokeColor = "stroke-emerald-500";
-  } else if (percent >= 75) {
-    strokeColor = "stroke-blue-500";
-  } else if (percent >= 50) {
+  } else if (status === "DEFAULTED" || status === "WRITTEN_OFF") {
+    strokeColor = "stroke-red-500";
+  } else if (status === "IN_ARREARS") {
     strokeColor = "stroke-amber-500";
-  } else if (percent > 0) {
-    strokeColor = "stroke-orange-500";
   }
   
   return (
@@ -118,7 +119,7 @@ function ProgressDonut({
           r={radius}
           fill="none"
           strokeWidth={strokeWidth}
-          className="stroke-muted"
+          className="stroke-muted/40"
         />
         {/* Progress circle */}
         <circle
@@ -142,7 +143,7 @@ function ProgressDonut({
 
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   PENDING_DISBURSEMENT: "warning",
-  ACTIVE: "info",
+  ACTIVE: "default",
   IN_ARREARS: "warning",
   COMPLETED: "success",
   DEFAULTED: "destructive",
@@ -151,6 +152,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 
 export default function LoansPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const initialFilter = searchParams.get("filter") || "";
 
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
@@ -294,17 +296,8 @@ export default function LoansPage() {
     ? [...filteredLoans].sort((a, b) => {
         let cmp = 0;
         switch (sortField) {
-          case "type":
-            cmp = a.borrower.borrowerType.localeCompare(b.borrower.borrowerType);
-            break;
           case "principal":
             cmp = Number(a.principalAmount) - Number(b.principalAmount);
-            break;
-          case "rate":
-            cmp = Number(a.interestRate) - Number(b.interestRate);
-            break;
-          case "product":
-            cmp = a.product.name.localeCompare(b.product.name);
             break;
           case "term":
             cmp = a.term - b.term;
@@ -375,27 +368,27 @@ export default function LoansPage() {
         lateFeeStatus.loansReadyToComplete > 0 ||
         lateFeeStatus.loansReadyForDefault > 0
       ) && (
-        <div className="flex items-center gap-4 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
-          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+        <div className="flex items-center gap-4 p-3 rounded-lg border border-border bg-secondary">
+          <AlertTriangle className="h-4 w-4 text-foreground shrink-0" />
           <div className="flex items-center gap-2 text-sm flex-wrap">
             {[
               lateFeeStatus.loansPendingDisbursement > 0 && (
-                <span key="pending" className="text-amber-600 dark:text-amber-400">
+                <span key="pending" className="text-foreground font-medium">
                   {lateFeeStatus.loansPendingDisbursement} loan{lateFeeStatus.loansPendingDisbursement !== 1 ? "s" : ""} pending disbursement
                 </span>
               ),
               lateFeeStatus.loansInArrears > 0 && (
-                <span key="arrears" className="text-amber-600 dark:text-amber-400">
+                <span key="arrears" className="text-foreground font-medium">
                   {lateFeeStatus.loansInArrears} loan{lateFeeStatus.loansInArrears !== 1 ? "s" : ""} in arrears
                 </span>
               ),
               lateFeeStatus.loansReadyToComplete > 0 && (
-                <span key="complete" className="text-emerald-600 dark:text-emerald-400">
+                <span key="complete" className="text-foreground font-medium">
                   {lateFeeStatus.loansReadyToComplete} loan{lateFeeStatus.loansReadyToComplete !== 1 ? "s" : ""} ready to complete
                 </span>
               ),
               lateFeeStatus.loansReadyForDefault > 0 && (
-                <span key="default" className="text-red-600 dark:text-red-400">
+                <span key="default" className="text-foreground font-medium">
                   {lateFeeStatus.loansReadyForDefault} loan{lateFeeStatus.loansReadyForDefault !== 1 ? "s" : ""} ready for default
                 </span>
               ),
@@ -426,7 +419,6 @@ export default function LoansPage() {
           variant={filter === "IN_ARREARS" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("IN_ARREARS"); setCurrentPage(1); }}
-          className={filter === "IN_ARREARS" ? "" : "text-amber-600 dark:text-amber-400 border-amber-500/50 hover:bg-amber-500/10"}
         >
           In Arrears
         </Button>
@@ -434,7 +426,6 @@ export default function LoansPage() {
           variant={filter === "DEFAULTED" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("DEFAULTED"); setCurrentPage(1); }}
-          className={filter === "DEFAULTED" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
         >
           Defaulted
         </Button>
@@ -442,7 +433,6 @@ export default function LoansPage() {
           variant={filter === "COMPLETED" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("COMPLETED"); setCurrentPage(1); }}
-          className={filter === "COMPLETED" ? "" : "text-emerald-600 border-emerald-500/50 hover:bg-emerald-500/10"}
         >
           Completed
         </Button>
@@ -456,7 +446,7 @@ export default function LoansPage() {
         >
           Pending Disbursement
           {lateFeeStatus?.loansPendingDisbursement ? (
-            <span className="ml-1.5 bg-amber-500 text-white rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {lateFeeStatus.loansPendingDisbursement}
             </span>
           ) : null}
@@ -468,7 +458,7 @@ export default function LoansPage() {
         >
           Ready to Complete
           {lateFeeStatus?.loansReadyToComplete ? (
-            <span className="ml-1.5 bg-emerald-600 text-white rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {lateFeeStatus.loansReadyToComplete}
             </span>
           ) : null}
@@ -477,11 +467,10 @@ export default function LoansPage() {
           variant={filter === "READY_FOR_DEFAULT" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("READY_FOR_DEFAULT"); setCurrentPage(1); }}
-          className={filter === "READY_FOR_DEFAULT" ? "" : "text-destructive border-destructive/50 hover:bg-destructive/10"}
         >
           Ready for Default
           {lateFeeStatus?.loansReadyForDefault ? (
-            <span className="ml-1.5 bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {lateFeeStatus.loansReadyForDefault}
             </span>
           ) : null}
@@ -494,7 +483,7 @@ export default function LoansPage() {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-accent" />
+                <FileText className="h-5 w-5 text-muted-foreground" />
                 All Loans
               </CardTitle>
               <CardDescription className="mt-1.5">
@@ -518,19 +507,16 @@ export default function LoansPage() {
         <CardContent className="p-0">
           {loading ? (
             <TableSkeleton
-              headers={["Borrower", "Type", "Product", "Principal", "Rate", "Term", "Progress", "Late Fees", "Status", "Disbursed", "Actions"]}
+              headers={["Borrower", "", "Principal", "Term", "Progress", "Late Fees", "Status", "Disbursed"]}
               columns={[
                 { width: "w-32", subLine: true },
-                { badge: true, width: "w-20" },
-                { width: "w-24" },
+                { width: "w-8" },
                 { width: "w-20" },
-                { width: "w-12" },
                 { width: "w-16" },
                 { circle: true },
                 { width: "w-16" },
                 { badge: true, width: "w-20" },
                 { width: "w-20" },
-                { width: "w-8" },
               ]}
             />
           ) : loans.length === 0 ? (
@@ -546,28 +532,20 @@ export default function LoansPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Borrower</TableHead>
-                  <TableHead>
-                    <button onClick={() => toggleSort("type")} className="flex items-center gap-1 hover:text-foreground transition-colors">
-                      Type
-                      {sortField === "type" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                    </button>
-                  </TableHead>
-                  <TableHead>
-                    <button onClick={() => toggleSort("product")} className="flex items-center gap-1 hover:text-foreground transition-colors">
-                      Product
-                      {sortField === "product" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                    </button>
+                  <TableHead className="w-10 px-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Collateral (Jadual K)</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </TableHead>
                   <TableHead>
                     <button onClick={() => toggleSort("principal")} className="flex items-center gap-1 hover:text-foreground transition-colors">
                       Principal
                       {sortField === "principal" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                    </button>
-                  </TableHead>
-                  <TableHead>
-                    <button onClick={() => toggleSort("rate")} className="flex items-center gap-1 hover:text-foreground transition-colors">
-                      Rate
-                      {sortField === "rate" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
                     </button>
                   </TableHead>
                   <TableHead>
@@ -595,7 +573,6 @@ export default function LoansPage() {
                       {sortField === "disbursed" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
                     </button>
                   </TableHead>
-                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -609,43 +586,58 @@ export default function LoansPage() {
                   return (
                   <TableRow 
                     key={loan.id}
-                    className={
+                    className={cn(
+                      "cursor-pointer transition-colors hover:bg-muted/20",
                       progress?.readyToComplete
-                        ? "bg-emerald-50/50 dark:bg-emerald-950/20"
+                        ? "bg-emerald-500/[0.03] dark:bg-emerald-500/[0.04]"
                         : loan.readyForDefault && loan.status !== "DEFAULTED"
-                        ? "bg-red-50/50 dark:bg-red-950/20"
+                        ? "bg-red-500/[0.03] dark:bg-red-500/[0.04]"
                         : loan.status === "PENDING_DISBURSEMENT"
-                        ? "bg-amber-50/50 dark:bg-amber-950/20"
+                        ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.04]"
                         : ""
-                    }
+                    )}
+                    onClick={() => router.push(`/dashboard/loans/${loan.id}`)}
                   >
                     <TableCell>
-                      <Link href={`/dashboard/loans/${loan.id}`} className="block">
-                        <div>
-                          <p className="font-medium hover:text-primary hover:underline">{displayName}</p>
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5 shrink-0">
+                          {isCorporate ? (
+                            <Building2 className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <User className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{displayName}</p>
                           {isCorporate && loan.borrower.companyName && (
                             <p className="text-xs text-muted-foreground">Rep: {loan.borrower.name}</p>
                           )}
                           <p className="text-xs text-muted">{loan.borrower.icNumber}</p>
                         </div>
-                      </Link>
+                      </div>
                     </TableCell>
-                    <TableCell>
-                      {isCorporate ? (
-                        <Badge variant="secondary" className="text-xs">
-                          <Building2 className="h-3 w-3 mr-1" />
-                          Corporate
-                        </Badge>
+                    <TableCell className="w-10 px-2">
+                      {(loan.product?.loanScheduleType ?? "JADUAL_J") === "JADUAL_K" ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Has collateral (Jadual K)</p>
+                          </TooltipContent>
+                        </Tooltip>
                       ) : (
-                        <Badge variant="outline" className="text-xs">
-                          <User className="h-3 w-3 mr-1" />
-                          Individual
-                        </Badge>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="text-muted-foreground/40 text-xs">—</span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>No collateral (Jadual J)</p>
+                          </TooltipContent>
+                        </Tooltip>
                       )}
                     </TableCell>
-                    <TableCell>{loan.product.name}</TableCell>
                     <TableCell>{formatCurrency(Number(loan.principalAmount))}</TableCell>
-                    <TableCell>{loan.interestRate}%</TableCell>
                     <TableCell>{loan.term} months</TableCell>
                     <TableCell>
                       {loan.status === "PENDING_DISBURSEMENT" ? (
@@ -657,6 +649,7 @@ export default function LoansPage() {
                               <ProgressDonut 
                                 percent={progress.progressPercent} 
                                 readyToComplete={progress.readyToComplete}
+                                status={loan.status}
                               />
                               <span className="text-xs text-muted-foreground">
                                 {progress.paidCount}/{progress.totalRepayments}
@@ -698,14 +691,14 @@ export default function LoansPage() {
                           {loan.status.replace(/_/g, " ")}
                         </Badge>
                         {loan.earlySettlementDate && loan.status === "COMPLETED" && (
-                          <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300 dark:border-emerald-700">
+                          <Badge variant="outline-success" className="text-xs">
                             Settled Early
                           </Badge>
                         )}
                         {progress?.readyToComplete && (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Badge variant="success" className="text-xs">
+                              <Badge variant="outline-success" className="text-xs">
                                 <CheckCircle className="h-3 w-3 mr-1" />
                                 Ready
                               </Badge>
@@ -718,7 +711,7 @@ export default function LoansPage() {
                         {loan.readyForDefault && loan.status !== "DEFAULTED" && (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Badge variant="destructive" className="text-xs">
+                              <Badge variant="outline-destructive" className="text-xs">
                                 <AlertTriangle className="h-3 w-3 mr-1" />
                                 Default Ready
                               </Badge>
@@ -732,11 +725,6 @@ export default function LoansPage() {
                     </TableCell>
                     <TableCell>
                       {loan.disbursementDate ? formatDate(loan.disbursementDate) : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/dashboard/loans/${loan.id}`}>
-                        <TableActionButton icon={Eye} label="View" />
-                      </Link>
                     </TableCell>
                   </TableRow>
                   );

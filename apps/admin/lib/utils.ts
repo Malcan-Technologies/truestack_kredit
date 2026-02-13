@@ -135,6 +135,32 @@ export function formatCurrency(amount: number | string): string {
 }
 
 /**
+ * Format currency in compact/abbreviated form
+ * Examples: RM500, RM10k, RM1.5M, RM2B
+ */
+export function formatCompactCurrency(amount: number | string): string {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (isNaN(num)) return "RM0";
+
+  const abs = Math.abs(num);
+  const sign = num < 0 ? "-" : "";
+
+  if (abs >= 1_000_000_000) {
+    const val = abs / 1_000_000_000;
+    return `${sign}RM${val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)}B`;
+  }
+  if (abs >= 1_000_000) {
+    const val = abs / 1_000_000;
+    return `${sign}RM${val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)}M`;
+  }
+  if (abs >= 1_000) {
+    const val = abs / 1_000;
+    return `${sign}RM${val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)}k`;
+  }
+  return `${sign}RM${abs % 1 === 0 ? abs.toFixed(0) : abs.toFixed(2)}`;
+}
+
+/**
  * Format number with commas (no currency symbol)
  * Examples: 1,234.56, 10,000.00
  */

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { Plus, Search, User, ShieldCheck, AlertTriangle, Building2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Plus, Search, User, Fingerprint, AlertTriangle, Building2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ import { RefreshButton } from "@/components/ui/refresh-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
-import { formatDateTime } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 
 // ============================================
 // Types & Constants
@@ -73,6 +74,7 @@ function formatICForDisplay(icNumber: string): string {
 // ============================================
 
 export default function BorrowersPage() {
+  const router = useRouter();
   const [borrowers, setBorrowers] = useState<Borrower[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchInput, setSearchInput] = useState("");
@@ -167,17 +169,11 @@ export default function BorrowersPage() {
     ? [...borrowers].sort((a, b) => {
         let cmp = 0;
         switch (sortField) {
-          case "type":
-            cmp = a.borrowerType.localeCompare(b.borrowerType);
-            break;
           case "verification":
             cmp = Number(a.documentVerified) - Number(b.documentVerified);
             break;
           case "created":
             cmp = a.createdAt.localeCompare(b.createdAt);
-            break;
-          case "updated":
-            cmp = a.updatedAt.localeCompare(b.updatedAt);
             break;
         }
         return sortDir === "desc" ? -cmp : cmp;
@@ -233,7 +229,7 @@ export default function BorrowersPage() {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5 text-accent" />
+                <User className="h-5 w-5 text-muted-foreground" />
                 All Borrowers
               </CardTitle>
               <CardDescription className="mt-1.5">
@@ -257,14 +253,12 @@ export default function BorrowersPage() {
         <CardContent>
           {loading ? (
             <TableSkeleton
-              headers={["Name", "Type", "Identity", "Verification", "Contact", "Created", "Updated", "Loans"]}
+              headers={["Name", "Identity", "Verification", "Contact", "Created", "Loans"]}
               columns={[
                 { width: "w-32", subLine: true },
-                { badge: true, width: "w-20" },
                 { width: "w-28", subLine: true },
                 { badge: true, width: "w-16" },
                 { width: "w-24", subLine: true },
-                { width: "w-28" },
                 { width: "w-28" },
                 { badge: true, width: "w-8" },
               ]}
@@ -316,12 +310,6 @@ export default function BorrowersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>
-                      <button onClick={() => toggleSort("type")} className="flex items-center gap-1 hover:text-foreground transition-colors">
-                        Type
-                        {sortField === "type" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                      </button>
-                    </TableHead>
                     <TableHead>Identity</TableHead>
                     <TableHead>
                       <button onClick={() => toggleSort("verification")} className="flex items-center gap-1 hover:text-foreground transition-colors">
@@ -336,45 +324,38 @@ export default function BorrowersPage() {
                         {sortField === "created" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
                       </button>
                     </TableHead>
-                    <TableHead>
-                      <button onClick={() => toggleSort("updated")} className="flex items-center gap-1 hover:text-foreground transition-colors">
-                        Updated
-                        {sortField === "updated" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                      </button>
-                    </TableHead>
                     <TableHead>Loans</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sortedBorrowers.map((borrower) => (
-                    <TableRow key={borrower.id}>
+                    <TableRow
+                      key={borrower.id}
+                      className="cursor-pointer transition-colors hover:bg-muted/30"
+                      onClick={() => router.push(`/dashboard/borrowers/${borrower.id}`)}
+                    >
                       <TableCell className="font-medium">
-                        <Link
-                          href={`/dashboard/borrowers/${borrower.id}`}
-                          className="hover:text-primary hover:underline"
-                        >
-                          {borrower.borrowerType === "CORPORATE" && borrower.companyName
-                            ? borrower.companyName
-                            : borrower.name}
-                        </Link>
-                        {borrower.borrowerType === "CORPORATE" && borrower.companyName && (
-                          <div className="text-xs text-muted-foreground">
-                            Rep: {borrower.name}
+                        <div className="flex items-start gap-2">
+                          <div className="mt-0.5 shrink-0">
+                            {borrower.borrowerType === "CORPORATE" ? (
+                              <Building2 className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <User className="h-4 w-4 text-muted-foreground" />
+                            )}
                           </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {borrower.borrowerType === "CORPORATE" ? (
-                          <Badge variant="secondary" className="text-xs">
-                            <Building2 className="h-3 w-3 mr-1" />
-                            Corporate
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-xs">
-                            <User className="h-3 w-3 mr-1" />
-                            Individual
-                          </Badge>
-                        )}
+                          <div className="min-w-0">
+                            <span>
+                              {borrower.borrowerType === "CORPORATE" && borrower.companyName
+                                ? borrower.companyName
+                                : borrower.name}
+                            </span>
+                            {borrower.borrowerType === "CORPORATE" && borrower.companyName && (
+                              <div className="text-xs text-muted-foreground">
+                                Rep: {borrower.name}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="space-y-0.5">
@@ -383,7 +364,7 @@ export default function BorrowersPage() {
                               ? "SSM" 
                               : borrower.documentType === "IC" ? "IC" : "Passport"}
                           </span>
-                          <div className="font-mono text-sm">
+                          <div className="font-mono">
                             {borrower.borrowerType === "INDIVIDUAL" && borrower.documentType === "IC"
                               ? formatICForDisplay(borrower.icNumber)
                               : borrower.icNumber}
@@ -394,26 +375,24 @@ export default function BorrowersPage() {
                         {borrower.documentVerified ? (
                           <Badge
                             variant="verified"
-                            className="text-[10px] px-1.5 py-0 h-4 font-medium"
-                            title="Verified via e-KYC"
+                            title="Verified via TrueIdentity e-KYC"
                           >
-                            <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
+                            <Fingerprint className="h-3 w-3 mr-1" />
                             e-KYC
                           </Badge>
                         ) : (
                           <Badge
                             variant="unverified"
-                            className="text-[10px] px-1.5 py-0 h-4 font-medium"
                             title="Manually verified by admin - exercise caution"
                           >
-                            <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                            <AlertTriangle className="h-3 w-3 mr-1" />
                             Manual
                           </Badge>
                         )}
                       </TableCell>
                       <TableCell>
                         <div className="space-y-0.5">
-                          <div className="text-sm">{borrower.phone || "-"}</div>
+                          <div>{borrower.phone || "-"}</div>
                           {borrower.email && (
                             <div
                               className="text-xs text-muted-foreground truncate max-w-[180px]"
@@ -425,10 +404,7 @@ export default function BorrowersPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm">{formatDateTime(borrower.createdAt)}</span>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm">{formatDateTime(borrower.updatedAt)}</span>
+                        <span>{formatDate(borrower.createdAt)}</span>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{borrower._count.loans}</Badge>

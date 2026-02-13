@@ -1,9 +1,4 @@
-import {
-  Mail,
-  Fingerprint,
-  Gift,
-  type LucideIcon,
-} from "lucide-react";
+import { Gift, type LucideIcon } from "lucide-react";
 
 // ============================================
 // Promotion / Advertisement Data
@@ -27,50 +22,6 @@ export interface Promotion {
 
 export const PROMOTIONS: Promotion[] = [
   {
-    id: "automated-emails",
-    title: "Automated Emails",
-    tagline: "Send receipts, reminders & notices automatically",
-    description:
-      "Stop manually emailing PDFs. TrueKredit already generates all loan documents — the Automated Emails add-on sends them straight to your borrowers' inbox. Payment receipts, reminder letters, arrears notices, default notices, and discharge letters — all delivered instantly.",
-    icon: Mail,
-    badge: "Add-on",
-    badgeVariant: "info",
-    gradient: "from-blue-500/15 via-card to-blue-500/[0.07]",
-    borderColor: "border-blue-500/25",
-    href: "/dashboard/promotions#automated-emails",
-    features: [
-      "Payment receipts sent instantly after each repayment",
-      "Reminder letters before due dates to reduce late payments",
-      "Arrears & default notices delivered automatically",
-      "Discharge letters on loan completion",
-      "Full audit trail of all email deliveries",
-    ],
-    pricing: "RM 50/month per 500 active loans",
-    cta: "Learn More",
-  },
-  {
-    id: "trueidentity",
-    title: "TrueIdentity",
-    tagline: "Verify borrower identity digitally via QR code",
-    description:
-      "TrueIdentity is our integrated e-KYC verification system. Generate a QR code from TrueKredit, let the borrower scan it on their phone to photograph their IC and complete a face liveness check. The system extracts IC data via OCR, cross-checks it against the liveness photo, and saves the result directly into the loan file — all in minutes, from anywhere.",
-    icon: Fingerprint,
-    badge: "Add-on",
-    badgeVariant: "info",
-    gradient: "from-emerald-500/15 via-card to-emerald-500/[0.07]",
-    borderColor: "border-emerald-500/25",
-    href: "/dashboard/promotions#trueidentity",
-    features: [
-      "QR-based flow — borrowers verify from anywhere, no visit needed",
-      "IC (MyKad) photo capture with automatic OCR data extraction",
-      "Face liveness check to prevent identity fraud",
-      "Results saved to loan file for KPKT audit & compliance",
-      "Up to 3 retries per session at no extra cost",
-    ],
-    pricing: "RM 4 per verification",
-    cta: "Learn More",
-  },
-  {
     id: "refer-and-earn",
     title: "Refer & Earn",
     tagline: "Invite a friend and earn RM499 in cash!",
@@ -79,8 +30,8 @@ export const PROMOTIONS: Promotion[] = [
     icon: Gift,
     badge: "Coming Soon",
     badgeVariant: "default",
-    gradient: "from-primary/15 via-card to-primary/[0.07]",
-    borderColor: "border-primary/25",
+    gradient: "from-foreground/[0.12] via-card to-foreground/[0.09] dark:from-black/[0.15] dark:via-card dark:to-black/[0.08]",
+    borderColor: "border-foreground/[0.08] dark:border-white/[0.08]",
     href: "/dashboard/profile",
     features: [
       "RM499 cash reward per successful referral",

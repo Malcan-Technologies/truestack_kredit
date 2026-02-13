@@ -50,7 +50,6 @@ import { canAccessPage } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ZoomControl } from "@/components/zoom-control";
 import { cn } from "@/lib/utils";
 
 interface Membership {
@@ -335,8 +334,8 @@ export default function DashboardLayout({
                                 ? "justify-center px-0 py-2"
                                 : "gap-3 px-3 py-2",
                               isActive
-                                ? "bg-accent/10 text-accent"
-                                : "text-muted hover:text-foreground hover:bg-surface",
+                                ? "bg-secondary text-foreground"
+                                : "text-muted hover:text-foreground hover:bg-secondary",
                             )}
                             onClick={() => setSidebarOpen(false)}
                           >
@@ -398,7 +397,7 @@ export default function DashboardLayout({
                 <DropdownMenuTrigger asChild>
                   <button
                     className={cn(
-                      "group flex items-center w-full rounded-lg border-2 border-dashed border-primary/50 hover:border-primary/80 hover:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2 focus:ring-offset-surface",
+                      "group flex items-center w-full rounded-lg border border-border hover:border-foreground/30 hover:bg-secondary transition-colors outline-none focus:ring-2 focus:ring-ring/50 focus:ring-offset-2 focus:ring-offset-surface",
                       sidebarCollapsed
                         ? "justify-center p-1.5"
                         : "gap-3 p-2",
@@ -407,7 +406,7 @@ export default function DashboardLayout({
                   >
                     {/* Avatar */}
                     <div className={cn(
-                      "rounded-full bg-gradient-accent flex items-center justify-center text-white font-medium shrink-0",
+                      "rounded-full bg-primary flex items-center justify-center text-primary-foreground font-medium shrink-0",
                       sidebarCollapsed ? "w-8 h-8 text-xs" : "w-10 h-10",
                     )}>
                       {user.name?.[0] || user.email[0].toUpperCase()}
@@ -440,7 +439,7 @@ export default function DashboardLayout({
                   align="start"
                   sideOffset={8}
                   alignOffset={-20}
-                  className="w-56 border-2 border-dashed border-primary/70 bg-surface shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95 data-[side=right]:slide-in-from-left-2"
+                  className="w-56 border border-border bg-surface shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95 data-[side=right]:slide-in-from-left-2"
                 >
                   <DropdownMenuItem
                     onClick={() => router.push("/dashboard/profile")}
@@ -498,7 +497,7 @@ export default function DashboardLayout({
 
         {/* Main content */}
         <div className={cn(
-          "min-h-screen bg-gradient-to-br from-primary/[0.03] via-background to-primary/[0.02] transition-[padding] duration-200 ease-in-out",
+          "min-h-screen bg-background transition-[padding] duration-200 ease-in-out",
           sidebarCollapsed ? "lg:pl-16" : "lg:pl-64",
         )}>
           {/* Top bar */}
@@ -519,7 +518,6 @@ export default function DashboardLayout({
                 />
               </div>
               <div className="flex items-center gap-2">
-                <ZoomControl />
                 <ThemeToggle />
                 <span className="text-sm text-muted">{user.email}</span>
               </div>

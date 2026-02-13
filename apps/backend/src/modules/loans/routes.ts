@@ -1170,7 +1170,7 @@ router.get('/', async (req, res, next) => {
         orderBy: { createdAt: 'desc' },
         include: {
           borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
-          product: { select: { id: true, name: true } },
+          product: { select: { id: true, name: true, loanScheduleType: true } },
           scheduleVersions: {
             orderBy: { version: 'desc' },
             take: 1,

@@ -7,16 +7,21 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-accent/20 text-accent",
-        secondary: "bg-secondary text-foreground",
-        success: "bg-success/20 text-success",
-        warning: "bg-warning/20 text-warning",
-        destructive: "bg-destructive/20 text-destructive",
-        info: "bg-info/20 text-info",
+        default: "bg-secondary text-foreground",
+        secondary: "bg-secondary text-secondary-foreground",
+        success: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+        warning: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+        destructive: "bg-red-500/15 text-red-700 dark:text-red-400",
+        info: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
         outline: "border border-border text-foreground",
-        // Verification badges - work in both light and dark themes
-        verified: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800",
-        unverified: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800",
+        // Action badges - colored border, background fill
+        "outline-success": "border border-emerald-400 dark:border-emerald-600 bg-background text-emerald-700 dark:text-emerald-400",
+        "outline-destructive": "border border-red-400 dark:border-red-600 bg-background text-red-700 dark:text-red-400",
+        "outline-warning": "border border-amber-400 dark:border-amber-600 bg-background text-amber-700 dark:text-amber-400",
+        "outline-info": "border border-blue-400 dark:border-blue-600 bg-background text-blue-700 dark:text-blue-400",
+        // Verification badges
+        verified: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700",
+        unverified: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700",
       },
     },
     defaultVariants: {

@@ -171,13 +171,13 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   const getActionInfo = (action: string) => {
     switch (action) {
       case "CREATE":
-        return { icon: Plus, label: "Created", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Plus, label: "Created" };
       case "UPDATE":
-        return { icon: Pencil, label: "Updated", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10" };
+        return { icon: Pencil, label: "Updated" };
       case "DELETE":
-        return { icon: Trash2, label: "Deleted", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+        return { icon: Trash2, label: "Deleted" };
       default:
-        return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
+        return { icon: Clock, label: action };
     }
   };
 
@@ -211,14 +211,14 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   return (
     <div className="flex gap-4">
       <div className="flex flex-col items-center">
-        <div className={`w-8 h-8 rounded-full ${actionInfo.bg} flex items-center justify-center`}>
-          <Icon className={`h-4 w-4 ${actionInfo.color}`} />
+        <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
+          <Icon className="h-4 w-4 text-foreground" />
         </div>
         <div className="w-px flex-1 bg-border mt-2" />
       </div>
       <div className="flex-1 pb-6">
         <div className="flex items-center gap-2 mb-1">
-          <span className={`font-medium ${actionInfo.color}`}>{actionInfo.label}</span>
+          <span className="font-medium text-foreground">{actionInfo.label}</span>
           <span className="text-xs text-muted-foreground">
             {formatRelativeTime(event.createdAt)}
           </span>
@@ -229,20 +229,20 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </p>
         )}
         {changes && changes.length > 0 && (
-          <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3 space-y-3">
+          <div className="bg-secondary border border-border rounded-lg p-3 space-y-3">
             {changes.map((change, idx) => (
               <div key={idx} className="text-xs space-y-1">
                 <span className="font-medium text-foreground">{change.fieldLabel}</span>
                 <div className="flex flex-col gap-1 pl-2">
                   <div className="flex items-start gap-2">
                     <span className="text-muted-foreground shrink-0 w-10">From:</span>
-                    <span className="px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 line-through break-words">
+                    <span className="px-1.5 py-0.5 rounded bg-foreground/5 text-muted-foreground line-through break-words">
                       {change.from}
                     </span>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="text-muted-foreground shrink-0 w-10">To:</span>
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 font-medium break-words">
+                    <span className="px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium break-words">
                       {change.to}
                     </span>
                   </div>
@@ -252,13 +252,13 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </div>
         )}
         {event.action === "CREATE" && event.newData && (
-          <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3">
+          <div className="bg-secondary border border-border rounded-lg p-3">
             <p className="text-xs text-muted-foreground">
               Product created: <span className="font-medium text-foreground">{event.newData.name as string}</span>
             </p>
           </div>
         )}
-        <p className="text-[10px] text-muted-foreground mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           {formatDate(event.createdAt)} {event.ipAddress && `• IP: ${event.ipAddress}`}
         </p>
       </div>
@@ -459,7 +459,7 @@ export default function ProductDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Package className="h-5 w-5 text-accent" />
+                  <Package className="h-5 w-5 text-muted-foreground" />
                   Basic Information
                 </CardTitle>
               </CardHeader>
@@ -499,7 +499,7 @@ export default function ProductDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Percent className="h-5 w-5 text-accent" />
+                  <Percent className="h-5 w-5 text-muted-foreground" />
                   Rates & Fees
                 </CardTitle>
               </CardHeader>
@@ -537,7 +537,7 @@ export default function ProductDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Percent className="h-5 w-5 text-accent" />
+                  <Percent className="h-5 w-5 text-muted-foreground" />
                   Early Settlement
                 </CardTitle>
               </CardHeader>
@@ -575,7 +575,7 @@ export default function ProductDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5 text-accent" />
+                  <Settings className="h-5 w-5 text-muted-foreground" />
                   Limits & Collection
                 </CardTitle>
               </CardHeader>
@@ -607,7 +607,7 @@ export default function ProductDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-accent" />
+                  <FileText className="h-5 w-5 text-muted-foreground" />
                   Required Documents
                 </CardTitle>
                 <CardDescription>
@@ -641,7 +641,7 @@ export default function ProductDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-accent" />
+                <Calendar className="h-5 w-5 text-muted-foreground" />
                 Activity Timeline
               </CardTitle>
               <CardDescription>Changes and events for this product</CardDescription>

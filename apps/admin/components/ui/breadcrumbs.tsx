@@ -62,7 +62,7 @@ export function Breadcrumbs({ className, tenantName }: BreadcrumbsProps) {
   const isOnDashboardHome = pathname === "/dashboard";
 
   return (
-    <nav className={cn("flex items-center text-sm", className)} aria-label="Breadcrumb">
+    <nav className={cn("flex items-center text-base", className)} aria-label="Breadcrumb">
       <ol className="flex items-center gap-1">
         {/* Tenant name as first breadcrumb item */}
         <li>
@@ -70,7 +70,7 @@ export function Breadcrumbs({ className, tenantName }: BreadcrumbsProps) {
             href="/dashboard" 
             className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
           >
-            <Building2 className="h-4 w-4 text-primary" />
+            <Building2 className="h-4 w-4 text-foreground" />
             {tenantName && (
               <span className={cn(
                 "max-w-[150px] truncate",

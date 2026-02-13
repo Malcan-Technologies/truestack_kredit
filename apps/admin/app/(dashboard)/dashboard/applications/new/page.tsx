@@ -496,7 +496,7 @@ export default function NewApplicationPage() {
                               )
                             )}
                             {selectedBorrower?.id === borrower.id && (
-                              <CheckCircle className="h-5 w-5 text-primary" />
+                              <CheckCircle className="h-5 w-5 text-foreground" />
                             )}
                           </div>
                         </div>
@@ -588,7 +588,7 @@ export default function NewApplicationPage() {
                             </div>
                           </div>
                           {selectedProduct?.id === product.id && (
-                            <CheckCircle className="h-5 w-5 text-primary" />
+                            <CheckCircle className="h-5 w-5 text-foreground" />
                           )}
                         </div>
                         {product.description && (
@@ -720,7 +720,7 @@ export default function NewApplicationPage() {
                   {selectedProduct.loanScheduleType === "JADUAL_K" && (
                     <div className="border-t pt-4 space-y-4">
                       <div className="flex items-center gap-2">
-                        <ShieldCheck className="h-4 w-4 text-primary" />
+                        <ShieldCheck className="h-4 w-4 text-muted-foreground" />
                         <label className="text-sm font-semibold">Collateral Details (Jadual K)</label>
                       </div>
                       <div>
@@ -761,10 +761,10 @@ export default function NewApplicationPage() {
                 {preview && (
                   <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/5 via-card to-primary/10 dark:from-primary/10 dark:via-card dark:to-primary/5 p-5 space-y-3">
                     {/* Subtle accent glow */}
-                    <div className="absolute -top-12 -right-12 w-32 h-32 bg-primary/10 rounded-full blur-3xl" />
+                    <div className="absolute -top-12 -right-12 w-32 h-32 bg-foreground/10 rounded-full blur-3xl" />
                     <h3 className="relative font-semibold flex items-center gap-2 text-foreground">
-                      <div className="p-1.5 rounded-md bg-primary/10">
-                        <Calculator className="h-4 w-4 text-primary" />
+                      <div className="p-1.5 rounded-md bg-foreground/10">
+                        <Calculator className="h-4 w-4 text-muted-foreground" />
                       </div>
                       Loan Summary
                     </h3>
@@ -811,9 +811,9 @@ export default function NewApplicationPage() {
                         </span>
                       </div>
                       {/* Monthly Payment Highlight */}
-                      <div className="flex justify-between items-center bg-primary/10 dark:bg-primary/20 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-primary/20">
+                      <div className="flex justify-between items-center bg-foreground/10 dark:bg-primary/20 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-primary/20">
                         <span className="font-semibold text-foreground">Monthly Payment</span>
-                        <span className="font-bold text-xl text-primary">
+                        <span className="font-bold text-xl text-foreground">
                           {formatCurrency(preview.monthlyPayment)}
                         </span>
                       </div>
@@ -935,10 +935,10 @@ export default function NewApplicationPage() {
                 {/* Loan Details */}
                 <div className="md:col-span-2 relative overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/5 via-card to-primary/10 dark:from-primary/10 dark:via-card dark:to-primary/5 p-5 space-y-3">
                   {/* Subtle accent glow */}
-                  <div className="absolute -top-12 -right-12 w-32 h-32 bg-primary/10 rounded-full blur-3xl" />
+                  <div className="absolute -top-12 -right-12 w-32 h-32 bg-foreground/10 rounded-full blur-3xl" />
                   <h3 className="relative font-semibold flex items-center gap-2 text-foreground">
-                    <div className="p-1.5 rounded-md bg-primary/10">
-                      <Calculator className="h-4 w-4 text-primary" />
+                    <div className="p-1.5 rounded-md bg-foreground/10">
+                      <Calculator className="h-4 w-4 text-muted-foreground" />
                     </div>
                     Loan Summary
                   </h3>
@@ -989,9 +989,9 @@ export default function NewApplicationPage() {
                       </span>
                     </div>
                     {/* Monthly Payment Highlight */}
-                    <div className="flex justify-between items-center bg-primary/10 dark:bg-primary/20 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-primary/20">
+                    <div className="flex justify-between items-center bg-foreground/10 dark:bg-primary/20 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-primary/20">
                       <span className="font-semibold text-foreground">Monthly Payment</span>
-                      <span className="font-bold text-xl text-primary">
+                      <span className="font-bold text-xl text-foreground">
                         {formatCurrency(preview.monthlyPayment)}
                       </span>
                     </div>
@@ -1000,7 +1000,7 @@ export default function NewApplicationPage() {
                   {selectedProduct.loanScheduleType === "JADUAL_K" && collateralType && (
                     <div className="relative pt-4 border-t border-border/50 space-y-2">
                       <div className="flex items-center gap-2 mb-2">
-                        <ShieldCheck className="h-4 w-4 text-primary" />
+                        <ShieldCheck className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm font-semibold text-foreground">Collateral</span>
                       </div>
                       <div className="flex justify-between items-center">

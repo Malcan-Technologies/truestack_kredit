@@ -91,8 +91,11 @@ const formatDate = (dateString: string): string => {
   });
 };
 
+/** iDeal/KPKT allowed Bangsa values (strict enum) */
+export const KPKT_BANGSA_VALUES = ['Melayu', 'Cina', 'India', 'Lain-lain', 'Bumiputera (Sabah/Sarawak)', 'Bukan Warganegara'] as const;
+
 /**
- * Get Bangsa (Race) for Lampiran A
+ * Get Bangsa (Race) for Lampiran A / KPKT iDeal
  */
 export const getBangsa = (race?: string): string => {
   if (!race) return '';
@@ -100,9 +103,20 @@ export const getBangsa = (race?: string): string => {
   if (r.includes('MALAY') || r === 'MELAYU') return 'Melayu';
   if (r.includes('CHINESE') || r === 'CINA') return 'Cina';
   if (r.includes('INDIAN') || r === 'INDIA') return 'India';
-  if (r.includes('SABAH') || r.includes('SARAWAK') || r.includes('BUMIPUTRA') || r.includes('KADAZAN') || r.includes('IBAN') || r.includes('BIDAYUH')) return 'Bumiputra (Sabah/Sarawak)';
+  if (r.includes('SABAH') || r.includes('SARAWAK') || r.includes('BUMIPUTRA') || r.includes('KADAZAN') || r.includes('IBAN') || r.includes('BIDAYUH')) return 'Bumiputera (Sabah/Sarawak)';
   if (r.includes('OTHER') || r.includes('LAIN')) return 'Lain-lain';
+  if (r.includes('FOREIGN') || r.includes('ASING') || r.includes('BUKAN_WARGANEGARA') || r.includes('WARGANEGARA')) return 'Bukan Warganegara';
   return race;
+};
+
+/**
+ * Get Bangsa for KPKT export - maps unknown values to Lain-lain per strict enum requirement
+ */
+export const getBangsaForKPKT = (race?: string): string => {
+  const result = getBangsa(race);
+  if (!result) return 'Lain-lain';
+  if ((KPKT_BANGSA_VALUES as readonly string[]).includes(result)) return result;
+  return 'Lain-lain';
 };
 
 /**
@@ -113,11 +127,11 @@ export const getPekerjaan = (occupation?: string): string => {
 };
 
 /**
- * Get Majikan (Employer type) for Lampiran A
- * Valid values: Kerajaan, Swasta, Berniaga, Kerja Sendiri, Tidak Bekerja
+ * Get Majikan (Employer type) for Lampiran A / KPKT iDeal
+ * Valid values: Tiada Maklumat, Kerajaan, Swasta, Berniaga, Kerja Sendiri, Tidak Bekerja
  */
 export const getMajikan = (employmentStatus?: string): string => {
-  if (!employmentStatus) return '';
+  if (!employmentStatus || !employmentStatus.trim()) return 'Tiada Maklumat';
   const status = employmentStatus.toUpperCase();
   if (status.includes('UNEMPLOYED') || status.includes('NOT WORKING') || status.includes('TIDAK BEKERJA') ||
     status.includes('STUDENT') || status.includes('PELAJAR') || status.includes('RETIRED') || status.includes('PENCEN')) {
@@ -127,7 +141,23 @@ export const getMajikan = (employmentStatus?: string): string => {
   if (status.includes('PRIVATE') || status.includes('SWASTA') || status.includes('EMPLOYED')) return 'Swasta';
   if (status.includes('BUSINESS') || status.includes('BERNIAGA')) return 'Berniaga';
   if (status.includes('SELF') || status.includes('FREELANCE') || status.includes('SENDIRI')) return 'Kerja Sendiri';
-  return '';
+  return 'Tiada Maklumat';
+};
+
+/**
+ * Get JenisCagaran (Collateral type) for KPKT iDeal CSV
+ * Spec values: Lain-lain, Emas, Tanah, Rumah, Kenderaan Bermotor
+ * When Bercagar but no specific type, returns Lain-lain per spec requirement.
+ */
+export const getJenisCagaran = (collateralType?: string | null, isSecured?: boolean): string => {
+  if (!isSecured) return '';
+  if (!collateralType || !collateralType.trim()) return 'Lain-lain';
+  const t = collateralType.toUpperCase();
+  if (t.includes('KENDERAAN') || t.includes('MOTOR') || t.includes('KERETA') || t.includes('VEHICLE')) return 'Kenderaan Bermotor';
+  if (t.includes('EMAS') || t.includes('GOLD')) return 'Emas';
+  if (t.includes('TANAH') || t.includes('LAND')) return 'Tanah';
+  if (t.includes('RUMAH') || t.includes('HOUSE') || t.includes('HARTANAH') || t.includes('PROPERTY')) return 'Rumah';
+  return 'Lain-lain';
 };
 
 /**

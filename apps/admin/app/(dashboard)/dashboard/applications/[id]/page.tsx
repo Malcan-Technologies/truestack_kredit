@@ -152,21 +152,21 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   const getActionInfo = (action: string) => {
     switch (action) {
       case "CREATE":
-        return { icon: Plus, label: "Created", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Plus, label: "Created" };
       case "UPDATE":
-        return { icon: Pencil, label: "Updated", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10" };
+        return { icon: Pencil, label: "Updated" };
       case "SUBMIT":
-        return { icon: Send, label: "Submitted", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10" };
+        return { icon: Send, label: "Submitted" };
       case "APPROVE":
-        return { icon: Check, label: "Approved", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Check, label: "Approved" };
       case "REJECT":
-        return { icon: X, label: "Rejected", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+        return { icon: X, label: "Rejected" };
       case "DOCUMENT_UPLOAD":
-        return { icon: Upload, label: "Document Uploaded", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
+        return { icon: Upload, label: "Document Uploaded" };
       case "DOCUMENT_DELETE":
-        return { icon: Trash2, label: "Document Deleted", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10" };
+        return { icon: Trash2, label: "Document Deleted" };
       default:
-        return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
+        return { icon: Clock, label: action };
     }
   };
 
@@ -176,14 +176,14 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   return (
     <div className="flex gap-4">
       <div className="flex flex-col items-center">
-        <div className={`w-8 h-8 rounded-full ${actionInfo.bg} flex items-center justify-center`}>
-          <Icon className={`h-4 w-4 ${actionInfo.color}`} />
+        <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
+          <Icon className="h-4 w-4 text-foreground" />
         </div>
         <div className="w-px flex-1 bg-border mt-2" />
       </div>
       <div className="flex-1 pb-6">
         <div className="flex items-center gap-2 mb-1">
-          <span className={`font-medium ${actionInfo.color}`}>{actionInfo.label}</span>
+          <span className="font-medium text-foreground">{actionInfo.label}</span>
           <span className="text-xs text-muted-foreground">
             {formatRelativeTime(event.createdAt)}
           </span>
@@ -194,13 +194,13 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </p>
         )}
         {event.newData && event.action === "DOCUMENT_UPLOAD" && (
-          <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3">
+          <div className="bg-secondary border border-border rounded-lg p-3">
             <p className="text-xs text-muted-foreground">
               Uploaded: <span className="font-medium text-foreground">{(event.newData as Record<string, unknown>).originalName as string}</span>
             </p>
           </div>
         )}
-        <p className="text-[10px] text-muted-foreground mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           {formatDate(event.createdAt)}
         </p>
       </div>
@@ -582,9 +582,9 @@ export default function ApplicationDetailPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   {application.borrower.borrowerType === "CORPORATE" ? (
-                    <Building2 className="h-4 w-4 text-accent" />
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
                   ) : (
-                    <User className="h-4 w-4 text-accent" />
+                    <User className="h-4 w-4 text-muted-foreground" />
                   )}
                   Borrower
                 </CardTitle>
@@ -593,7 +593,7 @@ export default function ApplicationDetailPage() {
                 <div>
                   <Link 
                     href={`/dashboard/borrowers/${application.borrower.id}`}
-                    className="font-medium hover:text-primary hover:underline transition-colors inline-flex items-center gap-1.5"
+                    className="font-medium hover:text-muted-foreground hover:underline transition-colors inline-flex items-center gap-1.5"
                   >
                     {application.borrower.borrowerType === "CORPORATE" && application.borrower.companyName
                       ? application.borrower.companyName
@@ -648,7 +648,7 @@ export default function ApplicationDetailPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Package className="h-4 w-4 text-accent" />
+                  <Package className="h-4 w-4 text-muted-foreground" />
                   Product
                 </CardTitle>
               </CardHeader>
@@ -696,12 +696,12 @@ export default function ApplicationDetailPage() {
 
           {/* Loan Summary */}
           {preview && (
-            <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/5 via-card to-primary/10 dark:from-primary/10 dark:via-card dark:to-primary/5 p-5 space-y-3">
+            <div className="relative overflow-hidden rounded-xl border border-border bg-secondary p-5 space-y-3">
               {/* Subtle accent glow */}
-              <div className="absolute -top-12 -right-12 w-32 h-32 bg-primary/10 rounded-full blur-3xl" />
+              <div className="absolute -top-12 -right-12 w-32 h-32 bg-foreground/5 rounded-full blur-3xl" />
               <h3 className="relative font-semibold flex items-center gap-2 text-foreground">
-                <div className="p-1.5 rounded-md bg-primary/10">
-                  <Calculator className="h-4 w-4 text-primary" />
+                <div className="p-1.5 rounded-md bg-foreground/10">
+                  <Calculator className="h-4 w-4 text-muted-foreground" />
                 </div>
                 Loan Summary
               </h3>
@@ -752,9 +752,9 @@ export default function ApplicationDetailPage() {
                   </span>
                 </div>
                 {/* Monthly Payment Highlight */}
-                <div className="flex justify-between items-center bg-primary/10 dark:bg-primary/20 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-primary/20">
+                <div className="flex justify-between items-center bg-foreground/5 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-border">
                   <span className="font-semibold text-foreground">Monthly Payment</span>
-                  <span className="font-bold text-xl text-primary">
+                  <span className="font-bold text-xl text-foreground">
                     {formatCurrency(preview.monthlyPayment)}
                   </span>
                 </div>
@@ -772,7 +772,7 @@ export default function ApplicationDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">
-                <FileText className="h-4 w-4 text-accent" />
+                <FileText className="h-4 w-4 text-muted-foreground" />
                 Documents
               </CardTitle>
               <CardDescription>
@@ -813,7 +813,7 @@ export default function ApplicationDetailPage() {
                               onClick={() => window.open(`/api/proxy${uploadedDoc.path}`, '_blank')}
                               title="View document"
                             >
-                              <ExternalLink className="h-4 w-4 text-primary" />
+                              <ExternalLink className="h-4 w-4 text-foreground" />
                             </Button>
                             <Button
                               variant="ghost"
@@ -864,7 +864,7 @@ export default function ApplicationDetailPage() {
                             onClick={() => window.open(`/api/proxy${doc.path}`, '_blank')}
                             title="View document"
                           >
-                            <ExternalLink className="h-4 w-4 text-primary" />
+                            <ExternalLink className="h-4 w-4 text-foreground" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -922,7 +922,7 @@ export default function ApplicationDetailPage() {
                 <span className="text-muted-foreground">Product</span>
                 <Link
                   href={`/dashboard/products/${application.product.id}`}
-                  className="text-accent hover:underline inline-flex items-center gap-1"
+                  className="text-muted-foreground hover:underline inline-flex items-center gap-1"
                 >
                   {application.product.name}
                   <ExternalLink className="h-3 w-3" />
@@ -975,7 +975,7 @@ export default function ApplicationDetailPage() {
                 <div className="pt-2 border-t">
                   <Link
                     href={`/dashboard/loans/${application.loan.id}`}
-                    className="text-primary hover:underline inline-flex items-center gap-1"
+                    className="text-foreground hover:text-muted-foreground hover:underline inline-flex items-center gap-1"
                   >
                     View Loan
                     <ExternalLink className="h-3 w-3" />
@@ -989,7 +989,7 @@ export default function ApplicationDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-accent" />
+                <Calendar className="h-5 w-5 text-muted-foreground" />
                 Activity Timeline
               </CardTitle>
               <CardDescription>History of changes and events</CardDescription>

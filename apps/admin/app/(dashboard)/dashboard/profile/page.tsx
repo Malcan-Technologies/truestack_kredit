@@ -226,7 +226,7 @@ Sign up here: ${referralLink}`
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <UserCircle className="h-5 w-5 text-accent" />
+              <UserCircle className="h-5 w-5 text-muted-foreground" />
               <div>
                 <CardTitle>My Profile</CardTitle>
                 <CardDescription>Your personal account information</CardDescription>
@@ -314,7 +314,7 @@ Sign up here: ${referralLink}`
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <Gift className="h-5 w-5 text-accent" />
+            <Gift className="h-5 w-5 text-muted-foreground" />
             <div>
               <CardTitle>Referral Code</CardTitle>
               <CardDescription>Share your referral code to invite others</CardDescription>
@@ -371,7 +371,7 @@ Sign up here: ${referralLink}`
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <Users className="h-5 w-5 text-accent" />
+            <Users className="h-5 w-5 text-muted-foreground" />
             <div>
               <CardTitle>My Referrals</CardTitle>
               <CardDescription>Track users you've referred and rewards</CardDescription>

@@ -12,6 +12,7 @@ import {
   Building2,
   Calendar,
   ShieldCheck,
+  Fingerprint,
   AlertTriangle,
   Pencil,
   Plus,
@@ -415,17 +416,17 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   const getActionInfo = (action: string) => {
     switch (action) {
       case "CREATE":
-        return { icon: Plus, label: "Created", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Plus, label: "Created" };
       case "UPDATE":
-        return { icon: Pencil, label: "Updated", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10" };
+        return { icon: Pencil, label: "Updated" };
       case "DELETE":
-        return { icon: Trash2, label: "Deleted", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+        return { icon: Trash2, label: "Deleted" };
       case "DOCUMENT_UPLOAD":
-        return { icon: Upload, label: "Document Uploaded", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Upload, label: "Document Uploaded" };
       case "DOCUMENT_DELETE":
-        return { icon: Trash2, label: "Document Deleted", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+        return { icon: Trash2, label: "Document Deleted" };
       default:
-        return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
+        return { icon: Clock, label: action };
     }
   };
 
@@ -456,14 +457,14 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   return (
     <div className="flex gap-4">
       <div className="flex flex-col items-center">
-        <div className={`w-8 h-8 rounded-full ${actionInfo.bg} flex items-center justify-center`}>
-          <Icon className={`h-4 w-4 ${actionInfo.color}`} />
+        <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
+          <Icon className="h-4 w-4 text-foreground" />
         </div>
         <div className="w-px flex-1 bg-border mt-2" />
       </div>
       <div className="flex-1 pb-6">
         <div className="flex items-center gap-2 mb-1">
-          <span className={`font-medium ${actionInfo.color}`}>{actionInfo.label}</span>
+          <span className="font-medium text-foreground">{actionInfo.label}</span>
           <span className="text-xs text-muted-foreground">
             {formatRelativeTime(event.createdAt)}
           </span>
@@ -474,16 +475,16 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </p>
         )}
         {changes && changes.length > 0 && (
-          <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3 space-y-2">
+          <div className="bg-secondary border border-border rounded-lg p-3 space-y-2">
             {changes.map((change, idx) => (
               <div key={idx} className="text-xs space-y-0.5">
                 <span className="font-medium text-foreground">{change.field}</span>
                 <div className="flex items-start gap-2 pl-2">
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 line-through">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-foreground/5 text-muted-foreground line-through">
                     {change.from}
                   </span>
                   <span className="text-muted-foreground self-center">→</span>
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 font-medium">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium">
                     {change.to}
                   </span>
                 </div>
@@ -492,7 +493,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </div>
         )}
         {event.action === "CREATE" && event.newData && (
-          <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3">
+          <div className="bg-secondary border border-border rounded-lg p-3">
             <p className="text-xs text-muted-foreground">
               Borrower record created with name: <span className="font-medium text-foreground">
                 {event.newData.borrowerType === "CORPORATE" 
@@ -503,7 +504,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </div>
         )}
         {event.action === "DOCUMENT_UPLOAD" && event.newData && (
-          <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3">
+          <div className="bg-secondary border border-border rounded-lg p-3">
             <p className="text-xs text-muted-foreground">
               Uploaded document: <span className="font-medium text-foreground">
                 {String(event.newData.filename || event.newData.category || "")}
@@ -515,7 +516,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </div>
         )}
         {event.action === "DOCUMENT_DELETE" && event.previousData && (
-          <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3">
+          <div className="bg-secondary border border-border rounded-lg p-3">
             <p className="text-xs text-muted-foreground">
               Deleted document: <span className="font-medium text-foreground">
                 {String(event.previousData.filename || event.previousData.category || "")}
@@ -526,7 +527,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
             </p>
           </div>
         )}
-        <p className="text-[10px] text-muted-foreground mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           {formatDate(event.createdAt)} {event.ipAddress && `• IP: ${event.ipAddress}`}
         </p>
       </div>
@@ -743,6 +744,10 @@ export default function BorrowerDetailPage() {
       // Individual validation
       if (!formData.name.trim()) errors.name = "Name is required";
       if (!formData.icNumber.trim()) errors.icNumber = "IC/Passport number is required";
+      else if (formData.documentType === "IC") {
+        const cleanIC = formData.icNumber.replace(/\D/g, "");
+        if (cleanIC.length !== 12) errors.icNumber = "IC number must be exactly 12 digits";
+      }
       if (!formData.phone.trim()) errors.phone = "Phone number is required";
       if (!formData.email.trim()) errors.email = "Email is required";
       if (!formData.address.trim()) errors.address = "Address is required";
@@ -978,7 +983,7 @@ export default function BorrowerDetailPage() {
               )}
               {borrower.documentVerified ? (
                 <Badge variant="verified">
-                  <ShieldCheck className="h-3 w-3 mr-1" />
+                  <Fingerprint className="h-3 w-3 mr-1" />
                   e-KYC Verified
                 </Badge>
               ) : (
@@ -1059,7 +1064,7 @@ export default function BorrowerDetailPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-accent" />
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
                     Company Information
                   </CardTitle>
                 </CardHeader>
@@ -1140,7 +1145,7 @@ export default function BorrowerDetailPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="h-5 w-5 text-accent" />
+                    <Briefcase className="h-5 w-5 text-muted-foreground" />
                     Additional Details
                   </CardTitle>
                   <CardDescription>Optional company information</CardDescription>
@@ -1173,7 +1178,7 @@ export default function BorrowerDetailPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <User className="h-5 w-5 text-accent" />
+                      <User className="h-5 w-5 text-muted-foreground" />
                       Authorized Representative
                     </CardTitle>
                     <CardDescription>Person authorized to act on behalf of the company</CardDescription>
@@ -1212,7 +1217,7 @@ export default function BorrowerDetailPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Phone className="h-5 w-5 text-accent" />
+                      <Phone className="h-5 w-5 text-muted-foreground" />
                       Company Contact
                     </CardTitle>
                   </CardHeader>
@@ -1264,7 +1269,7 @@ export default function BorrowerDetailPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <ShieldCheck className="h-5 w-5 text-accent" />
+                      <ShieldCheck className="h-5 w-5 text-muted-foreground" />
                       Identity Information
                     </CardTitle>
                   </CardHeader>
@@ -1328,7 +1333,7 @@ export default function BorrowerDetailPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5 text-accent" />
+                    <User className="h-5 w-5 text-muted-foreground" />
                     Personal Information
                   </CardTitle>
                 </CardHeader>
@@ -1470,7 +1475,7 @@ export default function BorrowerDetailPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Phone className="h-5 w-5 text-accent" />
+                      <Phone className="h-5 w-5 text-muted-foreground" />
                       Contact Information
                     </CardTitle>
                   </CardHeader>
@@ -1531,7 +1536,7 @@ export default function BorrowerDetailPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <User className="h-5 w-5 text-accent" />
+                      <User className="h-5 w-5 text-muted-foreground" />
                       Emergency Contact
                     </CardTitle>
                     {isEditing && <CardDescription>Optional</CardDescription>}
@@ -1599,7 +1604,7 @@ export default function BorrowerDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-accent" />
+                <Building2 className="h-5 w-5 text-muted-foreground" />
                 Bank Information
               </CardTitle>
             </CardHeader>
@@ -1679,7 +1684,7 @@ export default function BorrowerDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-accent" />
+                <FileText className="h-5 w-5 text-muted-foreground" />
                 Identity Documents
               </CardTitle>
               <CardDescription>
@@ -1777,7 +1782,7 @@ export default function BorrowerDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-accent" />
+                <Calendar className="h-5 w-5 text-muted-foreground" />
                 Activity Timeline
               </CardTitle>
               <CardDescription>Changes and events for this borrower</CardDescription>

@@ -472,7 +472,7 @@ export default function EditProductPage() {
                         key={option.value}
                         className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
                           formData.eligibleBorrowerTypes === option.value
-                            ? "border-accent bg-accent/10"
+                            ? "border-foreground bg-foreground/5"
                             : "border-border hover:border-accent/50"
                         }`}
                       >
@@ -506,7 +506,7 @@ export default function EditProductPage() {
                         key={option.value}
                         className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
                           formData.loanScheduleType === option.value
-                            ? "border-accent bg-accent/10"
+                            ? "border-foreground bg-foreground/5"
                             : "border-border hover:border-accent/50"
                         }`}
                       >
@@ -695,7 +695,7 @@ export default function EditProductPage() {
                         <label
                           className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
                             formData.earlySettlementDiscountType === "PERCENTAGE"
-                              ? "border-accent bg-accent/10"
+                              ? "border-foreground bg-foreground/5"
                               : "border-border hover:border-accent/50"
                           }`}
                         >
@@ -716,7 +716,7 @@ export default function EditProductPage() {
                         <label
                           className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
                             formData.earlySettlementDiscountType === "FIXED"
-                              ? "border-accent bg-accent/10"
+                              ? "border-foreground bg-foreground/5"
                               : "border-border hover:border-accent/50"
                           }`}
                         >
@@ -950,8 +950,8 @@ export default function EditProductPage() {
                               onClick={() => handleAddRecommendation(rec)}
                               className="flex items-center gap-3 p-3 border border-dashed border-border rounded-lg hover:border-accent hover:bg-accent/5 transition-colors text-left group"
                             >
-                              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center group-hover:bg-accent/10">
-                                <Plus className="h-4 w-4 text-muted-foreground group-hover:text-accent" />
+                              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center group-hover:bg-secondary">
+                                <Plus className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">

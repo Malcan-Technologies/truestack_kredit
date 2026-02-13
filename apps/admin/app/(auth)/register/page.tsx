@@ -283,7 +283,7 @@ function RegisterForm() {
             </Button>
             <p className="text-sm text-muted text-center">
               Already have an account?{" "}
-              <Link href="/login" className="text-accent hover:underline">
+              <Link href="/login" className="text-foreground font-medium hover:underline">
                 Sign In
               </Link>
             </p>

@@ -233,8 +233,8 @@ export default function CompliancePage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-heading font-bold text-gradient">Compliance & Exports</h1>
-        <p className="text-muted">Export data for KPKT regulatory compliance and internal reporting</p>
+        <h1 className="text-2xl font-heading font-bold text-foreground">Compliance & Exports</h1>
+        <p className="text-base text-muted-foreground">Export data for KPKT regulatory compliance and internal reporting</p>
       </div>
 
       {/* Tabs for categories */}
@@ -261,26 +261,26 @@ export default function CompliancePage() {
           <Card className="flex flex-col">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <FileSpreadsheet className="h-5 w-5 text-accent" />
+                <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center">
+                  <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div>
                   <CardTitle className="text-lg">KPKT Portal Export (iDeal CSV)</CardTitle>
                   <CardDescription>
-                    Export all loans in KPKT format for uploading to the Bahagian Pemberi Pinjam Wang portal
+                    Export all loans in KPKT format for uploading to the iDeal portal
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col space-y-4">
               {/* Filters */}
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+              <div className="bg-secondary border border-border rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Year (Loan Agreement Date)</Label>
                     <Select value={kpktYear} onValueChange={setKpktYear}>
                       <SelectTrigger>
-                        <Calendar className="h-4 w-4 mr-2 text-muted" />
+                        <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
                         <SelectValue placeholder="Select year" />
                       </SelectTrigger>
                       <SelectContent>
@@ -291,7 +291,7 @@ export default function CompliancePage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">Loan Status</Label>
+                    <Label className="text-base font-medium">Loan Status</Label>
                     <Select value={kpktStatus} onValueChange={(v: LoanStatusFilter) => setKpktStatus(v)}>
                       <SelectTrigger>
                         <SelectValue placeholder="All statuses" />
@@ -308,46 +308,54 @@ export default function CompliancePage() {
                 </div>
               </div>
 
-              {/* KPKT field info */}
+              {/* KPKT field info (iDeal spec headers) */}
               <div className="p-4 bg-surface rounded-lg border border-border">
-                <h4 className="font-medium mb-2 flex items-center gap-2">
-                  <FileSpreadsheet className="h-4 w-4 text-accent" />
-                  KPKT Format Fields
+                <h4 className="font-medium mb-2 text-base flex items-center gap-2">
+                  <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+                  KPKT iDeal Format Fields
                 </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-muted">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-muted-foreground">
                   <div>
                     <p className="font-medium text-foreground mb-1">Peminjam</p>
                     <ul className="space-y-0.5">
                       <li>JenisPemohon</li>
                       <li>NamaPemohon</li>
+                      <li>JenisSyarikat</li>
+                      <li>NomborPerniagaan</li>
                       <li>NoKp</li>
                       <li>NomborTelefon</li>
                     </ul>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground mb-1">Demografi</p>
+                    <p className="font-medium text-foreground mb-1">Demografi & Alamat</p>
                     <ul className="space-y-0.5">
                       <li>Bangsa</li>
                       <li>Jantina</li>
                       <li>Pekerjaan</li>
-                      <li>Pendapatan / Majikan</li>
+                      <li>Pendapatan</li>
+                      <li>Majikan</li>
+                      <li>Alamat</li>
                     </ul>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground mb-1">Pinjaman</p>
+                    <p className="font-medium text-foreground mb-1">Cagaran & Pinjaman</p>
                     <ul className="space-y-0.5">
+                      <li>StatusCagaran</li>
+                      <li>JenisCagaran</li>
+                      <li>NilaiCagaran</li>
+                      <li>TarikhPinjaman</li>
                       <li>PinjamanPokok</li>
-                      <li>JumlahFaedah</li>
-                      <li>KadarFaedah</li>
-                      <li>TempohBayaran</li>
+                      <li>JumlahFaedahKeseluruhan</li>
+                      <li>JumlahPinjamanKeseluruhan</li>
                     </ul>
                   </div>
                   <div>
                     <p className="font-medium text-foreground mb-1">Status</p>
                     <ul className="space-y-0.5">
-                      <li>BakiPinjaman</li>
+                      <li>KadarFaedah</li>
+                      <li>TempohBayaran</li>
+                      <li>BakiPinjamanKeseluruhan</li>
                       <li>JumlahNpl</li>
-                      <li>StatusCagaran</li>
                       <li>Nota</li>
                     </ul>
                   </div>
@@ -356,7 +364,7 @@ export default function CompliancePage() {
 
             </CardContent>
             <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
-              <p className="text-sm text-muted">
+              <p className="text-sm text-muted-foreground">
                 Export loans for <span className="font-medium text-foreground">{kpktYear}</span>
                 {kpktStatus !== "all" && (
                   <> with status <Badge variant="secondary" className="mx-1">{kpktStatus.replace("_", " ")}</Badge></>
@@ -377,8 +385,8 @@ export default function CompliancePage() {
           <Card className="flex flex-col">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <FileText className="h-5 w-5 text-accent" />
+                <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center">
+                  <FileText className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div>
                   <CardTitle className="text-lg">Lampiran A (Lejar Akaun Peminjam)</CardTitle>
@@ -391,13 +399,13 @@ export default function CompliancePage() {
             </CardHeader>
             <CardContent className="flex-1 flex flex-col space-y-4">
               {/* Year filter */}
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+              <div className="bg-secondary border border-border rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Year (Loan Agreement Date)</Label>
                     <Select value={lampiranYear} onValueChange={setLampiranYear}>
                       <SelectTrigger>
-                        <Calendar className="h-4 w-4 mr-2 text-muted" />
+                        <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
                         <SelectValue placeholder="Select year" />
                       </SelectTrigger>
                       <SelectContent>
@@ -418,11 +426,11 @@ export default function CompliancePage() {
 
               {/* Info */}
               <div className="p-4 bg-surface rounded-lg border border-border">
-                <h4 className="font-medium mb-2 flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-accent" />
+                <h4 className="font-medium mb-2 text-base flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
                   Lampiran A Contents
                 </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-muted">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-muted-foreground">
                   <div>
                     <p className="font-medium text-foreground mb-1">1. Butiran Peminjam</p>
                     <ul className="space-y-0.5">
@@ -455,7 +463,7 @@ export default function CompliancePage() {
 
             </CardContent>
             <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
-              <p className="text-sm text-muted">
+              <p className="text-sm text-muted-foreground">
                 Bulk export all Lampiran A PDFs for <span className="font-medium text-foreground">{lampiranYear}</span> as ZIP
               </p>
               <Button onClick={handleExportLampiranABulk} disabled={exporting === "lampiran-bulk"} className="gap-2">
@@ -477,19 +485,19 @@ export default function CompliancePage() {
           <Card className="flex flex-col">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <Users className="h-5 w-5 text-accent" />
+                <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center">
+                  <Users className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div>
                   <CardTitle className="text-lg">Borrowers Export</CardTitle>
                   <CardDescription>
-                    Export all borrower information including personal details, compliance fields, and contact information
+                    Export all borrower information
                   </CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col space-y-4">
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+              <div className="bg-secondary border border-border rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Borrower Type</Label>
@@ -517,7 +525,7 @@ export default function CompliancePage() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Created From</Label>
                     <div className="relative">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
                         type="date"
                         value={borrowerStartDate}
@@ -529,7 +537,7 @@ export default function CompliancePage() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Created Until</Label>
                     <div className="relative">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
                         type="date"
                         value={borrowerEndDate}
@@ -542,11 +550,11 @@ export default function CompliancePage() {
               </div>
 
               <div className="p-4 bg-surface rounded-lg border border-border">
-                <h4 className="font-medium mb-2 flex items-center gap-2">
-                  <FileSpreadsheet className="h-4 w-4 text-accent" />
+                <h4 className="font-medium mb-2 text-base flex items-center gap-2">
+                  <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
                   Included Fields
                 </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-muted">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-muted-foreground">
                   <div>
                     <p className="font-medium text-foreground mb-1">Core Information</p>
                     <ul className="space-y-0.5">
@@ -588,7 +596,7 @@ export default function CompliancePage() {
 
             </CardContent>
             <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
-              <p className="text-sm text-muted">
+              <p className="text-sm text-muted-foreground">
                 {borrowerType !== "all" && (
                   <Badge variant="secondary" className="mr-2">
                     {borrowerType === "INDIVIDUAL" ? "Individual" : "Corporate"}
@@ -612,8 +620,8 @@ export default function CompliancePage() {
           <Card className="flex flex-col">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <CreditCard className="h-5 w-5 text-accent" />
+                <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center">
+                  <CreditCard className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div>
                   <CardTitle className="text-lg">Loans Export</CardTitle>
@@ -624,7 +632,7 @@ export default function CompliancePage() {
               </div>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col space-y-4">
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+              <div className="bg-secondary border border-border rounded-lg p-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Loan Status</Label>
@@ -645,7 +653,7 @@ export default function CompliancePage() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Created From</Label>
                     <div className="relative">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
                         type="date"
                         value={loanStartDate}
@@ -657,7 +665,7 @@ export default function CompliancePage() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Created Until</Label>
                     <div className="relative">
-                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
                         type="date"
                         value={loanEndDate}
@@ -671,7 +679,7 @@ export default function CompliancePage() {
 
             </CardContent>
             <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
-              <p className="text-sm text-muted">
+              <p className="text-sm text-muted-foreground">
                 {loanStatus !== "all" && <Badge variant="secondary" className="mr-2">{loanStatus}</Badge>}
                 {loanStartDate && <span>from {formatDate(loanStartDate)} </span>}
                 {loanEndDate && <span>to {formatDate(loanEndDate)}</span>}
@@ -709,8 +717,8 @@ export default function CompliancePage() {
               </CardHeader>
               <CardContent className="flex-1 flex flex-col space-y-4">
                 <div className="p-4 bg-surface rounded-lg border border-border">
-                  <h4 className="font-medium mb-2 text-sm">Report Columns</h4>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-muted">
+                  <h4 className="font-medium mb-2 text-base">Report Columns</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
                     <ul className="space-y-0.5">
                       <li>Loan ID & Borrower</li>
                       <li>IC Number & Phone</li>
@@ -742,8 +750,8 @@ export default function CompliancePage() {
             <Card className="flex flex-col">
               <CardHeader>
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                    <BarChart3 className="h-5 w-5 text-accent" />
+                  <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center">
+                    <BarChart3 className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <div>
                     <CardTitle className="text-lg">Collection Summary</CardTitle>
@@ -755,8 +763,8 @@ export default function CompliancePage() {
               </CardHeader>
               <CardContent className="flex-1 flex flex-col space-y-4">
                 <div className="p-4 bg-surface rounded-lg border border-border">
-                  <h4 className="font-medium mb-2 text-sm">Report Columns</h4>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-muted">
+                  <h4 className="font-medium mb-2 text-base">Report Columns</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
                     <ul className="space-y-0.5">
                       <li>Month</li>
                       <li>Due Amount</li>
@@ -775,7 +783,7 @@ export default function CompliancePage() {
               </CardContent>
               <CardFooter className="flex items-center justify-between gap-4 border-t border-border pt-6 mt-auto">
                 <div className="flex items-center gap-2">
-                  <Label className="text-sm">Period:</Label>
+                  <Label className="text-base">Period:</Label>
                   <Select value={collectionMonths} onValueChange={setCollectionMonths}>
                     <SelectTrigger className="w-36">
                       <SelectValue />

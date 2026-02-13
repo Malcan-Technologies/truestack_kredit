@@ -358,6 +358,10 @@ export default function NewBorrowerPage() {
     const data = individualFormData;
     if (!data.name.trim()) errors.name = "Name is required";
     if (!data.icNumber.trim()) errors.icNumber = "IC/Passport number is required";
+    else if (data.documentType === "IC") {
+      const cleanIC = data.icNumber.replace(/\D/g, "");
+      if (cleanIC.length !== 12) errors.icNumber = "IC number must be exactly 12 digits";
+    }
     if (!data.phone.trim()) errors.phone = "Phone number is required";
     if (!data.email.trim()) errors.email = "Email is required";
     if (!data.address.trim()) errors.address = "Address is required";
@@ -560,7 +564,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5 text-accent" />
+                    <User className="h-5 w-5 text-muted-foreground" />
                     Identity Information
                   </CardTitle>
                 </CardHeader>
@@ -616,7 +620,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5 text-accent" />
+                    <User className="h-5 w-5 text-muted-foreground" />
                     Personal Information
                   </CardTitle>
                 </CardHeader>
@@ -731,7 +735,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Phone className="h-5 w-5 text-accent" />
+                    <Phone className="h-5 w-5 text-muted-foreground" />
                     Contact Information
                   </CardTitle>
                 </CardHeader>
@@ -777,7 +781,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-accent" />
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
                     Bank Information
                   </CardTitle>
                 </CardHeader>
@@ -828,7 +832,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Phone className="h-5 w-5 text-accent" />
+                    <Phone className="h-5 w-5 text-muted-foreground" />
                     Emergency Contact
                   </CardTitle>
                   <CardDescription>Optional</CardDescription>
@@ -877,7 +881,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-accent" />
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
                     Company Information
                   </CardTitle>
                 </CardHeader>
@@ -947,7 +951,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="h-5 w-5 text-accent" />
+                    <Briefcase className="h-5 w-5 text-muted-foreground" />
                     Additional Company Details
                   </CardTitle>
                   <CardDescription>Optional</CardDescription>
@@ -978,7 +982,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5 text-accent" />
+                    <User className="h-5 w-5 text-muted-foreground" />
                     Authorized Representative
                   </CardTitle>
                   <CardDescription>Person authorized to act on behalf of the company</CardDescription>
@@ -1013,7 +1017,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Phone className="h-5 w-5 text-accent" />
+                    <Phone className="h-5 w-5 text-muted-foreground" />
                     Company Contact
                   </CardTitle>
                 </CardHeader>
@@ -1048,7 +1052,7 @@ export default function NewBorrowerPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-accent" />
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
                     Bank Information
                   </CardTitle>
                 </CardHeader>

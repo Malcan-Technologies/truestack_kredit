@@ -26,6 +26,7 @@ import {
   TrendingUp,
   Shield,
   ShieldCheck,
+  Fingerprint,
   XCircle,
   RefreshCw,
   Download,
@@ -322,25 +323,26 @@ function ProgressDonut({
   percent,
   size = 80,
   strokeWidth = 8,
+  status,
 }: {
   percent: number;
   size?: number;
   strokeWidth?: number;
+  status?: string;
 }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percent / 100) * circumference;
   const center = size / 2;
 
-  let strokeColor = "stroke-primary";
-  if (percent === 100) {
+  // Color follows status: green for completed, red for defaulted/written-off, amber for in-arrears, black otherwise
+  let strokeColor = "stroke-foreground";
+  if (status === "COMPLETED") {
     strokeColor = "stroke-emerald-500";
-  } else if (percent >= 75) {
-    strokeColor = "stroke-blue-500";
-  } else if (percent >= 50) {
+  } else if (status === "DEFAULTED" || status === "WRITTEN_OFF") {
+    strokeColor = "stroke-red-500";
+  } else if (status === "IN_ARREARS") {
     strokeColor = "stroke-amber-500";
-  } else if (percent > 0) {
-    strokeColor = "stroke-orange-500";
   }
 
   return (
@@ -352,7 +354,7 @@ function ProgressDonut({
           r={radius}
           fill="none"
           strokeWidth={strokeWidth}
-          className="stroke-muted"
+          className="stroke-muted/40"
         />
         <circle
           cx={center}
@@ -381,50 +383,49 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   const getActionInfo = (action: string) => {
     switch (action) {
       case "DISBURSE":
-        return { icon: Banknote, label: "Disbursed", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Banknote, label: "Disbursed" };
       case "RECORD_PAYMENT":
-        return { icon: CreditCard, label: "Payment Recorded", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10" };
+        return { icon: CreditCard, label: "Payment Recorded" };
       case "UPLOAD_PROOF_OF_PAYMENT":
-        return { icon: Upload, label: "Proof of Payment Uploaded", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
+        return { icon: Upload, label: "Proof of Payment Uploaded" };
       case "DELETE_PROOF_OF_PAYMENT":
-        return { icon: Trash2, label: "Proof of Payment Deleted", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10" };
-      // Legacy action names for backwards compatibility
+        return { icon: Trash2, label: "Proof of Payment Deleted" };
       case "UPLOAD_RECEIPT":
-        return { icon: Upload, label: "Proof of Payment Uploaded", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
+        return { icon: Upload, label: "Proof of Payment Uploaded" };
       case "DELETE_RECEIPT":
-        return { icon: Trash2, label: "Proof of Payment Deleted", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10" };
+        return { icon: Trash2, label: "Proof of Payment Deleted" };
       case "STATUS_UPDATE":
-        return { icon: RefreshCw, label: "Status Updated", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: RefreshCw, label: "Status Updated" };
       case "COMPLETE":
-        return { icon: CheckCircle, label: "Completed", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: CheckCircle, label: "Completed" };
       case "MARK_DEFAULT":
-        return { icon: XCircle, label: "Marked Default", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+        return { icon: XCircle, label: "Marked Default" };
       case "UPLOAD_DISBURSEMENT_PROOF":
-        return { icon: Upload, label: "Disbursement Proof Uploaded", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Upload, label: "Disbursement Proof Uploaded" };
       case "UPLOAD_AGREEMENT":
-        return { icon: FileText, label: "Agreement Uploaded", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
+        return { icon: FileText, label: "Agreement Uploaded" };
       case "UPLOAD_STAMP_CERTIFICATE":
-        return { icon: Shield, label: "Stamp Certificate Uploaded", color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" };
+        return { icon: Shield, label: "Stamp Certificate Uploaded" };
       case "CREATE":
-        return { icon: Plus, label: "Loan Created", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Plus, label: "Loan Created" };
       case "LATE_FEE_ACCRUAL":
-        return { icon: AlertTriangle, label: "Late Fees Charged", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10" };
+        return { icon: AlertTriangle, label: "Late Fees Charged" };
       case "DEFAULT_READY":
-        return { icon: AlertTriangle, label: "Default Ready", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+        return { icon: AlertTriangle, label: "Default Ready" };
       case "LATE_FEE_PROCESSING":
-        return { icon: RefreshCw, label: "Late Fee Processing", color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/10" };
+        return { icon: RefreshCw, label: "Late Fee Processing" };
       case "GENERATE_ARREARS_LETTER":
-        return { icon: FileText, label: "Arrears Letter Generated", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10" };
+        return { icon: FileText, label: "Arrears Letter Generated" };
       case "GENERATE_DEFAULT_LETTER":
-        return { icon: FileText, label: "Default Letter Generated", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+        return { icon: FileText, label: "Default Letter Generated" };
       case "GENERATE_DISCHARGE_LETTER":
-        return { icon: FileText, label: "Discharge Letter Generated", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: FileText, label: "Discharge Letter Generated" };
       case "EARLY_SETTLEMENT":
-        return { icon: Banknote, label: "Early Settlement", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+        return { icon: Banknote, label: "Early Settlement" };
       case "EXPORT":
-        return { icon: Download, label: "Document Exported", color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-500/10" };
+        return { icon: Download, label: "Document Exported" };
       default:
-        return { icon: Clock, label: action, color: "text-muted-foreground", bg: "bg-muted" };
+        return { icon: Clock, label: action };
     }
   };
 
@@ -434,14 +435,14 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   return (
     <div className="flex gap-4">
       <div className="flex flex-col items-center">
-        <div className={`w-8 h-8 rounded-full ${actionInfo.bg} flex items-center justify-center`}>
-          <Icon className={`h-4 w-4 ${actionInfo.color}`} />
+        <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
+          <Icon className="h-4 w-4 text-foreground" />
         </div>
         <div className="w-px flex-1 bg-border mt-2" />
       </div>
       <div className="flex-1 pb-6">
         <div className="flex items-center gap-2 mb-1">
-          <span className={`font-medium ${actionInfo.color}`}>{actionInfo.label}</span>
+          <span className="font-medium text-foreground">{actionInfo.label}</span>
           <span className="text-xs text-muted-foreground">
             {formatRelativeTime(event.createdAt)}
           </span>
@@ -453,17 +454,16 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         )}
         {event.newData && event.action === "RECORD_PAYMENT" && (() => {
           const data = event.newData as Record<string, unknown>;
-          // Support both legacy (amount) and new (totalAmount) field names
           const amount = data.totalAmount ?? data.amount;
           const lateFee = data.totalLateFeesPaid ?? data.totalLateFees ?? data.lateFee;
           return (
-            <div className="bg-slate-50 dark:bg-card border border-border rounded-lg p-3">
+            <div className="bg-secondary border border-border rounded-lg p-3">
               <p className="text-xs text-muted-foreground">
                 Amount: <span className="font-medium text-foreground">
                   {formatCurrency(toSafeNumber(amount as number))}
                 </span>
                 {lateFee && toSafeNumber(lateFee as number) > 0 ? (
-                  <span className="ml-2 text-amber-600">
+                  <span className="ml-2 text-foreground">
                     + {formatCurrency(toSafeNumber(lateFee as number))} late fee paid
                   </span>
                 ) : null}
@@ -474,9 +474,9 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         {event.newData && event.action === "LATE_FEE_ACCRUAL" && (() => {
           const data = event.newData as Record<string, unknown>;
           return (
-            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+            <div className="bg-secondary border border-border rounded-lg p-3">
               <p className="text-xs text-muted-foreground">
-                Fee charged: <span className="font-medium text-amber-600">
+                Fee charged: <span className="font-medium text-foreground">
                   {formatCurrency(toSafeNumber(data.totalFeeCharged as number))}
                 </span>
                 <span className="ml-2">({data.repaymentsAffected as number} repayment{(data.repaymentsAffected as number) !== 1 ? "s" : ""})</span>
@@ -490,18 +490,17 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           const fromStatus = prev?.status as string | undefined;
           const toStatus = data.status as string | undefined;
           const reason = data.reason as string | undefined;
-          const isDefaultCleared = fromStatus === "DEFAULTED" && toStatus === "ACTIVE";
           return (
-            <div className={`border rounded-lg p-3 ${isDefaultCleared ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"}`}>
+            <div className="bg-secondary border border-border rounded-lg p-3">
               <p className="text-xs text-muted-foreground">
                 {fromStatus && toStatus ? (
                   <>
-                    <span className="font-medium">{fromStatus.replace(/_/g, " ")}</span>
+                    <span className="font-medium text-foreground">{fromStatus.replace(/_/g, " ")}</span>
                     {" → "}
-                    <span className={`font-medium ${isDefaultCleared ? "text-emerald-600" : ""}`}>{toStatus.replace(/_/g, " ")}</span>
+                    <span className="font-medium text-foreground">{toStatus.replace(/_/g, " ")}</span>
                   </>
                 ) : (
-                  <span className="font-medium">{toStatus?.replace(/_/g, " ")}</span>
+                  <span className="font-medium text-foreground">{toStatus?.replace(/_/g, " ")}</span>
                 )}
               </p>
               {reason && (
@@ -513,18 +512,18 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         {event.newData && event.action === "EARLY_SETTLEMENT" && (() => {
           const data = event.newData as Record<string, unknown>;
           return (
-            <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 space-y-1">
-              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Early Settlement</p>
+            <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
+              <p className="text-xs font-medium text-foreground">Early Settlement</p>
               <p className="text-xs text-muted-foreground">
-                Amount: <span className="font-medium">{formatCurrency(toSafeNumber(data.settlementAmount as number))}</span>
+                Amount: <span className="font-medium text-foreground">{formatCurrency(toSafeNumber(data.settlementAmount as number))}</span>
                 <span className="mx-1.5">|</span>
-                Discount: <span className="font-medium text-emerald-600">{formatCurrency(toSafeNumber(data.discountAmount as number))}</span>
+                Discount: <span className="font-medium text-foreground">{formatCurrency(toSafeNumber(data.discountAmount as number))}</span>
               </p>
               {(data.waiveLateFees as boolean) && (
                 <p className="text-xs text-muted-foreground">Late fees waived</p>
               )}
               <p className="text-xs text-muted-foreground">
-                Receipt: <span className="font-medium">{data.receiptNumber as string}</span>
+                Receipt: <span className="font-medium text-foreground">{data.receiptNumber as string}</span>
                 <span className="mx-1.5">|</span>
                 {data.cancelledRepayments as number} installment{(data.cancelledRepayments as number) !== 1 ? "s" : ""} cancelled
               </p>
@@ -534,9 +533,9 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         {event.newData && event.action === "DEFAULT_READY" && (() => {
           const data = event.newData as Record<string, unknown>;
           return (
-            <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+            <div className="bg-secondary border border-border rounded-lg p-3">
               <p className="text-xs text-muted-foreground">
-                Days overdue: <span className="font-medium text-red-600">{data.daysOverdue as number}</span>
+                Days overdue: <span className="font-medium text-foreground">{data.daysOverdue as number}</span>
                 <span className="ml-2">(default period: {data.defaultPeriod as number} days)</span>
               </p>
             </div>
@@ -551,7 +550,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           };
           const label = docType ? (docLabels[docType] || docType.replace(/_/g, " ")) : "Document";
           return (
-            <div className="bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3">
+            <div className="bg-secondary border border-border rounded-lg p-3">
               <p className="text-xs text-muted-foreground">
                 <Download className="inline h-3 w-3 mr-1 -mt-0.5" />
                 {label}
@@ -567,7 +566,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
             </div>
           );
         })()}
-        <p className="text-[10px] text-muted-foreground mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           {formatDate(event.createdAt)}
         </p>
       </div>
@@ -1460,9 +1459,9 @@ export default function LoanDetailPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm flex items-center gap-2">
                     {isCorporate ? (
-                      <Building2 className="h-4 w-4 text-accent" />
+                      <Building2 className="h-4 w-4 text-muted-foreground" />
                     ) : (
-                      <User className="h-4 w-4 text-accent" />
+                      <User className="h-4 w-4 text-muted-foreground" />
                     )}
                     Borrower
                   </CardTitle>
@@ -1483,7 +1482,7 @@ export default function LoanDetailPage() {
                 <div>
                   <Link 
                     href={`/dashboard/borrowers/${loan.borrower.id}`}
-                    className="font-medium hover:text-primary hover:underline transition-colors inline-flex items-center gap-1.5"
+                    className="font-medium hover:text-muted-foreground hover:underline transition-colors inline-flex items-center gap-1.5"
                   >
                     {borrowerDisplayName}
                     <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1494,7 +1493,7 @@ export default function LoanDetailPage() {
                   <div className="flex flex-wrap items-center gap-1 mt-1.5">
                     {loan.borrower.documentVerified ? (
                       <Badge variant="verified" className="text-xs">
-                        <ShieldCheck className="h-3 w-3 mr-1" />
+                        <Fingerprint className="h-3 w-3 mr-1" />
                         e-KYC
                       </Badge>
                     ) : (
@@ -1541,7 +1540,7 @@ export default function LoanDetailPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm flex items-center gap-2">
-                    <Banknote className="h-4 w-4 text-accent" />
+                    <Banknote className="h-4 w-4 text-muted-foreground" />
                     Loan Details
                   </CardTitle>
                   {loan.product.loanScheduleType === "JADUAL_K" ? (
@@ -1706,7 +1705,7 @@ export default function LoanDetailPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-accent" />
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
                   {loan.status === "PENDING_DISBURSEMENT" ? "Status" : "Progress"}
                 </CardTitle>
               </CardHeader>
@@ -1721,9 +1720,9 @@ export default function LoanDetailPage() {
                 ) : metrics ? (
                   <>
                     <div className="flex items-center gap-4">
-                      <ProgressDonut percent={metrics.progressPercent} />
-                      <div>
-                        <p className="text-2xl font-heading font-bold text-success">
+                      <ProgressDonut percent={metrics.progressPercent} status={loan.status} />
+                      <div className="min-w-0">
+                        <p className="text-lg font-heading font-bold text-foreground truncate">
                           {formatCurrency(metrics.totalPaid)}
                         </p>
                         <p className="text-sm text-muted-foreground">
@@ -1749,12 +1748,12 @@ export default function LoanDetailPage() {
                       </div>
                     </div>
                     <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4">
-                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-border px-4 py-3">
+                      <div className="rounded-lg bg-secondary border border-border px-4 py-3">
                         <p className="text-sm font-medium text-foreground">Paid</p>
-                        <p className="text-xl font-heading font-bold text-success tabular-nums">{metrics.paidCount}</p>
+                        <p className="text-xl font-heading font-bold text-foreground tabular-nums">{metrics.paidCount}</p>
                         <p className="text-xs text-muted-foreground">of {metrics.totalRepayments}</p>
                       </div>
-                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-border px-4 py-3">
+                      <div className="rounded-lg bg-secondary border border-border px-4 py-3">
                         <p className="text-sm font-medium text-foreground">Overdue</p>
                         <p className={`text-xl font-heading font-bold tabular-nums ${metrics.overdueCount > 0 ? "text-destructive" : "text-muted-foreground"}`}>
                           {metrics.overdueCount}
@@ -1765,15 +1764,15 @@ export default function LoanDetailPage() {
                           <p className="text-xs text-muted-foreground">&nbsp;</p>
                         )}
                       </div>
-                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-border px-4 py-3">
+                      <div className="rounded-lg bg-secondary border border-border px-4 py-3">
                         <p className="text-sm font-medium text-foreground">Late Fees</p>
                         <p className={`text-xl font-heading font-bold tabular-nums ${metrics.totalLateFees > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
                           {formatCurrency(metrics.totalLateFees)}
                         </p>
                         <p className="text-xs text-muted-foreground">&nbsp;</p>
                       </div>
-                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-border px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">On-Time Rate</p>
+                      <div className="rounded-lg bg-secondary border border-border px-4 py-3">
+                        <p className="text-sm font-medium text-foreground">On-Time</p>
                         <p className={`text-xl font-heading font-bold tabular-nums ${metrics.repaymentRate >= 80 ? "text-success" : metrics.repaymentRate >= 50 ? "text-amber-600 dark:text-amber-400" : "text-destructive"}`}>
                           {metrics.repaymentRate}%
                         </p>
@@ -1936,7 +1935,7 @@ export default function LoanDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5 text-accent" />
+                  <Calendar className="h-5 w-5 text-muted-foreground" />
                   Schedule Preview
                 </CardTitle>
                 <CardDescription>
@@ -2162,7 +2161,7 @@ export default function LoanDetailPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
-                      <Calendar className="h-5 w-5 text-accent" />
+                      <Calendar className="h-5 w-5 text-muted-foreground" />
                       Repayment Schedule
                     </CardTitle>
                     <CardDescription className="mt-2">
@@ -2388,7 +2387,7 @@ export default function LoanDetailPage() {
                 <span className="text-muted-foreground">Product</span>
                 <Link
                   href={`/dashboard/products/${loan.product.id}`}
-                  className="text-accent hover:underline inline-flex items-center gap-1"
+                  className="text-muted-foreground hover:underline inline-flex items-center gap-1"
                 >
                   {loan.product.name}
                   <ExternalLink className="h-3 w-3" />
@@ -2454,7 +2453,7 @@ export default function LoanDetailPage() {
                             onClick={() => window.open(`/api/proxy/loans/${loan.id}/arrears-letter`, "_blank")}
                             className="flex items-center justify-between w-full text-xs group"
                           >
-                            <span className="flex items-center gap-2 text-primary group-hover:underline">
+                            <span className="flex items-center gap-2 text-foreground group-hover:underline">
                               <Download className="h-3 w-3" />
                               Arrears Notice
                             </span>
@@ -2487,7 +2486,7 @@ export default function LoanDetailPage() {
                             onClick={() => window.open(`/api/proxy/loans/${loan.id}/default-letter`, "_blank")}
                             className="flex items-center justify-between w-full text-xs group"
                           >
-                            <span className="flex items-center gap-2 text-primary group-hover:underline">
+                            <span className="flex items-center gap-2 text-foreground group-hover:underline">
                               <Download className="h-3 w-3" />
                               Default Notice
                             </span>
@@ -2529,7 +2528,7 @@ export default function LoanDetailPage() {
               <div className="pt-2 border-t">
                 <Link
                   href={`/dashboard/applications/${loan.application.id}`}
-                  className="text-primary hover:underline inline-flex items-center gap-1"
+                  className="text-foreground hover:underline inline-flex items-center gap-1"
                 >
                   View Application
                   <ExternalLink className="h-3 w-3" />
@@ -2545,7 +2544,7 @@ export default function LoanDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-accent" />
+                <Clock className="h-5 w-5 text-muted-foreground" />
                 Activity Timeline
               </CardTitle>
               <CardDescription>History of changes and events</CardDescription>
@@ -3211,7 +3210,7 @@ export default function LoanDetailPage() {
                   <TrueSendBadge showTooltip={false} />
                   <p>
                     If your company has subscribed to the{" "}
-                    <Link href="/dashboard/add-ons" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-primary">
+                    <Link href="/dashboard/add-ons" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-muted-foreground">
                       TrueSend
                       <ExternalLink className="h-3 w-3" />
                     </Link>{" "}
@@ -3267,7 +3266,7 @@ export default function LoanDetailPage() {
                   <TrueSendBadge showTooltip={false} />
                   <p>
                     If your company has subscribed to the{" "}
-                    <Link href="/dashboard/add-ons" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-primary">
+                    <Link href="/dashboard/add-ons" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-muted-foreground">
                       TrueSend
                       <ExternalLink className="h-3 w-3" />
                     </Link>{" "}

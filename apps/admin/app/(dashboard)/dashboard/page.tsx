@@ -48,7 +48,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { api } from "@/lib/api";
-import { formatCurrency, formatDate, safePercentage } from "@/lib/utils";
+import { formatCurrency, formatDate, safePercentage, safeSubtract } from "@/lib/utils";
 import { PromotionsCarousel } from "@/components/promotions-carousel";
 
 // ============================================
@@ -86,6 +86,7 @@ interface DashboardStats {
     overdueAmount: number;
     collectionRate: number;
     totalLateFees: number;
+    totalLateFeesPaid: number;
     loansInArrears: number;
     pendingApplications: number;
   };
@@ -590,7 +591,7 @@ export default function DashboardPage() {
           {/* Disbursement Trend */}
           <Card className="lg:col-span-2">
             <CardHeader className="pb-2">
-              <CardTitle className="font-heading">
+              <CardTitle className="font-heading text-xl">
                 Disbursement Trend
               </CardTitle>
               <p className="text-sm text-muted">
@@ -674,7 +675,7 @@ export default function DashboardPage() {
           {/* Loan Portfolio Distribution (Pie) */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="font-heading">
+              <CardTitle className="font-heading text-xl">
                 Loan Portfolio
               </CardTitle>
               <p className="text-sm text-muted">Distribution by status</p>
@@ -745,7 +746,7 @@ export default function DashboardPage() {
           {/* Collection Performance (Area) */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="font-heading">
+              <CardTitle className="font-heading text-xl">
                 Collection Performance
               </CardTitle>
               <p className="text-sm text-muted">
@@ -871,72 +872,52 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Application Pipeline */}
+          {/* Portfolio at Risk */}
           <Card>
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="font-heading">
-                    Application Pipeline
-                  </CardTitle>
-                  <p className="text-sm text-muted">
-                    Applications by current status
-                  </p>
-                </div>
-                {stats && (
-                  <Badge variant="outline" className="text-xs">
-                    {stats.kpiCards.pendingApplications} pending
-                  </Badge>
-                )}
-              </div>
+              <CardTitle className="font-heading text-xl">
+                Portfolio at Risk
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Outstanding balance with overdue payments
+              </p>
             </CardHeader>
-            <CardContent>
-              {applicationData.length > 0 ? (
-                <div className="space-y-3 pt-2">
-                  {applicationData.map((item) => {
-                    const maxCount = Math.max(
-                      ...applicationData.map((d) => d.count)
-                    );
-                    const percentage =
-                      maxCount > 0 ? (item.count / maxCount) * 100 : 0;
-                    return (
-                      <div key={item.status} className="space-y-1.5">
-                        <div className="flex items-center justify-between text-base">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="h-2.5 w-2.5 rounded-sm shrink-0"
-                              style={{
-                                backgroundColor:
-                                  STATUS_COLORS[item.status] ||
-                                  "hsl(215, 20%, 65%)",
-                              }}
-                            />
-                            <span className="text-muted-foreground">
-                              {STATUS_LABELS[item.status] || item.status}
-                            </span>
-                          </div>
-                          <span className="font-medium font-heading tabular-nums">
-                            {item.count}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${percentage}%`,
-                              backgroundColor:
-                                STATUS_COLORS[item.status] ||
-                                "hsl(215, 20%, 65%)",
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+            <CardContent className="space-y-4">
+              <PARBar
+                label="PAR 30"
+                value={stats?.portfolioAtRisk.par30 || 0}
+                description="30+ days overdue"
+              />
+              <PARBar
+                label="PAR 60"
+                value={stats?.portfolioAtRisk.par60 || 0}
+                description="60+ days overdue"
+              />
+              <PARBar
+                label="PAR 90"
+                value={stats?.portfolioAtRisk.par90 || 0}
+                description="90+ days overdue"
+              />
+              <div className="pt-2 border-t border-border space-y-2">
+                <div className="flex items-center justify-between text-base">
+                  <span className="text-muted-foreground">Total Late Fees</span>
+                  <span className="font-heading font-semibold text-foreground">
+                    {formatCurrency(stats?.kpiCards.totalLateFees || 0)}
+                  </span>
                 </div>
-              ) : (
-                <EmptyChart message="No applications yet" />
-              )}
+                <div className="flex items-center justify-between text-base">
+                  <span className="text-muted-foreground">Paid</span>
+                  <span className="font-heading font-semibold text-foreground tabular-nums">
+                    {formatCurrency(stats?.kpiCards.totalLateFeesPaid ?? 0)}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-border flex items-center justify-between text-base">
+                  <span className="text-muted-foreground">Outstanding</span>
+                  <span className="font-heading font-semibold text-foreground tabular-nums">
+                    {formatCurrency(Math.max(0, safeSubtract(stats?.kpiCards.totalLateFees ?? 0, stats?.kpiCards.totalLateFeesPaid ?? 0)))}
+                  </span>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1004,17 +985,17 @@ export default function DashboardPage() {
                             {product.totalLoans}
                           </td>
                           <td className="text-right py-3 px-4">
-                            <Badge variant="info">
+                            <Badge variant="default" className="text-base font-heading font-semibold tabular-nums">
                               {product.activeLoans}
                             </Badge>
                           </td>
                           <td className="text-right py-3 px-4">
-                            <Badge variant="success">
+                            <Badge variant="success" className="text-base font-heading font-semibold tabular-nums">
                               {product.completedLoans}
                             </Badge>
                           </td>
                           <td className="text-right py-3 px-4">
-                            <Badge variant={product.defaultedLoans > 0 ? "destructive" : "secondary"}>
+                            <Badge variant={product.defaultedLoans > 0 ? "destructive" : "secondary"} className="text-base font-heading font-semibold tabular-nums">
                               {product.defaultedLoans}
                             </Badge>
                           </td>
@@ -1032,7 +1013,7 @@ export default function DashboardPage() {
                         <td className="text-right py-3 px-4 font-heading font-bold tabular-nums">
                           {stats.loansByProduct.reduce((s, p) => s + p.totalLoans, 0)}
                         </td>
-                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-info">
+                        <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-foreground">
                           {stats.loansByProduct.reduce((s, p) => s + p.activeLoans, 0)}
                         </td>
                         <td className="text-right py-3 px-4 font-heading font-semibold tabular-nums text-success">
@@ -1062,40 +1043,72 @@ export default function DashboardPage() {
         {/* Row 7: PAR Metrics + Quick Stats */}
         {/* ============================================ */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Portfolio at Risk */}
+          {/* Application Pipeline */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="font-heading text-xl">
-                Portfolio at Risk
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Outstanding balance with overdue payments
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <PARBar
-                label="PAR 30"
-                value={stats?.portfolioAtRisk.par30 || 0}
-                description="30+ days overdue"
-              />
-              <PARBar
-                label="PAR 60"
-                value={stats?.portfolioAtRisk.par60 || 0}
-                description="60+ days overdue"
-              />
-              <PARBar
-                label="PAR 90"
-                value={stats?.portfolioAtRisk.par90 || 0}
-                description="90+ days overdue"
-              />
-              <div className="pt-2 border-t border-border">
-                <div className="flex items-center justify-between text-base">
-                  <span className="text-muted-foreground">Total Late Fees</span>
-                  <span className="font-heading font-semibold text-warning">
-                    {formatCurrency(stats?.kpiCards.totalLateFees || 0)}
-                  </span>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="font-heading text-xl">
+                    Application Pipeline
+                  </CardTitle>
+                  <p className="text-sm text-muted">
+                    Applications by current status
+                  </p>
                 </div>
+                {stats && (
+                  <Badge variant="outline" className="text-xs">
+                    {stats.kpiCards.pendingApplications} pending
+                  </Badge>
+                )}
               </div>
+            </CardHeader>
+            <CardContent>
+              {applicationData.length > 0 ? (
+                <div className="space-y-3 pt-2">
+                  {applicationData.map((item) => {
+                    const maxCount = Math.max(
+                      ...applicationData.map((d) => d.count)
+                    );
+                    const percentage =
+                      maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+                    return (
+                      <div key={item.status} className="space-y-1.5">
+                        <div className="flex items-center justify-between text-base">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="h-2.5 w-2.5 rounded-sm shrink-0"
+                              style={{
+                                backgroundColor:
+                                  STATUS_COLORS[item.status] ||
+                                  "hsl(215, 20%, 65%)",
+                              }}
+                            />
+                            <span className="text-muted-foreground">
+                              {STATUS_LABELS[item.status] || item.status}
+                            </span>
+                          </div>
+                          <span className="font-medium font-heading tabular-nums">
+                            {item.count}
+                          </span>
+                        </div>
+                        <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${percentage}%`,
+                              backgroundColor:
+                                STATUS_COLORS[item.status] ||
+                                "hsl(215, 20%, 65%)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyChart message="No applications yet" />
+              )}
             </CardContent>
           </Card>
 
@@ -1103,7 +1116,7 @@ export default function DashboardPage() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="font-heading">
+                <CardTitle className="font-heading text-xl">
                   Recent Loans
                 </CardTitle>
                 <Link
@@ -1152,7 +1165,7 @@ export default function DashboardPage() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="font-heading">
+                <CardTitle className="font-heading text-xl">
                   Recent Applications
                 </CardTitle>
                 <Link
@@ -1415,7 +1428,7 @@ function PARBar({
 
 function LoanStatusBadge({ status }: { status: string }) {
   const variantMap: Record<string, "success" | "warning" | "destructive" | "default" | "info" | "secondary"> = {
-    ACTIVE: "info",
+    ACTIVE: "default",
     IN_ARREARS: "warning",
     COMPLETED: "success",
     DEFAULTED: "destructive",
@@ -1435,7 +1448,7 @@ function LoanStatusBadge({ status }: { status: string }) {
 function ApplicationStatusBadge({ status }: { status: string }) {
   const variantMap: Record<string, "success" | "warning" | "destructive" | "default" | "info" | "secondary"> = {
     DRAFT: "secondary",
-    SUBMITTED: "info",
+    SUBMITTED: "default",
     UNDER_REVIEW: "warning",
     APPROVED: "success",
     REJECTED: "destructive",

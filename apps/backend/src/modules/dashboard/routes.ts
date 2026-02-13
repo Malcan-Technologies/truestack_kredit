@@ -166,6 +166,7 @@ router.get('/stats', async (req, res, next) => {
     let totalCollected = 0;
     let overdueAmount = 0;
     let totalLateFees = 0;
+    let totalLateFeesPaid = 0;
 
     // PAR calculation: outstanding balance of loans with payments X+ days overdue
     let par30Outstanding = 0;
@@ -195,6 +196,11 @@ router.get('/stats', async (req, res, next) => {
       totalLateFees = safeAdd(totalLateFees, Number(loan.totalLateFees));
 
       const schedule = loan.scheduleVersions[0];
+      if (schedule) {
+        for (const rep of schedule.repayments) {
+          totalLateFeesPaid = safeAdd(totalLateFeesPaid, Number(rep.lateFeesPaid));
+        }
+      }
       if (!schedule) continue;
 
       let loanOutstanding = 0;
@@ -462,6 +468,7 @@ router.get('/stats', async (req, res, next) => {
           overdueAmount: safeRound(overdueAmount, 2),
           collectionRate,
           totalLateFees: safeRound(totalLateFees, 2),
+          totalLateFeesPaid: safeRound(totalLateFeesPaid, 2),
           loansInArrears,
           pendingApplications,
         },

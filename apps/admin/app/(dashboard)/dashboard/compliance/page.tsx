@@ -28,8 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 // ============================================
 // Types
@@ -86,6 +85,12 @@ async function downloadFile(url: string, defaultFilename: string) {
 
 const YEAR_OPTIONS = getYearOptions();
 
+const TAB_OPTIONS = [
+  { value: "regulatory" as const, label: "KPKT Regulatory", icon: Shield },
+  { value: "data" as const, label: "Data Exports", icon: FileSpreadsheet },
+  { value: "reports" as const, label: "Reports", icon: BarChart3 },
+];
+
 // ============================================
 // Main Component
 // ============================================
@@ -113,6 +118,9 @@ export default function CompliancePage() {
 
   // Collection summary
   const [collectionMonths, setCollectionMonths] = useState("12");
+
+  // Tab selection
+  const [activeTab, setActiveTab] = useState<"regulatory" | "data" | "reports">("regulatory");
 
   // ---- Export handlers ----
 
@@ -238,24 +246,29 @@ export default function CompliancePage() {
       </div>
 
       {/* Tabs for categories */}
-      <Tabs defaultValue="regulatory" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="regulatory" className="gap-2">
-            <Shield className="h-4 w-4" />
-            KPKT Regulatory
-          </TabsTrigger>
-          <TabsTrigger value="data" className="gap-2">
-            <FileSpreadsheet className="h-4 w-4" />
-            Data Exports
-          </TabsTrigger>
-          <TabsTrigger value="reports" className="gap-2">
-            <BarChart3 className="h-4 w-4" />
-            Reports
-          </TabsTrigger>
-        </TabsList>
+      <div className="space-y-4">
+        <div className="flex items-center gap-1 bg-secondary border border-border rounded-lg p-1">
+          {TAB_OPTIONS.map((tab) => (
+            <Button
+              key={tab.value}
+              variant={activeTab === tab.value ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setActiveTab(tab.value)}
+              className={cn(
+                "flex-1 gap-2",
+                activeTab === tab.value
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted hover:text-foreground"
+              )}
+            >
+              <tab.icon className="h-4 w-4" />
+              {tab.label}
+            </Button>
+          ))}
+        </div>
 
         {/* ===== Tab: KPKT Regulatory ===== */}
-        <TabsContent value="regulatory">
+        {activeTab === "regulatory" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* KPKT Portal Export Card */}
           <Card className="flex flex-col">
@@ -476,10 +489,10 @@ export default function CompliancePage() {
             </CardFooter>
           </Card>
           </div>
-        </TabsContent>
+        )}
 
         {/* ===== Tab: Data Exports ===== */}
-        <TabsContent value="data">
+        {activeTab === "data" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Borrowers Export */}
           <Card className="flex flex-col">
@@ -695,10 +708,11 @@ export default function CompliancePage() {
             </CardFooter>
           </Card>
           </div>
-        </TabsContent>
+        )}
 
         {/* ===== Tab: Reports ===== */}
-        <TabsContent value="reports" className="space-y-6">
+        {activeTab === "reports" && (
+          <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Overdue / NPL Report */}
             <Card className="flex flex-col">
@@ -805,8 +819,9 @@ export default function CompliancePage() {
               </CardFooter>
             </Card>
           </div>
-        </TabsContent>
-      </Tabs>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

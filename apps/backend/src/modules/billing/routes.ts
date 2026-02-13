@@ -330,23 +330,20 @@ router.get('/add-ons', async (req, res, next) => {
     // Get all add-ons for this tenant
     const addOns = await AddOnService.getAllAddOns(tenantId);
 
-    // Get email stats for this month (if TrueSend is active)
-    let emailStats: { total: number; delivered: number; failed: number; pending: number } | null = null;
-    const hasTrueSend = addOns.some(a => a.addOnType === 'TRUESEND' && a.status === 'ACTIVE');
+    // All-time email stats (always returned for TrueSend card)
+    const [emailTotal, emailDelivered, emailFailed, emailPending] = await Promise.all([
+      prisma.emailLog.count({ where: { tenantId } }),
+      prisma.emailLog.count({ where: { tenantId, status: 'delivered' } }),
+      prisma.emailLog.count({ where: { tenantId, status: { in: ['failed', 'bounced', 'complained'] } } }),
+      prisma.emailLog.count({ where: { tenantId, status: { in: ['pending', 'sent', 'delayed'] } } }),
+    ]);
+    const emailStats = { total: emailTotal, delivered: emailDelivered, failed: emailFailed, pending: emailPending };
 
-    if (hasTrueSend) {
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      const [total, delivered, failed, pending] = await Promise.all([
-        prisma.emailLog.count({ where: { tenantId, createdAt: { gte: monthStart } } }),
-        prisma.emailLog.count({ where: { tenantId, status: 'delivered', createdAt: { gte: monthStart } } }),
-        prisma.emailLog.count({ where: { tenantId, status: { in: ['failed', 'bounced', 'complained'] }, createdAt: { gte: monthStart } } }),
-        prisma.emailLog.count({ where: { tenantId, status: { in: ['pending', 'sent', 'delayed'] }, createdAt: { gte: monthStart } } }),
-      ]);
-
-      emailStats = { total, delivered, failed, pending };
-    }
+    // All-time verification stats (always returned for TrueIdentity card)
+    const verificationCount = await prisma.borrower.count({
+      where: { tenantId, documentVerified: true },
+    });
+    const verificationStats = { total: verificationCount };
 
     res.json({
       success: true,
@@ -357,6 +354,7 @@ router.get('/add-ons', async (req, res, next) => {
           enabledAt: a.enabledAt,
         })),
         emailStats,
+        verificationStats,
       },
     });
   } catch (error) {

@@ -11,6 +11,15 @@ import {
   ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,9 +39,27 @@ interface AddOnStatus {
 
 interface EmailStats {
   total: number;
-  delivered: number;
-  failed: number;
-  pending: number;
+  delivered?: number;
+  failed?: number;
+  pending?: number;
+}
+
+interface VerificationStats {
+  total: number;
+}
+
+/** 5 mins per email → admin hours saved */
+const MINS_PER_EMAIL = 5;
+/** 10 mins per verification → admin hours saved */
+const MINS_PER_VERIFICATION = 10;
+
+function formatAdminHoursSaved(totalCount: number, minsPerUnit: number): string {
+  const totalMins = totalCount * minsPerUnit;
+  if (totalMins < 60) return `${Math.round(totalMins)} min`;
+  const hours = Math.floor(totalMins / 60);
+  const mins = Math.round(totalMins % 60);
+  if (mins === 0) return `${hours}h`;
+  return `${hours}h ${mins}m`;
 }
 
 // ============================================
@@ -107,18 +134,23 @@ const ADD_ON_DEFINITIONS: AddOnDefinition[] = [
 export default function AddOnsPage() {
   const [addOns, setAddOns] = useState<AddOnStatus[]>([]);
   const [emailStats, setEmailStats] = useState<EmailStats | null>(null);
+  const [verificationStats, setVerificationStats] = useState<VerificationStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [cancelAddOnType, setCancelAddOnType] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get<{ addOns: AddOnStatus[]; emailStats?: EmailStats }>(
-        "/api/billing/add-ons"
-      );
+      const res = await api.get<{
+        addOns: AddOnStatus[];
+        emailStats?: EmailStats;
+        verificationStats?: VerificationStats;
+      }>("/api/billing/add-ons");
       if (res.success && res.data) {
         setAddOns(res.data.addOns || []);
         setEmailStats(res.data.emailStats || null);
+        setVerificationStats(res.data.verificationStats || null);
       }
     } catch {
       // Silently handle
@@ -185,7 +217,8 @@ export default function AddOnsPage() {
           {ADD_ON_DEFINITIONS.map((addOn) => {
             const status = getAddOnStatus(addOn.type);
             const isActive = status?.status === "ACTIVE";
-            const showTrueSendStats = addOn.type === "TRUESEND" && isActive && emailStats;
+            const showTrueSendStats = addOn.type === "TRUESEND" && emailStats;
+            const showTrueIdentityStats = addOn.type === "TRUEIDENTITY" && verificationStats;
 
             return (
               <Card key={addOn.id} className="flex flex-col">
@@ -214,24 +247,56 @@ export default function AddOnsPage() {
                     </div>
                   </div>
 
-                  {/* TrueSend email stats (shown inside card when active) */}
+                  {/* TrueSend stats (always shown) */}
                   {showTrueSendStats && (
-                    <div className="grid grid-cols-4 gap-1 text-center py-2 border-y border-border/50">
-                      <div>
-                        <p className="text-xl font-heading font-bold tabular-nums text-foreground">{formatNumber(emailStats.total, 0)}</p>
-                        <p className="text-xs text-muted-foreground">Sent</p>
+                    <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+                      <p className="text-xs text-muted-foreground mb-3">All time</p>
+                      <div className="flex items-center justify-between gap-6">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-heading font-bold tabular-nums text-foreground">
+                            {formatNumber(emailStats.total, 0)}
+                          </span>
+                          <span className="text-sm text-muted-foreground">emails sent</span>
+                        </div>
+                        <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-700 shrink-0" />
+                        <div className="flex flex-col items-end">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-2xl font-heading font-bold tabular-nums text-foreground">
+                              {formatAdminHoursSaved(emailStats.total, MINS_PER_EMAIL)}
+                            </span>
+                            <span className="text-sm text-muted-foreground">time saved</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Estimated at 5 min per email
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xl font-heading font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{formatNumber(emailStats.delivered, 0)}</p>
-                        <p className="text-xs text-muted-foreground">Delivered</p>
-                      </div>
-                      <div>
-                        <p className="text-xl font-heading font-bold tabular-nums text-red-500">{formatNumber(emailStats.failed, 0)}</p>
-                        <p className="text-xs text-muted-foreground">Failed</p>
-                      </div>
-                      <div>
-                        <p className="text-xl font-heading font-bold tabular-nums text-muted-foreground">{formatNumber(emailStats.pending, 0)}</p>
-                        <p className="text-xs text-muted-foreground">Pending</p>
+                    </div>
+                  )}
+
+                  {/* TrueIdentity stats (always shown) */}
+                  {showTrueIdentityStats && (
+                    <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+                      <p className="text-xs text-muted-foreground mb-3">All time</p>
+                      <div className="flex items-center justify-between gap-6">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-heading font-bold tabular-nums text-foreground">
+                            {formatNumber(verificationStats.total, 0)}
+                          </span>
+                          <span className="text-sm text-muted-foreground">verifications</span>
+                        </div>
+                        <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-700 shrink-0" />
+                        <div className="flex flex-col items-end">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-2xl font-heading font-bold tabular-nums text-foreground">
+                              {formatAdminHoursSaved(verificationStats.total, MINS_PER_VERIFICATION)}
+                            </span>
+                            <span className="text-sm text-muted-foreground">time saved</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Estimated at 10 min per verification
+                          </p>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -289,7 +354,7 @@ export default function AddOnsPage() {
                         variant="outline"
                         size="sm"
                         disabled={toggling === addOn.type}
-                        onClick={() => handleToggleAddOn(addOn.type)}
+                        onClick={() => setCancelAddOnType(addOn.type)}
                       >
                         {toggling === addOn.type && (
                           <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -327,6 +392,42 @@ export default function AddOnsPage() {
             </Link>
           </Button>
         </div>
+
+        {/* Cancel subscription confirmation */}
+        <AlertDialog
+          open={!!cancelAddOnType}
+          onOpenChange={(open) => !open && setCancelAddOnType(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel subscription</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to cancel {cancelAddOnType === "TRUESEND" ? "TrueSend" : "TrueIdentity"}? You will lose access to this add-on at the end of your current billing period.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={!!toggling}>Keep subscription</AlertDialogCancel>
+              <Button
+                variant="destructive"
+                disabled={!!toggling}
+                onClick={async () => {
+                  if (!cancelAddOnType) return;
+                  await handleToggleAddOn(cancelAddOnType);
+                  setCancelAddOnType(null);
+                }}
+              >
+                {toggling === cancelAddOnType ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Cancelling…
+                  </>
+                ) : (
+                  "Cancel subscription"
+                )}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </RoleGate>
   );

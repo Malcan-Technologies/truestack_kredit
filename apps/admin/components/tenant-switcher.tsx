@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { Check, ChevronsUpDown, Building2 } from "lucide-react";
+import { Check, ChevronsUpDown, Building2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useTenantContext } from "@/components/tenant-context";
 import { cn } from "@/lib/utils";
+import { CreateTenantModal } from "@/components/create-tenant-modal";
 
 interface Membership {
   id: string;
@@ -73,6 +74,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
   const [activeTenantId, setActiveTenantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const { refreshKey } = useTenantContext();
 
   useEffect(() => {
@@ -184,61 +186,75 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
 
     // Multiple tenants — collapsed dropdown
     return (
-      <DropdownMenu>
-        <TooltipProvider delayDuration={0}>
-          <Tooltip>
-            <DropdownMenuTrigger asChild>
-              <TooltipTrigger asChild>
-                <button
-                  className={cn(
-                    "flex items-center justify-center w-full h-16 hover:bg-surface transition-colors outline-none",
-                    className,
-                  )}
-                  disabled={switching}
-                  aria-label="Switch tenant"
-                >
-                  <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
-                </button>
-              </TooltipTrigger>
-            </DropdownMenuTrigger>
-            <TooltipContent side="right">
-              <p>{activeMembership?.tenantName || "Select tenant"}</p>
-              <p className="opacity-70 text-xs">Click to switch</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        <DropdownMenuContent className="w-[240px]" side="right" align="start">
-          <DropdownMenuLabel>Switch Tenant</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {memberships.map((membership) => (
+      <>
+        <DropdownMenu>
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <DropdownMenuTrigger asChild>
+                <TooltipTrigger asChild>
+                  <button
+                    className={cn(
+                      "flex items-center justify-center w-full h-16 hover:bg-surface transition-colors outline-none",
+                      className,
+                    )}
+                    disabled={switching}
+                    aria-label="Switch tenant"
+                  >
+                    <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
+                  </button>
+                </TooltipTrigger>
+              </DropdownMenuTrigger>
+              <TooltipContent side="right">
+                <p>{activeMembership?.tenantName || "Select tenant"}</p>
+                <p className="opacity-70 text-xs">Click to switch</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <DropdownMenuContent className="w-[240px]" side="right" align="start">
+            <DropdownMenuLabel>Switch Tenant</DropdownMenuLabel>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
-              key={membership.tenantId}
-              onClick={() => handleSwitchTenant(membership.tenantId)}
+              onClick={() => setShowCreateModal(true)}
               className="cursor-pointer"
             >
-              <div className="flex items-center justify-between w-full gap-2">
-                <TenantLogo logoUrl={membership.tenantLogoUrl} name={membership.tenantName} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">
-                    {membership.tenantName}
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-xs text-muted truncate">
-                      {membership.tenantSlug}
-                    </p>
-                    <Badge variant="outline" className="text-[10px] px-1 py-0">
-                      {membership.role}
-                    </Badge>
-                  </div>
-                </div>
-                {membership.tenantId === activeTenantId && (
-                  <Check className="h-4 w-4 text-foreground shrink-0" />
-                )}
-              </div>
+              <Plus className="h-4 w-4 mr-2" />
+              Create New Tenant
             </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <DropdownMenuSeparator />
+            {memberships.map((membership) => (
+              <DropdownMenuItem
+                key={membership.tenantId}
+                onClick={() => handleSwitchTenant(membership.tenantId)}
+                className="cursor-pointer"
+              >
+                <div className="flex items-center justify-between w-full gap-2">
+                  <TenantLogo logoUrl={membership.tenantLogoUrl} name={membership.tenantName} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">
+                      {membership.tenantName}
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs text-muted truncate">
+                        {membership.tenantSlug}
+                      </p>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0">
+                        {membership.role}
+                      </Badge>
+                    </div>
+                  </div>
+                  {membership.tenantId === activeTenantId && (
+                    <Check className="h-4 w-4 text-foreground shrink-0" />
+                  )}
+                </div>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <CreateTenantModal
+          open={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+        />
+      </>
     );
   }
 
@@ -259,7 +275,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
     );
   }
 
-  // Expanded mode — multiple tenants switcher
+  // Expanded mode — multiple tenants switcher (with Create New Tenant)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -288,7 +304,16 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
       <DropdownMenuContent className="w-[240px]" side="right" align="start">
         <DropdownMenuLabel>Switch Tenant</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {memberships.map((membership) => (
+        <DropdownMenuItem
+          onClick={() => setShowCreateModal(true)}
+          className="cursor-pointer"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Create New Tenant
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {memberships.length > 0 ? (
+          memberships.map((membership) => (
           <DropdownMenuItem
             key={membership.tenantId}
             onClick={() => handleSwitchTenant(membership.tenantId)}
@@ -314,8 +339,17 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
               )}
             </div>
           </DropdownMenuItem>
-        ))}
+        ))
+        ) : (
+          <DropdownMenuItem disabled className="text-muted-foreground">
+            No tenants yet
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
+      <CreateTenantModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+      />
     </DropdownMenu>
   );
 }

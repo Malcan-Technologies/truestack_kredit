@@ -197,6 +197,25 @@ router.get('/me', authenticateToken, async (req, res, next) => {
       throw new NotFoundError('User');
     }
 
+    // If user has no active tenant, return user info only
+    if (!req.user!.tenantId) {
+      return res.json({
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: null,
+            referrer: user.referrer
+              ? { id: user.referrer.id, name: user.referrer.name, email: user.referrer.email }
+              : null,
+          },
+          tenant: null,
+        },
+      });
+    }
+
     const membership = await prisma.tenantMember.findUnique({
       where: {
         userId_tenantId: {
@@ -230,6 +249,9 @@ router.get('/me', authenticateToken, async (req, res, next) => {
           name: membership.tenant.name,
           slug: membership.tenant.slug,
           status: membership.tenant.status,
+          subscriptionStatus: membership.tenant.subscriptionStatus,
+          subscriptionAmount: membership.tenant.subscriptionAmount,
+          subscribedAt: membership.tenant.subscribedAt,
         },
       },
     });

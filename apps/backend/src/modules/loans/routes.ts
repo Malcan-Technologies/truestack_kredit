@@ -5,7 +5,7 @@ import fs from 'fs';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
-import { requireActiveSubscription } from '../../middleware/billingGuard.js';
+import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { requireAdmin } from '../../middleware/requireRole.js';
 import { generateSchedule } from '../schedules/service.js';
 import { parseDocumentUpload, parseFileUpload, saveDocumentFile, deleteDocumentFile, UPLOAD_DIR } from '../../lib/upload.js';
@@ -278,7 +278,7 @@ const router = Router();
 
 // All routes require authentication and active subscription
 router.use(authenticateToken);
-router.use(requireActiveSubscription);
+router.use(requirePaidSubscription);
 
 // Validation schemas
 const createApplicationSchema = z.object({

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, ConflictError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
-import { requireActiveSubscription } from '../../middleware/billingGuard.js';
+import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { AuditService } from '../compliance/auditService.js';
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
 
@@ -12,7 +12,7 @@ const router = Router();
 
 // All routes require authentication and active subscription
 router.use(authenticateToken);
-router.use(requireActiveSubscription);
+router.use(requirePaidSubscription);
 
 // Borrower type enum
 const BORROWER_TYPE_VALUES = ['INDIVIDUAL', 'CORPORATE'] as const;

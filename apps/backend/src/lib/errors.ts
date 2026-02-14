@@ -49,8 +49,8 @@ export class ConflictError extends AppError {
 }
 
 export class SubscriptionBlockedError extends AppError {
-  constructor() {
-    super(403, 'Subscription expired. Please renew to continue.', 'SUBSCRIPTION_BLOCKED');
+  constructor(message = 'Subscription expired. Please renew to continue.') {
+    super(403, message, 'SUBSCRIPTION_BLOCKED');
     this.name = 'SubscriptionBlockedError';
   }
 }

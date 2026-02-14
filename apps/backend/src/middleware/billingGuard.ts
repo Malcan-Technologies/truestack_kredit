@@ -42,3 +42,32 @@ export async function requireActiveSubscription(
     next(error);
   }
 }
+
+/**
+ * Check tenant subscription status and block access if FREE
+ * This is for feature access control (FREE vs PAID)
+ */
+export async function requirePaidSubscription(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.tenantId) {
+      return next(new UnauthorizedError());
+    }
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.tenantId },
+      select: { subscriptionStatus: true },
+    });
+
+    if (!tenant || tenant.subscriptionStatus === 'FREE') {
+      return next(new SubscriptionBlockedError('Upgrade to access this feature'));
+    }
+
+    next();
+  } catch (error) {
+    next(error);
+  }
+}

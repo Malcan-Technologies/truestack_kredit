@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CreditCard, FileText, Receipt, AlertTriangle, Shield } from "lucide-react";
+import Link from "next/link";
+import { CreditCard, FileText, Receipt, AlertTriangle, Shield, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -64,8 +65,8 @@ export default function BillingPage() {
     setLoading(true);
     try {
       const [subRes, invRes] = await Promise.all([
-        api.get<Subscription>("/api/billing/subscription"),
-        api.get<Invoice[]>("/api/billing/invoices"),
+        api.get<Subscription>("/billing/subscription"),
+        api.get<Invoice[]>("/billing/invoices"),
       ]);
 
       if (subRes.success) {
@@ -88,7 +89,7 @@ export default function BillingPage() {
   }, []);
 
   const handleGenerateInvoice = async () => {
-    const res = await api.post<Invoice>("/api/billing/invoices/generate", {});
+    const res = await api.post<Invoice>("/billing/invoices/generate", {});
     if (res.success) {
       toast.success("Invoice generated successfully");
       fetchData();
@@ -109,15 +110,23 @@ export default function BillingPage() {
     <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-heading font-bold text-gradient">Billing</h1>
-          <p className="text-muted">Manage your subscription and invoices</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-heading font-bold text-gradient">Billing</h1>
+            <p className="text-muted">Manage your subscription and invoices</p>
+          </div>
+          <Badge variant="outline" className="text-sm shrink-0">
+            <Shield className="h-3.5 w-3.5 mr-1.5" />
+            Admin Only
+          </Badge>
         </div>
-        <Badge variant="outline" className="text-sm">
-          <Shield className="h-3.5 w-3.5 mr-1.5" />
-          Admin Only
-        </Badge>
+        <Button variant="outline" asChild>
+          <Link href="/dashboard/subscription" className="inline-flex items-center">
+            <Sparkles className="h-4 w-4 mr-2" />
+            Upgrade plan
+          </Link>
+        </Button>
       </div>
 
       {/* Subscription status */}

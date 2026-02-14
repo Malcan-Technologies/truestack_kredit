@@ -29,6 +29,7 @@ import {
   Puzzle,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -50,6 +51,7 @@ import { canAccessPage } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NoTenantPrompt } from "@/components/no-tenant-prompt";
 import { cn } from "@/lib/utils";
 
 interface Membership {
@@ -120,6 +122,9 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { data: session, isPending } = useSession();
   const [membership, setMembership] = useState<Membership | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<'FREE' | 'PAID'>('FREE');
+  const [hasTenants, setHasTenants] = useState<boolean>(true);
+  const [membershipCheckComplete, setMembershipCheckComplete] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { resolvedTheme } = useTheme();
@@ -164,9 +169,14 @@ export default function DashboardLayout({
         !membershipsData.success ||
         !membershipsData.data?.memberships?.length
       ) {
-        console.error("No memberships found");
+        // User has no tenants - show create tenant prompt (don't render tenant-scoped pages yet)
+        setMembership({ role: 'NONE', tenantName: undefined });
+        setHasTenants(false);
+        setMembershipCheckComplete(true);
         return;
       }
+
+      setHasTenants(true);
 
       // If no active tenant, set the first one
       if (!membershipsData.data.activeTenantId) {
@@ -182,6 +192,7 @@ export default function DashboardLayout({
           role: firstTenant.role,
           tenantName: firstTenant.tenantName,
         });
+        setMembershipCheckComplete(true);
         return;
       }
 
@@ -202,10 +213,15 @@ export default function DashboardLayout({
             tenantName:
               activeMembership?.tenantName || data.data.user.tenantName,
           });
+          // Grant PAID tenants access to all pages; FREE stays restricted
+          const status = data.data.tenant?.subscriptionStatus;
+          setSubscriptionStatus(status === "PAID" ? "PAID" : "FREE");
         }
       }
     } catch (error) {
       console.error("Failed to fetch membership:", error);
+    } finally {
+      setMembershipCheckComplete(true);
     }
   };
 
@@ -224,6 +240,16 @@ export default function DashboardLayout({
 
   if (!session) {
     return null;
+  }
+
+  // Don't render tenant-scoped content until we know if user has a tenant
+  // (avoids 401s from dashboard/other pages calling tenant APIs before we've set hasTenants)
+  if (!membershipCheckComplete) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted">Loading...</div>
+      </div>
+    );
   }
 
   const user = session.user;

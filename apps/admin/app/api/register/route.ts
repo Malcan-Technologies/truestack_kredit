@@ -42,14 +42,6 @@ async function ensureReferralCode(userId: string): Promise<void> {
 }
 
 const registerSchema = z.object({
-  tenantName: z.string().min(2).max(100),
-  tenantSlug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
-  tenantType: z.enum(["PPW", "PPG"], { required_error: "License type is required" }),
-  licenseNumber: z.string().min(1).max(50),
-  registrationNumber: z.string().min(1).max(50),
-  tenantEmail: z.string().email(),
-  contactNumber: z.string().min(1).max(20),
-  businessAddress: z.string().min(1).max(500),
   email: z.string().email(),
   password: z.string().min(8),
   name: z.string().min(2).max(100).optional(),
@@ -60,18 +52,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const data = registerSchema.parse(body);
-
-    // Check if tenant slug already exists
-    const existingTenant = await prisma.tenant.findUnique({
-      where: { slug: data.tenantSlug },
-    });
-
-    if (existingTenant) {
-      return NextResponse.json(
-        { error: "Tenant slug already exists" },
-        { status: 409 }
-      );
-    }
 
     // Check if user email already exists
     const existingUser = await prisma.user.findUnique({
@@ -93,47 +73,10 @@ export async function POST(request: NextRequest) {
         where: { referralCode: code },
         select: { id: true },
       }) : null;
-      if (!referrer) {
-        delete (data as { referralCode?: string }).referralCode;
-      } else {
+      if (referrer) {
         referrerId = referrer.id;
       }
     }
-
-    // Create tenant in a transaction
-    const tenant = await prisma.$transaction(async (tx) => {
-      // Create tenant
-      const newTenant = await tx.tenant.create({
-        data: {
-          name: data.tenantName,
-          slug: data.tenantSlug,
-          type: data.tenantType,
-          licenseNumber: data.licenseNumber,
-          registrationNumber: data.registrationNumber,
-          email: data.tenantEmail,
-          contactNumber: data.contactNumber,
-          businessAddress: data.businessAddress,
-          status: "ACTIVE",
-        },
-      });
-
-      // Create initial subscription (30 days trial)
-      const now = new Date();
-      const periodEnd = new Date(now);
-      periodEnd.setDate(periodEnd.getDate() + 30);
-
-      await tx.subscription.create({
-        data: {
-          tenantId: newTenant.id,
-          plan: "trial",
-          status: "ACTIVE",
-          currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
-        },
-      });
-
-      return newTenant;
-    });
 
     // Sign up user with Better Auth (this creates the user and credential account)
     const signUpResult = await auth.api.signUpEmail({
@@ -145,67 +88,40 @@ export async function POST(request: NextRequest) {
     });
 
     if (!signUpResult || !signUpResult.user) {
-      // Rollback tenant creation if user signup fails
-      await prisma.tenant.delete({ where: { id: tenant.id } });
       return NextResponse.json(
         { error: "Failed to create user account" },
         { status: 500 }
       );
     }
 
-    // Create membership for the owner
-    await prisma.tenantMember.create({
-      data: {
-        userId: signUpResult.user.id,
-        tenantId: tenant.id,
-        role: "OWNER",
-        isActive: true,
-      },
-    });
-
     // Record who referred this user (when valid referral code was used)
-    if (referrerId) {
+    if (referrerId && data.referralCode) {
       await prisma.user.update({
         where: { id: signUpResult.user.id },
         data: { referredById: referrerId },
       });
 
       // Create Referral record when valid referral code was used
-      if (data.referralCode) {
-        const code = data.referralCode.replace(/^INV-/i, "").trim().toUpperCase().slice(0, 6);
-        await prisma.referral.create({
-          data: {
-            referralCode: code,
-            referrerUserId: referrerId,
-            referredUserId: signUpResult.user.id,
-            rewardAmount: 49900, // RM499 in cents
-            isEligible: true,
-            eligibleAt: new Date(),
-          },
-        });
-      }
+      const code = data.referralCode.replace(/^INV-/i, "").trim().toUpperCase().slice(0, 6);
+      await prisma.referral.create({
+        data: {
+          referralCode: code,
+          referrerUserId: referrerId,
+          referredUserId: signUpResult.user.id,
+          rewardAmount: 49900, // RM499 in cents
+          isEligible: true,
+          eligibleAt: new Date(),
+        },
+      });
     }
 
     // Auto-generate referral code for the new user so they always have one
     await ensureReferralCode(signUpResult.user.id);
 
-    // Update the session with active tenant (Better Auth returns token at top level)
-    if (signUpResult.token) {
-      await prisma.session.update({
-        where: { token: signUpResult.token },
-        data: { activeTenantId: tenant.id },
-      });
-    }
-
-    // Return the session with cookies
+    // Return the session with cookies (NO tenant creation, NO activeTenantId set)
     const response = NextResponse.json({
       success: true,
       data: {
-        tenant: {
-          id: tenant.id,
-          name: tenant.name,
-          slug: tenant.slug,
-        },
         user: {
           id: signUpResult.user.id,
           email: signUpResult.user.email,

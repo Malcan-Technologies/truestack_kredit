@@ -3,7 +3,7 @@ import { z } from 'zod';
 import path from 'path';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
-import { authenticateToken } from '../../middleware/authenticate.js';
+import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
 import { requireAdmin, requireOwner } from '../../middleware/requireRole.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
 import { 
@@ -17,8 +17,118 @@ import { hashPassword } from 'better-auth/crypto';
 
 const router = Router();
 
-// All routes require authentication and active subscription
+// Create tenant: only requires valid session (no active tenant yet)
+const createTenantSchema = z.object({
+  name: z.string().min(2).max(100),
+  slug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
+  type: z.enum(["PPW", "PPG"], { required_error: "License type is required" }),
+  licenseNumber: z.string().min(1).max(50),
+  registrationNumber: z.string().min(1).max(50),
+  email: z.string().email(),
+  contactNumber: z.string().min(1).max(20),
+  businessAddress: z.string().min(1).max(500),
+});
+
+/**
+ * Create a new tenant (allowed when user has no tenant - first-time setup)
+ * POST /api/tenants/create
+ */
+router.post('/create', requireSession, async (req, res, next) => {
+  try {
+    const userId = req.user!.userId;
+    const data = createTenantSchema.parse(req.body);
+
+    // Check if tenant slug already exists
+    const existingTenant = await prisma.tenant.findUnique({
+      where: { slug: data.slug },
+    });
+
+    if (existingTenant) {
+      throw new ConflictError('Tenant slug already exists');
+    }
+
+    // Create tenant in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create tenant with subscriptionStatus = FREE
+      const newTenant = await tx.tenant.create({
+        data: {
+          name: data.name,
+          slug: data.slug,
+          type: data.type,
+          licenseNumber: data.licenseNumber,
+          registrationNumber: data.registrationNumber,
+          email: data.email,
+          contactNumber: data.contactNumber,
+          businessAddress: data.businessAddress,
+          status: "ACTIVE",
+          subscriptionStatus: "FREE",
+        },
+      });
+
+      // Create TenantMember with role = OWNER
+      await tx.tenantMember.create({
+        data: {
+          userId: userId,
+          tenantId: newTenant.id,
+          role: "OWNER",
+          isActive: true,
+        },
+      });
+
+      // Create Subscription record (for billing tracking)
+      const now = new Date();
+      const periodEnd = new Date(now);
+      periodEnd.setDate(periodEnd.getDate() + 30); // 30-day trial period
+
+      await tx.subscription.create({
+        data: {
+          tenantId: newTenant.id,
+          plan: "trial",
+          status: "ACTIVE",
+          currentPeriodStart: now,
+          currentPeriodEnd: periodEnd,
+        },
+      });
+
+      return newTenant;
+    });
+
+    // Set activeTenantId on session
+    const dbSession = await prisma.session.findFirst({
+      where: { 
+        userId: userId,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (dbSession) {
+      await prisma.session.update({
+        where: { id: dbSession.id },
+        data: { activeTenantId: result.id },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        tenant: {
+          id: result.id,
+          name: result.name,
+          slug: result.slug,
+          subscriptionStatus: result.subscriptionStatus,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// All other tenant routes require full auth (session + active tenant)
 router.use(authenticateToken);
+
+// All other routes require active subscription
 router.use(requireActiveSubscription);
 
 // Helper to get client IP

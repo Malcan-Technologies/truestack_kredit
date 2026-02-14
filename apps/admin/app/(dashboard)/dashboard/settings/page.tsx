@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Users, Building2, Shield, Eye, EyeOff, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, ArrowLeftRight } from "lucide-react";
+import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { useSession } from "@/lib/auth-client";
 import { useTenantContext } from "@/components/tenant-context";
-import { formatDate, formatRelativeTime } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { canManageSettings } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
 
@@ -56,17 +56,6 @@ interface User {
   createdAt: string;
 }
 
-interface LoginLog {
-  id: string;
-  ipAddress: string | null;
-  deviceType: string | null;
-  createdAt: string;
-}
-
-interface PasswordInfo {
-  passwordChangedAt: string;
-}
-
 interface CurrentMembership {
   role: string;
 }
@@ -74,20 +63,9 @@ interface CurrentMembership {
 export default function SettingsPage() {
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
   const [users, setUsers] = useState<User[]>([]);
-  const [loginLogs, setLoginLogs] = useState<LoginLog[]>([]);
-  const [passwordInfo, setPasswordInfo] = useState<PasswordInfo | null>(null);
   const [currentMembership, setCurrentMembership] = useState<CurrentMembership | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddUser, setShowAddUser] = useState(false);
-  const [showChangePassword, setShowChangePassword] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-  });
   const [newUser, setNewUser] = useState({
     email: "",
     name: "",
@@ -128,11 +106,9 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       // Use proxy route for backend calls (ensures cookies work correctly)
-      const [tenantRes, usersRes, loginLogsRes, passwordInfoRes, meRes] = await Promise.all([
+      const [tenantRes, usersRes, meRes] = await Promise.all([
         fetch("/api/proxy/tenants/current", { credentials: "include" }).then(r => r.json()),
         fetch("/api/proxy/tenants/users", { credentials: "include" }).then(r => r.json()),
-        fetch("/api/proxy/auth/login-history", { credentials: "include" }).then(r => r.json()),
-        fetch("/api/proxy/auth/password-info", { credentials: "include" }).then(r => r.json()),
         fetch("/api/proxy/auth/me", { credentials: "include" }).then(r => r.json()),
       ]);
 
@@ -141,12 +117,6 @@ export default function SettingsPage() {
       }
       if (usersRes.success && usersRes.data) {
         setUsers(usersRes.data);
-      }
-      if (loginLogsRes.success && loginLogsRes.data) {
-        setLoginLogs(loginLogsRes.data);
-      }
-      if (passwordInfoRes.success && passwordInfoRes.data) {
-        setPasswordInfo(passwordInfoRes.data);
       }
       if (meRes.success && meRes.data?.user) {
         setCurrentMembership({ role: meRes.data.user.role });
@@ -365,47 +335,6 @@ export default function SettingsPage() {
       toast.error("Failed to transfer ownership");
     }
     setTransferringOwnership(false);
-  };
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      toast.error("New passwords do not match");
-      return;
-    }
-
-    if (passwordForm.newPassword.length < 8) {
-      toast.error("Password must be at least 8 characters");
-      return;
-    }
-
-    setChangingPassword(true);
-    try {
-      const response = await fetch("/api/proxy/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
-        }),
-      });
-      const res = await response.json();
-
-      if (res.success) {
-        toast.success("Password changed successfully. Please log in again.");
-        setShowChangePassword(false);
-        setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-        // Password change invalidates sessions, redirect to login
-        router.push("/login");
-      } else {
-        toast.error(res.error || "Failed to change password");
-      }
-    } catch (error) {
-      toast.error("Failed to change password");
-    }
-    setChangingPassword(false);
   };
 
   if (sessionLoading || loading) {
@@ -889,148 +818,6 @@ export default function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Security Settings */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <Shield className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <CardTitle>Security</CardTitle>
-              <CardDescription>Account security settings</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {/* Change Password Section */}
-            <div className="flex items-center justify-between py-2">
-              <div>
-                <p className="font-medium">Change Password</p>
-                <p className="text-sm text-muted">
-                  Last changed: {passwordInfo?.passwordChangedAt 
-                    ? formatDate(passwordInfo.passwordChangedAt) 
-                    : "Never"}
-                </p>
-              </div>
-              <Button 
-                variant="outline" 
-                onClick={() => setShowChangePassword(!showChangePassword)}
-              >
-                {showChangePassword ? "Cancel" : "Change Password"}
-              </Button>
-            </div>
-
-            {/* Change Password Form */}
-            {showChangePassword && (
-              <form onSubmit={handleChangePassword} className="p-4 border border-border rounded-lg space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Current Password *</label>
-                  <div className="relative">
-                    <Input
-                      type={showCurrentPassword ? "text" : "password"}
-                      value={passwordForm.currentPassword}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                      required
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    >
-                      {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">New Password *</label>
-                  <div className="relative">
-                    <Input
-                      type={showNewPassword ? "text" : "password"}
-                      value={passwordForm.newPassword}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                      minLength={8}
-                      required
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                    >
-                      {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted">
-                    Min 8 characters, 1 uppercase, 1 lowercase, 1 number
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Confirm New Password *</label>
-                  <Input
-                    type="password"
-                    value={passwordForm.confirmPassword}
-                    onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                    minLength={8}
-                    required
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={changingPassword}>
-                    {changingPassword ? "Changing..." : "Update Password"}
-                  </Button>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => {
-                      setShowChangePassword(false);
-                      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            )}
-
-            <Separator />
-
-            {/* Recent Login Activity */}
-            <div className="py-2">
-              <p className="font-medium mb-3">Recent Login Activity</p>
-              {loginLogs.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date & Time</TableHead>
-                      <TableHead>Device</TableHead>
-                      <TableHead>IP Address</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loginLogs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell>
-                          <span title={formatDate(log.createdAt)}>
-                            {formatRelativeTime(log.createdAt)}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{log.deviceType || "Unknown"}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {log.ipAddress || "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-sm text-muted">No login history available</p>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

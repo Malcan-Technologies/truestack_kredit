@@ -7,11 +7,11 @@ import { UnauthorizedError, ForbiddenError } from '../lib/errors.js';
 // User payload structure from Better Auth session with membership
 export interface SessionUser {
   userId: string;
-  tenantId: string;
-  memberId: string;
+  tenantId?: string;
+  memberId?: string;
   email: string;
   name: string | null;
-  role: string; // Role in the current tenant
+  role?: string; // Role in the current tenant (when tenant is set)
 }
 
 // Extend Express Request type
@@ -100,6 +100,76 @@ export async function authenticateToken(req: Request, _res: Response, next: Next
     req.tenantId = dbSession.activeTenantId;
     req.memberId = membership.id;
     
+    next();
+  } catch (error) {
+    if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {
+      next(error);
+    } else {
+      console.error('[Auth] Session verification error:', error);
+      next(new UnauthorizedError('Invalid or expired session'));
+    }
+  }
+}
+
+/**
+ * Require valid session but NOT an active tenant.
+ * Use for routes that must be logged-in but work without a tenant (e.g. POST /tenants/create).
+ */
+export async function requireSession(req: Request, _res: Response, next: NextFunction): Promise<void> {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (!session || !session.user) {
+      throw new UnauthorizedError('Invalid or expired session');
+    }
+
+    const dbSession = await prisma.session.findFirst({
+      where: {
+        userId: session.user.id,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!dbSession) {
+      throw new UnauthorizedError('Session not found');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { isActive: true },
+    });
+
+    if (!user?.isActive) {
+      throw new UnauthorizedError('Account is disabled');
+    }
+
+    req.user = {
+      userId: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+    };
+
+    if (dbSession.activeTenantId) {
+      const membership = await prisma.tenantMember.findUnique({
+        where: {
+          userId_tenantId: {
+            userId: session.user.id,
+            tenantId: dbSession.activeTenantId,
+          },
+        },
+      });
+      if (membership?.isActive) {
+        req.user.tenantId = dbSession.activeTenantId;
+        req.user.memberId = membership.id;
+        req.user.role = membership.role;
+        req.tenantId = dbSession.activeTenantId;
+        req.memberId = membership.id;
+      }
+    }
+
     next();
   } catch (error) {
     if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {

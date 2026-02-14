@@ -64,15 +64,18 @@ export async function fetchApi<T>(
       console.warn("Subscription in grace period until:", gracePeriodEnd);
     }
 
-    // Handle 401 by redirecting to login
+    // Handle 401: redirect to login only when it's a real auth failure, not "no active tenant"
     if (response.status === 401) {
-      // Session expired or invalid
-      if (typeof window !== "undefined") {
+      const errorMessage = (data?.error ?? data?.message ?? "") as string;
+      const isNoActiveTenant =
+        errorMessage.includes("No active tenant") ||
+        errorMessage.includes("Session not found");
+      if (!isNoActiveTenant && typeof window !== "undefined") {
         window.location.href = "/login";
       }
       return {
         success: false,
-        error: "Session expired. Please log in again.",
+        error: data?.error ?? "Session expired. Please log in again.",
       };
     }
 

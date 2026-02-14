@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireAdmin } from '../../middleware/requireRole.js';
-import { requireActiveSubscription } from '../../middleware/billingGuard.js';
+import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { AuditService } from '../compliance/auditService.js';
 
 // Helper to get client IP from request
@@ -20,7 +20,7 @@ const router = Router();
 
 // All routes require authentication and active subscription
 router.use(authenticateToken);
-router.use(requireActiveSubscription);
+router.use(requirePaidSubscription);
 
 // Schema for required document categories
 const requiredDocumentSchema = z.object({

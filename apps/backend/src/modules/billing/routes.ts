@@ -252,6 +252,52 @@ router.get('/events', async (req, res, next) => {
 });
 
 /**
+ * Subscribe tenant (upgrade from FREE to PAID)
+ * POST /api/billing/subscribe
+ */
+router.post('/subscribe', async (req, res, next) => {
+  try {
+    if (!req.tenantId) {
+      throw new BadRequestError('No active tenant');
+    }
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.tenantId },
+      select: { subscriptionStatus: true },
+    });
+
+    if (!tenant) {
+      throw new NotFoundError('Tenant');
+    }
+
+    if (tenant.subscriptionStatus === 'PAID') {
+      throw new BadRequestError('Tenant is already subscribed');
+    }
+
+    // Update tenant subscription status
+    const updated = await prisma.tenant.update({
+      where: { id: req.tenantId },
+      data: {
+        subscriptionStatus: 'PAID',
+        subscriptionAmount: 49900, // RM 499 in cents
+        subscribedAt: new Date(),
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        subscriptionStatus: updated.subscriptionStatus,
+        subscriptionAmount: updated.subscriptionAmount,
+        subscribedAt: updated.subscribedAt,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Generate invoice for current period (admin utility)
  * POST /api/billing/invoices/generate
  */

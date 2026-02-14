@@ -5,7 +5,7 @@
 
 import PDFDocument from 'pdfkit';
 import { Decimal } from '@prisma/client/runtime/library';
-import { calculateEMI, calculateFlatInterest, safeAdd, safeDivide, safeMultiply, safeRound, toSafeNumber } from './math.js';
+import { calculateEMI, calculateFlatInterest, monthlyInterestRate, safeAdd, safeDivide, safeMultiply, safeRound, safeSubtract, toSafeNumber } from './math.js';
 
 // ============================================
 // Types
@@ -196,7 +196,7 @@ function numberToMalayWords(num: number): string {
   return words.trim();
 }
 
-/** Converts amount to Malay words with "ringgit" and optional "sen". Capitalizes first letter. */
+/** Converts amount to Malay words with "ringgit" and optional "sen", suffixed with "sahaja". Capitalizes first letter. */
 function currencyToMalayWords(amount: number): string {
   const ringgit = Math.floor(amount);
   const sen = Math.round((amount - ringgit) * 100);
@@ -204,6 +204,7 @@ function currencyToMalayWords(amount: number): string {
   if (sen > 0) {
     words += ` dan ${numberToMalayWords(sen)} sen`;
   }
+  words += ' sahaja';
   return capitalize(words);
 }
 
@@ -241,6 +242,73 @@ function boldPara(doc: PDFKit.PDFDocument, boldText: string, regularText: string
 
 
 // ============================================
+// Schedule-accurate total calculation
+// ============================================
+
+/**
+ * Simulate the actual repayment schedule to compute the real total payable,
+ * including the last-payment rounding adjustment that the schedule service applies.
+ * This prevents the agreement PDF from showing a slightly inflated total
+ * (e.g. RM 0.01–0.02 extra) caused by monthlyPayment × term rounding.
+ */
+function computeScheduleTotal(principal: number, interestRate: number, term: number, isFlat: boolean, monthlyPayment: number): number {
+  if (isFlat) {
+    // Flat: totalPayable = principal + totalInterest, each instalment = totalPayable / term
+    const totalInterest = calculateFlatInterest(principal, interestRate, term);
+    const exactTotal = safeAdd(principal, totalInterest);
+    // Each instalment is rounded to 2 dp; sum them up
+    const roundedInstalment = safeRound(monthlyPayment, 2);
+    const sumOfInstalments = safeMultiply(roundedInstalment, term);
+    // If there's a rounding gap, the last payment is adjusted
+    if (Math.abs(sumOfInstalments - exactTotal) > 0.001) {
+      // last payment adjusted: sum of (term-1) normal payments + adjusted last
+      const normalSum = safeMultiply(roundedInstalment, term - 1);
+      const lastPayment = safeRound(safeSubtract(exactTotal, normalSum), 2);
+      return safeRound(safeAdd(normalSum, lastPayment), 2);
+    }
+    return safeRound(sumOfInstalments, 2);
+  }
+
+  // Declining balance / Effective rate: simulate month-by-month like the schedule service
+  const mRate = monthlyInterestRate(interestRate);
+  if (interestRate === 0) {
+    return safeRound(principal, 2);
+  }
+
+  const emi = safeRound(monthlyPayment, 2);
+  let balance = principal;
+  let totalPaid = 0;
+
+  // Track per-instalment values so we can adjust the last one
+  const instalments: { principal: number; interest: number; totalDue: number }[] = [];
+
+  for (let i = 1; i <= term; i++) {
+    const interest = safeRound(safeMultiply(balance, mRate, 8));
+    const principalPmt = safeSubtract(emi, interest);
+    balance = Math.max(0, safeSubtract(balance, principalPmt));
+
+    instalments.push({
+      principal: safeRound(principalPmt, 2),
+      interest: safeRound(interest, 2),
+      totalDue: safeRound(emi, 2),
+    });
+  }
+
+  // Adjust last payment for remaining balance (mirrors schedule service exactly)
+  if (balance !== 0 && instalments.length > 0) {
+    const last = instalments[instalments.length - 1];
+    last.principal = safeRound(safeAdd(last.principal, balance), 2);
+    last.totalDue = safeRound(safeAdd(last.principal, last.interest), 2);
+  }
+
+  for (const inst of instalments) {
+    totalPaid = safeAdd(totalPaid, inst.totalDue);
+  }
+
+  return safeRound(totalPaid, 2);
+}
+
+// ============================================
 // Computed values
 // ============================================
 
@@ -254,8 +322,12 @@ function calculateValues(loan: LoanForAgreement): AgreementComputedValues {
   const flatInterest = calculateFlatInterest(principal, interestRate, loan.term);
   const monthlyPaymentFlat = safeDivide(safeAdd(principal, flatInterest), loan.term);
   const monthlyPaymentEmi = calculateEMI(principal, interestRate, loan.term);
-  const monthlyPayment = loan.product.interestModel === 'FLAT' ? monthlyPaymentFlat : monthlyPaymentEmi;
-  const totalPayable = safeMultiply(monthlyPayment, loan.term);
+  const isFlat = loan.product.interestModel === 'FLAT';
+  const monthlyPayment = isFlat ? monthlyPaymentFlat : monthlyPaymentEmi;
+
+  // Calculate totalPayable by simulating the actual schedule (including last-payment
+  // rounding adjustment) so the agreement PDF matches the real schedule exactly.
+  const totalPayable = computeScheduleTotal(principal, interestRate, loan.term, isFlat, monthlyPayment);
   const totalInterest = safeRound(totalPayable - principal, 2);
 
   const lenderLines = [loan.tenant.name];
@@ -350,6 +422,7 @@ function getBorrowerSignatories(loan: LoanForAgreement, borrowerName: string): S
 
 function drawBorrowerSigBlock(doc: PDFKit.PDFDocument, sig: Signatory, y: number): number {
   const lineH = 22; // line height between each row in block (matches ~2.0 spacing)
+  const startY = y;  // remember start for right-side director info
   doc.font(FR).fontSize(FS_BODY);
 
   // Row 1
@@ -372,22 +445,20 @@ function drawBorrowerSigBlock(doc: PDFKit.PDFDocument, sig: Signatory, y: number
   doc.text(')', BRACKET_COL, y);
   y += lineH;
 
-  // For corporate: add signature space then director name + IC below
+  // For corporate: director signature info in the blank space to the RIGHT of )
   if (sig.directorName) {
-    y += 30; // blank space for physical signature
-    doc.font(FR).fontSize(FS_SMALL);
-    // Centered signature line
-    const sigLineW = 200;
-    const sigLineX = ML + 20;
+    const rightX = BRACKET_COL + 16; // start after the ) bracket
+    const rightW = PAGE_WIDTH - MR - rightX; // available width to right margin
+    // Signature line in the right column, vertically centered with rows 1-2
+    const sigLineY = startY + lineH * 2 - 4; // between rows 2 and 3
     doc.save().lineWidth(0.4).dash(1.5, { space: 2 });
-    doc.moveTo(sigLineX, y).lineTo(sigLineX + sigLineW, y).stroke('#000');
+    doc.moveTo(rightX, sigLineY).lineTo(rightX + rightW, sigLineY).stroke('#000');
     doc.undash().restore();
-    y += 3;
-    doc.text(`${sig.directorName}`, sigLineX, y, { width: sigLineW, align: 'center' });
-    y = doc.y + 1;
-    doc.text(`No. K.P.: ${sig.directorIc || ''}`, sigLineX, y, { width: sigLineW, align: 'center' });
-    y = doc.y;
-    doc.font(FR).fontSize(FS_BODY); // restore font
+    // Director name + IC below the signature line
+    doc.font(FR).fontSize(FS_SMALL);
+    doc.text(sig.directorName, rightX, sigLineY + 3, { width: rightW, align: 'center' });
+    doc.text(`No. K.P.: ${sig.directorIc || ''}`, rightX, doc.y + 1, { width: rightW, align: 'center' });
+    doc.font(FR).fontSize(FS_BODY); // restore
   }
 
   return y;
@@ -493,9 +564,16 @@ function drawJadualJContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: 
 
   // ==== MAKA ADALAH DENGAN INI DIPERSETUJUI ====
   y = ensureSpace(doc, y, 40);
-  doc.font(FB).fontSize(FS_BODY)
-    .text('MAKA ADALAH DENGAN INI DIPERSETUJUI ', ML, y, { width: CW, align: 'center', continued: true });
-  doc.font(FR).text('seperti yang berikut:', { align: 'center' });
+  // Manually center the bold + regular text as one unit
+  const makaBold = 'MAKA ADALAH DENGAN INI DIPERSETUJUI ';
+  const makaReg = 'seperti yang berikut:';
+  doc.font(FB).fontSize(FS_BODY);
+  const makaBoldW = doc.widthOfString(makaBold);
+  doc.font(FR).fontSize(FS_BODY);
+  const makaRegW = doc.widthOfString(makaReg);
+  const makaX = ML + (CW - makaBoldW - makaRegW) / 2;
+  doc.font(FB).fontSize(FS_BODY).text(makaBold, makaX, y, { continued: true });
+  doc.font(FR).text(makaReg);
   y = doc.y + SEC_GAP;
 
   // ================================================================
@@ -951,51 +1029,552 @@ function drawJadualPertamaPage(doc: PDFKit.PDFDocument, rows: JadualRow[]): void
 }
 
 // ============================================
-// Jadual K placeholder (to be updated with exact KPKT template later)
+// Jadual K — Continuous flow renderer (exact KPKT template)
 // ============================================
 
-const JADUAL_K_CLAUSES = [
-  'Fasal 1: Definisi dan tafsiran. Istilah dalam Perjanjian ini ditafsirkan menurut Akta Pemberi Pinjam Wang 1951, peraturan-peraturan yang berkaitan, serta amalan pematuhan berkuat kuasa.',
-  'Fasal 2: Jumlah pinjaman. Pemberi Pinjam memberikan kemudahan pinjaman mengikut jumlah pokok yang dinyatakan dalam Jadual Pertama.',
-  'Fasal 3: Tujuan pinjaman. Peminjam bersetuju menggunakan dana pinjaman bagi tujuan yang sah serta mematuhi undang-undang yang berkaitan.',
-  'Fasal 4: Kadar faedah. Kadar faedah tahunan adalah seperti dinyatakan dalam Jadual Pertama dan dikira selaras dengan terma produk pinjaman.',
-  'Fasal 5: Tempoh pinjaman. Tempoh bayaran balik bermula dari tarikh pembayaran jumlah wang pokok kepada Peminjam.',
-  'Fasal 6: Ansuran. Bilangan dan jumlah ansuran hendaklah menurut Jadual Pertama, serta hendaklah dibayar tepat pada masa.',
-  'Fasal 7: Kaedah pembayaran. Semua bayaran hendaklah dibuat ke akaun yang dinyatakan oleh Pemberi Pinjam atau kaedah lain yang dipersetujui secara bertulis.',
-  'Fasal 8: Rekod pembayaran. Rekod Pemberi Pinjam mengenai bayaran, baki, caj, dan faedah adalah prima facie evidence melainkan dibuktikan sebaliknya.',
-  'Fasal 9: Kemungkiran. Jika berlaku kemungkiran, jumlah terhutang boleh menjadi serta-merta perlu dibayar tertakluk kepada hak Pemberi Pinjam di sisi undang-undang.',
-  'Fasal 10: Cagaran. Jika pinjaman ini bercagaran, butir-butir cagaran dan nilainya adalah seperti Jadual Pertama.',
-  'Fasal 11: Insurans dan perlindungan. Peminjam bertanggungjawab mengekalkan perlindungan sewajarnya bagi aset bercagaran jika dikehendaki oleh undang-undang atau terma pinjaman.',
-  'Fasal 12: Representasi dan waranti. Peminjam mengesahkan bahawa semua representasi yang diberikan adalah benar dan tidak mengelirukan.',
-  'Fasal 13: Perubahan terma. Sebarang pindaan terma hendaklah dibuat secara bertulis dan dipersetujui kedua-dua pihak.',
-  'Fasal 14: Notis. Notis dianggap sah apabila dihantar ke alamat terakhir yang direkodkan oleh pihak berkenaan.',
-  'Fasal 15: Undang-undang terpakai. Perjanjian ini tertakluk kepada undang-undang Malaysia dan bidang kuasa mahkamah yang kompeten.',
-  'Fasal 16: Jadual Pertama. Jadual Pertama merupakan sebahagian penting Perjanjian ini dan hendaklah dibaca bersama-sama terma utama.',
-];
-
-function drawClausePage(doc: PDFKit.PDFDocument, title: string, clauses: string[]): void {
+function drawJadualKContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: AgreementComputedValues, signatories: Signatory[]): void {
   let y = MT;
-  doc.font(FB).fontSize(FS_HEADING).text(title, ML, y, { width: CW, align: 'center' });
-  y = doc.y + 12;
+
+  // ==== HEADER BLOCK ====
+  const HDR_GAP = 20;
+
+  doc.font(FB).fontSize(14);
+  doc.text('JADUAL K', ML, y, { width: CW, align: 'center' });
+  y = doc.y + HDR_GAP;
+
+  doc.font(FI).fontSize(FS_BODY);
+  doc.text('AKTA PEMBERI PINJAM WANG 1951', ML, y, { width: CW, align: 'center' });
+  y = doc.y + HDR_GAP;
+
   doc.font(FR).fontSize(FS_BODY);
-  for (const clause of clauses) {
-    doc.text(clause, ML, y, { width: CW, align: 'justify', lineGap: LG });
-    y = doc.y + 8;
-  }
-}
+  doc.text('PERATURAN-PERATURAN PEMBERI PINJAM WANG (KAWALAN DAN', ML, y, { width: CW, align: 'center' });
+  y = doc.y;
+  doc.text('PELESENAN) 2003', ML, y, { width: CW, align: 'center' });
+  y = doc.y + HDR_GAP;
 
-function drawAttestationPage(doc: PDFKit.PDFDocument): void {
-  let y = MT;
-  doc.font(FB).fontSize(FS_HEADING).text('Perakuan dan Akujanji', ML, y, { width: CW, align: 'center' });
-  y = doc.y + 12;
-  doc.font(FR).fontSize(FS_BODY).text(
-    'Peminjam mengesahkan bahawa beliau telah membaca, memahami, dan menerima semua syarat Perjanjian Pinjaman Wang ini termasuk Jadual Pertama.',
-    ML, y, { width: CW, align: 'justify', lineGap: 3 }
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('(Subperaturan 10(1))', ML, y, { width: CW, align: 'center' });
+  y = doc.y + HDR_GAP;
+
+  doc.font(FB).fontSize(FS_BODY);
+  doc.text('PERJANJIAN PEMBERIAN PINJAMAN WANG (PINJAMAN BERCAGAR)', ML, y, { width: CW, align: 'center' });
+  y = doc.y + HDR_GAP;
+
+  // ==== SUATU PERJANJIAN ====
+  y = ensureSpace(doc, y, 100);
+  y = boldPara(doc,
+    'SUATU PERJANJIAN ',
+    `diperbuat pada hari dan tahun yang dinyatakan dalam Seksyen 1 Jadual Pertama kepada Perjanjian ini di antara pemberi pinjam wang yang dinyatakan dalam seksyen 2 Jadual Pertama (\u201CPemberi Pinjam\u201D) sebagai satu pihak dan peminjam yang dinyatakan dalam seksyen 3 Jadual Pertama (\u201CPeminjam\u201D) sebagai pihak yang satu lagi.`,
+    ML, y, CW
   );
-  y = doc.y + 14;
+  y += SEC_GAP;
+
+  // ==== BAHAWASANYA ====
+  y = ensureSpace(doc, y, 100);
+  y = boldPara(doc,
+    'BAHAWASANYA ',
+    `Pemberi Pinjam adalah seorang pemberi pinjam wang berlesen di bawah Akta Pemberi Pinjam Wang 1951 dengan ini bersetuju untuk meminjamkan kepada Peminjam dan Peminjam bersetuju untuk meminjam daripada Pemberi Pinjam bagi maksud Perjanjian ini suatu jumlah wang yang dinyatakan dalam seksyen 4 Jadual Pertama (\u201CJumlah Wang Pokok\u201D).`,
+    ML, y, CW
+  );
+  y += SEC_GAP;
+
+  // ==== MAKA ADALAH DENGAN INI DIPERSETUJUI ====
+  y = ensureSpace(doc, y, 40);
+  const makaBold = 'MAKA ADALAH DENGAN INI DIPERSETUJUI ';
+  const makaReg = 'seperti yang berikut:';
+  doc.font(FB).fontSize(FS_BODY);
+  const makaBoldW2 = doc.widthOfString(makaBold);
+  doc.font(FR).fontSize(FS_BODY);
+  const makaRegW2 = doc.widthOfString(makaReg);
+  const makaX2 = ML + (CW - makaBoldW2 - makaRegW2) / 2;
+  doc.font(FB).fontSize(FS_BODY).text(makaBold, makaX2, y, { continued: true });
+  doc.font(FR).text(makaReg);
+  y = doc.y + SEC_GAP;
+
+  // ================================================================
+  // CLAUSE 1 — Bayaran balik ansuran
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY).text('Bayaran balik ansuran', ML, y);
+  y = doc.y + PARA_GAP;
+
+  const repayDay = v.monthlyRepaymentDay != null ? `${v.monthlyRepaymentDay} HB` : '_______________';
+  const firstRepayDate = v.firstRepaymentDateText;
+  const termText = v.monthlyRepaymentDay != null ? String(loan.term) : '_______________';
+
+  y = ensureSpace(doc, y, 80);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('1.', ML, y);
+  const c1OptsK = { width: CW, align: 'justify' as const, lineGap: LG, indent: IND_BODY };
+  doc.font(FR).fontSize(FS_BODY)
+    .text('Bayaran balik ansuran dalam Perjanjian ini hendaklah genap masa dan kena dibayar tanpa dituntut yang bayaran balik ansuran pertama hendaklah dibuat pada ', ML, y, { ...c1OptsK, continued: true })
+    .text(` ${firstRepayDate} `, { continued: true, underline: true })
+    .text('(tarikh bayaran balik yang pertama) dan selepas itu pada ', { continued: true, underline: false })
+    .text(` ${repayDay} `, { continued: true, underline: true })
+    .text('setiap dan tiap-tiap bulan yang berikutnya sehingga tamat ', { continued: true, underline: false })
+    .text(` ${termText} `, { continued: true, underline: true })
+    .text('bulan tersebut dari tarikh bayaran ansuran pertama tersebut.', { underline: false });
+  y = doc.y;
+  y += SEC_GAP;
+
+  // ================================================================
+  // CLAUSE 2 — Keingkaran
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY).text('Keingkaran', ML, y);
+  y = doc.y + PARA_GAP;
+
+  // 2(1)
+  y = ensureSpace(doc, y, 80);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('2.', ML, y);
+  doc.text('(1)', ML + IND1, y);
+  y = para(doc,
+    'Jika keingkaran dilakukan dalam bayaran balik pada tarikh genap akan mana-mana jumlah bayaran balik yang kena dibayar kepada Pemberi Pinjam di bawah Perjanjian ini, sama ada berkenaan dengan wang pokok atau faedah, maka Pemberi Pinjam adalah berhak untuk mengenakan faedah ringan ke atas jumlah wang ansuran yang tidak dibayar itu yang hendaklah dikira pada kadar lapan peratus setahun dari hari ke hari dari tarikh keingkaran bayaran balik jumlah wang ansuran itu sehingga jumlah wang ansuran itu dijelaskan, dan apa-apa faedah yang dikenakan tidak boleh dikira bagi maksud Perjanjian ini sebagai sebahagian daripada faedah yang dikenakan berkenaan dengan pinjaman.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += SEC_GAP;
+
+  // 2(3) — formula section (template uses (3) after the long 2(1))
+  y = ensureSpace(doc, y, 160);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('(3)', ML + IND1, y);
+  y = para(doc,
+    'Faedah hendaklah dikira mengikut formula yang berikut:',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += 14;
+
+  // Formula: R = 8/100 x D/365 x S
+  const fX = ML + IND_SUB + 50;
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('R  =', fX - 8, y + 4);
+
+  const f1X = fX + 40;
+  doc.text('8', f1X + 4, y - 1);
+  doc.save().lineWidth(0.5);
+  doc.moveTo(f1X - 2, y + 11).lineTo(f1X + 18, y + 11).stroke('#000');
+  doc.restore();
+  doc.text('100', f1X - 2, y + 14, { width: 22, align: 'center' });
+
+  doc.text('x', f1X + 28, y + 4);
+
+  const f2X = f1X + 48;
+  doc.text('D', f2X + 4, y - 1);
+  doc.save().lineWidth(0.5);
+  doc.moveTo(f2X - 2, y + 11).lineTo(f2X + 22, y + 11).stroke('#000');
+  doc.restore();
+  doc.text('365', f2X - 2, y + 14, { width: 26, align: 'center' });
+
+  doc.text('x', f2X + 32, y + 4);
+  doc.text('S', f2X + 50, y + 4);
+  y += 40;
+
+  // Variable legend
+  doc.font(FR).fontSize(FS_BODY).text('iaitu,', ML + IND_SUB, y, { lineGap: LG });
+  y = doc.y + 10;
+
+  const defX = ML + IND_SUB;
+  const defValX = defX + 28;
+  const defW = CW - IND_SUB - 28;
+
+  doc.font(FB).fontSize(FS_BODY).text('R', defX, y);
+  doc.font(FR).text('mewakili jumlah wang faedah yang hendaklah dibayar.', defValX, y, { width: defW, lineGap: LG });
+  y = doc.y + PARA_GAP;
+
+  doc.font(FB).text('D', defX, y);
+  doc.font(FR).text('mewakili bilangan hari keingkaran.', defValX, y, { width: defW, lineGap: LG });
+  y = doc.y + PARA_GAP;
+
+  doc.font(FB).text('S', defX, y);
+  doc.font(FR).text('mewakili jumlah wang ansuran bulanan yang genap tempoh.', defValX, y, { width: defW, lineGap: LG });
+  y = doc.y + SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 3 — Cagaran
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY).text('Cagaran', ML, y);
+  y = doc.y + PARA_GAP;
+
+  y = ensureSpace(doc, y, 60);
+  doc.font(FR).fontSize(FS_BODY).text('3.', ML, y);
+  y = para(doc,
+    'Sebagai balasan bagi Perjanjian ini Peminjam bersetuju untuk menyerahkan kepada Pemberi Pinjam cagaran yang dinyatakan dalam seksyen 11 Jadual Pertama (\u201CCagaran\u201D) dan Cagaran itu hendaklah bagi sepanjang tempoh bayaran balik.',
+    ML, y, CW, { indent: IND_BODY }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 4 — Tanggungjawab Pemberi Pinjam berkenaan dengan Cagaran
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY).text('Tanggungjawab Pemberi Pinjam berkenaan dengan Cagaran', ML, y);
+  y = doc.y + PARA_GAP;
+
+  // 4(1)
+  y = ensureSpace(doc, y, 60);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('4.', ML, y);
+  doc.text('(1)', ML + IND1, y);
+  y = para(doc,
+    'Pemberi Pinjam hendaklah melakukan pemeliharaan dan usaha yang sama bagi menjaga Cagaran dalam jagaannya sebagaimana seorang pemunya berhemat akan lakukan dalam menjaga hartanya sendiri.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 4(2)
+  y = ensureSpace(doc, y, 60);
+  doc.text('(2)', ML + IND1, y);
+  y = para(doc,
+    'Pemberi Pinjam adalah bertanggungjawab bagi kehilangan apa-apa Cagaran, sama ada kehilangan itu disebabkan oleh kebakaran, kecurian, kecuaian atau selainnya dan adalah juga bertanggungjawab bagi kerosakan Cagaran itu yang disebabkan oleh kebakaran, kecurian, kecuaian atau selainnya.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 4(3)
+  y = ensureSpace(doc, y, 60);
+  doc.text('(3)', ML + IND1, y);
+  y = para(doc,
+    'Jika mana-mana Cagaran yang musnah atau rosak disebabkan oleh kebakaran, maka nilai Cagaran itu hendaklah, bagi maksud pampasan kepada Peminjam, dianggap sebagai satu perempat lebih daripada nilai Cagaran yang diserahkan itu.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 4(4)
+  y = ensureSpace(doc, y, 40);
+  doc.text('(4)', ML + IND1, y);
+  y = para(doc,
+    'Pemberi Pinjam tidak boleh membebankan Cagaran itu bagi apa jua tujuan.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 5 — Hak tindakan
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY).text('Hak tindakan', ML, y);
+  y = doc.y + PARA_GAP;
+
+  // 5(1)
+  y = ensureSpace(doc, y, 60);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('5.', ML, y);
+  doc.text('(1)', ML + IND1, y);
+  y = para(doc, 'Jika Peminjam \u2013', ML, y, CW, { indent: IND_SUB });
+  y += PARA_GAP;
+
+  // 5(1)(a)
+  y = ensureSpace(doc, y, 80);
+  doc.font(FI).fontSize(FS_BODY).text('(a)', ML + IND_SUB + 20, y);
+  y = para(doc,
+    'tidak membayar balik mana-mana jumlah wang ansuran yang kena dibayar atau mana-mana jumlah daripada wang ansuran itu dan mana-mana faedah yang kena dibayar yang dinyatakan dalam seksyen 5 Jadual Pertama bagi apa-apa tempoh yang melebihi dua puluh lapan hari selepas tarikh genapnya; atau',
+    ML + IND_SUBSUB, y, CW - IND_SUBSUB
+  );
+  y += PARA_GAP;
+
+  // 5(1)(b)
+  y = ensureSpace(doc, y, 80);
+  doc.font(FI).fontSize(FS_BODY).text('(b)', ML + IND_SUB + 20, y);
+  y = para(doc,
+    'melakukan perbuatan kebankrapan atau memasuki mana-mana komposisi atau perkiraan dengan pemiutangnya atau, sebagai syarikat, memasuki penyelesaian likuidasi, sama ada secara paksa atau sukarela,',
+    ML + IND_SUBSUB, y, CW - IND_SUBSUB
+  );
+  y += PARA_GAP;
+
+  // Closing for 5(1)
+  y = ensureSpace(doc, y, 30);
+  y = para(doc, 'maka Pemberi Pinjam boleh menamatkan Perjanjian ini.', ML, y, CW);
+  y += SEC_GAP;
+
+  // 5(2)
+  y = ensureSpace(doc, y, 80);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('(2)', ML + IND1, y);
+  y = para(doc,
+    'Apabila berlakunya mana-mana perkara yang dinyatakan dalam subfasal (1), Pemberi Pinjam hendaklah memberi Peminjam notis bertulis tidak kurang daripada empat belas hari supaya menganggapkan Perjanjian ini sebagai telah ditolak oleh Peminjam dan melainkan dalam sementara itu keingkaran itu dibetulkan atau jumlah wang ansuran yang belum dibayar dan faedah itu dijelaskan, maka Perjanjian ini hendaklah apabila tamat tempoh notis tersebut, atas pilihan Pemberi Pinjam disifatkan sebagai terbatal.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 5(3)
+  y = ensureSpace(doc, y, 80);
+  doc.text('(3)', ML + IND1, y);
+  y = para(doc,
+    `Sekiranya Perjanjian ini telah ditamatkan atau dibatalkan, maka Pemberi Pinjam boleh menuntut baki belum jelas daripada Peminjam mengikut peruntukan di bawah Perintah 45 Kaedah-Kaedah Mahkamah Rendah 1990 [P.U. (A) 97/1990] jika baki belum jelas itu tidak lebih daripada dua ratus lima puluh ribu ringgit atau Perintah 79 Kaedah-Kaedah Mahkamah Tinggi 1980 [P.U. (A) 50/1980] jika baki belum jelas itu lebih tinggi daripada dua ratus lima puluh ribu ringgit.`,
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 5(4)
+  y = ensureSpace(doc, y, 60);
+  doc.text('(4)', ML + IND1, y);
+  y = para(doc,
+    'Walau apapun subfasal (3) di dalam ini, Pemberi Pinjam berhak untuk memperlakukan Cagaran itu bagi maksud menuntut baki belum jelas daripada Peminjam seperti yang berikut:',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 5(4)(a)
+  y = ensureSpace(doc, y, 80);
+  doc.font(FI).fontSize(FS_BODY).text('(a)', ML + IND_SUB + 20, y);
+  y = para(doc,
+    'jika Cagaran itu adalah harta tak alih, maka harta itu hendaklah diperlakukan seperti yang diperuntukkan di bawah Perintah 83 Kaedah-Kaedah Mahkamah Tinggi 1980; atau',
+    ML + IND_SUBSUB, y, CW - IND_SUBSUB
+  );
+  y += PARA_GAP;
+
+  // 5(4)(b)
+  y = ensureSpace(doc, y, 60);
+  doc.font(FI).fontSize(FS_BODY).text('(b)', ML + IND_SUB + 20, y);
+  y = para(doc,
+    'jika Cagaran itu adalah harta alih, maka Pemberi Pinjam adalah bebas untuk melupuskan Cagaran itu melalui lelongan yang dikendalikan oleh pelelong berlesen.',
+    ML + IND_SUBSUB, y, CW - IND_SUBSUB
+  );
+  y += PARA_GAP;
+
+  // 5(5)
+  y = ensureSpace(doc, y, 60);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('(5)', ML + IND1, y);
+  y = para(doc,
+    'Pemberi Pinjam boleh menawar atau membeli Cagaran yang diserah simpan kepadanya di lelongan itu dan atas pembelian itu dia hendaklah disifatkan sebagai pemilik yang sah Cagaran itu.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 5(6)
+  y = ensureSpace(doc, y, 60);
+  doc.text('(6)', ML + IND1, y);
+  y = para(doc,
+    'Jika Cagaran itu dilelong, Pemberi Pinjam hendaklah, dalam masa tujuh hari selepas lelongan itu, mengemukakan kepada Peminjam suatu notis yang menyatakan butir-butir lelongan itu termasuklah hasil jualan Cagaran itu.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 5(7)
+  y = ensureSpace(doc, y, 60);
+  doc.text('(7)', ML + IND1, y);
+  y = para(doc,
+    'Pemberi Pinjam hendaklah, dalam masa tiga puluh hari selepas lelongan itu, membayar lebihan daripada hasil jualan Cagaran itu, jika ada, kepada Peminjam.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 5(8)
+  y = ensureSpace(doc, y, 80);
+  doc.text('(6)', ML + IND1, y); // template shows (6) here — follows original numbering
+  y = para(doc,
+    'Jika Pemberi Pinjam gagal mematuhi subfasal (7), Pemberi Pinjam adalah bertanggungan membayar jumlah wang lebihan itu kepada Peminjam berserta dengan ganti rugi jumlah tertentu yang dikira dari hari ke hari pada kadar lapan peratus setahun daripada jumlah wang lebihan itu dari tamatnya tempoh tiga puluh hari selepas lelongan itu sehingga tarikh Pemberi Pinjam membayar jumlah wang lebihan itu.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 5(9)
+  y = ensureSpace(doc, y, 60);
+  doc.text('(9)', ML + IND1, y);
+  y = para(doc,
+    'Bagi mengelakkan kekeliruan, apa-apa kausa tindakan untuk menuntut ganti rugi jumlah tertentu yang dinyatakan dalam subfasal (8) hendaklah terakru pada tarikh tamatnya tempoh tiga puluh hari selepas lelongan itu.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 6 — Pematuhan undang-undang bertulis
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY).text('Pematuhan undang-undang bertulis', ML, y);
+  y = doc.y + PARA_GAP;
+
+  y = ensureSpace(doc, y, 60);
+  doc.font(FR).fontSize(FS_BODY).text('6.', ML, y);
+  y = para(doc,
+    'Pemberi Pinjam hendaklah, berkenaan dengan perniagaan meminjamkan wang, mematuhi peruntukan dan kehendak Akta Pemberi Pinjam Wang 1951 dan mana-mana undang-undang bertulis yang pada masa ini berkuat kuasa yang menyentuh perniagaan itu.',
+    ML, y, CW, { indent: IND_BODY }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 7 — Duti setem dan fi pengakusaksian
+  // ================================================================
+  y = ensureSpace(doc, y, 60);
+  doc.font(FB).fontSize(FS_BODY).text('Duti setem dan fi pengakusaksian', ML, y);
+  y = doc.y + PARA_GAP;
+
+  y = ensureSpace(doc, y, 40);
+  doc.font(FR).fontSize(FS_BODY).text('7.', ML, y);
+  y = para(doc,
+    'Semua duti setem dan fi pengakusaksian yang dilakukan berkaitan dengan Perjanjian ini hendaklah ditanggung oleh Peminjam.',
+    ML, y, CW, { indent: IND_BODY }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 8 — Penyampaian dokumen
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY).text('Penyampaian dokumen', ML, y);
+  y = doc.y + PARA_GAP;
+
+  // 8(1)
+  y = ensureSpace(doc, y, 80);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('8.', ML, y);
+  doc.text('(1)', ML + IND1, y);
+  y = para(doc,
+    'Apa-apa notis, permintaan atau tuntutan yang dikehendaki disampaikan oleh mana-mana pihak kepada pihak yang satu lagi dalam Perjanjian ini hendaklah secara bertulis dan hendaklah disifatkan sebagai penyampaian yang mencukupi\u2013',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += PARA_GAP;
+
+  // 8(1)(a)
+  y = ensureSpace(doc, y, 80);
+  doc.font(FI).fontSize(FS_BODY).text('(a)', ML + IND_SUB + 20, y);
+  y = para(doc,
+    'jika ia dihantar oleh pihak itu atau peguam caranya melalui pos A.R. berdaftar yang dialamatkan ke alamat pihak yang satu lagi seperti yang tersebut terdahulu daripada ini dan dalam hal yang sedemikian ia hendaklah disifatkan sebagai telah diterima apabila tamatnya tempoh lima hari dari pengeposan surat berdaftar demikian; atau',
+    ML + IND_SUBSUB, y, CW - IND_SUBSUB
+  );
+  y += PARA_GAP;
+
+  // 8(1)(b)
+  y = ensureSpace(doc, y, 60);
+  doc.font(FI).fontSize(FS_BODY).text('(b)', ML + IND_SUB + 20, y);
+  y = para(doc,
+    'jika ia diberikan oleh pihak itu atau peguam caranya dengan tangan kepada pihak yang satu lagi atau peguam caranya.',
+    ML + IND_SUBSUB, y, CW - IND_SUBSUB
+  );
+  y += PARA_GAP;
+
+  // 8(2)
+  y = ensureSpace(doc, y, 60);
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('(2)', ML + IND1, y);
+  y = para(doc,
+    'Apa-apa perubahan mengenai alamat oleh mana-mana pihak hendaklah dimaklumkan kepada pihak yang satu lagi.',
+    ML, y, CW, { indent: IND_SUB }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 9 — Jadual
+  // ================================================================
+  y = ensureSpace(doc, y, 60);
+  doc.font(FB).fontSize(FS_BODY).text('Jadual', ML, y);
+  y = doc.y + PARA_GAP;
+
+  y = ensureSpace(doc, y, 60);
+  doc.font(FR).fontSize(FS_BODY).text('9.', ML, y);
+  y = para(doc,
+    'Jadual kepada Perjanjian ini hendaklah menjadi sebahagian daripada Perjanjian ini dan hendaklah dibaca, diambil dan diertikan sebagai suatu bahagian yang perlu dalam Perjanjian ini.',
+    ML, y, CW, { indent: IND_BODY }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 10 — Masa merupakan pati perjanjian
+  // ================================================================
+  y = ensureSpace(doc, y, 60);
+  doc.font(FB).fontSize(FS_BODY).text('Masa merupakan pati perjanjian', ML, y);
+  y = doc.y + PARA_GAP;
+
+  y = ensureSpace(doc, y, 40);
+  doc.font(FR).fontSize(FS_BODY).text('10.', ML, y);
+  y = para(doc,
+    'Masa hendaklah menjadi pati Perjanjian ini berhubungan dengan segala peruntukan dalam Perjanjian ini.',
+    ML, y, CW, { indent: IND_BODY }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 11 — Tafsiran
+  // ================================================================
+  y = ensureSpace(doc, y, 60);
+  doc.font(FB).fontSize(FS_BODY).text('Tafsiran', ML, y);
+  y = doc.y + PARA_GAP;
+
+  y = ensureSpace(doc, y, 40);
+  doc.font(FR).fontSize(FS_BODY).text('11.', ML, y);
+  y = para(doc,
+    'Dalam Perjanjian ini jika konteksnya menghendaki sedemikian \u2013',
+    ML, y, CW, { indent: IND_BODY }
+  );
+  y += PARA_GAP;
+
+  y = ensureSpace(doc, y, 60);
+  y = para(doc,
+    '\u201CCagaran\u201D tidaklah termasuk suatu kad kredit, kad caj, kad mesin juruwang automatik, sijil kelahiran, kad pengenalan atau surat pajak gadai.',
+    ML + IND_BODY, y, CW - IND_BODY
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // CLAUSE 12 — Orang-orang yang terikat kepada Perjanjian
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY).text('Orang-orang yang terikat kepada Perjanjian', ML, y);
+  y = doc.y + PARA_GAP;
+
+  y = ensureSpace(doc, y, 60);
+  doc.font(FR).fontSize(FS_BODY).text('12.', ML, y);
+  y = para(doc,
+    'Perjanjian ini hendaklah mengikat pengganti dalam hakmilik dan penerima serah hak yang dibenarkan kepada Pemberi Pinjam, waris, wakil peribadi, pengganti dalam hakmilik dan penerima serah hak yang dibenarkan kepada Peminjam.',
+    ML, y, CW, { indent: IND_BODY }
+  );
+  y += SEC_GAP + 4;
+
+  // ================================================================
+  // PADA MENYAKSIKAN HAL DI ATAS — no indentation
+  // ================================================================
+  y = ensureSpace(doc, y, 80);
+  doc.font(FB).fontSize(FS_BODY)
+    .text('PADA MENYAKSIKAN HAL DI ATAS ', ML, y, { width: CW, continued: true, align: 'justify', lineGap: LG });
+  doc.font(FR)
+    .text('pihak-pihak kepada Perjanjian ini telah menurunkan tandatangan mereka pada hari dan tahun mula-mula bertulis di atas.', { align: 'justify', lineGap: LG });
+  y = doc.y;
+  y += 24;
+
+  // ================================================================
+  // SIGNATURE BLOCKS — Borrowers
+  // ================================================================
+  for (let i = 0; i < signatories.length; i++) {
+    y = ensureSpace(doc, y, 90);
+    y = drawBorrowerSigBlock(doc, signatories[i], y);
+    y += 10;
+  }
+
+  // ================================================================
+  // SIGNATURE BLOCK — Lender (new page to give signing space)
+  // ================================================================
+  doc.addPage();
+  y = MT;
+  y = drawLenderSigBlock(doc, loan, y);
+  y += 40;
+
+  // ================================================================
+  // PENGAKUSAKSI (Attestation)
+  // ================================================================
+  y = ensureSpace(doc, y, 120);
+  y = para(doc,
+    'Saya, dengan sesungguhnya dan sebenarnya mengakui bahawa saya telah menerangkan terma-terma Perjanjian ini kepada Peminjam dan saya mendapati bahawa Peminjam telah memahami sifat dan akibat Perjanjian ini.',
+    ML, y, CW
+  );
+  y += 90; // extra space for witness signature
+
+  // Signature line (centered dots)
+  const lineWidthK = 260;
+  const lineXK = ML + (CW - lineWidthK) / 2;
+  doc.save().lineWidth(0.4).dash(1.5, { space: 2.5 });
+  doc.moveTo(lineXK, y).lineTo(lineXK + lineWidthK, y).stroke('#000');
+  doc.undash().restore();
+  y += 4;
+
+  doc.font(FR).fontSize(FS_SMALL).text('(Nama pengakusaksi)', ML, y, { width: CW, align: 'center' });
+  y = doc.y + 2;
+
   doc.text(
-    'Sebarang pertikaian berkaitan perjanjian ini hendaklah diselesaikan menurut undang-undang Malaysia.',
-    ML, y, { width: CW, align: 'justify', lineGap: 3 }
+    '(Peguam bela dan Peguam cara, pegawai Perkhidmatan Kehakiman dan Perundangan, Pesuruhjaya Sumpah, Pegawai Daerah, Jaksa Pendamai atau orang yang dilantik oleh Menteri)',
+    ML + 60, y, { width: CW - 120, align: 'center', lineGap: LG }
   );
 }
 
@@ -1022,79 +1601,14 @@ export async function generateLoanAgreement(loan: LoanForAgreement): Promise<Buf
     });
   }
 
-  // ======== JADUAL K — placeholder (to be rewritten from template) ========
+  // ======== JADUAL K — exact KPKT template ========
   const jadualRows = buildJadualKRows(loan, values);
 
   return createPdfBuffer((doc) => {
-    let y = MT;
-    doc.font(FB).fontSize(FS_HEADING).text('JADUAL K', ML, y, { width: CW, align: 'center', underline: true });
-    y = doc.y + 2;
-    doc.font(FR).fontSize(FS_SMALL).text('AKTA PEMBERI PINJAM WANG 1951', ML, y, { width: CW, align: 'center' });
-    y = doc.y + 1;
-    doc.font(FB).fontSize(FS_SMALL).text('PERATURAN-PERATURAN PEMBERI PINJAM WANG (KAWALAN DAN\nPELESENAN) 2003', ML, y, { width: CW, align: 'center', lineGap: LG_TIGHT });
-    y = doc.y + 4;
-    doc.font(FR).fontSize(FS_SMALL).text('(Subperaturan 10(1))', ML, y, { width: CW, align: 'center' });
-    y = doc.y + 8;
-    doc.font(FB).fontSize(FS_BODY).text('PERJANJIAN PEMBERIAN PINJAMAN WANG (PINJAMAN BERCAGARAN)', ML, y, { width: CW, align: 'center' });
-    y = doc.y + 12;
+    // All legal content flows continuously with automatic page breaks
+    drawJadualKContent(doc, loan, values, signatories);
 
-    boldPara(doc,
-      'SUATU PERJANJIAN ',
-      `diperbuat pada hari dan tahun yang dinyatakan dalam Seksyen 1 Jadual Pertama kepada Perjanjian ini di antara pemberi pinjam wang yang dinyatakan dalam seksyen 2 Jadual Pertama (\u201CPemberi Pinjam\u201D) sebagai satu pihak dan peminjam yang dinyatakan dalam seksyen 3 Jadual Pertama (\u201CPeminjam\u201D) sebagai pihak yang satu lagi.`,
-      ML, y, CW
-    );
-    y = doc.y + 8;
-    boldPara(doc,
-      'BAHAWASANYA ',
-      'Pemberi Pinjam adalah seorang pemberi pinjam wang berlesen di bawah Akta Pemberi Pinjam Wang 1951 dengan ini bersetuju untuk meminjamkan kepada Peminjam dan Peminjam bersetuju untuk meminjam daripada Pemberi Pinjam bagi maksud Perjanjian ini suatu jumlah wang yang dinyatakan dalam seksyen 4 Jadual Pertama (\u201CJumlah Wang Pokok\u201D).',
-      ML, y, CW
-    );
-
-    doc.addPage();
-    drawClausePage(doc, 'Terma dan Syarat (Fasal 1 - 5)', JADUAL_K_CLAUSES.slice(0, 5));
-    doc.addPage();
-    drawClausePage(doc, 'Terma dan Syarat (Fasal 6 - 10)', JADUAL_K_CLAUSES.slice(5, 10));
-    doc.addPage();
-    drawClausePage(doc, 'Terma dan Syarat (Fasal 11 - 16)', JADUAL_K_CLAUSES.slice(10, 16));
-    doc.addPage();
-    drawAttestationPage(doc);
-
-    doc.addPage();
-    let sigY = MT;
-    doc.font(FR).fontSize(FS_BODY).text(
-      'PADA MENYAKSIKAN HAL DI ATAS pihak-pihak kepada Perjanjian ini telah menurunkan tandatangan mereka pada hari dan tahun mula-mula bertulis di atas.',
-      ML, sigY, { width: CW, align: 'justify', lineGap: LG }
-    );
-    sigY = doc.y + 24;
-    for (const sig of signatories) {
-      if (sigY > PAGE_HEIGHT - MB - 100) { doc.addPage(); sigY = MT; }
-      sigY = drawBorrowerSigBlock(doc, sig, sigY);
-      sigY += 8;
-    }
-
-    // Lender signature + attestation page
-    doc.addPage();
-    let lY = MT;
-    lY = drawLenderSigBlock(doc, loan, lY);
-    lY += 40;
-    lY = para(doc,
-      'Saya, dengan sesungguhnya dan sebenarnya mengakui bahawa saya telah menerangkan terma-terma Perjanjian ini kepada Peminjam dan saya mendapati bahawa Peminjam telah memahami sifat dan akibat Perjanjian ini.',
-      ML, lY, CW
-    );
-    lY += 50;
-    const attLineWidth = 260;
-    const attLineX = ML + (CW - attLineWidth) / 2;
-    doc.save().lineWidth(0.4).dash(1.5, { space: 2.5 });
-    doc.moveTo(attLineX, lY).lineTo(attLineX + attLineWidth, lY).stroke('#000');
-    doc.undash().restore();
-    lY += 4;
-    doc.font(FR).fontSize(FS_SMALL).text('(Nama pengakusaksi)', ML, lY, { width: CW, align: 'center' });
-    lY = doc.y + 2;
-    doc.text(
-      '(Peguam bela dan Peguam cara, pegawai Perkhidmatan Kehakiman dan Perundangan, Pesuruhjaya Sumpah, Pegawai Daerah, Jaksa Pendamai atau orang yang dilantik oleh Menteri)',
-      ML + 60, lY, { width: CW - 120, align: 'center', lineGap: LG }
-    );
-
+    // JADUAL PERTAMA — always on its own page
     doc.addPage();
     drawJadualPertamaPage(doc, jadualRows);
   });

@@ -3862,28 +3862,112 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       await tx.$executeRaw`SELECT 1 FROM "Loan" WHERE id = ${loan.id} FOR UPDATE`;
       const lockedLoan = await tx.loan.findUnique({
         where: { id: loan.id },
-        select: { status: true },
+        include: {
+          product: true,
+          scheduleVersions: {
+            orderBy: { version: 'desc' },
+            take: 1,
+            include: {
+              repayments: {
+                orderBy: { dueDate: 'asc' },
+                include: { allocations: true },
+              },
+            },
+          },
+        },
       });
       if (!lockedLoan || (lockedLoan.status !== 'ACTIVE' && lockedLoan.status !== 'IN_ARREARS')) {
         throw new BadRequestError('Loan is no longer eligible for early settlement');
       }
+
+      const lockedSchedule = lockedLoan.scheduleVersions[0];
+      if (!lockedSchedule) {
+        throw new BadRequestError('No active schedule found for this loan');
+      }
+
+      const freshUnpaidRepayments = lockedSchedule.repayments.filter(
+        r => r.status === 'PENDING' || r.status === 'PARTIAL' || r.status === 'OVERDUE'
+      );
+      if (freshUnpaidRepayments.length === 0) {
+        throw new BadRequestError('All repayments are already paid');
+      }
+
+      const todayTx = getMalaysiaStartOfDay(paymentDate);
+      let remainingPrincipalTx = 0;
+      let remainingInterestTx = 0;
+      let remainingFutureInterestTx = 0;
+      let outstandingLateFeesTx = 0;
+
+      for (const repayment of freshUnpaidRepayments) {
+        const totalPaidOnRepayment = repayment.allocations.reduce(
+          (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
+          0
+        );
+        const lateFeesPaidOnRepayment = repayment.allocations.reduce(
+          (sum, a) => safeAdd(sum, toSafeNumber(a.lateFee || 0)),
+          0
+        );
+
+        const principalAndInterestPaid = safeSubtract(totalPaidOnRepayment, lateFeesPaidOnRepayment);
+        const repaymentPrincipal = toSafeNumber(repayment.principal);
+        const repaymentInterest = toSafeNumber(repayment.interest);
+        const repaymentTotal = safeAdd(repaymentPrincipal, repaymentInterest);
+        const remaining = Math.max(0, safeSubtract(repaymentTotal, principalAndInterestPaid));
+
+        if (repaymentTotal > 0 && remaining > 0) {
+          const principalRatio = safeDivide(repaymentPrincipal, repaymentTotal);
+          const interestRatio = safeDivide(repaymentInterest, repaymentTotal);
+          remainingPrincipalTx = safeAdd(remainingPrincipalTx, safeMultiply(remaining, principalRatio));
+          remainingInterestTx = safeAdd(remainingInterestTx, safeMultiply(remaining, interestRatio));
+
+          const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
+          if (dueDate >= todayTx) {
+            remainingFutureInterestTx = safeAdd(remainingFutureInterestTx, safeMultiply(remaining, interestRatio));
+          }
+        }
+
+        const lateFeesOwed = safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid));
+        outstandingLateFeesTx = safeAdd(outstandingLateFeesTx, Math.max(0, lateFeesOwed));
+      }
+
+      remainingPrincipalTx = safeRound(remainingPrincipalTx);
+      remainingInterestTx = safeRound(remainingInterestTx);
+      remainingFutureInterestTx = safeRound(remainingFutureInterestTx);
+      outstandingLateFeesTx = safeRound(outstandingLateFeesTx);
+
+      const discountTypeTx = lockedLoan.product.earlySettlementDiscountType;
+      const discountValueTx = toSafeNumber(lockedLoan.product.earlySettlementDiscountValue);
+      let discountAmountTx = 0;
+      if (discountTypeTx === 'PERCENTAGE') {
+        discountAmountTx = safeRound(safeMultiply(remainingFutureInterestTx, safeDivide(discountValueTx, 100)));
+      } else {
+        discountAmountTx = safeRound(Math.min(discountValueTx, remainingFutureInterestTx));
+      }
+
+      const lateFeesForSettlementTx = data.waiveLateFees ? 0 : outstandingLateFeesTx;
+      const principalInterestTargetTx = safeRound(
+        safeSubtract(safeAdd(remainingPrincipalTx, remainingInterestTx), discountAmountTx)
+      );
+      const totalSettlementTx = safeRound(
+        safeAdd(principalInterestTargetTx, lateFeesForSettlementTx)
+      );
 
       // 1. Create payment transaction
       const transaction = await tx.paymentTransaction.create({
         data: {
           tenantId: req.tenantId!,
           loanId: loan.id,
-          totalAmount: totalSettlement,
+          totalAmount: totalSettlementTx,
           paymentType: 'EARLY_SETTLEMENT',
           reference: data.reference,
-          notes: data.notes || `Early settlement - Discount: ${discountType === 'PERCENTAGE' ? `${discountValue}%` : `RM ${discountValue}`}`,
+          notes: data.notes || `Early settlement - Discount: ${discountTypeTx === 'PERCENTAGE' ? `${discountValueTx}%` : `RM ${discountValueTx}`}`,
           paymentDate,
           receiptNumber,
         },
       });
 
       // 2. Create allocations for each remaining repayment and cancel them
-      const settlementCandidates = unpaidRepayments.map((repayment) => {
+      const settlementCandidates = freshUnpaidRepayments.map((repayment) => {
         const totalPaidOnRepayment = repayment.allocations.reduce(
           (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
           0
@@ -3912,7 +3996,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       );
 
       const principalAllocationMap = new Map<string, number>();
-      if (totalPrincipalRemaining > 0 && principalInterestTarget > 0) {
+      if (totalPrincipalRemaining > 0 && principalInterestTargetTx > 0) {
         let allocatedPrincipal = 0;
         const lastPrincipalIndex = principalCandidates.length - 1;
 
@@ -3920,10 +4004,10 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
           let amount = 0;
 
           if (idx === lastPrincipalIndex) {
-            amount = Math.max(0, safeSubtract(principalInterestTarget, allocatedPrincipal));
+            amount = Math.max(0, safeSubtract(principalInterestTargetTx, allocatedPrincipal));
           } else {
             const ratio = safeDivide(candidate.repaymentRemaining, totalPrincipalRemaining, 8);
-            amount = safeRound(safeMultiply(principalInterestTarget, ratio, 8));
+            amount = safeRound(safeMultiply(principalInterestTargetTx, ratio, 8));
           }
 
           amount = Math.min(candidate.repaymentRemaining, amount);
@@ -3973,7 +4057,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
 
       // Guard against rounding drift so allocations match transaction total.
       const allocatedTotal = safeAdd(totalAllocatedAmount, totalAllocatedLateFee);
-      const allocationDiff = safeSubtract(totalSettlement, allocatedTotal);
+      const allocationDiff = safeSubtract(totalSettlementTx, allocatedTotal);
       if (Math.abs(allocationDiff) > 0.01 && lastAllocationId) {
         const lastAllocation = await tx.paymentAllocation.findUnique({
           where: { id: lastAllocationId },
@@ -3988,7 +4072,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       }
 
       // 3. Calculate repayment rate for metrics
-      const allRepayments = currentSchedule.repayments;
+      const allRepayments = lockedSchedule.repayments;
       let paidOnTime = 0;
       let paidLate = 0;
       for (const repayment of allRepayments) {
@@ -4017,8 +4101,8 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
           status: 'COMPLETED',
           completedAt,
           earlySettlementDate: completedAt,
-          earlySettlementAmount: totalSettlement,
-          earlySettlementDiscount: discountAmount,
+          earlySettlementAmount: totalSettlementTx,
+          earlySettlementDiscount: discountAmountTx,
           earlySettlementNotes: data.notes || null,
           earlySettlementWaiveLateFees: data.waiveLateFees,
           dischargeNotes: data.notes || 'Early settlement',
@@ -4030,7 +4114,23 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         },
       });
 
-      return { transaction, updatedLoan, completedAt, repaymentRate, receiptNumber };
+      return {
+        transaction,
+        updatedLoan,
+        completedAt,
+        repaymentRate,
+        receiptNumber,
+        settlement: {
+          totalSettlement: totalSettlementTx,
+          remainingPrincipal: remainingPrincipalTx,
+          remainingInterest: remainingInterestTx,
+          discountAmount: discountAmountTx,
+          discountType: discountTypeTx,
+          discountValue: discountValueTx,
+          outstandingLateFees: outstandingLateFeesTx,
+          cancelledInstallments: freshUnpaidRepayments.length,
+        },
+      };
     }));
     const receiptNumber = result.receiptNumber;
 
@@ -4043,7 +4143,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         currentSchedule.repayments.reduce((sum, r) =>
           safeAdd(sum, r.allocations.reduce((s, a) => safeAdd(s, toSafeNumber(a.amount)), 0)), 0),
         // Plus this settlement
-        totalSettlement
+        result.settlement.totalSettlement
       );
 
       dischargeLetterPath = await generateDischargeLetter({
@@ -4075,14 +4175,14 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         totalLateFees: toSafeNumber(loan.totalLateFees),
         dischargeNotes: data.notes || 'Early settlement',
         earlySettlement: {
-          settlementAmount: totalSettlement,
-          discountAmount,
-          discountType,
-          discountValue,
-          remainingPrincipal,
-          remainingInterest,
+          settlementAmount: result.settlement.totalSettlement,
+          discountAmount: result.settlement.discountAmount,
+          discountType: result.settlement.discountType,
+          discountValue: result.settlement.discountValue,
+          remainingPrincipal: result.settlement.remainingPrincipal,
+          remainingInterest: result.settlement.remainingInterest,
           waiveLateFees: data.waiveLateFees,
-          outstandingLateFees,
+          outstandingLateFees: result.settlement.outstandingLateFees,
         },
       });
 
@@ -4123,17 +4223,17 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       receiptPath = await generateSettlementReceipt({
         receiptNumber,
         paymentDate,
-        totalSettlement,
-        remainingPrincipal,
-        remainingInterest,
-        discountAmount,
-        discountType,
-        discountValue,
-        outstandingLateFees,
+        totalSettlement: result.settlement.totalSettlement,
+        remainingPrincipal: result.settlement.remainingPrincipal,
+        remainingInterest: result.settlement.remainingInterest,
+        discountAmount: result.settlement.discountAmount,
+        discountType: result.settlement.discountType,
+        discountValue: result.settlement.discountValue,
+        outstandingLateFees: result.settlement.outstandingLateFees,
         waiveLateFees: data.waiveLateFees,
         reference: data.reference,
         notes: data.notes,
-        cancelledInstallments: unpaidRepayments.length,
+        cancelledInstallments: result.settlement.cancelledInstallments,
         loan: {
           id: loan.id,
           principalAmount: loan.principalAmount,
@@ -4181,21 +4281,21 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       newData: {
         status: 'COMPLETED',
         earlySettlement: true,
-        settlementAmount: totalSettlement,
-        discountType,
-        discountValue,
-        discountAmount,
-        remainingPrincipal,
-        remainingInterest,
-        outstandingLateFees,
+        settlementAmount: result.settlement.totalSettlement,
+        discountType: result.settlement.discountType,
+        discountValue: result.settlement.discountValue,
+        discountAmount: result.settlement.discountAmount,
+        remainingPrincipal: result.settlement.remainingPrincipal,
+        remainingInterest: result.settlement.remainingInterest,
+        outstandingLateFees: result.settlement.outstandingLateFees,
         waiveLateFees: data.waiveLateFees,
-        lateFeesSettled: data.waiveLateFees ? 0 : outstandingLateFees,
+        lateFeesSettled: data.waiveLateFees ? 0 : result.settlement.outstandingLateFees,
         receiptNumber,
         receiptGenerated: !!receiptPath,
         paymentDate: paymentDate.toISOString(),
         notes: data.notes || null,
         dischargeLetterGenerated: !!dischargeLetterPath,
-        cancelledRepayments: unpaidRepayments.length,
+        cancelledRepayments: result.settlement.cancelledInstallments,
       },
       ipAddress: req.ip,
     });
@@ -4207,7 +4307,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
           req.tenantId!,
           loan.id,
           receiptPath,
-          totalSettlement,
+          result.settlement.totalSettlement,
           receiptNumber,
           true // isEarlySettlement
         );
@@ -4225,12 +4325,12 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         transactionId: result.transaction.id,
         receiptNumber,
         settlement: {
-          remainingPrincipal,
-          remainingInterest,
-          discountAmount,
-          outstandingLateFees,
+          remainingPrincipal: result.settlement.remainingPrincipal,
+          remainingInterest: result.settlement.remainingInterest,
+          discountAmount: result.settlement.discountAmount,
+          outstandingLateFees: result.settlement.outstandingLateFees,
           waiveLateFees: data.waiveLateFees,
-          totalSettlement,
+          totalSettlement: result.settlement.totalSettlement,
           dischargeLetterPath,
           receiptPath,
         },

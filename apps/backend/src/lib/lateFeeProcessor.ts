@@ -109,7 +109,9 @@ export class LateFeeProcessor {
 
       try {
         // 2. Today's date boundary (Malaysia business day)
+        // We only accrue completed days, so end at previous MYT day start.
         const todayStart = getMalaysiaStartOfDay();
+        const accrualEndDay = new Date(todayStart.getTime() - ONE_DAY_MS);
 
         // 3. Query overdue repayments (scoped to tenant if provided, else all)
         // Include ACTIVE, IN_ARREARS, and DEFAULTED loans - late fees continue to accrue
@@ -202,87 +204,99 @@ export class LateFeeProcessor {
                   startDate = firstChargeableDay;
                 }
 
-                // Don't charge beyond today
-                if (startDate.getTime() > todayStart.getTime()) continue;
+                // Don't charge beyond previous completed MYT day
+                if (startDate.getTime() > accrualEndDay.getTime()) continue;
 
                 // Get all dates to charge
-                const datesToCharge = getMalaysiaDateRange(startDate, todayStart);
+                const datesToCharge = getMalaysiaDateRange(startDate, accrualEndDay);
 
-                let repaymentFeeTotal = 0;
-                const sortedAllocations = [...repayment.allocations].sort(
-                  (a, b) => new Date(a.allocatedAt).getTime() - new Date(b.allocatedAt).getTime()
-                );
-                let allocationCursor = 0;
-                let paidBeforeAccrual = 0;
+                const repaymentResult = await prisma.$transaction(async (tx) => {
+                  // Keep lock order consistent with payment routes to reduce deadlock risk.
+                  await tx.$executeRaw`SELECT 1 FROM "Loan" WHERE id = ${loan.id} FOR UPDATE`;
+                  await tx.$executeRaw`SELECT 1 FROM "LoanRepayment" WHERE id = ${repayment.id} FOR UPDATE`;
 
-                for (const accrualDate of datesToCharge) {
-                  while (
-                    allocationCursor < sortedAllocations.length &&
-                    new Date(sortedAllocations[allocationCursor].allocatedAt).getTime() < accrualDate.getTime()
-                  ) {
-                    paidBeforeAccrual = safeAdd(paidBeforeAccrual, toSafeNumber(sortedAllocations[allocationCursor].amount));
-                    allocationCursor++;
+                  let repaymentFeeTotal = 0;
+                  let repaymentFeesCount = 0;
+                  let repaymentDaysBackfilled = 0;
+                  const sortedAllocations = [...repayment.allocations].sort(
+                    (a, b) => new Date(a.allocatedAt).getTime() - new Date(b.allocatedAt).getTime()
+                  );
+                  let allocationCursor = 0;
+                  let paidBeforeAccrual = 0;
+
+                  for (const accrualDate of datesToCharge) {
+                    while (
+                      allocationCursor < sortedAllocations.length &&
+                      new Date(sortedAllocations[allocationCursor].allocatedAt).getTime() < accrualDate.getTime()
+                    ) {
+                      paidBeforeAccrual = safeAdd(paidBeforeAccrual, toSafeNumber(sortedAllocations[allocationCursor].amount));
+                      allocationCursor++;
+                    }
+
+                    const outstandingForDay = safeSubtract(totalDue, paidBeforeAccrual);
+                    if (outstandingForDay <= 0.01) continue;
+
+                    const dailyFee = calculateDailyLateFee(outstandingForDay, latePaymentRate);
+                    if (dailyFee <= 0) continue;
+
+                    const daysOverdue = calculateDaysOverdueMalaysia(repayment.dueDate, accrualDate);
+                    if (daysOverdue <= 0) continue;
+
+                    try {
+                      await tx.lateFeeEntry.create({
+                        data: {
+                          tenantId: loan.tenantId,
+                          loanId: loan.id,
+                          repaymentId: repayment.id,
+                          accrualDate,
+                          daysOverdue,
+                          outstandingAmount: outstandingForDay,
+                          dailyRate: rate,
+                          feeAmount: dailyFee,
+                        },
+                      });
+
+                      repaymentFeeTotal = safeAdd(repaymentFeeTotal, dailyFee);
+                      repaymentFeesCount++;
+                      repaymentDaysBackfilled++;
+                    } catch (err: unknown) {
+                      // P2002 = unique constraint violation → already charged this day, skip
+                      if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'P2002') {
+                        continue;
+                      }
+                      throw err;
+                    }
                   }
 
-                  const outstandingForDay = safeSubtract(totalDue, paidBeforeAccrual);
-                  if (outstandingForDay <= 0.01) continue;
-
-                  const dailyFee = calculateDailyLateFee(outstandingForDay, latePaymentRate);
-                  if (dailyFee <= 0) continue;
-
-                  const daysOverdue = calculateDaysOverdueMalaysia(repayment.dueDate, accrualDate);
-                  if (daysOverdue <= 0) continue;
-
-                  try {
-                    await prisma.lateFeeEntry.create({
+                  if (repaymentFeeTotal > 0) {
+                    await tx.loanRepayment.update({
+                      where: { id: repayment.id },
                       data: {
-                        tenantId: loan.tenantId,
-                        loanId: loan.id,
-                        repaymentId: repayment.id,
-                        accrualDate,
-                        daysOverdue,
-                        outstandingAmount: outstandingForDay,
-                        dailyRate: rate,
-                        feeAmount: dailyFee,
+                        lateFeeAccrued: { increment: repaymentFeeTotal },
                       },
                     });
 
-                    repaymentFeeTotal = safeAdd(repaymentFeeTotal, dailyFee);
-                    loanFeesCount++;
-                    loanDaysBackfilled++;
-                  } catch (err: unknown) {
-                    // P2002 = unique constraint violation → already charged this day, skip
-                    if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'P2002') {
-                      continue;
-                    }
-                    throw err;
+                    await tx.loan.update({
+                      where: { id: loan.id },
+                      data: {
+                        totalLateFees: { increment: repaymentFeeTotal },
+                      },
+                    });
                   }
-                }
 
-                // Update LoanRepayment.lateFeeAccrued with the total new fees
-                if (repaymentFeeTotal > 0) {
-                  await prisma.loanRepayment.update({
-                    where: { id: repayment.id },
-                    data: {
-                      lateFeeAccrued: { increment: repaymentFeeTotal },
-                    },
-                  });
-                }
+                  return {
+                    repaymentFeeTotal,
+                    repaymentFeesCount,
+                    repaymentDaysBackfilled,
+                  };
+                });
 
-                loanTotalFee = safeAdd(loanTotalFee, repaymentFeeTotal);
+                loanTotalFee = safeAdd(loanTotalFee, repaymentResult.repaymentFeeTotal);
+                loanFeesCount += repaymentResult.repaymentFeesCount;
+                loanDaysBackfilled += repaymentResult.repaymentDaysBackfilled;
               } catch (repErr) {
                 errors.push(`Repayment ${repayment.id}: ${repErr instanceof Error ? repErr.message : 'Unknown error'}`);
               }
-            }
-
-            // Update Loan.totalLateFees
-            if (loanTotalFee > 0) {
-              await prisma.loan.update({
-                where: { id: loanId },
-                data: {
-                  totalLateFees: { increment: loanTotalFee },
-                },
-              });
             }
 
             feesCalculated += loanFeesCount;
@@ -470,7 +484,7 @@ export class LateFeeProcessor {
                   totalFeeCharged: loanTotalFee,
                   repaymentsAffected: loanFeesCount,
                   daysBackfilled: loanDaysBackfilled,
-                  accrualDate: todayStart.toISOString(),
+                  accrualDate: accrualEndDay.toISOString(),
                   trigger,
                 },
               });

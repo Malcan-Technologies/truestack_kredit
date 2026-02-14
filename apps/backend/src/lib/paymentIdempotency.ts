@@ -103,8 +103,11 @@ export async function beginPaymentIdempotency(params: {
     throw new ConflictError('A request with this Idempotency-Key is already being processed');
   }
 
-  const reset = await prisma.paymentIdempotency.update({
-    where: { id: existing.id },
+  const resetResult = await prisma.paymentIdempotency.updateMany({
+    where: {
+      id: existing.id,
+      status: 'FAILED',
+    },
     data: {
       status: 'PROCESSING',
       errorMessage: null,
@@ -113,9 +116,40 @@ export async function beginPaymentIdempotency(params: {
     },
   });
 
+  if (resetResult.count === 0) {
+    const latest = await prisma.paymentIdempotency.findUnique({
+      where: {
+        tenantId_endpoint_idempotencyKey: {
+          tenantId: params.tenantId,
+          endpoint: params.endpoint,
+          idempotencyKey: params.idempotencyKey,
+        },
+      },
+    });
+
+    if (!latest) {
+      throw new ConflictError('Unable to resolve idempotency state. Please retry.');
+    }
+
+    if (latest.requestHash !== requestHash) {
+      throw new BadRequestError('Idempotency-Key was already used with a different request payload');
+    }
+
+    if ((latest.status as IdempotencyStatus) === 'COMPLETED') {
+      return {
+        replay: true,
+        recordId: latest.id,
+        responseStatus: latest.responseStatus ?? 200,
+        responseBody: latest.responseBody,
+      };
+    }
+
+    throw new ConflictError('A request with this Idempotency-Key is already being processed');
+  }
+
   return {
     replay: false,
-    recordId: reset.id,
+    recordId: existing.id,
   };
 }
 

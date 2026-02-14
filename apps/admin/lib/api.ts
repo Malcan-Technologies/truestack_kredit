@@ -89,14 +89,19 @@ export async function fetchApi<T>(
   }
 }
 
+export interface ApiPostOptions {
+  headers?: Record<string, string>;
+}
+
 // Convenience methods
 export const api = {
   get: <T>(endpoint: string) => fetchApi<T>(endpoint, { method: "GET" }),
 
-  post: <T>(endpoint: string, body: unknown) =>
+  post: <T>(endpoint: string, body: unknown, options?: ApiPostOptions) =>
     fetchApi<T>(endpoint, {
       method: "POST",
       body: JSON.stringify(body),
+      headers: options?.headers,
     }),
 
   patch: <T>(endpoint: string, body: unknown) =>

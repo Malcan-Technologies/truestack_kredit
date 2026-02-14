@@ -127,9 +127,7 @@ export function CreateTenantModal({ open, onClose }: CreateTenantModalProps) {
                   <SelectItem value="PPW">
                     PPW - Pemberi Pinjam Wang (Money Lender)
                   </SelectItem>
-                  <SelectItem value="PPG">
-                    PPG - Pemberi Pajak Gadai (Pawnbroker)
-                  </SelectItem>
+                  {/* PPG - Pemberi Pajak Gadai (Pawnbroker) - coming soon */}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted">

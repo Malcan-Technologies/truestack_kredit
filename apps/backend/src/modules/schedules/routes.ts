@@ -90,12 +90,13 @@ async function accrueLateFeesThroughDate(params: {
     ? new Date(getMalaysiaStartOfDay(lastAccrualDate).getTime() + ONE_DAY_MS)
     : firstChargeableDay;
   const asOfDayStart = getMalaysiaStartOfDay(asOfDate);
+  const accrualEndDay = new Date(asOfDayStart.getTime() - ONE_DAY_MS);
 
-  if (startDate.getTime() > asOfDayStart.getTime()) {
+  if (startDate.getTime() > accrualEndDay.getTime()) {
     return 0;
   }
 
-  const datesToCharge = getMalaysiaDateRange(startDate, asOfDayStart);
+  const datesToCharge = getMalaysiaDateRange(startDate, accrualEndDay);
   const sortedAllocations = [...repayment.allocations].sort(
     (a, b) => new Date(a.allocatedAt).getTime() - new Date(b.allocatedAt).getTime()
   );

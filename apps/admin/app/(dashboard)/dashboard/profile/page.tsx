@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserCircle, Share2, Users, Shield, Eye, EyeOff, Building2 } from "lucide-react";
+import { UserCircle, Share2, Users, Shield, Eye, EyeOff, Building2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { useSession, updateUser } from "@/lib/auth-client";
 import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { CopyField } from "@/components/ui/copy-field";
+import { CreateTenantModal } from "@/components/create-tenant-modal";
 
 interface CurrentMembership {
   referrer: { id: string; name: string | null; email: string } | null;
@@ -92,6 +93,7 @@ export default function ProfilePage() {
   });
   const [tenants, setTenants] = useState<TenantMembership[]>([]);
   const [loadingTenants, setLoadingTenants] = useState(false);
+  const [showCreateTenantModal, setShowCreateTenantModal] = useState(false);
 
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
@@ -550,12 +552,22 @@ Sign up here: ${referralLink}`
         {/* Your Tenants */}
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <Building2 className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <CardTitle className="font-heading">Your Tenants</CardTitle>
-                <CardDescription>Organizations you belong to with their plans and billing</CardDescription>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Building2 className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <CardTitle className="font-heading">Your Tenants</CardTitle>
+                  <CardDescription>Organizations you belong to with their plans and billing</CardDescription>
+                </div>
               </div>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setShowCreateTenantModal(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                 New Tenant
+              </Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -604,7 +616,7 @@ Sign up here: ${referralLink}`
                       </div>
                     </div>
                     <Button
-                      variant="default"
+                      variant="outline"
                       size="sm"
                       onClick={async () => {
                         try {
@@ -635,6 +647,11 @@ Sign up here: ${referralLink}`
           </CardContent>
         </Card>
       </div>
+
+      <CreateTenantModal
+        open={showCreateTenantModal}
+        onClose={() => setShowCreateTenantModal(false)}
+      />
 
       {/* Referrals - combined code + my referrals */}
       <Card>

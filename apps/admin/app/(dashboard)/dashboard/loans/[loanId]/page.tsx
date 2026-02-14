@@ -823,13 +823,21 @@ export default function LoanDetailPage() {
     setActionLoading("payment");
 
     // Record payment at the loan level - backend handles allocation and spillover
-    const paymentRes = await api.post(`/api/schedules/loan/${loanId}/payments`, {
-      amount,
-      reference: paymentReference || undefined,
-      notes: paymentNotes || undefined,
-      applyLateFee,
-      paymentDate: new Date(paymentDate).toISOString(),
-    });
+    const paymentRes = await api.post(
+      `/api/schedules/loan/${loanId}/payments`,
+      {
+        amount,
+        reference: paymentReference || undefined,
+        notes: paymentNotes || undefined,
+        applyLateFee,
+        paymentDate: new Date(paymentDate).toISOString(),
+      },
+      {
+        headers: {
+          "idempotency-key": crypto.randomUUID(),
+        },
+      }
+    );
 
     if (!paymentRes.success) {
       toast.error(paymentRes.error || "Failed to record payment");
@@ -923,12 +931,20 @@ export default function LoanDetailPage() {
   const handleConfirmEarlySettlement = async () => {
     setActionLoading("settlement");
     try {
-      const res = await api.post(`/api/loans/${loanId}/early-settlement/confirm`, {
-        paymentDate: settlementPaymentDate ? new Date(settlementPaymentDate).toISOString() : undefined,
-        reference: settlementReference || undefined,
-        notes: settlementNotes || undefined,
-        waiveLateFees: settlementWaiveLateFees,
-      });
+      const res = await api.post(
+        `/api/loans/${loanId}/early-settlement/confirm`,
+        {
+          paymentDate: settlementPaymentDate ? new Date(settlementPaymentDate).toISOString() : undefined,
+          reference: settlementReference || undefined,
+          notes: settlementNotes || undefined,
+          waiveLateFees: settlementWaiveLateFees,
+        },
+        {
+          headers: {
+            "idempotency-key": crypto.randomUUID(),
+          },
+        }
+      );
       if (res.success) {
         // Upload proof of payment if provided
         const responseData = res.data as { transactionId?: string };
@@ -3318,8 +3334,8 @@ export default function LoanDetailPage() {
               </p>
             </div>
             {proofFile && (
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-                <p className="text-sm font-medium">{proofFile.name}</p>
+              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden">
+                <p className="text-sm font-medium truncate" title={proofFile.name}>{proofFile.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {(proofFile.size / 1024).toFixed(1)} KB
                 </p>
@@ -3376,8 +3392,8 @@ export default function LoanDetailPage() {
               </p>
             </div>
             {disbursementProofUploadFile && (
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-                <p className="text-sm font-medium">{disbursementProofUploadFile.name}</p>
+              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden">
+                <p className="text-sm font-medium truncate" title={disbursementProofUploadFile.name}>{disbursementProofUploadFile.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {(disbursementProofUploadFile.size / 1024).toFixed(1)} KB
                 </p>
@@ -3440,8 +3456,8 @@ export default function LoanDetailPage() {
               </p>
             </div>
             {agreementFile && (
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-                <p className="text-sm font-medium">{agreementFile.name}</p>
+              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden">
+                <p className="text-sm font-medium truncate" title={agreementFile.name}>{agreementFile.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {(agreementFile.size / 1024).toFixed(1)} KB
                 </p>
@@ -3534,7 +3550,7 @@ export default function LoanDetailPage() {
           setStampCertFile(null);
         }
       }}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden">
           <DialogHeader>
             <DialogTitle>Upload Stamp Certificate</DialogTitle>
             <DialogDescription>
@@ -3561,8 +3577,8 @@ export default function LoanDetailPage() {
               </p>
             </div>
             {stampCertFile && (
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-                <p className="text-sm font-medium">{stampCertFile.name}</p>
+              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden">
+                <p className="text-sm font-medium truncate" title={stampCertFile.name}>{stampCertFile.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {(stampCertFile.size / 1024).toFixed(1)} KB
                 </p>

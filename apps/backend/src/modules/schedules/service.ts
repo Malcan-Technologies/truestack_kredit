@@ -68,23 +68,32 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
 
   for (let i = 1; i <= term; i++) {
     const dueDate = addMonthsClamped(disbursementDate, i);
+    const isLast = i === term;
 
-    balance = Math.max(0, safeSubtract(balance, monthlyPrincipal));
+    if (isLast) {
+      // Last payment absorbs any rounding remainder
+      const lastPrincipal = balance;
+      const lastInterest = safeSubtract(totalInterest, safeMultiply(round(monthlyInterest), term - 1));
+      const lastTotal = safeAdd(lastPrincipal, lastInterest);
 
-    repayments.push({
-      dueDate,
-      principal: round(monthlyPrincipal),
-      interest: round(monthlyInterest),
-      totalDue: round(monthlyPayment),
-      balance: round(balance),
-    });
-  }
+      repayments.push({
+        dueDate,
+        principal: round(lastPrincipal),
+        interest: round(lastInterest),
+        totalDue: round(lastTotal),
+        balance: 0,
+      });
+    } else {
+      balance = safeSubtract(balance, monthlyPrincipal);
 
-  // Adjust last payment for rounding differences
-  const totalCalculated = repayments.reduce((sum, r) => safeAdd(sum, r.totalDue), 0);
-  if (Math.abs(totalCalculated - totalPayable) > 0.01) {
-    const diff = safeSubtract(totalPayable, totalCalculated);
-    repayments[repayments.length - 1].totalDue = round(safeAdd(repayments[repayments.length - 1].totalDue, diff));
+      repayments.push({
+        dueDate,
+        principal: round(monthlyPrincipal),
+        interest: round(monthlyInterest),
+        totalDue: round(monthlyPayment),
+        balance: round(balance),
+      });
+    }
   }
 
   return {

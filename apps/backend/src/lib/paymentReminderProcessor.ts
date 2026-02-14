@@ -67,7 +67,7 @@ export class PaymentReminderProcessor {
                 include: {
                   repayments: {
                     where: {
-                      status: 'PENDING',
+                      status: { in: ['PENDING', 'PARTIAL'] },
                     },
                     orderBy: { dueDate: 'asc' },
                   },

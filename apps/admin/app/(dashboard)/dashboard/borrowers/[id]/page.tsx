@@ -445,6 +445,37 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
   const actionInfo = getActionInfo(event.action);
   const Icon = actionInfo.icon;
 
+  const formatAuditValue = (val: unknown, key: string): string => {
+    if (val === null || val === undefined) return "(empty)";
+    if (key === "directors" && Array.isArray(val)) {
+      return val
+        .map((d, i) => {
+          const dir = d as { name?: string; icNumber?: string; position?: string };
+          const parts = [dir.name || "—"];
+          if (dir.icNumber) parts.push(`IC: ${formatICForDisplay(dir.icNumber)}`);
+          if (dir.position) parts.push(dir.position);
+          return `${i + 1}. ${parts.join(", ")}`;
+        })
+        .join("; ") || "(none)";
+    }
+    if (Array.isArray(val)) {
+      return val.map((v) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v))).join(", ");
+    }
+    if (typeof val === "object") return JSON.stringify(val);
+    return String(val);
+  };
+
+  const FIELD_LABELS: Record<string, string> = {
+    directors: "Company Directors",
+    companyName: "Company Name",
+    ssmRegistrationNo: "SSM Registration No",
+    businessAddress: "Business Address",
+    authorizedRepName: "Authorized Representative",
+    authorizedRepIc: "Authorized Rep IC",
+    companyPhone: "Company Phone",
+    companyEmail: "Company Email",
+  };
+
   const getChanges = () => {
     if (event.action !== "UPDATE" || !event.previousData || !event.newData) {
       return null;
@@ -456,9 +487,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
       const prevVal = prev[key];
       const nextVal = next[key];
       if (JSON.stringify(prevVal) !== JSON.stringify(nextVal)) {
-        const fromDisplay = prevVal === null || prevVal === undefined ? "(empty)" : String(prevVal);
-        const toDisplay = nextVal === null || nextVal === undefined ? "(empty)" : String(nextVal);
-        changes.push({ field: key, from: fromDisplay, to: toDisplay });
+        const fieldLabel = FIELD_LABELS[key] || key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase());
+        changes.push({
+          field: fieldLabel,
+          from: formatAuditValue(prevVal, key),
+          to: formatAuditValue(nextVal, key),
+        });
       }
     }
     return changes;
@@ -779,6 +813,11 @@ export default function BorrowerDetailPage() {
           }
           if (!director.icNumber.trim()) {
             errors[`directorIc_${index}`] = `Director ${index + 1} IC number is required`;
+          } else {
+            const cleanIC = director.icNumber.replace(/\D/g, "");
+            if (cleanIC.length !== 12) {
+              errors[`directorIc_${index}`] = `Director ${index + 1} IC must be exactly 12 digits`;
+            }
           }
         });
       }
@@ -1189,188 +1228,35 @@ export default function BorrowerDetailPage() {
                 </CardContent>
               </Card>
 
-              {/* Additional Company Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="h-5 w-5 text-muted-foreground" />
-                    Additional Details
-                  </CardTitle>
-                  <CardDescription>Optional company information</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field
-                      label="Paid-up Capital (RM)"
-                      value={borrower.paidUpCapital ? `RM ${Number(borrower.paidUpCapital).toLocaleString()}` : "-"}
-                      editValue={formData.paidUpCapital}
-                      onChange={(val) => setFormData((prev) => ({ ...prev, paidUpCapital: val }))}
-                      placeholder="100000"
-                      isEditing={isEditing}
-                    />
-                    <Field
-                      label="Number of Employees"
-                      value={borrower.numberOfEmployees?.toString() || "-"}
-                      editValue={formData.numberOfEmployees}
-                      onChange={(val) => setFormData((prev) => ({ ...prev, numberOfEmployees: val }))}
-                      placeholder="10"
-                      isEditing={isEditing}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Directors & Company Contact - Side by Side */}
+              {/* Additional Details & Company Contact - Side by Side */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Company Directors */}
+                {/* Additional Company Details */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <User className="h-5 w-5 text-muted-foreground" />
-                      Company Directors
+                      <Briefcase className="h-5 w-5 text-muted-foreground" />
+                      Additional Details
                     </CardTitle>
-                    <CardDescription>Minimum 1, maximum 10 directors</CardDescription>
+                    <CardDescription>Optional company information</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {formData.directors.map((director, index) => (
-                        <div key={`director-${index}`} className="rounded-lg border p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium">
-                              Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
-                            </p>
-                            {isEditing && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                disabled={formData.directors.length <= 1}
-                                onClick={() => {
-                                  if (formData.directors.length <= 1) return;
-                                  setFormData((prev) => {
-                                    const nextDirectors = prev.directors.filter((_, i) => i !== index);
-                                    const firstDirector = nextDirectors[0];
-                                    return {
-                                      ...prev,
-                                      directors: nextDirectors,
-                                      authorizedRepName: firstDirector?.name || "",
-                                      authorizedRepIc: firstDirector?.icNumber || "",
-                                      name: firstDirector?.name || prev.name,
-                                    };
-                                  });
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                Remove
-                              </Button>
-                            )}
-                          </div>
-
-                          {!isEditing ? (
-                            <div className="space-y-1 text-sm">
-                              <p><span className="text-muted-foreground">Name:</span> {director.name || "-"}</p>
-                              <p><span className="text-muted-foreground">IC:</span> {director.icNumber || "-"}</p>
-                              <p><span className="text-muted-foreground">Position:</span> {director.position || "-"}</p>
-                            </div>
-                          ) : (
-                            <div className="grid grid-cols-1 gap-2">
-                              <div>
-                                <label className="text-xs text-muted-foreground">Director Name *</label>
-                                <Input
-                                  value={director.name}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData((prev) => {
-                                      const nextDirectors = [...prev.directors];
-                                      nextDirectors[index] = { ...nextDirectors[index], name: val };
-                                      return {
-                                        ...prev,
-                                        directors: nextDirectors,
-                                        authorizedRepName: index === 0 ? val : prev.authorizedRepName,
-                                        name: index === 0 ? val : prev.name,
-                                      };
-                                    });
-                                    if (validationErrors[`directorName_${index}`]) {
-                                      setValidationErrors((prev) => ({ ...prev, [`directorName_${index}`]: "" }));
-                                    }
-                                  }}
-                                  className={validationErrors[`directorName_${index}`] ? "border-red-500" : ""}
-                                />
-                                {validationErrors[`directorName_${index}`] && (
-                                  <p className="text-xs text-red-500 mt-1">{validationErrors[`directorName_${index}`]}</p>
-                                )}
-                              </div>
-                              <div>
-                                <label className="text-xs text-muted-foreground">Director IC *</label>
-                                <Input
-                                  value={director.icNumber}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData((prev) => {
-                                      const nextDirectors = [...prev.directors];
-                                      nextDirectors[index] = { ...nextDirectors[index], icNumber: val };
-                                      return {
-                                        ...prev,
-                                        directors: nextDirectors,
-                                        authorizedRepIc: index === 0 ? val : prev.authorizedRepIc,
-                                      };
-                                    });
-                                    if (validationErrors[`directorIc_${index}`]) {
-                                      setValidationErrors((prev) => ({ ...prev, [`directorIc_${index}`]: "" }));
-                                    }
-                                  }}
-                                  className={validationErrors[`directorIc_${index}`] ? "border-red-500" : ""}
-                                />
-                                {validationErrors[`directorIc_${index}`] && (
-                                  <p className="text-xs text-red-500 mt-1">{validationErrors[`directorIc_${index}`]}</p>
-                                )}
-                              </div>
-                              <div>
-                                <label className="text-xs text-muted-foreground">Position</label>
-                                <Input
-                                  value={director.position}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData((prev) => {
-                                      const nextDirectors = [...prev.directors];
-                                      nextDirectors[index] = { ...nextDirectors[index], position: val };
-                                      return { ...prev, directors: nextDirectors };
-                                    });
-                                  }}
-                                  placeholder="e.g., Director"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-
-                      {validationErrors.directors && (
-                        <p className="text-xs text-red-500">{validationErrors.directors}</p>
-                      )}
-
-                      {isEditing && (
-                        <div className="space-y-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={formData.directors.length >= 10}
-                            onClick={() => {
-                              if (formData.directors.length >= 10) return;
-                              setFormData((prev) => ({
-                                ...prev,
-                                directors: [...prev.directors, { name: "", icNumber: "", position: "" }],
-                              }));
-                            }}
-                          >
-                            <Plus className="h-4 w-4 mr-2" />
-                            Add Director
-                          </Button>
-                          <p className="text-xs text-muted-foreground">
-                            {formData.directors.length}/10 directors
-                          </p>
-                        </div>
-                      )}
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field
+                        label="Paid-up Capital (RM)"
+                        value={borrower.paidUpCapital ? `RM ${Number(borrower.paidUpCapital).toLocaleString()}` : "-"}
+                        editValue={formData.paidUpCapital}
+                        onChange={(val) => setFormData((prev) => ({ ...prev, paidUpCapital: val }))}
+                        placeholder="100000"
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="Number of Employees"
+                        value={borrower.numberOfEmployees?.toString() || "-"}
+                        editValue={formData.numberOfEmployees}
+                        onChange={(val) => setFormData((prev) => ({ ...prev, numberOfEmployees: val }))}
+                        placeholder="10"
+                        isEditing={isEditing}
+                      />
                     </div>
                   </CardContent>
                 </Card>
@@ -1423,6 +1309,162 @@ export default function BorrowerDetailPage() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Company Directors - Full Width */}
+              <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="h-5 w-5 text-muted-foreground" />
+                      Company Directors
+                    </CardTitle>
+                    <CardDescription>Minimum 1, maximum 10 directors</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {formData.directors.map((director, index) => (
+                        <div key={`director-${index}`} className="rounded-lg border p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium">
+                              Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
+                            </p>
+                            {isEditing && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={formData.directors.length <= 1}
+                                onClick={() => {
+                                  if (formData.directors.length <= 1) return;
+                                  setFormData((prev) => {
+                                    const nextDirectors = prev.directors.filter((_, i) => i !== index);
+                                    const firstDirector = nextDirectors[0];
+                                    return {
+                                      ...prev,
+                                      directors: nextDirectors,
+                                      authorizedRepName: firstDirector?.name || "",
+                                      authorizedRepIc: firstDirector?.icNumber || "",
+                                      name: firstDirector?.name || prev.name,
+                                    };
+                                  });
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+
+                          {!isEditing ? (
+                            <div className="space-y-1 text-sm">
+                              <p><span className="text-muted-foreground">Name:</span> {director.name || "-"}</p>
+                              <p><span className="text-muted-foreground">IC:</span> {director.icNumber ? formatICForDisplay(director.icNumber) : "-"}</p>
+                              <p><span className="text-muted-foreground">Position:</span> {director.position || "-"}</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-2">
+                              <div>
+                                <label className="text-xs text-muted-foreground">Director Name *</label>
+                                <Input
+                                  value={director.name}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData((prev) => {
+                                      const nextDirectors = [...prev.directors];
+                                      nextDirectors[index] = { ...nextDirectors[index], name: val };
+                                      return {
+                                        ...prev,
+                                        directors: nextDirectors,
+                                        authorizedRepName: index === 0 ? val : prev.authorizedRepName,
+                                        name: index === 0 ? val : prev.name,
+                                      };
+                                    });
+                                    if (validationErrors[`directorName_${index}`]) {
+                                      setValidationErrors((prev) => ({ ...prev, [`directorName_${index}`]: "" }));
+                                    }
+                                  }}
+                                  className={validationErrors[`directorName_${index}`] ? "border-red-500" : ""}
+                                />
+                                {validationErrors[`directorName_${index}`] && (
+                                  <p className="text-xs text-red-500 mt-1">{validationErrors[`directorName_${index}`]}</p>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-xs text-muted-foreground">Director IC *</label>
+                                <Input
+                                  value={director.icNumber}
+                                  onChange={(e) => {
+                                    const cleanVal = e.target.value.replace(/\D/g, "").substring(0, 12);
+                                    setFormData((prev) => {
+                                      const nextDirectors = [...prev.directors];
+                                      nextDirectors[index] = { ...nextDirectors[index], icNumber: cleanVal };
+                                      return {
+                                        ...prev,
+                                        directors: nextDirectors,
+                                        authorizedRepIc: index === 0 ? cleanVal : prev.authorizedRepIc,
+                                      };
+                                    });
+                                    if (validationErrors[`directorIc_${index}`]) {
+                                      setValidationErrors((prev) => ({ ...prev, [`directorIc_${index}`]: "" }));
+                                    }
+                                  }}
+                                  className={validationErrors[`directorIc_${index}`] ? "border-red-500" : ""}
+                                />
+                                {validationErrors[`directorIc_${index}`] && (
+                                  <p className="text-xs text-red-500 mt-1">{validationErrors[`directorIc_${index}`]}</p>
+                                )}
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Enter 12 digits only (e.g., 880101011234)
+                                </p>
+                              </div>
+                              <div>
+                                <label className="text-xs text-muted-foreground">Position</label>
+                                <Input
+                                  value={director.position}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData((prev) => {
+                                      const nextDirectors = [...prev.directors];
+                                      nextDirectors[index] = { ...nextDirectors[index], position: val };
+                                      return { ...prev, directors: nextDirectors };
+                                    });
+                                  }}
+                                  placeholder="e.g., Director"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                      {validationErrors.directors && (
+                        <p className="text-xs text-red-500">{validationErrors.directors}</p>
+                      )}
+
+                      {isEditing && (
+                        <div className="space-y-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={formData.directors.length >= 10}
+                            onClick={() => {
+                              if (formData.directors.length >= 10) return;
+                              setFormData((prev) => ({
+                                ...prev,
+                                directors: [...prev.directors, { name: "", icNumber: "", position: "" }],
+                              }));
+                            }}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Director
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            {formData.directors.length}/10 directors
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
             </>
           ) : (
             <>

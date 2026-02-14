@@ -84,7 +84,11 @@ const corporateFieldsSchema = z.object({
 
 const directorSchema = z.object({
   name: z.string().min(2).max(200),
-  icNumber: z.string().min(6).max(20),
+  icNumber: z
+    .string()
+    .min(1, 'Director IC is required')
+    .transform((val) => val.replace(/\D/g, ''))
+    .refine((val) => val.length === 12, 'Director IC must be exactly 12 digits'),
   position: z.string().max(100).optional(),
 });
 

@@ -84,4 +84,8 @@ export function validateConfig(): void {
   if (!webhookSecret || webhookSecret === DEV_WEBHOOK_SECRET || webhookSecret.length < MIN_SECRET_LENGTH) {
     throw new Error('FATAL: WEBHOOK_SECRET must be set and at least 32 characters in production');
   }
+
+  if (process.env.RESEND_API_KEY && !config.notifications.resendWebhookSecret) {
+    throw new Error('FATAL: RESEND_WEBHOOK_SECRET must be set in production when RESEND_API_KEY is configured');
+  }
 }

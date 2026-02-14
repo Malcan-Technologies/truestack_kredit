@@ -264,7 +264,7 @@ export class LateFeeProcessor {
                   await prisma.loanRepayment.update({
                     where: { id: repayment.id },
                     data: {
-                      lateFeeAccrued: safeAdd(toSafeNumber(repayment.lateFeeAccrued), repaymentFeeTotal),
+                      lateFeeAccrued: { increment: repaymentFeeTotal },
                     },
                   });
                 }
@@ -280,7 +280,7 @@ export class LateFeeProcessor {
               await prisma.loan.update({
                 where: { id: loanId },
                 data: {
-                  totalLateFees: safeAdd(toSafeNumber(loan.totalLateFees), loanTotalFee),
+                  totalLateFees: { increment: loanTotalFee },
                 },
               });
             }

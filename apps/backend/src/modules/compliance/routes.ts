@@ -1286,7 +1286,12 @@ router.get('/exports/overdue', requireAdmin, async (req, res, next) => {
       let totalOutstanding = 0;
       for (const rep of allRepayments) {
         const paid = rep.allocations.reduce((sum, a) => safeAdd(sum, toSafeNumber(a.amount)), 0);
-        totalOutstanding = safeAdd(totalOutstanding, safeSubtract(toSafeNumber(rep.totalDue), paid));
+        const principalInterestOutstanding = Math.max(0, safeSubtract(toSafeNumber(rep.totalDue), paid));
+        const lateFeeOutstanding = Math.max(
+          0,
+          safeSubtract(toSafeNumber(rep.lateFeeAccrued), toSafeNumber(rep.lateFeesPaid))
+        );
+        totalOutstanding = safeAdd(totalOutstanding, safeAdd(principalInterestOutstanding, lateFeeOutstanding));
       }
 
       const borrowerName = loan.borrower.borrowerType === 'CORPORATE' && loan.borrower.companyName

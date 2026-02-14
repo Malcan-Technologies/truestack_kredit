@@ -422,6 +422,11 @@ export default function NewBorrowerPage() {
         }
         if (!director.icNumber.trim()) {
           errors[`directorIc_${index}`] = `Director ${index + 1} IC number is required`;
+        } else {
+          const cleanIC = director.icNumber.replace(/\D/g, "");
+          if (cleanIC.length !== 12) {
+            errors[`directorIc_${index}`] = `Director ${index + 1} IC must be exactly 12 digits`;
+          }
         }
       });
     }
@@ -973,38 +978,76 @@ export default function NewBorrowerPage() {
                 </CardContent>
               </Card>
 
-              {/* Optional Company Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="h-5 w-5 text-muted-foreground" />
-                    Additional Company Details
-                  </CardTitle>
-                  <CardDescription>Optional</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field
-                      label="Paid-up Capital (RM)"
-                      value={corporateFormData.paidUpCapital}
-                      onChange={(val) => setCorporateFormData((prev) => ({ ...prev, paidUpCapital: val }))}
-                      type="number"
-                      placeholder="100000"
-                      required={false}
-                    />
-                    <Field
-                      label="Number of Employees"
-                      value={corporateFormData.numberOfEmployees}
-                      onChange={(val) => setCorporateFormData((prev) => ({ ...prev, numberOfEmployees: val }))}
-                      type="number"
-                      placeholder="10"
-                      required={false}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Additional Details & Company Contact - Side by Side */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Additional Company Details */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Briefcase className="h-5 w-5 text-muted-foreground" />
+                      Additional Company Details
+                    </CardTitle>
+                    <CardDescription>Optional</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field
+                        label="Paid-up Capital (RM)"
+                        value={corporateFormData.paidUpCapital}
+                        onChange={(val) => setCorporateFormData((prev) => ({ ...prev, paidUpCapital: val }))}
+                        type="number"
+                        placeholder="100000"
+                        required={false}
+                      />
+                      <Field
+                        label="Number of Employees"
+                        value={corporateFormData.numberOfEmployees}
+                        onChange={(val) => setCorporateFormData((prev) => ({ ...prev, numberOfEmployees: val }))}
+                        type="number"
+                        placeholder="10"
+                        required={false}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
 
-              {/* Company Directors */}
+                {/* Company Contact */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Phone className="h-5 w-5 text-muted-foreground" />
+                      Company Contact
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field
+                        label="Company Phone"
+                        value={corporateFormData.companyPhone}
+                        onChange={(val) => {
+                          setCorporateFormData((prev) => ({ ...prev, companyPhone: val, phone: val }));
+                          if (validationErrors.companyPhone) setValidationErrors((prev) => ({ ...prev, companyPhone: "" }));
+                        }}
+                        error={validationErrors.companyPhone}
+                        placeholder="+603-12345678"
+                      />
+                      <Field
+                        label="Company Email"
+                        value={corporateFormData.companyEmail}
+                        onChange={(val) => {
+                          setCorporateFormData((prev) => ({ ...prev, companyEmail: val, email: val }));
+                          if (validationErrors.companyEmail) setValidationErrors((prev) => ({ ...prev, companyEmail: "" }));
+                        }}
+                        type="email"
+                        error={validationErrors.companyEmail}
+                        placeholder="info@company.com"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Company Directors - Full Width */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1029,10 +1072,17 @@ export default function NewBorrowerPage() {
                             size="sm"
                             onClick={() => {
                               if (corporateFormData.directors.length <= 1) return;
-                              setCorporateFormData((prev) => ({
-                                ...prev,
-                                directors: prev.directors.filter((_, i) => i !== index),
-                              }));
+                              setCorporateFormData((prev) => {
+                                const nextDirectors = prev.directors.filter((_, i) => i !== index);
+                                const firstDirector = nextDirectors[0];
+                                return {
+                                  ...prev,
+                                  directors: nextDirectors,
+                                  authorizedRepName: firstDirector?.name || "",
+                                  authorizedRepIc: firstDirector?.icNumber || "",
+                                  name: firstDirector?.name || "",
+                                };
+                              });
                             }}
                             disabled={corporateFormData.directors.length <= 1}
                           >
@@ -1065,29 +1115,35 @@ export default function NewBorrowerPage() {
                             error={validationErrors[`directorName_${index}`]}
                             placeholder="Full name"
                           />
-                          <Field
-                            label="Director IC Number"
-                            value={director.icNumber}
-                            onChange={(val) => {
-                              setCorporateFormData((prev) => {
-                                const nextDirectors = [...prev.directors];
-                                nextDirectors[index] = { ...nextDirectors[index], icNumber: val };
-                                return {
-                                  ...prev,
-                                  directors: nextDirectors,
-                                  authorizedRepIc: index === 0 ? val : prev.authorizedRepIc,
-                                };
-                              });
-                              if (validationErrors[`directorIc_${index}`]) {
-                                setValidationErrors((prev) => ({ ...prev, [`directorIc_${index}`]: "" }));
-                              }
-                              if (validationErrors.directors) {
-                                setValidationErrors((prev) => ({ ...prev, directors: "" }));
-                              }
-                            }}
-                            error={validationErrors[`directorIc_${index}`]}
-                            placeholder="880101011234"
-                          />
+                          <div>
+                            <Field
+                              label="Director IC Number"
+                              value={director.icNumber}
+                              onChange={(val) => {
+                                const cleanVal = val.replace(/\D/g, "").substring(0, 12);
+                                setCorporateFormData((prev) => {
+                                  const nextDirectors = [...prev.directors];
+                                  nextDirectors[index] = { ...nextDirectors[index], icNumber: cleanVal };
+                                  return {
+                                    ...prev,
+                                    directors: nextDirectors,
+                                    authorizedRepIc: index === 0 ? cleanVal : prev.authorizedRepIc,
+                                  };
+                                });
+                                if (validationErrors[`directorIc_${index}`]) {
+                                  setValidationErrors((prev) => ({ ...prev, [`directorIc_${index}`]: "" }));
+                                }
+                                if (validationErrors.directors) {
+                                  setValidationErrors((prev) => ({ ...prev, directors: "" }));
+                                }
+                              }}
+                              error={validationErrors[`directorIc_${index}`]}
+                              placeholder="880101011234"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Enter 12 digits only (e.g., 880101011234)
+                            </p>
+                          </div>
                           <Field
                             label="Position"
                             value={director.position}
@@ -1130,41 +1186,6 @@ export default function NewBorrowerPage() {
                     <p className="text-xs text-muted-foreground">
                       {corporateFormData.directors.length}/10 directors
                     </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Company Contact */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Phone className="h-5 w-5 text-muted-foreground" />
-                    Company Contact
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field
-                      label="Company Phone"
-                      value={corporateFormData.companyPhone}
-                      onChange={(val) => {
-                        setCorporateFormData((prev) => ({ ...prev, companyPhone: val, phone: val }));
-                        if (validationErrors.companyPhone) setValidationErrors((prev) => ({ ...prev, companyPhone: "" }));
-                      }}
-                      error={validationErrors.companyPhone}
-                      placeholder="+603-12345678"
-                    />
-                    <Field
-                      label="Company Email"
-                      value={corporateFormData.companyEmail}
-                      onChange={(val) => {
-                        setCorporateFormData((prev) => ({ ...prev, companyEmail: val, email: val }));
-                        if (validationErrors.companyEmail) setValidationErrors((prev) => ({ ...prev, companyEmail: "" }));
-                      }}
-                      type="email"
-                      error={validationErrors.companyEmail}
-                      placeholder="info@company.com"
-                    />
                   </div>
                 </CardContent>
               </Card>

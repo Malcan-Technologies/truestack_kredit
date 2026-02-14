@@ -6,6 +6,7 @@ import {
   monthlyInterestRate,
   safeAdd,
   safeDivide,
+  safeMultiply,
   safeRound,
   safeSubtract,
 } from '../../lib/math.js';
@@ -143,7 +144,7 @@ function calculateDecliningBalance(params: ScheduleParams): ScheduleOutput {
   for (let i = 1; i <= term; i++) {
     const dueDate = addMonthsClamped(disbursementDate, i);
 
-    const interest = safeRound(balance * monthlyRate);
+    const interest = safeRound(safeMultiply(balance, monthlyRate, 8));
     const principalPayment = safeSubtract(emi, interest);
     balance = Math.max(0, safeSubtract(balance, principalPayment));
     totalInterest = safeAdd(totalInterest, interest);

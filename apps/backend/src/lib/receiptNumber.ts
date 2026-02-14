@@ -1,18 +1,17 @@
 import { Prisma } from '@prisma/client';
+import { getMalaysiaDateString } from './malaysiaTime.js';
 
 export const MAX_RECEIPT_NUMBER_RETRIES = 3;
 
 export async function generateReceiptNumber(
   tx: Prisma.TransactionClient,
-  tenantId: string,
   paymentDate: Date
 ): Promise<string> {
-  const dateStr = paymentDate.toISOString().split('T')[0].replace(/-/g, '');
+  const dateStr = getMalaysiaDateString(paymentDate).replace(/-/g, '');
   const prefix = `RCP-${dateStr}`;
 
   const existingCount = await tx.paymentTransaction.count({
     where: {
-      tenantId,
       receiptNumber: {
         startsWith: prefix,
       },

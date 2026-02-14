@@ -13,10 +13,9 @@
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import fs from 'fs';
-import https from 'https';
-import http from 'http';
 import { UPLOAD_DIR } from './upload.js';
 import { toSafeNumber, safeRound, safeAdd, safeSubtract } from './math.js';
+import { fetchLogoBuffer } from './safeLogoFetch.js';
 
 // ============================================
 // Shared Helpers
@@ -24,28 +23,7 @@ import { toSafeNumber, safeRound, safeAdd, safeSubtract } from './math.js';
 
 // Helper function to fetch image from URL or local file
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
-  return new Promise((resolve, reject) => {
-    if (url.startsWith('/api/uploads/') || url.startsWith('/uploads/')) {
-      const relativePath = url.replace('/api/uploads/', '').replace('/uploads/', '');
-      const filePath = path.join(UPLOAD_DIR, relativePath);
-
-      if (fs.existsSync(filePath)) {
-        resolve(fs.readFileSync(filePath));
-      } else {
-        reject(new Error(`File not found: ${filePath}`));
-      }
-    } else if (url.startsWith('http://') || url.startsWith('https://')) {
-      const client = url.startsWith('https') ? https : http;
-      client.get(url, (response) => {
-        const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer) => chunks.push(chunk));
-        response.on('end', () => resolve(Buffer.concat(chunks)));
-        response.on('error', reject);
-      }).on('error', reject);
-    } else {
-      reject(new Error(`Unsupported URL format: ${url}`));
-    }
-  });
+  return fetchLogoBuffer(url, UPLOAD_DIR);
 };
 
 // Format currency helper

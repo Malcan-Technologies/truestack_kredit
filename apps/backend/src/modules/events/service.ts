@@ -3,6 +3,28 @@ import { nanoid } from 'nanoid';
 import { createHmac } from 'crypto';
 import { config } from '../../lib/config.js';
 
+const WEBHOOK_TIMEOUT_MS = 5000;
+
+function validateWebhookUrl(url: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error('Invalid webhook URL');
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Webhook URL must use https');
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+    throw new Error('Webhook URL host is not allowed');
+  }
+
+  return parsed;
+}
+
 export type EventType = 
   | 'tenant.created'
   | 'tenant.updated'
@@ -114,6 +136,7 @@ export class DomainEventEmitter {
     url: string,
     event: { id: string; eventType: string; payload: unknown; idempotencyKey: string }
   ): Promise<void> {
+    const webhookUrl = validateWebhookUrl(url);
     const body = JSON.stringify({
       id: event.id,
       type: event.eventType,
@@ -125,8 +148,10 @@ export class DomainEventEmitter {
     // Create HMAC signature
     const secret = config.webhook.secret;
     const signature = createHmac('sha256', secret).update(body).digest('hex');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
-    const response = await fetch(url, {
+    const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -134,7 +159,8 @@ export class DomainEventEmitter {
         'X-Kredit-Idempotency-Key': event.idempotencyKey,
       },
       body,
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
 
     if (!response.ok) {
       throw new Error(`Webhook failed with status ${response.status}`);

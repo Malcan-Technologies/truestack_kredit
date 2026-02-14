@@ -15,7 +15,8 @@ import { createHash } from 'crypto';
 import { LateFeeProcessor } from '../../lib/lateFeeProcessor.js';
 import { generateDischargeLetter, generateDefaultLetter, generateArrearsLetter } from '../../lib/letterService.js';
 import { TrueSendService } from '../notifications/trueSendService.js';
-import { calculateDaysOverdueMalaysia } from '../../lib/malaysiaTime.js';
+import { calculateDaysOverdueMalaysia, getMalaysiaStartOfDay } from '../../lib/malaysiaTime.js';
+import { beginPaymentIdempotency, completePaymentIdempotency, failPaymentIdempotency, getIdempotencyKeyFromHeaders } from '../../lib/paymentIdempotency.js';
 import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receiptNumber.js';
 import { fetchLogoBuffer } from '../../lib/safeLogoFetch.js';
 import PDFDocument from 'pdfkit';
@@ -516,7 +517,7 @@ router.post('/applications', async (req, res, next) => {
     }
 
     // Validate amount and term against product limits
-    if (data.amount < Number(product.minAmount) || data.amount > Number(product.maxAmount)) {
+    if (data.amount < toSafeNumber(product.minAmount) || data.amount > toSafeNumber(product.maxAmount)) {
       throw new BadRequestError(
         `Amount must be between ${product.minAmount} and ${product.maxAmount}`
       );
@@ -647,8 +648,8 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
 
     // Validate amount and term if provided
     if (data.amount !== undefined) {
-      if (data.amount < Number(application.product.minAmount) || 
-          data.amount > Number(application.product.maxAmount)) {
+      if (data.amount < toSafeNumber(application.product.minAmount) ||
+          data.amount > toSafeNumber(application.product.maxAmount)) {
         throw new BadRequestError(
           `Amount must be between ${application.product.minAmount} and ${application.product.maxAmount}`
         );
@@ -1784,12 +1785,12 @@ router.get('/:loanId/metrics', async (req, res, next) => {
 
     for (const repayment of currentSchedule.repayments) {
       const repaymentTotalDue = toSafeNumber(repayment.totalDue);
-      const repaymentPaid = repayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
-      const remaining = repaymentTotalDue - repaymentPaid;
+      const repaymentPaid = repayment.allocations.reduce((sum, a) => safeAdd(sum, toSafeNumber(a.amount)), 0);
+      const remaining = safeSubtract(repaymentTotalDue, repaymentPaid);
 
-      totalDue += repaymentTotalDue;
-      totalPaid += repaymentPaid;
-      totalOutstanding += Math.max(0, remaining);
+      totalDue = safeAdd(totalDue, repaymentTotalDue);
+      totalPaid = safeAdd(totalPaid, repaymentPaid);
+      totalOutstanding = safeAdd(totalOutstanding, Math.max(0, remaining));
 
       if (repayment.status === 'PAID' || repayment.status === 'CANCELLED') {
         paidCount++;
@@ -1809,7 +1810,7 @@ router.get('/:loanId/metrics', async (req, res, next) => {
         }
       } else if (repayment.dueDate < now && remaining > 0) {
         overdueCount++;
-        const daysOverdue = Math.floor((now.getTime() - repayment.dueDate.getTime()) / (1000 * 60 * 60 * 24));
+        const daysOverdue = calculateDaysOverdueMalaysia(repayment.dueDate, now);
         if (daysOverdue > oldestOverdueDays) {
           oldestOverdueDays = daysOverdue;
         }
@@ -1829,7 +1830,7 @@ router.get('/:loanId/metrics', async (req, res, next) => {
       totalDue = safeSubtract(totalDue, cancelledDue);
       totalDue = safeAdd(totalDue, settlementAmount);
       // Cap totalPaid to totalDue — the borrower's effective obligation was the adjusted totalDue
-      totalPaid = Math.min(totalPaid, totalDue);
+      totalPaid = safeRound(Math.min(totalPaid, totalDue));
       // Outstanding should be 0 for completed early-settled loans
       totalOutstanding = Math.max(0, safeSubtract(totalDue, totalPaid));
     }
@@ -2294,7 +2295,7 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
           amountPaid: paid,
           outstanding: safeSubtract(totalDue, paid),
           lateFeeAccrued: toSafeNumber(r.lateFeeAccrued),
-          daysOverdue: Math.max(0, Math.floor((Date.now() - new Date(r.dueDate).getTime()) / (1000 * 60 * 60 * 24))),
+          daysOverdue: calculateDaysOverdueMalaysia(r.dueDate),
         };
       });
 
@@ -2462,7 +2463,7 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
           amountPaid: paid,
           outstanding: safeSubtract(totalDue, paid),
           lateFeeAccrued: toSafeNumber(r.lateFeeAccrued),
-          daysOverdue: Math.max(0, Math.floor((Date.now() - new Date(r.dueDate).getTime()) / (1000 * 60 * 60 * 24))),
+          daysOverdue: calculateDaysOverdueMalaysia(r.dueDate),
         };
       });
 
@@ -2604,7 +2605,7 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
             amountPaid: paid,
             outstanding: safeSubtract(totalDue, paid),
             lateFeeAccrued: toSafeNumber(r.lateFeeAccrued),
-            daysOverdue: Math.max(0, Math.floor((Date.now() - new Date(r.dueDate).getTime()) / (1000 * 60 * 60 * 24))),
+            daysOverdue: calculateDaysOverdueMalaysia(r.dueDate),
           };
         }) || [];
 
@@ -3579,9 +3580,8 @@ router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
       throw new BadRequestError('No active schedule found for this loan');
     }
 
-    // Use MYT start-of-day for interest calculations
-    const today = new Date(Date.UTC(nowMYT.getUTCFullYear(), nowMYT.getUTCMonth(), nowMYT.getUTCDate()));
-    today.setHours(0, 0, 0, 0);
+    // Use MYT start-of-day (stored as UTC) for interest calculations
+    const today = getMalaysiaStartOfDay(new Date());
 
     // Calculate remaining balances from unpaid repayments
     let remainingPrincipal = 0;
@@ -3622,8 +3622,7 @@ router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
         remainingInterest = safeAdd(remainingInterest, safeMultiply(remaining, interestRatio));
 
         // Track future interest separately (for discount calculation)
-        const dueDate = new Date(repayment.dueDate);
-        dueDate.setHours(0, 0, 0, 0);
+        const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
         if (dueDate >= today) {
           remainingFutureInterest = safeAdd(remainingFutureInterest, safeMultiply(remaining, interestRatio));
         }
@@ -3685,6 +3684,7 @@ router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
  * POST /api/loans/:loanId/early-settlement/confirm
  */
 router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
+  let idempotencyRecordId: string | null = null;
   try {
     let emailSent = false;
     const earlySettlementSchema = z.object({
@@ -3695,6 +3695,26 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
     });
 
     const data = earlySettlementSchema.parse(req.body);
+    const idempotencyKey = getIdempotencyKeyFromHeaders(req.headers as Record<string, unknown>);
+    const idempotency = await beginPaymentIdempotency({
+      tenantId: req.tenantId!,
+      endpoint: 'POST:/api/loans/:loanId/early-settlement/confirm',
+      idempotencyKey,
+      requestPayload: {
+        tenantId: req.tenantId,
+        loanId: req.params.loanId,
+        paymentDate: data.paymentDate || null,
+        reference: data.reference || null,
+        notes: data.notes || null,
+        waiveLateFees: data.waiveLateFees,
+      },
+    });
+    idempotencyRecordId = idempotency.recordId;
+
+    if (idempotency.replay) {
+      res.status(idempotency.responseStatus || 200).json(idempotency.responseBody);
+      return;
+    }
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -3754,9 +3774,8 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       throw new BadRequestError('No active schedule found for this loan');
     }
 
-    // Use MYT start-of-day for interest calculations
-    const today = new Date(Date.UTC(nowMYT.getUTCFullYear(), nowMYT.getUTCMonth(), nowMYT.getUTCDate()));
-    today.setHours(0, 0, 0, 0);
+    // Use MYT start-of-day (stored as UTC) for interest calculations
+    const today = getMalaysiaStartOfDay(new Date());
     const paymentDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
 
     // Re-calculate settlement amount (same as quote, but authoritative)
@@ -3796,8 +3815,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         remainingPrincipal = safeAdd(remainingPrincipal, safeMultiply(remaining, principalRatio));
         remainingInterest = safeAdd(remainingInterest, safeMultiply(remaining, interestRatio));
 
-        const dueDate = new Date(repayment.dueDate);
-        dueDate.setHours(0, 0, 0, 0);
+        const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
         if (dueDate >= today) {
           remainingFutureInterest = safeAdd(remainingFutureInterest, safeMultiply(remaining, interestRatio));
         }
@@ -3824,9 +3842,12 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
     }
 
     const lateFeesForSettlement = data.waiveLateFees ? 0 : outstandingLateFees;
+    const principalInterestTarget = safeRound(
+      safeSubtract(safeAdd(remainingPrincipal, remainingInterest), discountAmount)
+    );
     const totalSettlement = safeRound(
       safeAdd(
-        safeSubtract(safeAdd(remainingPrincipal, remainingInterest), discountAmount),
+        principalInterestTarget,
         lateFeesForSettlement
       )
     );
@@ -3835,7 +3856,17 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
 
     // Execute everything in a transaction
     const result = await withReceiptNumberRetry(async () => prisma.$transaction(async (tx) => {
-      const receiptNumber = await generateReceiptNumber(tx, req.tenantId!, paymentDate);
+      const receiptNumber = await generateReceiptNumber(tx, paymentDate);
+
+      // Lock loan row to prevent concurrent early-settlement confirmations.
+      await tx.$executeRaw`SELECT 1 FROM "Loan" WHERE id = ${loan.id} FOR UPDATE`;
+      const lockedLoan = await tx.loan.findUnique({
+        where: { id: loan.id },
+        select: { status: true },
+      });
+      if (!lockedLoan || (lockedLoan.status !== 'ACTIVE' && lockedLoan.status !== 'IN_ARREARS')) {
+        throw new BadRequestError('Loan is no longer eligible for early settlement');
+      }
 
       // 1. Create payment transaction
       const transaction = await tx.paymentTransaction.create({
@@ -3852,32 +3883,73 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       });
 
       // 2. Create allocations for each remaining repayment and cancel them
-      for (const repayment of unpaidRepayments) {
+      const settlementCandidates = unpaidRepayments.map((repayment) => {
         const totalPaidOnRepayment = repayment.allocations.reduce(
           (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
           0
         );
 
-        // Allocation amount = what's left to pay on this repayment
         const repaymentRemaining = Math.max(0, safeSubtract(
           toSafeNumber(repayment.totalDue),
           totalPaidOnRepayment
         ));
 
-        if (repaymentRemaining > 0) {
-          // The late fee portion allocated for this repayment
-          const lateFeesOnRepayment = data.waiveLateFees
-            ? 0
-            : Math.max(0, safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid)));
+        const lateFeesOnRepayment = data.waiveLateFees
+          ? 0
+          : Math.max(0, safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid)));
 
-          await tx.paymentAllocation.create({
+        return {
+          repayment,
+          repaymentRemaining,
+          lateFeesOnRepayment,
+        };
+      });
+
+      const principalCandidates = settlementCandidates.filter(c => c.repaymentRemaining > 0);
+      const totalPrincipalRemaining = principalCandidates.reduce(
+        (sum, c) => safeAdd(sum, c.repaymentRemaining),
+        0
+      );
+
+      const principalAllocationMap = new Map<string, number>();
+      if (totalPrincipalRemaining > 0 && principalInterestTarget > 0) {
+        let allocatedPrincipal = 0;
+        const lastPrincipalIndex = principalCandidates.length - 1;
+
+        principalCandidates.forEach((candidate, idx) => {
+          let amount = 0;
+
+          if (idx === lastPrincipalIndex) {
+            amount = Math.max(0, safeSubtract(principalInterestTarget, allocatedPrincipal));
+          } else {
+            const ratio = safeDivide(candidate.repaymentRemaining, totalPrincipalRemaining, 8);
+            amount = safeRound(safeMultiply(principalInterestTarget, ratio, 8));
+          }
+
+          amount = Math.min(candidate.repaymentRemaining, amount);
+          principalAllocationMap.set(candidate.repayment.id, amount);
+          allocatedPrincipal = safeAdd(allocatedPrincipal, amount);
+        });
+      }
+
+      let totalAllocatedAmount = 0;
+      let totalAllocatedLateFee = 0;
+      let lastAllocationId: string | null = null;
+
+      for (const candidate of settlementCandidates) {
+        const principalAllocation = principalAllocationMap.get(candidate.repayment.id) ?? 0;
+        if (principalAllocation > 0 || candidate.lateFeesOnRepayment > 0) {
+          const allocation = await tx.paymentAllocation.create({
             data: {
               transactionId: transaction.id,
-              repaymentId: repayment.id,
-              amount: repaymentRemaining,
-              lateFee: lateFeesOnRepayment > 0 ? lateFeesOnRepayment : null,
+              repaymentId: candidate.repayment.id,
+              amount: principalAllocation,
+              lateFee: candidate.lateFeesOnRepayment > 0 ? candidate.lateFeesOnRepayment : null,
             },
           });
+          totalAllocatedAmount = safeAdd(totalAllocatedAmount, principalAllocation);
+          totalAllocatedLateFee = safeAdd(totalAllocatedLateFee, candidate.lateFeesOnRepayment);
+          lastAllocationId = allocation.id;
         }
 
         // Mark late fees as paid if waiving
@@ -3887,16 +3959,32 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
 
         if (data.waiveLateFees) {
           // Set lateFeesPaid = lateFeeAccrued to zero out
-          updateData.lateFeesPaid = repayment.lateFeeAccrued;
+          updateData.lateFeesPaid = candidate.repayment.lateFeeAccrued;
         } else {
           // Mark late fees as fully paid
-          updateData.lateFeesPaid = repayment.lateFeeAccrued;
+          updateData.lateFeesPaid = candidate.repayment.lateFeeAccrued;
         }
 
         await tx.loanRepayment.update({
-          where: { id: repayment.id },
+          where: { id: candidate.repayment.id },
           data: updateData,
         });
+      }
+
+      // Guard against rounding drift so allocations match transaction total.
+      const allocatedTotal = safeAdd(totalAllocatedAmount, totalAllocatedLateFee);
+      const allocationDiff = safeSubtract(totalSettlement, allocatedTotal);
+      if (Math.abs(allocationDiff) > 0.01 && lastAllocationId) {
+        const lastAllocation = await tx.paymentAllocation.findUnique({
+          where: { id: lastAllocationId },
+        });
+        if (lastAllocation) {
+          const adjustedAmount = Math.max(0, safeAdd(toSafeNumber(lastAllocation.amount), allocationDiff));
+          await tx.paymentAllocation.update({
+            where: { id: lastAllocationId },
+            data: { amount: adjustedAmount },
+          });
+        }
       }
 
       // 3. Calculate repayment rate for metrics
@@ -4129,7 +4217,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       }
     }
 
-    res.json({
+    const responsePayload = {
       success: true,
       data: {
         loan: result.updatedLoan,
@@ -4148,8 +4236,14 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         },
       },
       emailSent,
-    });
+    };
+    await completePaymentIdempotency(idempotencyRecordId, 200, responsePayload);
+    res.json(responsePayload);
   } catch (error) {
+    if (idempotencyRecordId) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+    }
     next(error);
   }
 });

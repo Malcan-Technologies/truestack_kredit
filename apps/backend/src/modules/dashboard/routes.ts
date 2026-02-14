@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
 import { safeRound, safeAdd, safeSubtract, safeMultiply, safeDivide, safePercentage, toSafeNumber } from '../../lib/math.js';
+import { calculateDaysOverdueMalaysia } from '../../lib/malaysiaTime.js';
 
 const router = Router();
 
@@ -220,9 +221,9 @@ router.get('/stats', async (req, res, next) => {
           loanOutstanding = safeAdd(loanOutstanding, remaining);
 
           // Check if overdue
-          if (rep.dueDate < now && remaining > 0) {
+          const daysOverdue = calculateDaysOverdueMalaysia(rep.dueDate, now);
+          if (daysOverdue > 0 && remaining > 0) {
             overdueAmount = safeAdd(overdueAmount, remaining);
-            const daysOverdue = Math.floor((now.getTime() - rep.dueDate.getTime()) / (1000 * 60 * 60 * 24));
             maxDaysOverdue = Math.max(maxDaysOverdue, daysOverdue);
           }
         }

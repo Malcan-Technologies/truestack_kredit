@@ -186,39 +186,48 @@ export class LateFeeProcessor {
 
             for (const repayment of repayments) {
               try {
-                const totalDue = toSafeNumber(repayment.totalDue);
-
-                // Determine the range of days to charge:
-                // - Start: day after due date (first overdue day) represented as MYT start-of-day in UTC
-                // - End: today (MYT start-of-day in UTC)
-                // First chargeable day: the day after due date, as MYT start-of-day in UTC
-                // Due date itself is not overdue; the day after is day 1 overdue
-                const firstChargeableDay = new Date(getMalaysiaStartOfDay(repayment.dueDate).getTime() + ONE_DAY_MS);
-
-                // If we've already charged some days, start from the day after the last charged day
-                let startDate: Date;
-                if (repayment.lateFeeEntries.length > 0) {
-                  const lastAccrualDate = repayment.lateFeeEntries[0].accrualDate;
-                  startDate = new Date(getMalaysiaStartOfDay(lastAccrualDate).getTime() + ONE_DAY_MS);
-                } else {
-                  startDate = firstChargeableDay;
-                }
-
-                // Don't charge beyond previous completed MYT day
-                if (startDate.getTime() > accrualEndDay.getTime()) continue;
-
-                // Get all dates to charge
-                const datesToCharge = getMalaysiaDateRange(startDate, accrualEndDay);
-
                 const repaymentResult = await prisma.$transaction(async (tx) => {
                   // Keep lock order consistent with payment routes to reduce deadlock risk.
                   await tx.$executeRaw`SELECT 1 FROM "Loan" WHERE id = ${loan.id} FOR UPDATE`;
                   await tx.$executeRaw`SELECT 1 FROM "LoanRepayment" WHERE id = ${repayment.id} FOR UPDATE`;
 
+                  const lockedRepayment = await tx.loanRepayment.findUnique({
+                    where: { id: repayment.id },
+                    include: {
+                      allocations: true,
+                      lateFeeEntries: {
+                        orderBy: { accrualDate: 'desc' },
+                        take: 1,
+                      },
+                    },
+                  });
+                  if (!lockedRepayment) {
+                    return {
+                      repaymentFeeTotal: 0,
+                      repaymentFeesCount: 0,
+                      repaymentDaysBackfilled: 0,
+                    };
+                  }
+
+                  const totalDue = toSafeNumber(lockedRepayment.totalDue);
+                  const firstChargeableDay = new Date(getMalaysiaStartOfDay(lockedRepayment.dueDate).getTime() + ONE_DAY_MS);
+                  const lastAccrualDate = lockedRepayment.lateFeeEntries[0]?.accrualDate;
+                  const startDate = lastAccrualDate
+                    ? new Date(getMalaysiaStartOfDay(lastAccrualDate).getTime() + ONE_DAY_MS)
+                    : firstChargeableDay;
+                  if (startDate.getTime() > accrualEndDay.getTime()) {
+                    return {
+                      repaymentFeeTotal: 0,
+                      repaymentFeesCount: 0,
+                      repaymentDaysBackfilled: 0,
+                    };
+                  }
+
+                  const datesToCharge = getMalaysiaDateRange(startDate, accrualEndDay);
                   let repaymentFeeTotal = 0;
                   let repaymentFeesCount = 0;
                   let repaymentDaysBackfilled = 0;
-                  const sortedAllocations = [...repayment.allocations].sort(
+                  const sortedAllocations = [...lockedRepayment.allocations].sort(
                     (a, b) => new Date(a.allocatedAt).getTime() - new Date(b.allocatedAt).getTime()
                   );
                   let allocationCursor = 0;
@@ -239,7 +248,7 @@ export class LateFeeProcessor {
                     const dailyFee = calculateDailyLateFee(outstandingForDay, latePaymentRate);
                     if (dailyFee <= 0) continue;
 
-                    const daysOverdue = calculateDaysOverdueMalaysia(repayment.dueDate, accrualDate);
+                    const daysOverdue = calculateDaysOverdueMalaysia(lockedRepayment.dueDate, accrualDate);
                     if (daysOverdue <= 0) continue;
 
                     try {
@@ -247,7 +256,7 @@ export class LateFeeProcessor {
                         data: {
                           tenantId: loan.tenantId,
                           loanId: loan.id,
-                          repaymentId: repayment.id,
+                          repaymentId: lockedRepayment.id,
                           accrualDate,
                           daysOverdue,
                           outstandingAmount: outstandingForDay,
@@ -270,7 +279,7 @@ export class LateFeeProcessor {
 
                   if (repaymentFeeTotal > 0) {
                     await tx.loanRepayment.update({
-                      where: { id: repayment.id },
+                      where: { id: lockedRepayment.id },
                       data: {
                         lateFeeAccrued: { increment: repaymentFeeTotal },
                       },

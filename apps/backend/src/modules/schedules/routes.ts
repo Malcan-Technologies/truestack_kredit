@@ -541,6 +541,9 @@ router.get('/loan/:loanId', async (req, res, next) => {
  */
 router.post('/payments', async (req, res, next) => {
   let idempotencyRecordId: string | null = null;
+  let businessCommitted = false;
+  let replayResponseStatus: number | null = null;
+  let replayResponseBody: unknown = null;
   try {
     const data = recordPaymentSchema.parse(req.body);
     const idempotencyKey = getIdempotencyKeyFromHeaders(req.headers as Record<string, unknown>);
@@ -741,6 +744,12 @@ router.post('/payments', async (req, res, next) => {
         isEarlyPayment,
       };
     });
+    businessCommitted = true;
+    replayResponseStatus = 201;
+    replayResponseBody = {
+      success: true,
+      data: result,
+    };
 
     // Log to audit trail
     await AuditService.log({
@@ -764,13 +773,20 @@ router.post('/payments', async (req, res, next) => {
       success: true,
       data: result,
     };
+    replayResponseBody = responsePayload;
     await completePaymentIdempotency(idempotencyRecordId, 201, responsePayload);
 
     res.status(201).json(responsePayload);
   } catch (error) {
     if (idempotencyRecordId) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+      if (businessCommitted) {
+        if (replayResponseBody && replayResponseStatus !== null) {
+          await completePaymentIdempotency(idempotencyRecordId, replayResponseStatus, replayResponseBody).catch(() => undefined);
+        }
+      } else {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+      }
     }
     next(error);
   }
@@ -788,6 +804,9 @@ router.post('/payments', async (req, res, next) => {
  */
 router.post('/loan/:loanId/payments', async (req, res, next) => {
   let idempotencyRecordId: string | null = null;
+  let businessCommitted = false;
+  let replayResponseStatus: number | null = null;
+  let replayResponseBody: unknown = null;
   try {
     const { loanId } = req.params;
     const data = recordLoanPaymentSchema.parse({ ...req.body, loanId });
@@ -1132,6 +1151,25 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         allocationData,
       };
     }));
+    businessCommitted = true;
+    replayResponseStatus = 201;
+    replayResponseBody = {
+      success: true,
+      data: {
+        transaction: result.transaction,
+        receiptNumber: result.receiptNumber,
+        allocations: result.allocationData.map(a => ({
+          repaymentNumber: a.repaymentNumber,
+          amount: a.amount,
+          lateFeeAllocated: a.lateFeeAllocated,
+          interestAllocated: a.interestAllocated,
+          principalAllocated: a.principalAllocated,
+        })),
+        totalLateFeesPaid: result.totalLateFeesPaid,
+        defaultCleared: false,
+      },
+      emailSent: false,
+    };
 
     // Check if a DEFAULTED loan should be reactivated (evaluated here, but audit logged after RECORD_PAYMENT)
     let defaultCleared = false;
@@ -1310,12 +1348,19 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       },
       emailSent,
     };
+    replayResponseBody = responsePayload;
     await completePaymentIdempotency(idempotencyRecordId, 201, responsePayload);
     res.status(201).json(responsePayload);
   } catch (error) {
     if (idempotencyRecordId) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+      if (businessCommitted) {
+        if (replayResponseBody && replayResponseStatus !== null) {
+          await completePaymentIdempotency(idempotencyRecordId, replayResponseStatus, replayResponseBody).catch(() => undefined);
+        }
+      } else {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+      }
     }
     next(error);
   }

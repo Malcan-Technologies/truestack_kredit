@@ -26,6 +26,22 @@ const fetchImageBuffer = (url: string): Promise<Buffer> => {
   return fetchLogoBuffer(url, UPLOAD_DIR);
 };
 
+function validateSettlementPaymentDate(paymentDate: Date, disbursementDate?: Date | null): void {
+  if (Number.isNaN(paymentDate.getTime())) {
+    throw new BadRequestError('Invalid payment date');
+  }
+
+  const now = Date.now();
+  const fiveMinutesMs = 5 * 60 * 1000;
+  if (paymentDate.getTime() > now + fiveMinutesMs) {
+    throw new BadRequestError('Payment date cannot be in the future');
+  }
+
+  if (disbursementDate && paymentDate.getTime() < new Date(disbursementDate).getTime()) {
+    throw new BadRequestError('Payment date cannot be earlier than loan disbursement date');
+  }
+}
+
 // Generate early settlement receipt PDF
 interface SettlementReceiptParams {
   receiptNumber: string;
@@ -3685,10 +3701,13 @@ router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
  */
 router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
   let idempotencyRecordId: string | null = null;
+  let businessCommitted = false;
+  let replayResponseStatus: number | null = null;
+  let replayResponseBody: unknown = null;
   try {
     let emailSent = false;
     const earlySettlementSchema = z.object({
-      paymentDate: z.string().optional(),
+      paymentDate: z.string().datetime().optional(),
       reference: z.string().max(200).optional(),
       notes: z.string().max(1000).optional(),
       waiveLateFees: z.boolean().default(false),
@@ -3777,6 +3796,7 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
     // Use MYT start-of-day (stored as UTC) for interest calculations
     const today = getMalaysiaStartOfDay(new Date());
     const paymentDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
+    validateSettlementPaymentDate(paymentDate, loan.disbursementDate);
 
     // Re-calculate settlement amount (same as quote, but authoritative)
     let remainingPrincipal = 0;
@@ -4132,6 +4152,28 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         },
       };
     }));
+    businessCommitted = true;
+    replayResponseStatus = 200;
+    replayResponseBody = {
+      success: true,
+      data: {
+        loan: result.updatedLoan,
+        transaction: result.transaction,
+        transactionId: result.transaction.id,
+        receiptNumber: result.receiptNumber,
+        settlement: {
+          remainingPrincipal: result.settlement.remainingPrincipal,
+          remainingInterest: result.settlement.remainingInterest,
+          discountAmount: result.settlement.discountAmount,
+          outstandingLateFees: result.settlement.outstandingLateFees,
+          waiveLateFees: data.waiveLateFees,
+          totalSettlement: result.settlement.totalSettlement,
+          dischargeLetterPath: null,
+          receiptPath: null,
+        },
+      },
+      emailSent: false,
+    };
     const receiptNumber = result.receiptNumber;
 
     // Generate discharge letter (outside transaction - non-critical)
@@ -4337,12 +4379,19 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       },
       emailSent,
     };
+    replayResponseBody = responsePayload;
     await completePaymentIdempotency(idempotencyRecordId, 200, responsePayload);
     res.json(responsePayload);
   } catch (error) {
     if (idempotencyRecordId) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+      if (businessCommitted) {
+        if (replayResponseBody && replayResponseStatus !== null) {
+          await completePaymentIdempotency(idempotencyRecordId, replayResponseStatus, replayResponseBody).catch(() => undefined);
+        }
+      } else {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+      }
     }
     next(error);
   }

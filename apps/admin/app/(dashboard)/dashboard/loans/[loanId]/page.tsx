@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -667,7 +667,8 @@ export default function LoanDetailPage() {
   const [showUploadStampCertDialog, setShowUploadStampCertDialog] = useState(false);
   const [stampCertFile, setStampCertFile] = useState<File | null>(null);
   const [uploadingStampCert, setUploadingStampCert] = useState(false);
-  
+  const stampCertInputRef = useRef<HTMLInputElement>(null);
+
   // Generate agreement dialog state
   const [showGenerateAgreementDialog, setShowGenerateAgreementDialog] = useState(false);
   const [agreementDate, setAgreementDate] = useState<string>("");
@@ -2600,7 +2601,7 @@ export default function LoanDetailPage() {
 
       {/* Disburse Dialog */}
       <Dialog open={showDisburseDialog} onOpenChange={setShowDisburseDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl overflow-hidden">
           <DialogHeader>
             <DialogTitle>Disburse Loan</DialogTitle>
             <DialogDescription>
@@ -2739,15 +2740,17 @@ export default function LoanDetailPage() {
               </div>
             </div>
             
-            <div>
+            <div className="min-w-0 overflow-hidden">
               <Label htmlFor="disburse-proof">Proof of Disbursement (Optional)</Label>
-              <Input
-                id="disburse-proof"
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.webp"
-                onChange={(e) => setDisbursementProofFile(e.target.files?.[0] || null)}
-                className="mt-1"
-              />
+              <div className="mt-1 overflow-hidden">
+                <Input
+                  id="disburse-proof"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  onChange={(e) => setDisbursementProofFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Upload bank transfer slip or other proof. You can also upload this later.
               </p>
@@ -2797,7 +2800,7 @@ export default function LoanDetailPage() {
 
       {/* Payment Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={(open) => { setShowPaymentDialog(open); if (!open) resetPaymentDialog(); }}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden">
           <DialogHeader>
             <DialogTitle>Record Payment</DialogTitle>
             <DialogDescription>
@@ -2863,15 +2866,17 @@ export default function LoanDetailPage() {
                 rows={2}
               />
             </div>
-            <div>
+            <div className="min-w-0 overflow-hidden">
               <Label htmlFor="payment-receipt">Bank Slip (Optional)</Label>
-              <Input
-                id="payment-receipt"
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.webp"
-                onChange={(e) => setPaymentFile(e.target.files?.[0] || null)}
-                className="mt-1"
-              />
+              <div className="mt-1 overflow-hidden">
+                <Input
+                  id="payment-receipt"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  onChange={(e) => setPaymentFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Upload proof of payment for record keeping
               </p>
@@ -2954,7 +2959,7 @@ export default function LoanDetailPage() {
 
       {/* Early Settlement Dialog */}
       <Dialog open={showEarlySettlementDialog} onOpenChange={setShowEarlySettlementDialog}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg overflow-hidden">
           <DialogHeader>
             <DialogTitle>Early Settlement</DialogTitle>
             <DialogDescription>
@@ -3116,15 +3121,17 @@ export default function LoanDetailPage() {
                       rows={2}
                     />
                   </div>
-                  <div>
+                  <div className="min-w-0 overflow-hidden">
                     <Label htmlFor="settlement-proof">Proof of Payment (Optional)</Label>
-                    <Input
-                      id="settlement-proof"
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png,.webp"
-                      onChange={(e) => setSettlementProofFile(e.target.files?.[0] || null)}
-                      className="mt-1"
-                    />
+                    <div className="mt-1 overflow-hidden">
+                      <Input
+                        id="settlement-proof"
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                        onChange={(e) => setSettlementProofFile(e.target.files?.[0] || null)}
+                        className="w-full"
+                      />
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">Bank slip, transfer receipt, or screenshot</p>
                   </div>
                 </div>
@@ -3312,30 +3319,32 @@ export default function LoanDetailPage() {
           setProofFile(null);
         }
       }}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden">
           <DialogHeader>
             <DialogTitle>Upload Proof of Payment</DialogTitle>
             <DialogDescription>
               Upload a bank slip or other proof of payment for this transaction.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div>
+          <div className="py-4 space-y-4 min-w-0 overflow-hidden">
+            <div className="min-w-0 overflow-hidden">
               <Label htmlFor="proof-file">Select File *</Label>
-              <Input
-                id="proof-file"
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.webp"
-                onChange={(e) => setProofFile(e.target.files?.[0] || null)}
-                className="mt-1"
-              />
+              <div className="mt-1 overflow-hidden">
+                <Input
+                  id="proof-file"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Accepted formats: PDF, JPEG, PNG, WebP
               </p>
             </div>
             {proofFile && (
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden">
-                <p className="text-sm font-medium truncate" title={proofFile.name}>{proofFile.name}</p>
+              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden w-full">
+                <p className="text-sm font-medium truncate block w-full" title={proofFile.name}>{proofFile.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {(proofFile.size / 1024).toFixed(1)} KB
                 </p>
@@ -3365,7 +3374,7 @@ export default function LoanDetailPage() {
           setDisbursementProofUploadFile(null);
         }
       }}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden">
           <DialogHeader>
             <DialogTitle>Upload Proof of Disbursement</DialogTitle>
             <DialogDescription>
@@ -3377,23 +3386,25 @@ export default function LoanDetailPage() {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div>
+          <div className="py-4 space-y-4 min-w-0 overflow-hidden">
+            <div className="min-w-0 overflow-hidden">
               <Label htmlFor="disbursement-proof-file">Select File *</Label>
-              <Input
-                id="disbursement-proof-file"
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,.webp"
-                onChange={(e) => setDisbursementProofUploadFile(e.target.files?.[0] || null)}
-                className="mt-1"
-              />
+              <div className="mt-1 overflow-hidden">
+                <Input
+                  id="disbursement-proof-file"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  onChange={(e) => setDisbursementProofUploadFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Accepted formats: PDF, JPEG, PNG, WebP
               </p>
             </div>
             {disbursementProofUploadFile && (
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden">
-                <p className="text-sm font-medium truncate" title={disbursementProofUploadFile.name}>{disbursementProofUploadFile.name}</p>
+              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden w-full">
+                <p className="text-sm font-medium truncate block w-full" title={disbursementProofUploadFile.name}>{disbursementProofUploadFile.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {(disbursementProofUploadFile.size / 1024).toFixed(1)} KB
                 </p>
@@ -3429,7 +3440,7 @@ export default function LoanDetailPage() {
           setAgreementFile(null);
         }
       }}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden">
           <DialogHeader>
             <DialogTitle>Upload Signed Loan Agreement</DialogTitle>
             <DialogDescription>
@@ -3441,23 +3452,25 @@ export default function LoanDetailPage() {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div>
+          <div className="py-4 space-y-4 min-w-0 overflow-hidden">
+            <div className="min-w-0 overflow-hidden">
               <Label htmlFor="agreement-file">Select File *</Label>
-              <Input
-                id="agreement-file"
-                type="file"
-                accept=".pdf"
-                onChange={(e) => setAgreementFile(e.target.files?.[0] || null)}
-                className="mt-1"
-              />
+              <div className="mt-1 overflow-hidden">
+                <Input
+                  id="agreement-file"
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => setAgreementFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Only PDF files are accepted
               </p>
             </div>
             {agreementFile && (
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden">
-                <p className="text-sm font-medium truncate" title={agreementFile.name}>{agreementFile.name}</p>
+              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden w-full">
+                <p className="text-sm font-medium truncate block w-full" title={agreementFile.name}>{agreementFile.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {(agreementFile.size / 1024).toFixed(1)} KB
                 </p>
@@ -3562,23 +3575,25 @@ export default function LoanDetailPage() {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div>
+          <div className="py-4 space-y-4 min-w-0 overflow-hidden">
+            <div className="min-w-0 overflow-hidden">
               <Label htmlFor="stamp-cert-file">Select File *</Label>
-              <Input
-                id="stamp-cert-file"
-                type="file"
-                accept=".pdf"
-                onChange={(e) => setStampCertFile(e.target.files?.[0] || null)}
-                className="mt-1"
-              />
+              <div className="mt-1 overflow-hidden">
+                <Input
+                  id="stamp-cert-file"
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => setStampCertFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+              </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Only PDF files are accepted
               </p>
             </div>
             {stampCertFile && (
-              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden">
-                <p className="text-sm font-medium truncate" title={stampCertFile.name}>{stampCertFile.name}</p>
+              <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-3 min-w-0 overflow-hidden w-full">
+                <p className="text-sm font-medium truncate block w-full" title={stampCertFile.name}>{stampCertFile.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {(stampCertFile.size / 1024).toFixed(1)} KB
                 </p>

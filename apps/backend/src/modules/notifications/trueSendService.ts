@@ -58,25 +58,6 @@ interface TenantEmailInfo {
 async function buildEmailWrapper(tenant: TenantEmailInfo, content: string): Promise<string> {
   const tenantName = tenant.name;
 
-  // Build tenant logo as inline base64 data URI (email clients can't resolve relative URLs)
-  let logoHtml = '';
-  if (tenant.logoUrl) {
-    try {
-      const logoBuffer = await getFile(tenant.logoUrl);
-      if (logoBuffer) {
-        const ext = tenant.logoUrl.split('.').pop()?.toLowerCase() || 'png';
-        const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-          : ext === 'svg' ? 'image/svg+xml'
-          : ext === 'webp' ? 'image/webp'
-          : 'image/png';
-        const base64 = logoBuffer.toString('base64');
-        logoHtml = `<img src="data:${mimeType};base64,${base64}" alt="${tenantName}" style="max-height:40px;max-width:180px;margin-bottom:8px;display:block;" />`;
-      }
-    } catch (err) {
-      console.warn(`[TrueSend] Could not load tenant logo: ${tenant.logoUrl}`, err);
-    }
-  }
-
   // Build tenant details for footer
   const tenantDetails: string[] = [];
   if (tenant.registrationNumber) tenantDetails.push(`SSM: ${tenant.registrationNumber}`);
@@ -120,8 +101,7 @@ async function buildEmailWrapper(tenant: TenantEmailInfo, content: string): Prom
 <body>
   <div class="container">
     <div class="header">
-      ${logoHtml}
-      <p class="header-text">${tenantName}<span class="badge">TrueSend</span></p>
+      <p class="header-text">${tenantName}</p>
       <p class="header-sub">Powered by TrueKredit</p>
     </div>
     <div class="body">

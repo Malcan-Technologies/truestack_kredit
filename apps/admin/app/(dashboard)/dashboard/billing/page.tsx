@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CreditCard, FileText, Receipt, AlertTriangle, Shield, Sparkles } from "lucide-react";
+import { CreditCard, FileText, Receipt, AlertTriangle, Shield, Sparkles, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -111,22 +111,22 @@ export default function BillingPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-2xl font-heading font-bold text-gradient">Billing</h1>
-            <p className="text-muted">Manage your subscription and invoices</p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-heading font-bold text-gradient">Billing</h1>
+          <p className="text-muted">Manage your subscription and invoices</p>
+        </div>
+        <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-sm shrink-0">
             <Shield className="h-3.5 w-3.5 mr-1.5" />
             Admin Only
           </Badge>
+          <Button variant="outline" asChild>
+            <Link href="/dashboard/subscription" className="inline-flex items-center">
+              <Sparkles className="h-4 w-4 mr-2" />
+              Upgrade plan
+            </Link>
+          </Button>
         </div>
-        <Button variant="outline" asChild>
-          <Link href="/dashboard/subscription" className="inline-flex items-center">
-            <Sparkles className="h-4 w-4 mr-2" />
-            Upgrade plan
-          </Link>
-        </Button>
       </div>
 
       {/* Subscription status */}
@@ -220,6 +220,19 @@ export default function BillingPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Add-ons link */}
+      <div className="text-center">
+        <p className="text-sm text-muted-foreground mb-2">
+          Extend your platform with TrueSend and TrueIdentity add-ons.
+        </p>
+        <Button variant="link" size="sm" asChild className="text-sm gap-1">
+          <Link href="/dashboard/add-ons">
+            Go to Add-ons
+            <ExternalLink className="h-3 w-3" />
+          </Link>
+        </Button>
+      </div>
     </div>
     </RoleGate>
   );

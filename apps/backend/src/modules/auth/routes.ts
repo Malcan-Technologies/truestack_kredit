@@ -67,7 +67,7 @@ router.get('/memberships', async (req, res, next) => {
       orderBy: { updatedAt: 'desc' },
     });
 
-    // Get all active memberships for this user
+    // Get all active memberships for this user (with subscription and add-ons for profile)
     const memberships = await prisma.tenantMember.findMany({
       where: {
         userId: session.user.id,
@@ -81,6 +81,17 @@ router.get('/memberships', async (req, res, next) => {
             slug: true,
             status: true,
             logoUrl: true,
+            subscription: {
+              select: {
+                plan: true,
+                status: true,
+                currentPeriodEnd: true,
+                gracePeriodEnd: true,
+              },
+            },
+            addOns: {
+              select: { addOnType: true, status: true },
+            },
           },
         },
       },
@@ -98,6 +109,15 @@ router.get('/memberships', async (req, res, next) => {
           tenantStatus: m.tenant.status,
           tenantLogoUrl: m.tenant.logoUrl,
           role: m.role,
+          subscription: m.tenant.subscription
+            ? {
+                plan: m.tenant.subscription.plan,
+                status: m.tenant.subscription.status,
+                currentPeriodEnd: m.tenant.subscription.currentPeriodEnd.toISOString(),
+                gracePeriodEnd: m.tenant.subscription.gracePeriodEnd?.toISOString() ?? null,
+              }
+            : null,
+          addOns: m.tenant.addOns?.map((a) => ({ addOnType: a.addOnType, status: a.status })) ?? [],
         })),
         activeTenantId: dbSession?.activeTenantId || null,
       },
@@ -207,6 +227,7 @@ router.get('/me', authenticateToken, async (req, res, next) => {
             email: user.email,
             name: user.name,
             role: null,
+            createdAt: user.createdAt.toISOString(),
             referrer: user.referrer
               ? { id: user.referrer.id, name: user.referrer.name, email: user.referrer.email }
               : null,
@@ -239,7 +260,8 @@ router.get('/me', authenticateToken, async (req, res, next) => {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: membership.role, // Role from membership
+          role: membership.role, // Role from membership (tenant-scoped)
+          createdAt: user.createdAt.toISOString(),
           referrer: user.referrer
             ? { id: user.referrer.id, name: user.referrer.name, email: user.referrer.email }
             : null,

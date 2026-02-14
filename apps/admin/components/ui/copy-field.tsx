@@ -10,6 +10,9 @@ interface CopyFieldProps {
   value: string | null | undefined;
   icon?: React.ReactNode;
   className?: string;
+  valueClassName?: string;
+  /** When true, adds dashed border and background to make the value look copyable */
+  copyableStyle?: boolean;
   showCopyButton?: boolean;
   toastMessage?: string;
 }
@@ -22,6 +25,8 @@ export function CopyField({
   value,
   icon,
   className,
+  valueClassName,
+  copyableStyle = false,
   showCopyButton = true,
   toastMessage,
 }: CopyFieldProps) {
@@ -53,7 +58,14 @@ export function CopyField({
       <div className="flex-1 min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
         <div className="flex items-center gap-2 group">
-          <p className="font-medium truncate" title={displayValue}>
+          <p
+            className={cn(
+              "font-medium truncate",
+              copyableStyle && "rounded px-2 py-1.5 border border-dashed border-border bg-background/50",
+              valueClassName
+            )}
+            title={displayValue}
+          >
             {displayValue}
           </p>
           {canCopy && (

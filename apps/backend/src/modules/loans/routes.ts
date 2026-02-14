@@ -10,7 +10,8 @@ import { requireAdmin } from '../../middleware/requireRole.js';
 import { generateSchedule } from '../schedules/service.js';
 import { parseDocumentUpload, parseFileUpload, saveDocumentFile, deleteDocumentFile, UPLOAD_DIR } from '../../lib/upload.js';
 import { AuditService } from '../compliance/auditService.js';
-import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtract, calculateFlatInterest, calculateEMI } from '../../lib/math.js';
+import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtract, calculateFlatInterest, calculateEMI, addMonthsClamped } from '../../lib/math.js';
+import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receiptNumber.js';
 import { createHash } from 'crypto';
 import { LateFeeProcessor } from '../../lib/lateFeeProcessor.js';
 import { generateDischargeLetter, generateDefaultLetter, generateArrearsLetter } from '../../lib/letterService.js';
@@ -3117,9 +3118,7 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
 
     // Helper function to calculate first repayment date (1 month after agreement date)
     const calculateFirstRepaymentDate = (agreementDate: Date): Date => {
-      const repaymentDate = new Date(agreementDate);
-      repaymentDate.setMonth(repaymentDate.getMonth() + 1);
-      return repaymentDate;
+      return addMonthsClamped(agreementDate, 1);
     };
 
     // Calculate dates from agreement date parameter or stored agreement date
@@ -3839,20 +3838,12 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       )
     );
 
-    // Generate receipt number
-    const dateStr = paymentDate.toISOString().slice(0, 10).replace(/-/g, '');
-    const existingCount = await prisma.paymentTransaction.count({
-      where: {
-        tenantId: req.tenantId!,
-        receiptNumber: { startsWith: `RCP-${dateStr}` },
-      },
-    });
-    const receiptNumber = `RCP-${dateStr}-${String(existingCount + 1).padStart(3, '0')}`;
-
     const previousStatus = loan.status;
 
     // Execute everything in a transaction
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await withReceiptNumberRetry(async () => prisma.$transaction(async (tx) => {
+      const receiptNumber = await generateReceiptNumber(tx, req.tenantId!, paymentDate);
+
       // 1. Create payment transaction
       const transaction = await tx.paymentTransaction.create({
         data: {
@@ -3958,8 +3949,9 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
         },
       });
 
-      return { transaction, updatedLoan, completedAt, repaymentRate };
-    });
+      return { transaction, updatedLoan, completedAt, repaymentRate, receiptNumber };
+    }));
+    const receiptNumber = result.receiptNumber;
 
     // Generate discharge letter (outside transaction - non-critical)
     let dischargeLetterPath: string | null = null;

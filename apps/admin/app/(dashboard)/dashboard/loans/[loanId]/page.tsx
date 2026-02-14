@@ -2663,8 +2663,9 @@ export default function LoanDetailPage() {
 
             {/* Bank Details for Disbursement */}
             {(loan.borrower.bankName || loan.borrower.bankAccountNo) && (
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 rounded-lg p-4">
                 <p className="font-medium mb-3 text-sm">Disbursement Bank Details</p>
+                <p className="text-sm text-muted-foreground mb-2">{borrowerDisplayName}</p>
                 <div className="space-y-2">
                   <CopyField
                     label="Bank Name"
@@ -2681,18 +2682,6 @@ export default function LoanDetailPage() {
                 </div>
               </div>
             )}
-            
-            {/* Loan Details - Secondary */}
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground">Borrower</p>
-                <p className="font-medium">{borrowerDisplayName}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Product</p>
-                <p className="font-medium">{loan.product.name}</p>
-              </div>
-            </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -2755,36 +2744,6 @@ export default function LoanDetailPage() {
                 Upload bank transfer slip or other proof. You can also upload this later.
               </p>
             </div>
-            
-            {/* Schedule Summary - Secondary */}
-            {schedulePreview && (
-              <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                <p className="font-medium mb-2 text-sm">Repayment Schedule Summary</p>
-                <div className="grid grid-cols-4 gap-3 text-sm">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Principal</p>
-                    <p className="font-medium">{formatCurrency(toSafeNumber(loan.principalAmount))}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Total Interest</p>
-                    <p className="font-medium">{formatCurrency(schedulePreview.totalInterest)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Total Payable</p>
-                    <p className="font-medium">{formatCurrency(schedulePreview.totalPayable)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Monthly Payment</p>
-                    <p className="font-medium">
-                      ~{formatCurrency(safeDivide(schedulePreview.totalPayable, loan.term))}
-                    </p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {loan.term} months @ {loan.interestRate}% ({loan.product.interestModel.replace(/_/g, " ").toLowerCase()})
-                </p>
-              </div>
-            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDisburseDialog(false)}>

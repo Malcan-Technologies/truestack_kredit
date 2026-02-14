@@ -1,7 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, ExternalLink } from "lucide-react";
-import Link from "next/link";
+import { Check, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,20 +12,8 @@ export default function PromotionsPage() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <div className="flex items-center gap-2 mb-1">
-          <Link
-            href="/dashboard"
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <h1 className="text-2xl font-heading font-bold text-foreground">
-            Promotions
-          </h1>
-        </div>
-        <p className="text-base text-muted-foreground ml-6">
-          Special offers to enhance your TrueKredit experience
-        </p>
+        <h1 className="text-2xl font-heading font-bold text-gradient">Promotions</h1>
+        <p className="text-muted">Special offers to enhance your TrueKredit experience</p>
       </div>
 
       {/* Promotion Cards */}

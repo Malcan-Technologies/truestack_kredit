@@ -301,20 +301,18 @@ Sign up here: ${referralLink}`
 
   if (sessionLoading || loading) {
     return (
-      <div className="container mx-auto py-8">
-        <div className="space-y-6">
-          <div className="h-8 w-48 bg-surface rounded animate-pulse" />
-          <div className="h-64 bg-surface rounded animate-pulse" />
-        </div>
+      <div className="flex items-center justify-center h-64">
+        <div className="text-muted">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto py-8 space-y-6">
+    <div className="space-y-6">
+      {/* Header */}
       <div>
-        <h1 className="text-3xl font-heading font-bold">Profile</h1>
-        <p className="text-muted-foreground mt-1">Manage your personal account information and referral code</p>
+        <h1 className="text-2xl font-heading font-bold text-gradient">Profile</h1>
+        <p className="text-muted">Manage your personal account information and referral code</p>
       </div>
 
       {/* My Profile */}

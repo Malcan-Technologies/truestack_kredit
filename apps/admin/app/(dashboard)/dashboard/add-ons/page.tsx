@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
-  ArrowLeft,
   Check,
   Send,
   Fingerprint,
@@ -196,20 +195,8 @@ export default function AddOnsPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Link
-              href="/dashboard"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-            <h1 className="text-2xl font-heading font-bold text-foreground">
-              Add-ons
-            </h1>
-          </div>
-          <p className="text-base text-muted-foreground ml-6">
-            Extend your TrueKredit platform with powerful add-on features
-          </p>
+          <h1 className="text-2xl font-heading font-bold text-gradient">Add-ons</h1>
+          <p className="text-muted">Extend your TrueKredit platform with powerful add-on features</p>
         </div>
 
         {/* Add-on Cards */}

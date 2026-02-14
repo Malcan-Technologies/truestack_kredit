@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, ArrowLeftRight } from "lucide-react";
+import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, ArrowLeftRight, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import Link from "next/link";
 import { useSession } from "@/lib/auth-client";
 import { useTenantContext } from "@/components/tenant-context";
 import { formatDate } from "@/lib/utils";
@@ -623,8 +624,15 @@ export default function SettingsPage() {
             <Users className="h-5 w-5 text-muted-foreground" />
             <div>
               <CardTitle>Team Members</CardTitle>
-              <CardDescription>
+              <CardDescription className="flex items-center gap-2">
                 {users.length}/5 members used
+                <span className="text-muted-foreground/60">·</span>
+                <Link
+                  href="/dashboard/help?doc=getting-started/roles-and-permissions"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Roles & Permissions
+                </Link>
               </CardDescription>
             </div>
           </div>
@@ -633,6 +641,7 @@ export default function SettingsPage() {
               onClick={() => setShowAddUser(!showAddUser)}
               disabled={users.length >= 5}
             >
+              <Plus className="h-4 w-4 mr-2" />
               {users.length >= 5 ? "Limit Reached" : "Add User"}
             </Button>
           )}

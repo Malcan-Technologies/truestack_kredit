@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { config } from './lib/config.js';
+import { config, validateConfig } from './lib/config.js';
 import { prisma } from './lib/prisma.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -22,6 +22,8 @@ import docsRoutes from './modules/docs/routes.js';
 import referralsRoutes from './modules/referrals/routes.js';
 import dashboardRoutes from './modules/dashboard/routes.js';
 import resendWebhookRoutes from './modules/webhooks/resendWebhook.js';
+
+validateConfig();
 
 const app = express();
 

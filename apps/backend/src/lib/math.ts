@@ -99,6 +99,24 @@ export function monthlyInterestRate(annualRate: number): number {
 }
 
 /**
+ * Add months to a date with end-of-month clamping.
+ * Example: Jan 31 + 1 month => Feb 28/29.
+ */
+export function addMonthsClamped(date: Date, months: number): Date {
+  const source = new Date(date);
+  const dayOfMonth = source.getDate();
+  const targetMonth = source.getMonth() + months;
+
+  source.setMonth(targetMonth);
+
+  if (source.getDate() !== dayOfMonth) {
+    source.setDate(0);
+  }
+
+  return source;
+}
+
+/**
  * Calculate flat interest for a loan
  * Interest = Principal × Rate × Term / 12
  */

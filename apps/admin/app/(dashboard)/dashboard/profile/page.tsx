@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserCircle, Gift, Copy, Share2, Users, CreditCard, Shield, Eye, EyeOff } from "lucide-react";
+import { UserCircle, Share2, Users, Shield, Eye, EyeOff, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,12 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useSession, updateUser } from "@/lib/auth-client";
 import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
-import Link from "next/link";
 import { Separator } from "@/components/ui/separator";
+import { CopyField } from "@/components/ui/copy-field";
 
 interface CurrentMembership {
-  role: string;
   referrer: { id: string; name: string | null; email: string } | null;
+  createdAt: string | null;
 }
 
 interface ReferralData {
@@ -53,6 +53,22 @@ interface LoginLog {
   createdAt: string;
 }
 
+interface TenantMembership {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  tenantStatus: string;
+  role: string;
+  subscription?: {
+    plan: string;
+    status: string;
+    currentPeriodEnd: string;
+    gracePeriodEnd?: string;
+  } | null;
+  addOns?: { addOnType: string; status: string }[];
+}
+
 export default function ProfilePage() {
   const [currentMembership, setCurrentMembership] = useState<CurrentMembership | null>(null);
   const [referralCode, setReferralCode] = useState<string | null>(null);
@@ -74,11 +90,12 @@ export default function ProfilePage() {
     newPassword: "",
     confirmPassword: "",
   });
+  const [tenants, setTenants] = useState<TenantMembership[]>([]);
+  const [loadingTenants, setLoadingTenants] = useState(false);
 
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const currentUser = session?.user;
-  const currentRole = currentMembership?.role || "STAFF";
 
   const fetchData = async () => {
     if (!session) return;
@@ -94,8 +111,8 @@ export default function ProfilePage() {
 
       if (meData.success && meData.data?.user) {
         setCurrentMembership({
-          role: meData.data.user.role,
           referrer: meData.data.user.referrer ?? null,
+          createdAt: meData.data.user.createdAt ?? null,
         });
       }
       if (passwordInfoRes.success && passwordInfoRes.data) {
@@ -149,11 +166,27 @@ export default function ProfilePage() {
     setLoadingReferrals(false);
   };
 
+  const fetchTenants = async () => {
+    if (!session) return;
+    setLoadingTenants(true);
+    try {
+      const res = await fetch("/api/proxy/auth/memberships", { credentials: "include" });
+      const data = await res.json();
+      if (data.success && data.data?.memberships) {
+        setTenants(data.data.memberships);
+      }
+    } catch (error) {
+      console.error("Failed to fetch tenants:", error);
+    }
+    setLoadingTenants(false);
+  };
+
   useEffect(() => {
     if (session) {
       fetchData();
       fetchReferralCode();
       fetchReferrals();
+      fetchTenants();
     }
   }, [session]);
 
@@ -239,16 +272,6 @@ Sign up here: ${referralLink}`
     setChangingPassword(false);
   };
 
-  const handleCopyCode = async () => {
-    if (!displayCode) return;
-    try {
-      await navigator.clipboard.writeText(displayCode);
-      toast.success("Referral code copied to clipboard");
-    } catch {
-      toast.error("Failed to copy");
-    }
-  };
-
   const handleShare = async () => {
     if (!shareMessage) return;
     try {
@@ -288,7 +311,7 @@ Sign up here: ${referralLink}`
   return (
     <div className="container mx-auto py-8 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Profile</h1>
+        <h1 className="text-3xl font-heading font-bold">Profile</h1>
         <p className="text-muted-foreground mt-1">Manage your personal account information and referral code</p>
       </div>
 
@@ -299,7 +322,7 @@ Sign up here: ${referralLink}`
             <div className="flex items-center gap-3">
               <UserCircle className="h-5 w-5 text-muted-foreground" />
               <div>
-                <CardTitle>My Profile</CardTitle>
+                <CardTitle className="font-heading">My Profile</CardTitle>
                 <CardDescription>Your personal account information</CardDescription>
               </div>
             </div>
@@ -363,10 +386,12 @@ Sign up here: ${referralLink}`
                 <p className="font-medium">{currentUser?.email || "—"}</p>
               </div>
               <div>
-                <p className="text-sm text-muted">Role</p>
-                <Badge variant={currentRole === "OWNER" ? "default" : "outline"}>
-                  {currentRole}
-                </Badge>
+                <p className="text-sm text-muted">Member since</p>
+                <p className="font-medium">
+                  {currentMembership?.createdAt
+                    ? formatDate(currentMembership.createdAt)
+                    : "—"}
+                </p>
               </div>
               {currentMembership?.referrer && (
                 <div className="md:col-span-3">
@@ -381,18 +406,20 @@ Sign up here: ${referralLink}`
         </CardContent>
       </Card>
 
-      {/* Security */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <Shield className="h-5 w-5 text-accent" />
-            <div>
-              <CardTitle>Security</CardTitle>
-              <CardDescription>Account security settings</CardDescription>
+      {/* Security + Your Tenants - 2 columns */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Security */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Shield className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle className="font-heading">Security</CardTitle>
+                <CardDescription>Account security settings</CardDescription>
+              </div>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent>
+          </CardHeader>
+          <CardContent>
           <div className="space-y-4">
             <div className="flex items-center justify-between py-2">
               <div>
@@ -424,7 +451,7 @@ Sign up here: ${referralLink}`
                     />
                     <button
                       type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                     >
                       {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -443,7 +470,7 @@ Sign up here: ${referralLink}`
                     />
                     <button
                       type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       onClick={() => setShowNewPassword(!showNewPassword)}
                     >
                       {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -520,139 +547,201 @@ Sign up here: ${referralLink}`
         </CardContent>
       </Card>
 
-      {/* Referral Code */}
+        {/* Your Tenants */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Building2 className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle className="font-heading">Your Tenants</CardTitle>
+                <CardDescription>Organizations you belong to with their plans and billing</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loadingTenants ? (
+              <div className="space-y-4">
+                <div className="h-24 bg-surface rounded animate-pulse" />
+                <div className="h-24 bg-surface rounded animate-pulse" />
+              </div>
+            ) : tenants.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No tenants yet</p>
+            ) : (
+              <div className="space-y-4">
+                {tenants.map((t) => (
+                  <div
+                    key={t.tenantId}
+                    className="flex items-center justify-between gap-4 p-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="shrink-0 h-10 w-10 rounded-lg bg-surface border border-border flex items-center justify-center">
+                        <Building2 className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold font-heading">{t.tenantName}</p>
+                          <Badge variant="outline" className="text-xs">
+                            {t.role}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {[
+                            `Plan: ${t.subscription?.plan ? t.subscription.plan.charAt(0).toUpperCase() + t.subscription.plan.slice(1) : "Free"}`,
+                            t.addOns && t.addOns.length > 0
+                              ? `Add-ons: ${t.addOns.filter((a) => a.status === "ACTIVE").map((a) => a.addOnType === "TRUESEND" ? "TrueSend" : a.addOnType === "TRUEIDENTITY" ? "TrueIdentity" : a.addOnType).join(", ")}`
+                              : null,
+                            t.subscription
+                              ? t.subscription.status === "GRACE_PERIOD" && t.subscription.gracePeriodEnd
+                                ? `Due ${formatDate(t.subscription.gracePeriodEnd)}`
+                                : t.subscription.currentPeriodEnd
+                                  ? `Renews ${formatDate(t.subscription.currentPeriodEnd)}`
+                                  : null
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch("/api/proxy/auth/switch-tenant", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({ tenantId: t.tenantId }),
+                          });
+                          const data = await res.json();
+                          if (data.success) {
+                            toast.success(`Switched to ${data.data.tenantName}`);
+                            window.location.href = "/dashboard/billing";
+                          } else {
+                            toast.error(data.error || "Failed to switch tenant");
+                          }
+                        } catch {
+                          toast.error("Failed to switch tenant");
+                        }
+                      }}
+                    >
+                      Billing
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Referrals - combined code + my referrals */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <Gift className="h-5 w-5 text-muted-foreground" />
+            <Users className="h-5 w-5 text-muted-foreground" />
             <div>
-              <CardTitle>Referral Code</CardTitle>
-              <CardDescription>Share your referral code to invite others</CardDescription>
+              <CardTitle className="font-heading">Referrals</CardTitle>
+              <CardDescription>Share your code and track users you&apos;ve referred</CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {loadingReferralCode ? (
-            <div className="space-y-4">
-              <div className="h-16 bg-surface rounded animate-pulse" />
-              <div className="h-16 bg-surface rounded animate-pulse" />
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-muted-foreground">Referral Code</p>
-                  <p className="font-medium truncate" title={displayCode ?? ""}>
-                    {displayCode ?? "—"}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopyCode}
-                  disabled={!displayCode}
-                >
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy
-                </Button>
-              </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <p className="text-sm text-muted-foreground flex-1 min-w-0">
-                  Share your referral with a message
-                </p>
+        <CardContent className="space-y-6">
+          {/* Referral code - copyable field */}
+          <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+            {loadingReferralCode ? (
+              <div className="h-14 bg-surface rounded animate-pulse" />
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <CopyField
+                  label="Your referral code"
+                  value={displayCode}
+                  className="flex-1 min-w-0"
+                  valueClassName="font-mono text-lg"
+                  copyableStyle
+                  toastMessage="Referral code copied to clipboard"
+                />
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={handleShare}
                   disabled={!shareMessage}
+                  className="shrink-0"
                 >
                   <Share2 className="h-4 w-4 mr-2" />
-                  Share as Link
+                  Share
                 </Button>
               </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Subscription */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <CreditCard className="h-5 w-5 text-accent" />
-              <div>
-                <CardTitle>Subscription</CardTitle>
-                <CardDescription>Upgrade your plan to unlock full TrueKredit features</CardDescription>
-              </div>
-            </div>
-            <Button variant="outline" asChild>
-              <Link href="/dashboard/subscription">
-                <CreditCard className="h-4 w-4 mr-2" />
-                View plans
-              </Link>
-            </Button>
+            )}
           </div>
-        </CardHeader>
-      </Card>
 
-      {/* My Referrals */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <Users className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <CardTitle>My Referrals</CardTitle>
-              <CardDescription>Track users you've referred and rewards</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
           {loadingReferrals ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-20 bg-surface rounded animate-pulse" />
-                ))}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-3 h-20 bg-surface rounded-lg animate-pulse" />
+                <div className="h-20 bg-surface rounded-lg animate-pulse" />
+                <div className="h-20 bg-surface rounded-lg animate-pulse" />
+                <div className="h-20 bg-surface rounded-lg animate-pulse" />
               </div>
               <div className="h-64 bg-surface rounded animate-pulse" />
             </div>
           ) : referrals ? (
             <>
-              {/* Summary stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div>
-                  <p className="text-xs text-muted-foreground">Total Referrals</p>
-                  <p className="text-2xl font-bold">{referrals.total}</p>
+              {/* Summary stats - sub-cards with hierarchy */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Primary: Total Rewards */}
+                <div className="sm:col-span-3 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
+                    Total rewards
+                  </p>
+                  <p className="text-2xl font-heading font-bold tabular-nums">
+                    {formatCurrency(referrals.totalRewards / 100)}
+                  </p>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Eligible</p>
-                  <p className="text-2xl font-bold text-green-500">{referrals.eligible}</p>
+                {/* Secondary: Count breakdown */}
+                <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
+                    Total
+                  </p>
+                  <p className="text-xl font-heading font-bold tabular-nums">
+                    {referrals.total}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">referrals</p>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Paid</p>
-                  <p className="text-2xl font-bold text-blue-500">{referrals.paid}</p>
+                <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
+                    Eligible
+                  </p>
+                  <p className="text-xl font-heading font-bold tabular-nums text-foreground">
+                    {referrals.eligible}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">awaiting payout</p>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Total Rewards</p>
-                  <p className="text-2xl font-bold">{formatCurrency(referrals.totalRewards / 100)}</p>
+                <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
+                    Paid
+                  </p>
+                  <p className="text-xl font-heading font-bold tabular-nums text-foreground">
+                    {referrals.paid}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">payouts completed</p>
                 </div>
               </div>
 
               {/* Referrals table */}
               {referrals.referrals.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>No referrals yet. Share your code to start earning rewards!</p>
-                </div>
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  No referrals yet. Share your code to start earning rewards.
+                </p>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-lg border border-border">
                   <Table>
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className="hover:bg-transparent">
                         <TableHead>User</TableHead>
-                        <TableHead>Code Used</TableHead>
+                        <TableHead>Code</TableHead>
                         <TableHead>Reward</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Date</TableHead>
@@ -660,7 +749,7 @@ Sign up here: ${referralLink}`
                     </TableHeader>
                     <TableBody>
                       {referrals.referrals.map((referral) => (
-                        <TableRow key={referral.id}>
+                        <TableRow key={referral.id} className="hover:bg-surface/50">
                           <TableCell className="font-medium">
                             {referral.referredUserName || referral.referredUserEmail}
                             {referral.referredUserName && (
@@ -672,16 +761,16 @@ Sign up here: ${referralLink}`
                           <TableCell>
                             <span className="font-mono text-sm">{referral.referralCode}</span>
                           </TableCell>
-                          <TableCell>{formatCurrency(referral.rewardAmount / 100)}</TableCell>
+                          <TableCell className="font-heading tabular-nums">{formatCurrency(referral.rewardAmount / 100)}</TableCell>
                           <TableCell>
                             {referral.isPaid ? (
-                              <Badge variant="default" className="bg-blue-500 text-black">Paid</Badge>
+                              <Badge variant="info">Paid</Badge>
                             ) : (
-                              <Badge variant="default" className="bg-green-500 text-black">Eligible</Badge>
+                              <Badge variant="success">Eligible</Badge>
                             )}
                           </TableCell>
-                          <TableCell>
-                            <span className="text-sm">{formatDate(referral.createdAt)}</span>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {formatDate(referral.createdAt)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -691,9 +780,7 @@ Sign up here: ${referralLink}`
               )}
             </>
           ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>Failed to load referrals</p>
-            </div>
+            <p className="text-sm text-muted-foreground text-center py-6">Failed to load referrals</p>
           )}
         </CardContent>
       </Card>

@@ -1,4 +1,5 @@
 import type { InterestModel } from '@prisma/client';
+import { addMonthsClamped, safeAdd, safeDivide, safeRound, safeSubtract } from '../../lib/math.js';
 
 export interface ScheduleParams {
   principal: number;
@@ -57,8 +58,7 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
   let balance = principal;
 
   for (let i = 1; i <= term; i++) {
-    const dueDate = new Date(disbursementDate);
-    dueDate.setMonth(dueDate.getMonth() + i);
+    const dueDate = addMonthsClamped(disbursementDate, i);
 
     balance = Math.max(0, balance - monthlyPrincipal);
 
@@ -93,6 +93,38 @@ function calculateDecliningBalance(params: ScheduleParams): ScheduleOutput {
   const { principal, interestRate, term, disbursementDate } = params;
   
   const monthlyRate = interestRate / 100 / 12;
+
+  if (interestRate === 0) {
+    const monthlyPayment = safeDivide(principal, term);
+    const repayments: RepaymentScheduleItem[] = [];
+    let balance = principal;
+
+    for (let i = 1; i <= term; i++) {
+      const dueDate = addMonthsClamped(disbursementDate, i);
+      balance = safeSubtract(balance, monthlyPayment);
+
+      repayments.push({
+        dueDate,
+        principal: safeRound(monthlyPayment),
+        interest: 0,
+        totalDue: safeRound(monthlyPayment),
+        balance: safeRound(Math.max(0, balance)),
+      });
+    }
+
+    if (repayments.length > 0) {
+      const lastPayment = repayments[repayments.length - 1];
+      lastPayment.principal = safeRound(safeAdd(lastPayment.principal, lastPayment.balance));
+      lastPayment.totalDue = lastPayment.principal;
+      lastPayment.balance = 0;
+    }
+
+    return {
+      repayments,
+      totalInterest: 0,
+      totalPayable: safeRound(principal),
+    };
+  }
   
   // EMI formula: P × r × (1+r)^n / ((1+r)^n - 1)
   const emi = principal * monthlyRate * Math.pow(1 + monthlyRate, term) / 
@@ -103,8 +135,7 @@ function calculateDecliningBalance(params: ScheduleParams): ScheduleOutput {
   let totalInterest = 0;
 
   for (let i = 1; i <= term; i++) {
-    const dueDate = new Date(disbursementDate);
-    dueDate.setMonth(dueDate.getMonth() + i);
+    const dueDate = addMonthsClamped(disbursementDate, i);
 
     const interest = balance * monthlyRate;
     const principalPayment = emi - interest;

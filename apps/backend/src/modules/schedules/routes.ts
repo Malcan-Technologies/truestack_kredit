@@ -12,6 +12,7 @@ import { parseFileUpload, savePaymentReceiptFile, deleteDocumentFile, UPLOAD_DIR
 import { AuditService } from '../compliance/auditService.js';
 import { TrueSendService } from '../notifications/trueSendService.js';
 import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtract } from '../../lib/math.js';
+import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receiptNumber.js';
 import { createHash } from 'crypto';
 import https from 'https';
 import http from 'http';
@@ -753,18 +754,10 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       }
     }
 
-    // Generate receipt number (RCP-YYYYMMDD-XXX)
-    const dateStr = paymentDate.toISOString().split('T')[0].replace(/-/g, '');
-    const existingCount = await prisma.paymentTransaction.count({
-      where: {
-        tenantId: req.tenantId!,
-        receiptNumber: { startsWith: `RCP-${dateStr}` },
-      },
-    });
-    const receiptNumber = `RCP-${dateStr}-${String(existingCount + 1).padStart(3, '0')}`;
-
     // Execute transaction to create all records
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await withReceiptNumberRetry(async () => prisma.$transaction(async (tx) => {
+      const receiptNumber = await generateReceiptNumber(tx, req.tenantId!, paymentDate);
+
       // Create PaymentTransaction
       const transaction = await tx.paymentTransaction.create({
         data: {
@@ -829,8 +822,8 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         }
       }
 
-      return { transaction, allocations: createdAllocations };
-    });
+      return { transaction, allocations: createdAllocations, receiptNumber };
+    }));
 
     // Check if a DEFAULTED loan should be reactivated (evaluated here, but audit logged after RECORD_PAYMENT)
     let defaultCleared = false;
@@ -927,7 +920,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       entityId: loanId,
       newData: {
         transactionId: result.transaction.id,
-        receiptNumber,
+        receiptNumber: result.receiptNumber,
         totalAmount: data.amount,
         allocations: allocationData.map(a => ({
           repaymentNumber: a.repaymentNumber,
@@ -971,7 +964,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
           loanId,
           receiptPath,
           data.amount,
-          receiptNumber
+          result.receiptNumber
         );
       } catch (emailErr) {
         console.error(`[RecordPayment] TrueSend email failed for loan ${loanId}:`, emailErr);
@@ -982,7 +975,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       success: true,
       data: {
         transaction: updatedTransaction,
-        receiptNumber,
+        receiptNumber: result.receiptNumber,
         allocations: allocationData.map(a => ({
           repaymentNumber: a.repaymentNumber,
           amount: a.amount,

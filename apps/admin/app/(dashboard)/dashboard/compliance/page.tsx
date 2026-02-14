@@ -257,7 +257,7 @@ export default function CompliancePage() {
               className={cn(
                 "flex-1 gap-2",
                 activeTab === tab.value
-                  ? "bg-primary text-primary-foreground shadow-sm"
+                  ? "bg-primary/10 text-primary shadow-sm hover:bg-primary/15"
                   : "text-muted hover:text-foreground"
               )}
             >

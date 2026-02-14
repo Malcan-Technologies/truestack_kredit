@@ -105,9 +105,7 @@ export function monthlyInterestRate(annualRate: number): number {
 export function addMonthsClamped(date: Date, months: number): Date {
   const source = new Date(date);
   const dayOfMonth = source.getDate();
-  const targetMonth = source.getMonth() + months;
-
-  source.setMonth(targetMonth);
+  source.setMonth(source.getMonth() + months);
 
   if (source.getDate() !== dayOfMonth) {
     source.setDate(0);

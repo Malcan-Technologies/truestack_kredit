@@ -12,10 +12,8 @@
  *   (@@unique([repaymentId, accrualDate])) prevents double-charging.
  * - Late fees accrue on ACTIVE, IN_ARREARS, and DEFAULTED loans.
  * - Amount in arrears = outstanding principal + interest (NOT including late fees themselves).
- * - After a partial payment, subsequent daily fees use the reduced outstanding amount
- *   as of that day (we use the current outstanding for all backfilled days for simplicity,
- *   since the outstanding at time of processing is the correct amount for charging going forward,
- *   and already-charged days are skipped via the unique constraint).
+ * - Backfilled days use per-day outstanding snapshots, so historical fees reflect
+ *   payment timing correctly and avoid under/over charging.
  * - Arrears period detection with automatic letter generation
  * - Default period detection (marks ready, does NOT auto-default)
  * - Full audit trail integration
@@ -26,69 +24,10 @@ import { toSafeNumber, safeRound, safeAdd, safeSubtract, dailyLateFeeRate, calcu
 import { generateArrearsLetter } from './letterService.js';
 import { AuditService } from '../modules/compliance/auditService.js';
 import { TrueSendService } from '../modules/notifications/trueSendService.js';
+import { ONE_DAY_MS, calculateDaysOverdueMalaysia, getMalaysiaDateRange, getMalaysiaEndOfDay, getMalaysiaStartOfDay } from './malaysiaTime.js';
 
 // Advisory lock ID for late fee processing
 const LATE_FEE_LOCK_ID = 789012345;
-
-// Malaysia timezone offset (UTC+8)
-const MYT_OFFSET_MS = 8 * 60 * 60 * 1000;
-
-// One day in milliseconds
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Get the start of a Malaysia business day in UTC.
- * e.g., if it's 2026-02-08 00:30 MYT → returns 2026-02-07T16:00:00.000Z (start of Feb 8 MYT in UTC)
- */
-function getMalaysiaStartOfDay(date?: Date): Date {
-  const d = date ? new Date(date) : new Date();
-  // Convert to Malaysia time
-  const mytTime = new Date(d.getTime() + MYT_OFFSET_MS);
-  // Get the start of that day in MYT
-  const mytStartOfDay = new Date(
-    Date.UTC(mytTime.getUTCFullYear(), mytTime.getUTCMonth(), mytTime.getUTCDate())
-  );
-  // Convert back to UTC
-  return new Date(mytStartOfDay.getTime() - MYT_OFFSET_MS);
-}
-
-/**
- * Get end of Malaysia business day in UTC
- */
-function getMalaysiaEndOfDay(date?: Date): Date {
-  const start = getMalaysiaStartOfDay(date);
-  return new Date(start.getTime() + ONE_DAY_MS);
-}
-
-/**
- * Calculate days overdue from due date to a specific date (Malaysia time).
- * Returns 0 if not yet overdue.
- */
-function calculateDaysOverdue(dueDate: Date, asOfDate?: Date): number {
-  const refDate = asOfDate || new Date();
-  const dueDateStart = new Date(Date.UTC(
-    dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate()
-  ));
-  const todayStart = getMalaysiaStartOfDay(refDate);
-  // Add MYT offset back since dueDate is stored at UTC midnight
-  const diffMs = todayStart.getTime() + MYT_OFFSET_MS - dueDateStart.getTime();
-  const days = Math.floor(diffMs / ONE_DAY_MS);
-  return Math.max(0, days);
-}
-
-/**
- * Get all dates from startDate to endDate (inclusive) as Malaysia day starts in UTC.
- * Used for backfilling missed days.
- */
-function getDateRange(startDate: Date, endDate: Date): Date[] {
-  const dates: Date[] = [];
-  let current = new Date(startDate);
-  while (current.getTime() <= endDate.getTime()) {
-    dates.push(new Date(current));
-    current = new Date(current.getTime() + ONE_DAY_MS);
-  }
-  return dates;
-}
 
 // ============================================
 // Processing Result Types
@@ -133,8 +72,8 @@ export class LateFeeProcessor {
    *    - Attempts to create a LateFeeEntry
    *    - Unique constraint (repaymentId, accrualDate) prevents double-charging
    *    - Already-charged days silently skip via P2002 catch
-   * 3. Uses current outstanding amount for fee calculation
-   *    (a conservative approach - see module docs for rationale)
+   * 3. Uses per-day outstanding snapshots for each accrual date
+   *    so backfilled fee entries remain date-accurate.
    */
   static async processLateFees(trigger: 'CRON' | 'MANUAL', tenantId?: string): Promise<ProcessingResult> {
     const startTime = Date.now();
@@ -245,33 +184,14 @@ export class LateFeeProcessor {
 
             for (const repayment of repayments) {
               try {
-                // Calculate outstanding = totalDue - amount paid (principal + interest only)
                 const totalDue = toSafeNumber(repayment.totalDue);
-                const amountPaid = repayment.allocations.reduce(
-                  (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
-                  0
-                );
-                const outstanding = safeSubtract(totalDue, amountPaid);
-
-                if (outstanding <= 0.01) continue; // Effectively paid
-
-                // Calculate the daily fee based on current outstanding
-                const dailyFee = calculateDailyLateFee(outstanding, latePaymentRate);
-                if (dailyFee <= 0) continue;
 
                 // Determine the range of days to charge:
                 // - Start: day after due date (first overdue day) represented as MYT start-of-day in UTC
                 // - End: today (MYT start-of-day in UTC)
-                const dueDateMidnight = new Date(Date.UTC(
-                  repayment.dueDate.getUTCFullYear(),
-                  repayment.dueDate.getUTCMonth(),
-                  repayment.dueDate.getUTCDate()
-                ));
                 // First chargeable day: the day after due date, as MYT start-of-day in UTC
                 // Due date itself is not overdue; the day after is day 1 overdue
-                const firstChargeableDay = getMalaysiaStartOfDay(
-                  new Date(dueDateMidnight.getTime() + ONE_DAY_MS)
-                );
+                const firstChargeableDay = new Date(getMalaysiaStartOfDay(repayment.dueDate).getTime() + ONE_DAY_MS);
 
                 // If we've already charged some days, start from the day after the last charged day
                 let startDate: Date;
@@ -286,14 +206,31 @@ export class LateFeeProcessor {
                 if (startDate.getTime() > todayStart.getTime()) continue;
 
                 // Get all dates to charge
-                const datesToCharge = getDateRange(startDate, todayStart);
+                const datesToCharge = getMalaysiaDateRange(startDate, todayStart);
 
                 let repaymentFeeTotal = 0;
+                const sortedAllocations = [...repayment.allocations].sort(
+                  (a, b) => new Date(a.allocatedAt).getTime() - new Date(b.allocatedAt).getTime()
+                );
+                let allocationCursor = 0;
+                let paidBeforeAccrual = 0;
 
                 for (const accrualDate of datesToCharge) {
-                  const daysOverdue = calculateDaysOverdue(repayment.dueDate, 
-                    new Date(accrualDate.getTime() + MYT_OFFSET_MS) // Convert back for calculation
-                  );
+                  while (
+                    allocationCursor < sortedAllocations.length &&
+                    new Date(sortedAllocations[allocationCursor].allocatedAt).getTime() < accrualDate.getTime()
+                  ) {
+                    paidBeforeAccrual = safeAdd(paidBeforeAccrual, toSafeNumber(sortedAllocations[allocationCursor].amount));
+                    allocationCursor++;
+                  }
+
+                  const outstandingForDay = safeSubtract(totalDue, paidBeforeAccrual);
+                  if (outstandingForDay <= 0.01) continue;
+
+                  const dailyFee = calculateDailyLateFee(outstandingForDay, latePaymentRate);
+                  if (dailyFee <= 0) continue;
+
+                  const daysOverdue = calculateDaysOverdueMalaysia(repayment.dueDate, accrualDate);
                   if (daysOverdue <= 0) continue;
 
                   try {
@@ -304,7 +241,7 @@ export class LateFeeProcessor {
                         repaymentId: repayment.id,
                         accrualDate,
                         daysOverdue,
-                        outstandingAmount: outstanding,
+                        outstandingAmount: outstandingForDay,
                         dailyRate: rate,
                         feeAmount: dailyFee,
                       },
@@ -353,7 +290,7 @@ export class LateFeeProcessor {
 
             // 5d. Check arrears period
             const oldestOverdueDays = repayments.reduce(
-              (max, r) => Math.max(max, calculateDaysOverdue(r.dueDate)),
+              (max, r) => Math.max(max, calculateDaysOverdueMalaysia(r.dueDate)),
               0
             );
             const arrearsPeriod = product.arrearsPeriod;
@@ -393,7 +330,7 @@ export class LateFeeProcessor {
                     amountPaid: paid,
                     outstanding: safeSubtract(totalDue, paid),
                     lateFeeAccrued: toSafeNumber(r.lateFeeAccrued),
-                    daysOverdue: calculateDaysOverdue(r.dueDate),
+                    daysOverdue: calculateDaysOverdueMalaysia(r.dueDate),
                   };
                 });
 

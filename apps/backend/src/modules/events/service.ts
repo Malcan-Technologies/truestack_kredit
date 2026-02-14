@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { nanoid } from 'nanoid';
 import { createHmac } from 'crypto';
+import { config } from '../../lib/config.js';
 
 export type EventType = 
   | 'tenant.created'
@@ -122,7 +123,7 @@ export class DomainEventEmitter {
     });
 
     // Create HMAC signature
-    const secret = process.env.WEBHOOK_SECRET || 'dev-webhook-secret';
+    const secret = config.webhook.secret;
     const signature = createHmac('sha256', secret).update(body).digest('hex');
 
     const response = await fetch(url, {

@@ -17,9 +17,14 @@ async function main() {
   console.log('🌱 Seeding database...');
 
   // Create demo tenant (PPW - Money Lender)
+  // subscriptionStatus: PAID so demo tenants pass requirePaidSubscription and avoid billing redirect
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'demo-company' },
-    update: {},
+    update: {
+      subscriptionStatus: 'PAID',
+      subscriptionAmount: 49900, // RM 499 in cents
+      subscribedAt: new Date(),
+    },
     create: {
       name: 'Demo Company Sdn Bhd',
       slug: 'demo-company',
@@ -30,6 +35,9 @@ async function main() {
       contactNumber: '+60312345678',
       businessAddress: '123 Jalan Demo, 50000 Kuala Lumpur',
       status: 'ACTIVE',
+      subscriptionStatus: 'PAID',
+      subscriptionAmount: 49900, // RM 499 in cents
+      subscribedAt: new Date(),
     },
   });
 
@@ -38,7 +46,11 @@ async function main() {
   // Create a second demo tenant for testing multi-tenant (also PPW for now)
   const tenant2 = await prisma.tenant.upsert({
     where: { slug: 'acme-lending' },
-    update: {},
+    update: {
+      subscriptionStatus: 'PAID',
+      subscriptionAmount: 49900,
+      subscribedAt: new Date(),
+    },
     create: {
       name: 'ACME Lending Sdn Bhd',
       slug: 'acme-lending',
@@ -49,6 +61,9 @@ async function main() {
       contactNumber: '+60387654321',
       businessAddress: '456 Jalan ACME, 40000 Shah Alam',
       status: 'ACTIVE',
+      subscriptionStatus: 'PAID',
+      subscriptionAmount: 49900,
+      subscribedAt: new Date(),
     },
   });
 

@@ -82,6 +82,12 @@ const corporateFieldsSchema = z.object({
   numberOfEmployees: z.number().int().positive().optional().or(z.literal(null)),
 });
 
+const directorSchema = z.object({
+  name: z.string().min(2).max(200),
+  icNumber: z.string().min(6).max(20),
+  position: z.string().max(100).optional(),
+});
+
 // Validation schemas
 const createBorrowerSchema = z.object({
   borrowerType: z.enum(BORROWER_TYPE_VALUES).default('INDIVIDUAL'),
@@ -91,6 +97,7 @@ const createBorrowerSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
   address: z.string().max(500).optional(),
+  directors: z.array(directorSchema).min(1).max(10).optional(),
 }).merge(individualFieldsSchema).merge(corporateFieldsSchema);
 
 const updateBorrowerSchema = z.object({
@@ -101,6 +108,7 @@ const updateBorrowerSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
   address: z.string().max(500).optional(),
+  directors: z.array(directorSchema).min(1).max(10).optional(),
 }).merge(individualFieldsSchema).merge(corporateFieldsSchema);
 
 /**
@@ -184,6 +192,9 @@ router.get('/:borrowerId', async (req, res, next) => {
         },
         documents: {
           orderBy: { uploadedAt: 'desc' },
+        },
+        directors: {
+          orderBy: { order: 'asc' },
         },
       },
     });
@@ -307,6 +318,12 @@ router.post('/', async (req, res, next) => {
     }
 
     const isCorporate = data.borrowerType === 'CORPORATE';
+    const normalizedDirectors = (data.directors || []).map((director, index) => ({
+      name: director.name.trim(),
+      icNumber: director.icNumber.trim(),
+      position: director.position?.trim() || null,
+      order: index,
+    }));
 
     // Prepare data for database
     const createData: Record<string, unknown> = {
@@ -326,8 +343,8 @@ router.post('/', async (req, res, next) => {
       createData.companyName = data.companyName || null;
       createData.ssmRegistrationNo = data.ssmRegistrationNo || null;
       createData.businessAddress = data.businessAddress || null;
-      createData.authorizedRepName = data.authorizedRepName || null;
-      createData.authorizedRepIc = data.authorizedRepIc || null;
+      createData.authorizedRepName = normalizedDirectors[0]?.name || data.authorizedRepName || null;
+      createData.authorizedRepIc = normalizedDirectors[0]?.icNumber || data.authorizedRepIc || null;
       createData.companyPhone = data.companyPhone || null;
       createData.companyEmail = data.companyEmail || null;
       createData.natureOfBusiness = data.natureOfBusiness || null;
@@ -340,6 +357,11 @@ router.post('/', async (req, res, next) => {
       createData.bankName = data.bankName || null;
       createData.bankNameOther = data.bankName === 'OTHER' ? (data.bankNameOther || null) : null;
       createData.bankAccountNo = data.bankAccountNo || null;
+      if (normalizedDirectors.length > 0) {
+        createData.directors = {
+          create: normalizedDirectors,
+        };
+      }
     } else {
       // Individual borrower fields
       createData.dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
@@ -360,6 +382,11 @@ router.post('/', async (req, res, next) => {
 
     const borrower = await prisma.borrower.create({
       data: createData as Parameters<typeof prisma.borrower.create>[0]['data'],
+      include: {
+        directors: {
+          orderBy: { order: 'asc' },
+        },
+      },
     });
 
     // Log to audit trail
@@ -376,10 +403,17 @@ router.post('/', async (req, res, next) => {
     if (isCorporate && borrower.companyName) {
       auditData.companyName = borrower.companyName;
     }
+    if (isCorporate) {
+      auditData.directors = borrower.directors.map((director) => ({
+        name: director.name,
+        icNumber: director.icNumber,
+        position: director.position,
+      }));
+    }
     
     await AuditService.logCreate(
       req.tenantId!,
-      req.user!.memberId,
+      req.memberId!,
       'Borrower',
       borrower.id,
       auditData,
@@ -409,6 +443,11 @@ router.patch('/:borrowerId', async (req, res, next) => {
         id: req.params.borrowerId,
         tenantId: req.tenantId,
       },
+      include: {
+        directors: {
+          orderBy: { order: 'asc' },
+        },
+      },
     });
 
     if (!existing) {
@@ -432,6 +471,13 @@ router.patch('/:borrowerId', async (req, res, next) => {
 
     // Prepare update data
     const updateData: Record<string, unknown> = {};
+    const effectiveBorrowerType = data.borrowerType ?? existing.borrowerType;
+    const normalizedDirectors = (data.directors || []).map((director, index) => ({
+      name: director.name.trim(),
+      icNumber: director.icNumber.trim(),
+      position: director.position?.trim() || null,
+      order: index,
+    }));
     
     // Base fields
     if (data.borrowerType !== undefined) updateData.borrowerType = data.borrowerType;
@@ -478,16 +524,49 @@ router.patch('/:borrowerId', async (req, res, next) => {
     if (data.dateOfIncorporation !== undefined) updateData.dateOfIncorporation = data.dateOfIncorporation ? new Date(data.dateOfIncorporation) : null;
     if (data.paidUpCapital !== undefined) updateData.paidUpCapital = data.paidUpCapital ?? null;
     if (data.numberOfEmployees !== undefined) updateData.numberOfEmployees = data.numberOfEmployees ?? null;
+    if (data.directors !== undefined && effectiveBorrowerType === 'CORPORATE') {
+      updateData.authorizedRepName = normalizedDirectors[0]?.name || null;
+      updateData.authorizedRepIc = normalizedDirectors[0]?.icNumber || null;
+    }
 
-    const borrower = await prisma.borrower.update({
-      where: { id: req.params.borrowerId },
-      data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
+    const borrower = await prisma.$transaction(async (tx) => {
+      const updatedBorrower = await tx.borrower.update({
+        where: { id: req.params.borrowerId },
+        data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
+      });
+
+      if (data.directors !== undefined) {
+        await tx.borrowerDirector.deleteMany({
+          where: { borrowerId: req.params.borrowerId },
+        });
+
+        if (effectiveBorrowerType === 'CORPORATE' && normalizedDirectors.length > 0) {
+          await tx.borrowerDirector.createMany({
+            data: normalizedDirectors.map((director) => ({
+              borrowerId: req.params.borrowerId,
+              name: director.name,
+              icNumber: director.icNumber,
+              position: director.position,
+              order: director.order,
+            })),
+          });
+        }
+      }
+
+      return tx.borrower.findUniqueOrThrow({
+        where: { id: updatedBorrower.id },
+        include: {
+          directors: {
+            orderBy: { order: 'asc' },
+          },
+        },
+      });
     });
 
     // Log to audit trail - capture what changed
     await AuditService.logUpdate(
       req.tenantId!,
-      req.user!.memberId,
+      req.memberId!,
       'Borrower',
       borrower.id,
       {
@@ -523,6 +602,12 @@ router.patch('/:borrowerId', async (req, res, next) => {
         dateOfIncorporation: existing.dateOfIncorporation,
         paidUpCapital: existing.paidUpCapital,
         numberOfEmployees: existing.numberOfEmployees,
+        directors: existing.directors.map((director) => ({
+          name: director.name,
+          icNumber: director.icNumber,
+          position: director.position,
+          order: director.order,
+        })),
       },
       {
         borrowerType: borrower.borrowerType,
@@ -557,6 +642,12 @@ router.patch('/:borrowerId', async (req, res, next) => {
         dateOfIncorporation: borrower.dateOfIncorporation,
         paidUpCapital: borrower.paidUpCapital,
         numberOfEmployees: borrower.numberOfEmployees,
+        directors: borrower.directors.map((director) => ({
+          name: director.name,
+          icNumber: director.icNumber,
+          position: director.position,
+          order: director.order,
+        })),
       },
       req.ip
     );
@@ -620,7 +711,7 @@ router.delete('/:borrowerId', async (req, res, next) => {
     
     await AuditService.logDelete(
       req.tenantId!,
-      req.user!.memberId,
+      req.memberId!,
       'Borrower',
       req.params.borrowerId,
       deleteAuditData,

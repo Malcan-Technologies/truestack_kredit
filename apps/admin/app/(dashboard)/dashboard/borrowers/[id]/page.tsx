@@ -98,6 +98,13 @@ interface Borrower {
   bumiStatus: string | null;
   authorizedRepName: string | null;
   authorizedRepIc: string | null;
+  directors: Array<{
+    id: string;
+    name: string;
+    icNumber: string;
+    position: string | null;
+    order: number;
+  }>;
   companyPhone: string | null;
   companyEmail: string | null;
   natureOfBusiness: string | null;
@@ -166,6 +173,11 @@ interface FormData {
   bumiStatus: string;
   authorizedRepName: string;
   authorizedRepIc: string;
+  directors: Array<{
+    name: string;
+    icNumber: string;
+    position: string;
+  }>;
   companyPhone: string;
   companyEmail: string;
   natureOfBusiness: string;
@@ -581,6 +593,7 @@ export default function BorrowerDetailPage() {
     bumiStatus: "",
     authorizedRepName: "",
     authorizedRepIc: "",
+    directors: [{ name: "", icNumber: "", position: "" }],
     companyPhone: "",
     companyEmail: "",
     natureOfBusiness: "",
@@ -679,6 +692,23 @@ export default function BorrowerDetailPage() {
       bumiStatus: data.bumiStatus || "",
       authorizedRepName: data.authorizedRepName || "",
       authorizedRepIc: data.authorizedRepIc || "",
+      directors: data.borrowerType === "CORPORATE"
+        ? (
+            data.directors.length > 0
+              ? data.directors
+                  .sort((a, b) => a.order - b.order)
+                  .map((director) => ({
+                    name: director.name || "",
+                    icNumber: director.icNumber || "",
+                    position: director.position || "",
+                  }))
+              : [{
+                  name: data.authorizedRepName || data.name || "",
+                  icNumber: data.authorizedRepIc || "",
+                  position: "",
+                }]
+          )
+        : [{ name: "", icNumber: "", position: "" }],
       companyPhone: data.companyPhone || "",
       companyEmail: data.companyEmail || "",
       natureOfBusiness: data.natureOfBusiness || "",
@@ -731,8 +761,6 @@ export default function BorrowerDetailPage() {
       if (!formData.ssmRegistrationNo.trim()) errors.ssmRegistrationNo = "SSM registration number is required";
       if (!formData.businessAddress.trim()) errors.businessAddress = "Business address is required";
       if (!formData.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
-      if (!formData.authorizedRepName.trim()) errors.authorizedRepName = "Representative name is required";
-      if (!formData.authorizedRepIc.trim()) errors.authorizedRepIc = "Representative IC is required";
       if (!formData.companyPhone.trim()) errors.companyPhone = "Company phone is required";
       if (!formData.companyEmail.trim()) errors.companyEmail = "Company email is required";
       if (!formData.bankName) errors.bankName = "Bank is required";
@@ -740,6 +768,20 @@ export default function BorrowerDetailPage() {
         errors.bankNameOther = "Bank name is required";
       }
       if (!formData.bankAccountNo.trim()) errors.bankAccountNo = "Account number is required";
+      if (formData.directors.length < 1) {
+        errors.directors = "At least 1 director is required";
+      } else if (formData.directors.length > 10) {
+        errors.directors = "Maximum 10 directors allowed";
+      } else {
+        formData.directors.forEach((director, index) => {
+          if (!director.name.trim()) {
+            errors[`directorName_${index}`] = `Director ${index + 1} name is required`;
+          }
+          if (!director.icNumber.trim()) {
+            errors[`directorIc_${index}`] = `Director ${index + 1} IC number is required`;
+          }
+        });
+      }
     } else {
       // Individual validation
       if (!formData.name.trim()) errors.name = "Name is required";
@@ -784,11 +826,12 @@ export default function BorrowerDetailPage() {
       let payload: Record<string, unknown>;
       
       if (borrower.borrowerType === "CORPORATE") {
+        const primaryDirector = formData.directors[0];
         // Corporate borrower payload
         // Note: icNumber is not updated during edit to avoid duplicate audit entries
         // ssmRegistrationNo is the canonical field for corporate registration
         payload = {
-          name: formData.authorizedRepName || undefined, // Rep name as primary name
+          name: primaryDirector?.name || formData.authorizedRepName || undefined, // Rep name as primary name
           phone: formData.companyPhone || undefined,
           email: formData.companyEmail || undefined,
           address: formData.businessAddress || undefined,
@@ -796,8 +839,13 @@ export default function BorrowerDetailPage() {
           ssmRegistrationNo: formData.ssmRegistrationNo || undefined,
           businessAddress: formData.businessAddress || undefined,
           bumiStatus: formData.bumiStatus || undefined,
-          authorizedRepName: formData.authorizedRepName || undefined,
-          authorizedRepIc: formData.authorizedRepIc || undefined,
+          authorizedRepName: primaryDirector?.name || formData.authorizedRepName || undefined,
+          authorizedRepIc: primaryDirector?.icNumber || formData.authorizedRepIc || undefined,
+          directors: formData.directors.map((director) => ({
+            name: director.name.trim(),
+            icNumber: director.icNumber.trim(),
+            position: director.position.trim() || undefined,
+          })),
           companyPhone: formData.companyPhone || undefined,
           companyEmail: formData.companyEmail || undefined,
           natureOfBusiness: formData.natureOfBusiness || undefined,
@@ -998,7 +1046,7 @@ export default function BorrowerDetailPage() {
                 ? `SSM: ${borrower.ssmRegistrationNo || borrower.icNumber}`
                 : `${borrower.documentType === "IC" ? "IC" : "Passport"}: ${borrower.documentType === "IC" ? formatICForDisplay(borrower.icNumber) : borrower.icNumber}`}
               {borrower.borrowerType === "CORPORATE" && (
-                <span> • Rep: {borrower.authorizedRepName || borrower.name}</span>
+                <span> • Directors: {borrower.directors?.length || 1}</span>
               )}
               <span className="mx-2">•</span>
               Created {formatDate(borrower.createdAt)}
@@ -1172,43 +1220,157 @@ export default function BorrowerDetailPage() {
                 </CardContent>
               </Card>
 
-              {/* Authorized Representative & Company Contact - Side by Side */}
+              {/* Directors & Company Contact - Side by Side */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Authorized Representative */}
+                {/* Company Directors */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <User className="h-5 w-5 text-muted-foreground" />
-                      Authorized Representative
+                      Company Directors
                     </CardTitle>
-                    <CardDescription>Person authorized to act on behalf of the company</CardDescription>
+                    <CardDescription>Minimum 1, maximum 10 directors</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-3">
-                      <Field
-                        label="Representative Name"
-                        value={borrower.authorizedRepName || borrower.name || "-"}
-                        editValue={formData.authorizedRepName}
-                        onChange={(val) => {
-                          setFormData((prev) => ({ ...prev, authorizedRepName: val }));
-                          if (validationErrors.authorizedRepName) setValidationErrors((prev) => ({ ...prev, authorizedRepName: "" }));
-                        }}
-                        error={validationErrors.authorizedRepName}
-                        placeholder="Full name"
-                        isEditing={isEditing}
-                      />
-                      <Field
-                        label="Representative IC"
-                        value={borrower.authorizedRepIc || "-"}
-                        editValue={formData.authorizedRepIc}
-                        onChange={(val) => {
-                          setFormData((prev) => ({ ...prev, authorizedRepIc: val }));
-                          if (validationErrors.authorizedRepIc) setValidationErrors((prev) => ({ ...prev, authorizedRepIc: "" }));
-                        }}
-                        error={validationErrors.authorizedRepIc}
-                        placeholder="880101011234"
-                        isEditing={isEditing}
-                      />
+                    <div className="space-y-4">
+                      {formData.directors.map((director, index) => (
+                        <div key={`director-${index}`} className="rounded-lg border p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium">
+                              Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
+                            </p>
+                            {isEditing && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={formData.directors.length <= 1}
+                                onClick={() => {
+                                  if (formData.directors.length <= 1) return;
+                                  setFormData((prev) => {
+                                    const nextDirectors = prev.directors.filter((_, i) => i !== index);
+                                    const firstDirector = nextDirectors[0];
+                                    return {
+                                      ...prev,
+                                      directors: nextDirectors,
+                                      authorizedRepName: firstDirector?.name || "",
+                                      authorizedRepIc: firstDirector?.icNumber || "",
+                                      name: firstDirector?.name || prev.name,
+                                    };
+                                  });
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+
+                          {!isEditing ? (
+                            <div className="space-y-1 text-sm">
+                              <p><span className="text-muted-foreground">Name:</span> {director.name || "-"}</p>
+                              <p><span className="text-muted-foreground">IC:</span> {director.icNumber || "-"}</p>
+                              <p><span className="text-muted-foreground">Position:</span> {director.position || "-"}</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-2">
+                              <div>
+                                <label className="text-xs text-muted-foreground">Director Name *</label>
+                                <Input
+                                  value={director.name}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData((prev) => {
+                                      const nextDirectors = [...prev.directors];
+                                      nextDirectors[index] = { ...nextDirectors[index], name: val };
+                                      return {
+                                        ...prev,
+                                        directors: nextDirectors,
+                                        authorizedRepName: index === 0 ? val : prev.authorizedRepName,
+                                        name: index === 0 ? val : prev.name,
+                                      };
+                                    });
+                                    if (validationErrors[`directorName_${index}`]) {
+                                      setValidationErrors((prev) => ({ ...prev, [`directorName_${index}`]: "" }));
+                                    }
+                                  }}
+                                  className={validationErrors[`directorName_${index}`] ? "border-red-500" : ""}
+                                />
+                                {validationErrors[`directorName_${index}`] && (
+                                  <p className="text-xs text-red-500 mt-1">{validationErrors[`directorName_${index}`]}</p>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-xs text-muted-foreground">Director IC *</label>
+                                <Input
+                                  value={director.icNumber}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData((prev) => {
+                                      const nextDirectors = [...prev.directors];
+                                      nextDirectors[index] = { ...nextDirectors[index], icNumber: val };
+                                      return {
+                                        ...prev,
+                                        directors: nextDirectors,
+                                        authorizedRepIc: index === 0 ? val : prev.authorizedRepIc,
+                                      };
+                                    });
+                                    if (validationErrors[`directorIc_${index}`]) {
+                                      setValidationErrors((prev) => ({ ...prev, [`directorIc_${index}`]: "" }));
+                                    }
+                                  }}
+                                  className={validationErrors[`directorIc_${index}`] ? "border-red-500" : ""}
+                                />
+                                {validationErrors[`directorIc_${index}`] && (
+                                  <p className="text-xs text-red-500 mt-1">{validationErrors[`directorIc_${index}`]}</p>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-xs text-muted-foreground">Position</label>
+                                <Input
+                                  value={director.position}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData((prev) => {
+                                      const nextDirectors = [...prev.directors];
+                                      nextDirectors[index] = { ...nextDirectors[index], position: val };
+                                      return { ...prev, directors: nextDirectors };
+                                    });
+                                  }}
+                                  placeholder="e.g., Director"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                      {validationErrors.directors && (
+                        <p className="text-xs text-red-500">{validationErrors.directors}</p>
+                      )}
+
+                      {isEditing && (
+                        <div className="space-y-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={formData.directors.length >= 10}
+                            onClick={() => {
+                              if (formData.directors.length >= 10) return;
+                              setFormData((prev) => ({
+                                ...prev,
+                                directors: [...prev.directors, { name: "", icNumber: "", position: "" }],
+                              }));
+                            }}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add Director
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            {formData.directors.length}/10 directors
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

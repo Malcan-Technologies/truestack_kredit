@@ -7,9 +7,11 @@
  */
 
 import { prisma } from './prisma.js';
+import { Prisma } from '@prisma/client';
 import { AddOnService } from './addOnService.js';
 import { TrueSendService } from '../modules/notifications/trueSendService.js';
 import { toSafeNumber } from './math.js';
+import { addMalaysiaDays, getMalaysiaDateString, getMalaysiaStartOfDay } from './malaysiaTime.js';
 
 export class PaymentReminderProcessor {
   /**
@@ -44,21 +46,12 @@ export class PaymentReminderProcessor {
 
           tenantsChecked++;
 
-          // Get today and target dates in Malaysia timezone
-          // Calculate dates for 3-day and 1-day reminders
-          const now = new Date();
-          const malaysiaOffset = 8 * 60 * 60 * 1000;
-          const malaysiaToday = new Date(now.getTime() + malaysiaOffset);
-          const todayStr = malaysiaToday.toISOString().split('T')[0];
-
-          // Target dates: 3 days from now and 1 day from now (Malaysia time)
-          const threeDaysFromNow = new Date(malaysiaToday);
-          threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
-          const threeDaysStr = threeDaysFromNow.toISOString().split('T')[0];
-
-          const oneDayFromNow = new Date(malaysiaToday);
-          oneDayFromNow.setDate(oneDayFromNow.getDate() + 1);
-          const oneDayStr = oneDayFromNow.toISOString().split('T')[0];
+          // Calculate deterministic MYT windows and target dates
+          const reminderDayStart = getMalaysiaStartOfDay(new Date());
+          const threeDaysTarget = addMalaysiaDays(reminderDayStart, 3);
+          const oneDayTarget = addMalaysiaDays(reminderDayStart, 1);
+          const threeDaysStr = getMalaysiaDateString(threeDaysTarget);
+          const oneDayStr = getMalaysiaDateString(oneDayTarget);
 
           // Find active/in-arrears loans for this tenant with upcoming PENDING repayments
           const loans = await prisma.loan.findMany({
@@ -91,33 +84,40 @@ export class PaymentReminderProcessor {
 
             for (let i = 0; i < latestVersion.repayments.length; i++) {
               const repayment = latestVersion.repayments[i];
-              const dueDateMYT = new Date(repayment.dueDate.getTime() + malaysiaOffset);
-              const dueDateStr = dueDateMYT.toISOString().split('T')[0];
+              const dueDateStr = getMalaysiaDateString(repayment.dueDate);
 
               let daysUntilDue: number | null = null;
+              let reminderType: 'DUE_IN_3_DAYS' | 'DUE_IN_1_DAY' | null = null;
 
               if (dueDateStr === threeDaysStr) {
                 daysUntilDue = 3;
+                reminderType = 'DUE_IN_3_DAYS';
               } else if (dueDateStr === oneDayStr) {
                 daysUntilDue = 1;
+                reminderType = 'DUE_IN_1_DAY';
               }
 
-              if (daysUntilDue === null) continue;
+              if (daysUntilDue === null || reminderType === null) continue;
 
-              // Check if we already sent a reminder for this repayment + this day
-              const alreadySent = await prisma.emailLog.findFirst({
-                where: {
-                  tenantId,
-                  loanId: loan.id,
-                  emailType: 'PAYMENT_REMINDER',
-                  createdAt: {
-                    gte: new Date(`${todayStr}T00:00:00Z`),
+              // Deterministic de-dup guard with DB-level uniqueness
+              let dispatchId: string | null = null;
+              try {
+                const dispatch = await prisma.paymentReminderDispatch.create({
+                  data: {
+                    tenantId,
+                    loanId: loan.id,
+                    repaymentId: repayment.id,
+                    reminderType,
+                    reminderDateMYT: reminderDayStart,
                   },
-                  subject: { contains: dueDateStr },
-                },
-              });
-
-              if (alreadySent) continue;
+                });
+                dispatchId = dispatch.id;
+              } catch (error) {
+                if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                  continue;
+                }
+                throw error;
+              }
 
               // Calculate milestone number (1-based index across all repayments)
               const milestoneNumber = i + 1;
@@ -134,6 +134,9 @@ export class PaymentReminderProcessor {
                 );
                 remindersSent++;
               } catch (error) {
+                if (dispatchId) {
+                  await prisma.paymentReminderDispatch.delete({ where: { id: dispatchId } }).catch(() => undefined);
+                }
                 const msg = error instanceof Error ? error.message : 'Unknown error';
                 errors.push(`Loan ${loan.id}: ${msg}`);
               }

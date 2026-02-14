@@ -12,10 +12,11 @@ import { parseFileUpload, savePaymentReceiptFile, deleteDocumentFile, UPLOAD_DIR
 import { AuditService } from '../compliance/auditService.js';
 import { TrueSendService } from '../notifications/trueSendService.js';
 import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtract } from '../../lib/math.js';
+import { calculateDaysOverdueMalaysia } from '../../lib/malaysiaTime.js';
+import { beginPaymentIdempotency, completePaymentIdempotency, failPaymentIdempotency, getIdempotencyKeyFromHeaders } from '../../lib/paymentIdempotency.js';
 import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receiptNumber.js';
+import { fetchLogoBuffer } from '../../lib/safeLogoFetch.js';
 import { createHash } from 'crypto';
-import https from 'https';
-import http from 'http';
 
 const router = Router();
 
@@ -54,28 +55,7 @@ const recordLoanPaymentSchema = z.object({
 
 // Helper function to fetch image from URL or local file
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
-  return new Promise((resolve, reject) => {
-    if (url.startsWith('/api/uploads/') || url.startsWith('/uploads/')) {
-      const relativePath = url.replace('/api/uploads/', '').replace('/uploads/', '');
-      const filePath = path.join(UPLOAD_DIR, relativePath);
-      
-      if (fs.existsSync(filePath)) {
-        resolve(fs.readFileSync(filePath));
-      } else {
-        reject(new Error(`File not found: ${filePath}`));
-      }
-    } else if (url.startsWith('http://') || url.startsWith('https://')) {
-      const client = url.startsWith('https') ? https : http;
-      client.get(url, (response) => {
-        const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer) => chunks.push(chunk));
-        response.on('end', () => resolve(Buffer.concat(chunks)));
-        response.on('error', reject);
-      }).on('error', reject);
-    } else {
-      reject(new Error(`Unsupported URL format: ${url}`));
-    }
-  });
+  return fetchLogoBuffer(url, UPLOAD_DIR);
 };
 
 // Type definitions for receipt generation
@@ -449,8 +429,31 @@ router.get('/loan/:loanId', async (req, res, next) => {
  * POST /api/schedules/payments
  */
 router.post('/payments', async (req, res, next) => {
+  let idempotencyRecordId: string | null = null;
   try {
     const data = recordPaymentSchema.parse(req.body);
+    const idempotencyKey = getIdempotencyKeyFromHeaders(req.headers as Record<string, unknown>);
+    const idempotency = await beginPaymentIdempotency({
+      tenantId: req.tenantId!,
+      endpoint: 'POST:/api/schedules/payments',
+      idempotencyKey,
+      requestPayload: {
+        tenantId: req.tenantId,
+        repaymentId: data.repaymentId,
+        amount: data.amount,
+        reference: data.reference || null,
+        notes: data.notes || null,
+        isEarlyPayment: data.isEarlyPayment,
+        applyLateFee: data.applyLateFee,
+        paymentDate: data.paymentDate || null,
+      },
+    });
+    idempotencyRecordId = idempotency.recordId;
+
+    if (idempotency.replay) {
+      res.status(idempotency.responseStatus || 201).json(idempotency.responseBody);
+      return;
+    }
 
     // Get repayment and verify it belongs to tenant's loan
     const repayment = await prisma.loanRepayment.findFirst({
@@ -483,7 +486,7 @@ router.post('/payments', async (req, res, next) => {
     const product = loan.product;
 
     // Calculate current paid amount
-    const currentPaid = repayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
+    const currentPaid = repayment.allocations.reduce((sum, a) => safeAdd(sum, toSafeNumber(a.amount)), 0);
     const totalDue = toSafeNumber(repayment.totalDue);
     const remaining = safeSubtract(totalDue, currentPaid);
 
@@ -493,13 +496,13 @@ router.post('/payments', async (req, res, next) => {
 
     // Calculate late fee if payment is overdue
     let lateFee = 0;
-    const now = new Date();
+    const now = data.paymentDate ? new Date(data.paymentDate) : new Date();
     const dueDate = new Date(repayment.dueDate);
-    const isOverdue = now > dueDate;
+    const daysOverdue = calculateDaysOverdueMalaysia(dueDate, now);
+    const isOverdue = daysOverdue > 0;
     const isEarlyPayment = data.isEarlyPayment || now < dueDate;
 
     if (isOverdue && data.applyLateFee !== false) {
-      const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
       const latePaymentRate = toSafeNumber(product.latePaymentRate); // Annual rate
       // Daily rate = annual rate / 365
       // Late fee = outstanding × daily rate × days overdue
@@ -508,7 +511,7 @@ router.post('/payments', async (req, res, next) => {
     }
 
     // Parse payment date if provided, otherwise use now
-    const paymentDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
+    const paymentDate = now;
 
     // Create allocation and update repayment status
     const result = await prisma.$transaction(async (tx) => {
@@ -528,7 +531,10 @@ router.post('/payments', async (req, res, next) => {
       const newPaid = safeAdd(currentPaid, data.amount);
       let newStatus = repayment.status;
       
-      if (newPaid >= totalDue - 0.01) {
+      const newLateFeesPaid = safeAdd(toSafeNumber(repayment.lateFeesPaid), lateFee);
+      const lateFeesCovered = newLateFeesPaid >= toSafeNumber(repayment.lateFeeAccrued) - 0.01;
+
+      if (newPaid >= totalDue - 0.01 && lateFeesCovered) {
         newStatus = 'PAID';
       } else if (newPaid > 0) {
         newStatus = 'PARTIAL';
@@ -536,7 +542,10 @@ router.post('/payments', async (req, res, next) => {
 
       const updatedRepayment = await tx.loanRepayment.update({
         where: { id: data.repaymentId },
-        data: { status: newStatus },
+        data: {
+          status: newStatus,
+          lateFeesPaid: newLateFeesPaid,
+        },
         include: {
           allocations: {
             include: {
@@ -581,11 +590,18 @@ router.post('/payments', async (req, res, next) => {
       ipAddress: req.ip,
     });
 
-    res.status(201).json({
+    const responsePayload = {
       success: true,
       data: result,
-    });
+    };
+    await completePaymentIdempotency(idempotencyRecordId, 201, responsePayload);
+
+    res.status(201).json(responsePayload);
   } catch (error) {
+    if (idempotencyRecordId) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+    }
     next(error);
   }
 });
@@ -601,9 +617,31 @@ router.post('/payments', async (req, res, next) => {
  * 4. Returns the transaction with receipt info
  */
 router.post('/loan/:loanId/payments', async (req, res, next) => {
+  let idempotencyRecordId: string | null = null;
   try {
     const { loanId } = req.params;
     const data = recordLoanPaymentSchema.parse({ ...req.body, loanId });
+    const idempotencyKey = getIdempotencyKeyFromHeaders(req.headers as Record<string, unknown>);
+    const idempotency = await beginPaymentIdempotency({
+      tenantId: req.tenantId!,
+      endpoint: 'POST:/api/schedules/loan/:loanId/payments',
+      idempotencyKey,
+      requestPayload: {
+        tenantId: req.tenantId,
+        loanId,
+        amount: data.amount,
+        reference: data.reference || null,
+        notes: data.notes || null,
+        applyLateFee: data.applyLateFee,
+        paymentDate: data.paymentDate || null,
+      },
+    });
+    idempotencyRecordId = idempotency.recordId;
+
+    if (idempotency.replay) {
+      res.status(idempotency.responseStatus || 201).json(idempotency.responseBody);
+      return;
+    }
 
     // Get loan with current schedule, all repayments, borrower, and tenant info
     const loan = await prisma.loan.findFirst({
@@ -658,7 +696,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
     // Calculate total outstanding balance including late fees
     let totalOutstanding = 0;
     for (const rep of unpaidRepayments) {
-      const paid = rep.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
+      const paid = rep.allocations.reduce((sum, a) => safeAdd(sum, toSafeNumber(a.amount)), 0);
       const outstandingLateFees = safeSubtract(toSafeNumber(rep.lateFeeAccrued), toSafeNumber(rep.lateFeesPaid));
       totalOutstanding = safeAdd(
         totalOutstanding,
@@ -693,7 +731,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       
       const repayment = unpaidRepayments[i];
       const repaymentIndex = currentSchedule.repayments.findIndex(r => r.id === repayment.id);
-      const currentPaid = repayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
+      const currentPaid = repayment.allocations.reduce((sum, a) => safeAdd(sum, toSafeNumber(a.amount)), 0);
       const totalDue = toSafeNumber(repayment.totalDue);
       const interestDue = toSafeNumber(repayment.interest);
       const remaining = safeSubtract(totalDue, currentPaid);
@@ -799,7 +837,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         });
 
         if (repayment) {
-          const newPaid = repayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
+          const newPaid = repayment.allocations.reduce((sum, a) => safeAdd(sum, toSafeNumber(a.amount)), 0);
           const totalDue = toSafeNumber(repayment.totalDue);
           const newLateFeesPaid = safeAdd(toSafeNumber(repayment.lateFeesPaid), alloc.lateFeeAllocated);
           
@@ -848,7 +886,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         // Check if all overdue repayments are fully paid (principal + interest + late fees)
         const allOverduePaid = overdueRepayments.length > 0 && overdueRepayments.every(r => {
           const totalDue = toSafeNumber(r.totalDue);
-          const paid = r.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
+          const paid = r.allocations.reduce((sum, a) => safeAdd(sum, toSafeNumber(a.amount)), 0);
           const lateFeeAccrued = toSafeNumber(r.lateFeeAccrued);
           const lateFeesPaid = toSafeNumber(r.lateFeesPaid);
           const principalInterestPaid = paid >= totalDue - 0.01;
@@ -872,44 +910,53 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       }
     }
 
-    // Generate and store receipt PDF
     const borrower = loan.borrower;
-    const receiptPath = await generateAndStoreReceipt({
-      transaction: result.transaction,
-      allocations: result.allocations,
-      loan,
-      borrower: {
-        displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName 
-          ? borrower.companyName 
-          : borrower.name,
-        identificationNumber: borrower.icNumber,
-        phone: borrower.phone,
-        email: borrower.email,
-      },
-      tenant: {
-        name: loan.tenant.name,
-        registrationNumber: loan.tenant.registrationNumber,
-        licenseNumber: loan.tenant.licenseNumber,
-        businessAddress: loan.tenant.businessAddress,
-        contactNumber: loan.tenant.contactNumber,
-        email: loan.tenant.email,
-        logoUrl: loan.tenant.logoUrl,
-      },
-      totalLateFees: totalLateFeesPaid,
-      totalOutstandingAfter: safeSubtract(totalOutstanding, data.amount),
+    let receiptPath: string | null = null;
+    let updatedTransaction = await prisma.paymentTransaction.findUnique({
+      where: { id: result.transaction.id },
+      include: { allocations: true },
     });
 
-    // Update transaction with receipt path
-    const updatedTransaction = await prisma.paymentTransaction.update({
-      where: { id: result.transaction.id },
-      data: {
-        receiptPath,
-        receiptGenAt: new Date(),
-      },
-      include: {
-        allocations: true,
-      },
-    });
+    // Receipt generation is best-effort and should not roll back recorded payments
+    try {
+      receiptPath = await generateAndStoreReceipt({
+        transaction: result.transaction,
+        allocations: result.allocations,
+        loan,
+        borrower: {
+          displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName
+            ? borrower.companyName
+            : borrower.name,
+          identificationNumber: borrower.icNumber,
+          phone: borrower.phone,
+          email: borrower.email,
+        },
+        tenant: {
+          name: loan.tenant.name,
+          registrationNumber: loan.tenant.registrationNumber,
+          licenseNumber: loan.tenant.licenseNumber,
+          businessAddress: loan.tenant.businessAddress,
+          contactNumber: loan.tenant.contactNumber,
+          email: loan.tenant.email,
+          logoUrl: loan.tenant.logoUrl,
+        },
+        totalLateFees: totalLateFeesPaid,
+        totalOutstandingAfter: safeSubtract(totalOutstanding, data.amount),
+      });
+
+      updatedTransaction = await prisma.paymentTransaction.update({
+        where: { id: result.transaction.id },
+        data: {
+          receiptPath,
+          receiptGenAt: new Date(),
+        },
+        include: {
+          allocations: true,
+        },
+      });
+    } catch (receiptErr) {
+      console.error(`[RecordPayment] Receipt generation failed for loan ${loanId}:`, receiptErr);
+    }
 
     // Log to audit trail
     await AuditService.log({
@@ -971,7 +1018,7 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
       }
     }
 
-    res.status(201).json({
+    const responsePayload = {
       success: true,
       data: {
         transaction: updatedTransaction,
@@ -987,8 +1034,14 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         defaultCleared,
       },
       emailSent,
-    });
+    };
+    await completePaymentIdempotency(idempotencyRecordId, 201, responsePayload);
+    res.status(201).json(responsePayload);
   } catch (error) {
+    if (idempotencyRecordId) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      await failPaymentIdempotency(idempotencyRecordId, message).catch(() => undefined);
+    }
     next(error);
   }
 });

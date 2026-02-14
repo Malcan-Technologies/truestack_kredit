@@ -10,6 +10,8 @@ import {
   Building2,
   Save,
   Briefcase,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -77,6 +79,11 @@ interface CorporateFormData {
   bankName: string;
   bankNameOther: string;
   bankAccountNo: string;
+  directors: Array<{
+    name: string;
+    icNumber: string;
+    position: string;
+  }>;
 }
 
 const initialIndividualFormData: IndividualFormData = {
@@ -122,6 +129,7 @@ const initialCorporateFormData: CorporateFormData = {
   bankName: "",
   bankNameOther: "",
   bankAccountNo: "",
+  directors: [{ name: "", icNumber: "", position: "" }],
 };
 
 // ============================================
@@ -396,8 +404,6 @@ export default function NewBorrowerPage() {
     if (!data.ssmRegistrationNo.trim()) errors.ssmRegistrationNo = "SSM registration number is required";
     if (!data.businessAddress.trim()) errors.businessAddress = "Business address is required";
     if (!data.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
-    if (!data.authorizedRepName.trim()) errors.authorizedRepName = "Authorized representative name is required";
-    if (!data.authorizedRepIc.trim()) errors.authorizedRepIc = "Authorized representative IC is required";
     if (!data.companyPhone.trim()) errors.companyPhone = "Company phone is required";
     if (!data.companyEmail.trim()) errors.companyEmail = "Company email is required";
     if (!data.bankName) errors.bankName = "Bank is required";
@@ -405,6 +411,20 @@ export default function NewBorrowerPage() {
       errors.bankNameOther = "Bank name is required";
     }
     if (!data.bankAccountNo.trim()) errors.bankAccountNo = "Account number is required";
+    if (!Array.isArray(data.directors) || data.directors.length < 1) {
+      errors.directors = "At least 1 director is required";
+    } else if (data.directors.length > 10) {
+      errors.directors = "Maximum 10 directors allowed";
+    } else {
+      data.directors.forEach((director, index) => {
+        if (!director.name.trim()) {
+          errors[`directorName_${index}`] = `Director ${index + 1} name is required`;
+        }
+        if (!director.icNumber.trim()) {
+          errors[`directorIc_${index}`] = `Director ${index + 1} IC number is required`;
+        }
+      });
+    }
     
     setValidationErrors(errors);
     if (Object.keys(errors).length > 0) {
@@ -451,9 +471,10 @@ export default function NewBorrowerPage() {
         };
       } else {
         const data = corporateFormData;
+        const primaryDirector = data.directors[0];
         payload = {
           borrowerType: "CORPORATE",
-          name: data.authorizedRepName, // Rep name as primary name
+          name: primaryDirector?.name || data.authorizedRepName, // Rep name as primary name
           icNumber: data.ssmRegistrationNo, // SSM as primary identifier
           documentType: "IC", // Default for the authorized rep
           phone: data.companyPhone || undefined,
@@ -463,8 +484,8 @@ export default function NewBorrowerPage() {
           ssmRegistrationNo: data.ssmRegistrationNo || undefined,
           businessAddress: data.businessAddress || undefined,
           bumiStatus: data.bumiStatus || undefined,
-          authorizedRepName: data.authorizedRepName || undefined,
-          authorizedRepIc: data.authorizedRepIc || undefined,
+          authorizedRepName: primaryDirector?.name || data.authorizedRepName || undefined,
+          authorizedRepIc: primaryDirector?.icNumber || data.authorizedRepIc || undefined,
           companyPhone: data.companyPhone || undefined,
           companyEmail: data.companyEmail || undefined,
           natureOfBusiness: data.natureOfBusiness || undefined,
@@ -474,6 +495,11 @@ export default function NewBorrowerPage() {
           bankName: data.bankName || undefined,
           bankNameOther: data.bankName === "OTHER" ? (data.bankNameOther || undefined) : undefined,
           bankAccountNo: data.bankAccountNo || undefined,
+          directors: data.directors.map((director) => ({
+            name: director.name.trim(),
+            icNumber: director.icNumber.trim(),
+            position: director.position.trim() || undefined,
+          })),
         };
       }
 
@@ -978,37 +1004,132 @@ export default function NewBorrowerPage() {
                 </CardContent>
               </Card>
 
-              {/* Authorized Representative */}
+              {/* Company Directors */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <User className="h-5 w-5 text-muted-foreground" />
-                    Authorized Representative
+                    Company Directors
                   </CardTitle>
-                  <CardDescription>Person authorized to act on behalf of the company</CardDescription>
+                  <CardDescription>
+                    Add 1 to 10 directors. The first director will be used as authorized representative.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field
-                      label="Representative Name"
-                      value={corporateFormData.authorizedRepName}
-                      onChange={(val) => {
-                        setCorporateFormData((prev) => ({ ...prev, authorizedRepName: val, name: val }));
-                        if (validationErrors.authorizedRepName) setValidationErrors((prev) => ({ ...prev, authorizedRepName: "" }));
+                  <div className="space-y-4">
+                    {corporateFormData.directors.map((director, index) => (
+                      <div key={`director-${index}`} className="rounded-lg border p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium">
+                            Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              if (corporateFormData.directors.length <= 1) return;
+                              setCorporateFormData((prev) => ({
+                                ...prev,
+                                directors: prev.directors.filter((_, i) => i !== index),
+                              }));
+                            }}
+                            disabled={corporateFormData.directors.length <= 1}
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Remove
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <Field
+                            label="Director Name"
+                            value={director.name}
+                            onChange={(val) => {
+                              setCorporateFormData((prev) => {
+                                const nextDirectors = [...prev.directors];
+                                nextDirectors[index] = { ...nextDirectors[index], name: val };
+                                return {
+                                  ...prev,
+                                  directors: nextDirectors,
+                                  authorizedRepName: index === 0 ? val : prev.authorizedRepName,
+                                  name: index === 0 ? val : prev.name,
+                                };
+                              });
+                              if (validationErrors[`directorName_${index}`]) {
+                                setValidationErrors((prev) => ({ ...prev, [`directorName_${index}`]: "" }));
+                              }
+                              if (validationErrors.directors) {
+                                setValidationErrors((prev) => ({ ...prev, directors: "" }));
+                              }
+                            }}
+                            error={validationErrors[`directorName_${index}`]}
+                            placeholder="Full name"
+                          />
+                          <Field
+                            label="Director IC Number"
+                            value={director.icNumber}
+                            onChange={(val) => {
+                              setCorporateFormData((prev) => {
+                                const nextDirectors = [...prev.directors];
+                                nextDirectors[index] = { ...nextDirectors[index], icNumber: val };
+                                return {
+                                  ...prev,
+                                  directors: nextDirectors,
+                                  authorizedRepIc: index === 0 ? val : prev.authorizedRepIc,
+                                };
+                              });
+                              if (validationErrors[`directorIc_${index}`]) {
+                                setValidationErrors((prev) => ({ ...prev, [`directorIc_${index}`]: "" }));
+                              }
+                              if (validationErrors.directors) {
+                                setValidationErrors((prev) => ({ ...prev, directors: "" }));
+                              }
+                            }}
+                            error={validationErrors[`directorIc_${index}`]}
+                            placeholder="880101011234"
+                          />
+                          <Field
+                            label="Position"
+                            value={director.position}
+                            onChange={(val) => {
+                              setCorporateFormData((prev) => {
+                                const nextDirectors = [...prev.directors];
+                                nextDirectors[index] = { ...nextDirectors[index], position: val };
+                                return { ...prev, directors: nextDirectors };
+                              });
+                            }}
+                            placeholder="e.g., Director"
+                            required={false}
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    {validationErrors.directors && (
+                      <p className="text-xs text-red-500">{validationErrors.directors}</p>
+                    )}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (corporateFormData.directors.length >= 10) return;
+                        setCorporateFormData((prev) => ({
+                          ...prev,
+                          directors: [...prev.directors, { name: "", icNumber: "", position: "" }],
+                        }));
+                        if (validationErrors.directors) {
+                          setValidationErrors((prev) => ({ ...prev, directors: "" }));
+                        }
                       }}
-                      error={validationErrors.authorizedRepName}
-                      placeholder="Full name"
-                    />
-                    <Field
-                      label="Representative IC Number"
-                      value={corporateFormData.authorizedRepIc}
-                      onChange={(val) => {
-                        setCorporateFormData((prev) => ({ ...prev, authorizedRepIc: val }));
-                        if (validationErrors.authorizedRepIc) setValidationErrors((prev) => ({ ...prev, authorizedRepIc: "" }));
-                      }}
-                      error={validationErrors.authorizedRepIc}
-                      placeholder="880101011234"
-                    />
+                      disabled={corporateFormData.directors.length >= 10}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Director
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      {corporateFormData.directors.length}/10 directors
+                    </p>
                   </div>
                 </CardContent>
               </Card>

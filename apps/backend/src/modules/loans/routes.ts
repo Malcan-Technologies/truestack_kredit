@@ -11,38 +11,18 @@ import { generateSchedule } from '../schedules/service.js';
 import { parseDocumentUpload, parseFileUpload, saveDocumentFile, deleteDocumentFile, UPLOAD_DIR } from '../../lib/upload.js';
 import { AuditService } from '../compliance/auditService.js';
 import { toSafeNumber, safeRound, safeMultiply, safeDivide, safeAdd, safeSubtract, calculateFlatInterest, calculateEMI, addMonthsClamped } from '../../lib/math.js';
-import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receiptNumber.js';
 import { createHash } from 'crypto';
 import { LateFeeProcessor } from '../../lib/lateFeeProcessor.js';
 import { generateDischargeLetter, generateDefaultLetter, generateArrearsLetter } from '../../lib/letterService.js';
 import { TrueSendService } from '../notifications/trueSendService.js';
+import { calculateDaysOverdueMalaysia } from '../../lib/malaysiaTime.js';
+import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receiptNumber.js';
+import { fetchLogoBuffer } from '../../lib/safeLogoFetch.js';
 import PDFDocument from 'pdfkit';
-import http from 'http';
-import https from 'https';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
-  return new Promise((resolve, reject) => {
-    if (url.startsWith('/api/uploads/') || url.startsWith('/uploads/')) {
-      const relativePath = url.replace('/api/uploads/', '').replace('/uploads/', '');
-      const filePath = path.join(UPLOAD_DIR, relativePath);
-      if (fs.existsSync(filePath)) {
-        resolve(fs.readFileSync(filePath));
-      } else {
-        reject(new Error(`File not found: ${filePath}`));
-      }
-    } else if (url.startsWith('http://') || url.startsWith('https://')) {
-      const client = url.startsWith('https') ? https : http;
-      client.get(url, (response) => {
-        const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer) => chunks.push(chunk));
-        response.on('end', () => resolve(Buffer.concat(chunks)));
-        response.on('error', reject);
-      }).on('error', reject);
-    } else {
-      reject(new Error(`Unsupported URL: ${url}`));
-    }
-  });
+  return fetchLogoBuffer(url, UPLOAD_DIR);
 };
 
 // Generate early settlement receipt PDF
@@ -276,6 +256,47 @@ async function generateSettlementReceipt(params: SettlementReceiptParams): Promi
 }
 
 const router = Router();
+
+type StatusEvaluationRepayment = {
+  status: string;
+  dueDate: Date;
+  totalDue: unknown;
+  lateFeeAccrued: unknown;
+  lateFeesPaid: unknown;
+  allocations: Array<{ amount: unknown }>;
+};
+
+function evaluateOverdueStatus(
+  repayments: StatusEvaluationRepayment[],
+  asOf: Date
+): { oldestOverdueDays: number; hasUnpaidOverdue: boolean } {
+  let oldestOverdueDays = 0;
+  let hasUnpaidOverdue = false;
+
+  for (const repayment of repayments) {
+    if (repayment.status === 'CANCELLED') continue;
+
+    const daysOverdue = calculateDaysOverdueMalaysia(repayment.dueDate, asOf);
+    if (daysOverdue <= 0) continue;
+
+    const totalPaid = repayment.allocations.reduce(
+      (sum, allocation) => safeAdd(sum, toSafeNumber(allocation.amount)),
+      0
+    );
+    const principalInterestOutstanding = safeSubtract(toSafeNumber(repayment.totalDue), totalPaid);
+    const lateFeeOutstanding = Math.max(
+      0,
+      safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid))
+    );
+
+    if (principalInterestOutstanding > 0.01 || lateFeeOutstanding > 0.01) {
+      hasUnpaidOverdue = true;
+      oldestOverdueDays = Math.max(oldestOverdueDays, daysOverdue);
+    }
+  }
+
+  return { oldestOverdueDays, hasUnpaidOverdue };
+}
 
 // All routes require authentication and active subscription
 router.use(authenticateToken);
@@ -1427,36 +1448,15 @@ router.post('/:loanId/update-status', async (req, res, next) => {
     const now = new Date();
     const arrearsPeriod = loan.product.arrearsPeriod;
     const defaultPeriod = loan.product.defaultPeriod;
-    let oldestOverdueDays = 0;
-    let hasUnpaidOverdue = false;
-
-    // Check each repayment for overdue status (skip PAID and CANCELLED from early settlement)
-    for (const repayment of currentSchedule.repayments) {
-      if (repayment.status === 'PAID' || repayment.status === 'CANCELLED') continue;
-
-      const dueDate = new Date(repayment.dueDate);
-      if (now > dueDate) {
-        const totalPaid = repayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
-        const totalDue = toSafeNumber(repayment.totalDue);
-        const remaining = totalDue - totalPaid;
-
-        if (remaining > 0.01) { // Still has balance
-          hasUnpaidOverdue = true;
-          const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysOverdue > oldestOverdueDays) {
-            oldestOverdueDays = daysOverdue;
-          }
-        }
-      }
-    }
+    const { oldestOverdueDays, hasUnpaidOverdue } = evaluateOverdueStatus(currentSchedule.repayments, now);
 
     // Determine new status
     let newStatus: string = loan.status;
     let statusChanged = false;
 
-    if (oldestOverdueDays > defaultPeriod) {
+    if (oldestOverdueDays >= defaultPeriod) {
       newStatus = 'DEFAULTED';
-    } else if (oldestOverdueDays > arrearsPeriod) {
+    } else if (oldestOverdueDays >= arrearsPeriod) {
       newStatus = 'IN_ARREARS';
     } else if (!hasUnpaidOverdue && loan.status === 'IN_ARREARS') {
       // No more overdue repayments, can return to ACTIVE
@@ -1553,30 +1553,12 @@ router.post('/update-all-statuses', async (req, res, next) => {
 
       const arrearsPeriod = loan.product.arrearsPeriod;
       const defaultPeriod = loan.product.defaultPeriod;
-      let oldestOverdueDays = 0;
-      let hasUnpaidOverdue = false;
-
-      for (const repayment of currentSchedule.repayments) {
-        if (repayment.status === 'PAID' || repayment.status === 'CANCELLED') continue;
-
-        const dueDate = new Date(repayment.dueDate);
-        if (now > dueDate) {
-          const totalPaid = repayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
-          const totalDue = toSafeNumber(repayment.totalDue);
-          if (totalDue - totalPaid > 0.01) {
-            hasUnpaidOverdue = true;
-            const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-            if (daysOverdue > oldestOverdueDays) {
-              oldestOverdueDays = daysOverdue;
-            }
-          }
-        }
-      }
+      const { oldestOverdueDays, hasUnpaidOverdue } = evaluateOverdueStatus(currentSchedule.repayments, now);
 
       let newStatus: string = loan.status;
-      if (oldestOverdueDays > defaultPeriod) {
+      if (oldestOverdueDays >= defaultPeriod) {
         newStatus = 'DEFAULTED';
-      } else if (oldestOverdueDays > arrearsPeriod) {
+      } else if (oldestOverdueDays >= arrearsPeriod) {
         newStatus = 'IN_ARREARS';
       } else if (!hasUnpaidOverdue && loan.status === 'IN_ARREARS') {
         newStatus = 'ACTIVE';
@@ -1858,8 +1840,8 @@ router.get('/:loanId/metrics', async (req, res, next) => {
     // Determine arrears/default status
     const arrearsPeriod = loan.product.arrearsPeriod;
     const defaultPeriod = loan.product.defaultPeriod;
-    const isInArrears = oldestOverdueDays > arrearsPeriod;
-    const isDefaulted = oldestOverdueDays > defaultPeriod;
+    const isInArrears = oldestOverdueDays >= arrearsPeriod;
+    const isDefaulted = oldestOverdueDays >= defaultPeriod;
 
     // Early settlement details for progress display
     const earlySettlementInfo = isEarlySettled ? {
@@ -3106,7 +3088,13 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
         tenantId: req.tenantId,
       },
       include: {
-        borrower: true,
+        borrower: {
+          include: {
+            directors: {
+              orderBy: { order: 'asc' },
+            },
+          },
+        },
         product: true,
         tenant: true,
       },
@@ -3165,6 +3153,11 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
         borrowerType: loan.borrower.borrowerType,
         companyName: loan.borrower.companyName,
         companyRegistrationNumber: loan.borrower.ssmRegistrationNo,
+        directors: loan.borrower.directors.map((director) => ({
+          name: director.name,
+          icNumber: director.icNumber,
+          position: director.position,
+        })),
       },
       tenant: {
         name: loan.tenant.name,

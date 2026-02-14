@@ -1,5 +1,14 @@
 import type { InterestModel } from '@prisma/client';
-import { addMonthsClamped, safeAdd, safeDivide, safeRound, safeSubtract } from '../../lib/math.js';
+import {
+  addMonthsClamped,
+  calculateEMI,
+  calculateFlatInterest as calculateFlatInterestAmount,
+  monthlyInterestRate,
+  safeAdd,
+  safeDivide,
+  safeRound,
+  safeSubtract,
+} from '../../lib/math.js';
 
 export interface ScheduleParams {
   principal: number;
@@ -47,12 +56,11 @@ export function generateSchedule(params: ScheduleParams): ScheduleOutput {
 function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
   const { principal, interestRate, term, disbursementDate } = params;
   
-  const annualRate = interestRate / 100;
-  const totalInterest = principal * annualRate * (term / 12);
-  const totalPayable = principal + totalInterest;
-  const monthlyPayment = totalPayable / term;
-  const monthlyPrincipal = principal / term;
-  const monthlyInterest = totalInterest / term;
+  const totalInterest = calculateFlatInterestAmount(principal, interestRate, term);
+  const totalPayable = safeAdd(principal, totalInterest);
+  const monthlyPayment = safeDivide(totalPayable, term);
+  const monthlyPrincipal = safeDivide(principal, term);
+  const monthlyInterest = safeDivide(totalInterest, term);
 
   const repayments: RepaymentScheduleItem[] = [];
   let balance = principal;
@@ -60,7 +68,7 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
   for (let i = 1; i <= term; i++) {
     const dueDate = addMonthsClamped(disbursementDate, i);
 
-    balance = Math.max(0, balance - monthlyPrincipal);
+    balance = Math.max(0, safeSubtract(balance, monthlyPrincipal));
 
     repayments.push({
       dueDate,
@@ -72,10 +80,10 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
   }
 
   // Adjust last payment for rounding differences
-  const totalCalculated = repayments.reduce((sum, r) => sum + r.totalDue, 0);
+  const totalCalculated = repayments.reduce((sum, r) => safeAdd(sum, r.totalDue), 0);
   if (Math.abs(totalCalculated - totalPayable) > 0.01) {
-    const diff = totalPayable - totalCalculated;
-    repayments[repayments.length - 1].totalDue = round(repayments[repayments.length - 1].totalDue + diff);
+    const diff = safeSubtract(totalPayable, totalCalculated);
+    repayments[repayments.length - 1].totalDue = round(safeAdd(repayments[repayments.length - 1].totalDue, diff));
   }
 
   return {
@@ -92,7 +100,7 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
 function calculateDecliningBalance(params: ScheduleParams): ScheduleOutput {
   const { principal, interestRate, term, disbursementDate } = params;
   
-  const monthlyRate = interestRate / 100 / 12;
+  const monthlyRate = monthlyInterestRate(interestRate);
 
   if (interestRate === 0) {
     const monthlyPayment = safeDivide(principal, term);
@@ -105,16 +113,16 @@ function calculateDecliningBalance(params: ScheduleParams): ScheduleOutput {
 
       repayments.push({
         dueDate,
-        principal: safeRound(monthlyPayment),
+        principal: round(monthlyPayment),
         interest: 0,
-        totalDue: safeRound(monthlyPayment),
-        balance: safeRound(Math.max(0, balance)),
+        totalDue: round(monthlyPayment),
+        balance: round(Math.max(0, balance)),
       });
     }
 
     if (repayments.length > 0) {
       const lastPayment = repayments[repayments.length - 1];
-      lastPayment.principal = safeRound(safeAdd(lastPayment.principal, lastPayment.balance));
+      lastPayment.principal = round(safeAdd(lastPayment.principal, lastPayment.balance));
       lastPayment.totalDue = lastPayment.principal;
       lastPayment.balance = 0;
     }
@@ -122,13 +130,11 @@ function calculateDecliningBalance(params: ScheduleParams): ScheduleOutput {
     return {
       repayments,
       totalInterest: 0,
-      totalPayable: safeRound(principal),
+      totalPayable: round(principal),
     };
   }
-  
-  // EMI formula: P × r × (1+r)^n / ((1+r)^n - 1)
-  const emi = principal * monthlyRate * Math.pow(1 + monthlyRate, term) / 
-              (Math.pow(1 + monthlyRate, term) - 1);
+
+  const emi = calculateEMI(principal, interestRate, term);
 
   const repayments: RepaymentScheduleItem[] = [];
   let balance = principal;
@@ -137,10 +143,10 @@ function calculateDecliningBalance(params: ScheduleParams): ScheduleOutput {
   for (let i = 1; i <= term; i++) {
     const dueDate = addMonthsClamped(disbursementDate, i);
 
-    const interest = balance * monthlyRate;
-    const principalPayment = emi - interest;
-    balance = Math.max(0, balance - principalPayment);
-    totalInterest += interest;
+    const interest = safeRound(balance * monthlyRate);
+    const principalPayment = safeSubtract(emi, interest);
+    balance = Math.max(0, safeSubtract(balance, principalPayment));
+    totalInterest = safeAdd(totalInterest, interest);
 
     repayments.push({
       dueDate,
@@ -154,15 +160,15 @@ function calculateDecliningBalance(params: ScheduleParams): ScheduleOutput {
   // Adjust last payment for remaining balance
   if (repayments.length > 0 && balance !== 0) {
     const lastPayment = repayments[repayments.length - 1];
-    lastPayment.principal = round(lastPayment.principal + balance);
-    lastPayment.totalDue = round(lastPayment.principal + lastPayment.interest);
+    lastPayment.principal = round(safeAdd(lastPayment.principal, balance));
+    lastPayment.totalDue = round(safeAdd(lastPayment.principal, lastPayment.interest));
     lastPayment.balance = 0;
   }
 
   return {
     repayments,
     totalInterest: round(totalInterest),
-    totalPayable: round(principal + totalInterest),
+    totalPayable: round(safeAdd(principal, totalInterest)),
   };
 }
 
@@ -179,7 +185,7 @@ function calculateEffectiveRate(params: ScheduleParams): ScheduleOutput {
  * Round to 2 decimal places
  */
 function round(value: number): number {
-  return Math.round(value * 100) / 100;
+  return safeRound(value);
 }
 
 /**

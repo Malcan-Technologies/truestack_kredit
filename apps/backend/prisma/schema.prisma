@@ -448,11 +448,27 @@ model Borrower {
   applications LoanApplication[]
   loans        Loan[]
   documents    BorrowerDocument[]
+  directors    BorrowerDirector[]
   emailLogs    EmailLog[] // TrueSend email delivery logs
 
   @@unique([tenantId, icNumber])
   @@index([tenantId])
   @@index([borrowerType])
+}
+
+model BorrowerDirector {
+  id         String   @id @default(cuid())
+  borrowerId String
+  name       String
+  icNumber   String
+  position   String?
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  @@index([borrowerId])
 }
 
 model Product {
@@ -935,6 +951,41 @@ model EmailLog {
   @@index([resendMessageId])
   @@index([emailType])
   @@index([status])
+}
+
+// Idempotency records for payment submission endpoints
+model PaymentIdempotency {
+  id             String   @id @default(cuid())
+  tenantId       String
+  endpoint       String
+  idempotencyKey String
+  requestHash    String
+  status         String   @default("PROCESSING") // PROCESSING, COMPLETED, FAILED
+  responseStatus Int?
+  responseBody   Json?
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([tenantId, endpoint, idempotencyKey])
+  @@index([tenantId, createdAt])
+  @@index([status])
+}
+
+// Deterministic reminder de-duplication for payment reminders
+model PaymentReminderDispatch {
+  id              String   @id @default(cuid())
+  tenantId        String
+  loanId          String
+  repaymentId     String
+  reminderType    String   // DUE_IN_3_DAYS, DUE_IN_1_DAY
+  reminderDateMYT DateTime // Start of reminder day in MYT, stored as UTC
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, loanId, repaymentId, reminderType, reminderDateMYT])
+  @@index([tenantId, reminderDateMYT])
+  @@index([loanId, repaymentId])
 }
 
 // Audit trail for each cron / manual late fee processing run

@@ -204,11 +204,10 @@ const collectionChartConfig: ChartConfig = {
 };
 
 /** Normalize plan string to match plan page logic */
-function getPlanName(plan: string | null | undefined): "Core+" | "Core" | "Free" {
+function getPlanName(plan: string | null | undefined): "Core" | "Free" {
   if (!plan) return "Free";
   const p = plan.toLowerCase();
-  if (p === "core+" || p === "core-plus" || p === "core_plus") return "Core+";
-  if (p === "core") return "Core";
+  if (p === "core" || p === "core+" || p === "core-plus" || p === "core_plus") return "Core";
   return "Free";
 }
 
@@ -462,7 +461,7 @@ export default function DashboardPage() {
             <CardContent className="py-4">
               {(() => {
                 const planName = getPlanName(tenant?.subscription?.plan);
-                const hasPaidPlan = planName === "Core" || planName === "Core+";
+                const hasPaidPlan = planName === "Core";
 
                 if (!hasPaidPlan) {
                   return (
@@ -476,7 +475,7 @@ export default function DashboardPage() {
                             Unlock your full plan
                           </p>
                           <p className="text-sm text-muted-foreground mt-0.5">
-                            Subscribe to Core or Core+ to access loan management, compliance, and more.
+                            Subscribe to Core to access loan management, compliance, and more.
                           </p>
                         </div>
                       </div>
@@ -499,11 +498,7 @@ export default function DashboardPage() {
                             href="/dashboard/plan"
                             className="font-heading font-semibold hover:underline underline-offset-2 inline-flex items-center gap-2"
                           >
-                            {planName === "Core+" ? (
-                              <Rocket className="h-4 w-4 text-primary" />
-                            ) : (
-                              <Zap className="h-4 w-4 text-primary" />
-                            )}
+                            <Zap className="h-4 w-4 text-primary" />
                             {planName} Plan
                           </Link>
                           <Badge

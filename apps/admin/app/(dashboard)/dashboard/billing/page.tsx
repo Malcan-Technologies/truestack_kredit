@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, Receipt, AlertTriangle, Shield, ExternalLink, Zap, Rocket } from "lucide-react";
+import { FileText, Receipt, AlertTriangle, Shield, ExternalLink, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -68,7 +68,7 @@ const ADD_ON_LABELS: Record<string, string> = {
 
 /** Plan pricing (RM) */
 const CORE_PLAN_PRICE = 499;
-const CORE_PLUS_PLAN_PRICE = 549;
+const TRUESEND_ADDON_PRICE = 50;
 const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
 const LOANS_PER_BLOCK = 500;
@@ -116,16 +116,15 @@ export default function BillingPage() {
   };
 
   const enabledAddOns = addOns.filter((a) => a.status === "ACTIVE");
-  const isCorePlus = subscription?.plan === "Core+";
   const truesendActive = addOns.some((a) => a.addOnType === "TRUESEND" && a.status === "ACTIVE");
 
-  // Calculate monthly subscription
+  // Calculate monthly subscription: Core + TrueSend add-on (billed with Core) + extra blocks
   const totalBlocks = Math.max(1, Math.ceil(loanCount / LOANS_PER_BLOCK));
   const extraBlocks = Math.max(0, totalBlocks - 1);
-  const basePlanPrice = isCorePlus ? CORE_PLUS_PLAN_PRICE : CORE_PLAN_PRICE;
+  const basePlanPrice = CORE_PLAN_PRICE;
   const extraBlockCost = extraBlocks * EXTRA_BLOCK_PRICE;
-  const truesendExtraCost = truesendActive ? extraBlocks * TRUESEND_EXTRA_BLOCK_PRICE : 0;
-  const totalMonthlySubscription = basePlanPrice + extraBlockCost + truesendExtraCost;
+  const truesendCost = truesendActive ? TRUESEND_ADDON_PRICE + extraBlocks * TRUESEND_EXTRA_BLOCK_PRICE : 0;
+  const totalMonthlySubscription = basePlanPrice + extraBlockCost + truesendCost;
 
   useEffect(() => {
     fetchData();
@@ -176,12 +175,8 @@ export default function BillingPage() {
                       href="/dashboard/plan"
                       className="inline-flex items-center gap-2 hover:underline underline-offset-2 font-heading font-semibold"
                     >
-                      {subscription.plan === "Core+" ? (
-                        <Rocket className="h-5 w-5 text-primary" />
-                      ) : (
-                        <Zap className="h-5 w-5 text-primary" />
-                      )}
-                      {subscription.plan} Plan
+                      <Zap className="h-5 w-5 text-primary" />
+                      {subscription.plan === "Core+" ? "Core" : subscription.plan} Plan
                     </Link>
                   </CardTitle>
                   <CardDescription>
@@ -224,27 +219,25 @@ export default function BillingPage() {
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">
-                  {subscription.plan} Plan
+                  Core Plan
                 </span>
                 <span>{formatCurrency(basePlanPrice)}</span>
               </div>
+              {truesendActive && truesendCost > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    TrueSend™ add-on (billed with Core)
+                  </span>
+                  <span>+{formatCurrency(truesendCost)}</span>
+                </div>
+              )}
               {extraBlocks > 0 && (
-                <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      Extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
-                    </span>
-                    <span>+{formatCurrency(extraBlockCost)}</span>
-                  </div>
-                  {truesendActive && truesendExtraCost > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        TrueSend™ ({extraBlocks} extra blocks)
-                      </span>
-                      <span>+{formatCurrency(truesendExtraCost)}</span>
-                    </div>
-                  )}
-                </>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    Extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
+                  </span>
+                  <span>+{formatCurrency(extraBlockCost)}</span>
+                </div>
               )}
               <div className="border-t pt-2 mt-2 flex justify-between font-medium">
                 <span>Total (recurring)</span>

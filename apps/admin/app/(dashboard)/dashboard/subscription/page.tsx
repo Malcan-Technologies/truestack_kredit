@@ -3,8 +3,13 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Sparkles, Zap, Rocket, ArrowLeft, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import {
+  Check,
+  Zap,
+  ArrowLeft,
+  Send,
+  Fingerprint,
+} from "lucide-react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -17,46 +22,115 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { cn, formatCurrency } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { cn, formatCurrency, formatNumber, safeAdd, safeMultiply } from "@/lib/utils";
 import { api } from "@/lib/api";
 
-/** Core = RM 499, Core+ = RM 549 (Core + TrueSend) */
-const CORE_AMOUNT = 49900;
-const CORE_PLUS_AMOUNT = 54900;
+// ============================================
+// Constants
+// ============================================
+
+const CORE_ORIGINAL_PRICE = 899;
+const CORE_PRICE = 499;
+const CORE_DISCOUNT_PCT = Math.round(((CORE_ORIGINAL_PRICE - CORE_PRICE) / CORE_ORIGINAL_PRICE) * 100);
+const TRUESEND_PRICE = 50;
+const LOANS_PER_BLOCK = 500;
+const EXTRA_BLOCK_PRICE = 200;
+const TRUESEND_EXTRA_BLOCK_PRICE = 50;
+
+const CORE_FEATURES = [
+  "Borrower management",
+  "Loan products & applications",
+  "Payment tracking & schedules",
+  "Jadual J and K generation",
+  "KPKT iDeaL export, Lampiran A",
+  "Full audit logs",
+];
+
+// ============================================
+// Page
+// ============================================
 
 export default function SubscriptionPage() {
   const router = useRouter();
+
+  // ── state ──
   const [subscriptionStatus, setSubscriptionStatus] = useState<"FREE" | "PAID">("FREE");
-  const [subscriptionAmount, setSubscriptionAmount] = useState<number | null>(null);
-  const [truesendActive, setTruesendActive] = useState(false);
-  const [subscribing, setSubscribing] = useState<string | null>(null);
-  const [downgrading, setDowngrading] = useState(false);
-  const [showDowngradeDialog, setShowDowngradeDialog] = useState(false);
-  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-  const [upgradePlan, setUpgradePlan] = useState<"CORE" | "CORE_TRUESEND" | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Local toggle state (drives the UI switches)
+  const [wantsTruesend, setWantsTruesend] = useState(true); // all add-ons enabled by default
+  const [wantsTrueIdentity, setWantsTrueIdentity] = useState(true);
+  const [loanCount, setLoanCount] = useState(0);
+
+  // Dialog state
+  const [pendingDisableAddOn, setPendingDisableAddOn] = useState<"TRUESEND" | "TRUEIDENTITY" | null>(null);
+
+  const isPaid = subscriptionStatus === "PAID";
+
+  /** Intercept add-on toggle: show confirmation when disabling */
+  const handleTruesendToggle = (newValue: boolean) => {
+    if (newValue === false) {
+      setPendingDisableAddOn("TRUESEND");
+    } else {
+      setWantsTruesend(true);
+    }
+  };
+  const handleTrueIdentityToggle = (newValue: boolean) => {
+    if (newValue === false) {
+      setPendingDisableAddOn("TRUEIDENTITY");
+    } else {
+      setWantsTrueIdentity(true);
+    }
+  };
+
+  // ── pricing ──
+  const totalBlocks = Math.max(1, Math.ceil(loanCount / LOANS_PER_BLOCK));
+  const extraBlocks = Math.max(0, totalBlocks - 1);
+  const coreExtraBlockCost = safeMultiply(extraBlocks, EXTRA_BLOCK_PRICE);
+  const truesendBaseCost = wantsTruesend ? TRUESEND_PRICE : 0;
+  const truesendExtraBlockCost = wantsTruesend ? safeMultiply(extraBlocks, TRUESEND_EXTRA_BLOCK_PRICE) : 0;
+  const coreMonthlyTotal = safeAdd(CORE_PRICE, coreExtraBlockCost);
+  const truesendMonthlyTotal = safeAdd(truesendBaseCost, truesendExtraBlockCost);
+  const monthlyTotal = safeAdd(coreMonthlyTotal, truesendMonthlyTotal);
+
+  // ── fetch ──
   useEffect(() => {
-    fetchSubscriptionStatus();
+    fetchStatus();
   }, []);
 
-  const fetchSubscriptionStatus = async () => {
+  const fetchStatus = async () => {
     try {
-      const [authRes, addOnsRes] = await Promise.all([
+      const [authRes, addOnsRes, tenantRes] = await Promise.all([
         fetch("/api/proxy/auth/me", { credentials: "include" }).then((r) => r.json()),
         api.get<{ addOns: { addOnType: string; status: string }[] }>("/api/billing/add-ons"),
+        api.get<{ counts: { loans: number } }>("/api/tenants/current"),
       ]);
 
       if (authRes.success && authRes.data?.tenant) {
-        setSubscriptionStatus(authRes.data.tenant.subscriptionStatus || "FREE");
-        setSubscriptionAmount(authRes.data.tenant.subscriptionAmount ?? null);
+        const status = authRes.data.tenant.subscriptionStatus || "FREE";
+        setSubscriptionStatus(status);
       }
 
       if (addOnsRes.success && addOnsRes.data?.addOns) {
-        const active = addOnsRes.data.addOns.some(
+        const ts = addOnsRes.data.addOns.some(
           (a) => a.addOnType === "TRUESEND" && a.status === "ACTIVE"
         );
-        setTruesendActive(active);
+        const ti = addOnsRes.data.addOns.some(
+          (a) => a.addOnType === "TRUEIDENTITY" && a.status === "ACTIVE"
+        );
+        // Sync local toggles with server for existing subscribers
+        if (authRes.success && authRes.data?.tenant?.subscriptionStatus === "PAID") {
+          setWantsTruesend(ts);
+          setWantsTrueIdentity(ti);
+        }
+      }
+
+      if (tenantRes.success && tenantRes.data?.counts) {
+        setLoanCount(tenantRes.data.counts.loans ?? 0);
+      } else {
+        setLoanCount(0);
       }
     } catch (error) {
       console.error("Failed to fetch subscription status:", error);
@@ -65,69 +139,19 @@ export default function SubscriptionPage() {
     }
   };
 
-  const handleUpgradeConfirm = async () => {
-    if (!upgradePlan) return;
-    const planKey = upgradePlan === "CORE_TRUESEND" ? "core-plus" : "core";
-    setSubscribing(planKey);
-    setShowUpgradeDialog(false);
-    try {
-      const res = await fetch("/api/proxy/billing/subscribe", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: upgradePlan }),
-      });
-      const data = await res.json();
+  // ── handlers ──
 
-      if (data.success) {
-        toast.success("Subscription activated! Reloading...");
-        setTimeout(() => window.location.reload(), 1000);
-      } else {
-        toast.error(data.error || "Failed to subscribe");
-      }
-    } catch (error) {
-      toast.error("Failed to subscribe");
-    } finally {
-      setSubscribing(null);
-      setUpgradePlan(null);
-    }
+  /** Navigate to payment page with selected plan & add-ons */
+  const handleProceedToPayment = () => {
+    const params = new URLSearchParams();
+    params.set("plan", "CORE");
+    params.set("amount", String(monthlyTotal));
+    if (wantsTruesend) params.set("truesend", "1");
+    if (wantsTrueIdentity) params.set("trueidentity", "1");
+    router.push(`/dashboard/subscription/payment?${params.toString()}`);
   };
 
-  const openUpgradeDialog = (plan: "CORE" | "CORE_TRUESEND") => {
-    setUpgradePlan(plan);
-    setShowUpgradeDialog(true);
-  };
-
-  const handleDowngrade = async () => {
-    setDowngrading(true);
-    try {
-      const res = await api.post<{ addOnType: string; status: string }>(
-        "/api/billing/add-ons/toggle",
-        { addOnType: "TRUESEND" }
-      );
-      if (res.success && res.data?.status === "CANCELLED") {
-        toast.success("Plan downgraded to Core. TrueSend™ will be disabled at the end of your billing period.");
-        setShowDowngradeDialog(false);
-        fetchSubscriptionStatus();
-      } else {
-        toast.error(res.error || "Failed to downgrade");
-      }
-    } catch {
-      toast.error("Failed to downgrade");
-    } finally {
-      setDowngrading(false);
-    }
-  };
-
-  // Core+ = paid with Core+ plan (RM 549) OR paid with TrueSend add-on enabled
-  const isCorePlus =
-    subscriptionStatus === "PAID" &&
-    (subscriptionAmount === CORE_PLUS_AMOUNT || truesendActive);
-  const isCore =
-    subscriptionStatus === "PAID" &&
-    !isCorePlus &&
-    (subscriptionAmount === null || subscriptionAmount === CORE_AMOUNT);
-
+  // ── loading ──
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -136,291 +160,387 @@ export default function SubscriptionPage() {
     );
   }
 
+  // ============================================
+  // Render
+  // ============================================
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4">
-      <div className="mb-8">
-        <Button variant="ghost" size="sm" onClick={() => router.back()}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
-        </Button>
-      </div>
+    <div className="px-4 space-y-6">
       {/* Header */}
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold mb-3">Upgrade your plan</h1>
-        <p className="text-lg text-muted-foreground">
-          Get the most out of loan business
-        </p>
+      <div>
+        <div className="flex items-start gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 -ml-1 mt-0.5"
+            onClick={() => router.back()}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-heading font-bold">
+              {isPaid ? "Manage your plan" : "Choose your plan"}
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              {isPaid
+                ? "Your Core subscription and add-on modules."
+                : "Subscribe to Core and pick the add-ons you need."}
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Pricing Cards */}
-      <div className="grid md:grid-cols-2 gap-4 max-w-4xl mx-auto items-stretch">
-        {/* Core Plan */}
-        <Card
-          className={cn(
-            "relative flex flex-col p-6 border-2 transition-all",
-            isCore
-              ? "border-primary bg-primary/5"
-              : "border-primary shadow-lg hover:shadow-xl"
-          )}
-        >
-          {isCore && (
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <Badge variant="outline" className="bg-background">
-                Your current plan
-              </Badge>
-            </div>
-          )}
-          {!isCore && !isCorePlus && (
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <Badge className="bg-gradient-accent border-0 text-primary-foreground">
-                <Sparkles className="h-3 w-3 mr-1" />
-                Most Popular
-              </Badge>
-            </div>
-          )}
-
-          <div className="flex flex-col flex-1 space-y-6">
-            <div>
-              <h3 className="text-xl font-semibold mb-2 flex items-center gap-2">
-                <Zap className="h-5 w-5 text-primary" />
-                Core
-              </h3>
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold">RM 499</span>
-                <span className="text-muted-foreground">/month</span>
+      {/* 2-column layout: left = plan + add-ons, right = sticky summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* ──── Left column ──── */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Core Plan Card */}
+          <Card
+            className={cn(
+              "relative p-5 border-2 transition-all",
+              isPaid
+                ? "border-primary bg-primary/5"
+                : "border-primary shadow-lg"
+            )}
+          >
+            {isPaid && (
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                <Badge variant="outline" className="bg-background">
+                  Base plan
+                </Badge>
               </div>
-              <p className="text-sm text-muted-foreground mt-2">Unlock the full experience</p>
+            )}
+
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                  <Zap className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold">Core</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Full loan management platform
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15 text-xs font-semibold border-0 px-2 py-0.5">
+                  Save {CORE_DISCOUNT_PCT}%
+                </Badge>
+                <div className="flex items-baseline gap-1 justify-end">
+                  <span className="text-2xl font-bold">{formatCurrency(CORE_PRICE)}</span>
+                  <span className="text-sm text-muted-foreground">/mo</span>
+                </div>
+                <p className="text-sm text-muted-foreground line-through leading-none">{formatCurrency(CORE_ORIGINAL_PRICE)}/mo</p>
+              </div>
             </div>
 
-            <ul className="flex-1 space-y-3">
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Borrower management</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Loan products & applications</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Payment tracking & schedules</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Automatic Jadual J and K generation</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Compliance (KPKT iDeaL export, Lampiran A)</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Full audit logs</span>
-              </li>
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              {CORE_FEATURES.map((feature) => (
+                <li key={feature} className="flex items-start gap-2">
+                  <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <span className="text-sm">{feature}</span>
+                </li>
+              ))}
             </ul>
 
-            <div className="mt-auto pt-4">
-              {isCore ? (
-                <Button variant="default" className="w-full bg-gradient-accent hover:opacity-90" disabled>
-                  Current plan
-                </Button>
-              ) : subscriptionStatus === "PAID" ? (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => setShowDowngradeDialog(true)}
-                  disabled={!!subscribing}
-                >
-                  Downgrade
-                </Button>
-              ) : (
-                <Button
-                  className="w-full bg-gradient-accent hover:opacity-90 text-primary-foreground"
-                  onClick={() => openUpgradeDialog("CORE")}
-                  disabled={!!subscribing}
-                >
-                  {subscribing === "core" ? "Processing..." : "Upgrade to Core"}
-                </Button>
-              )}
+            <div className="mt-4 rounded-lg border border-border/50 bg-muted/10 p-3">
+              <p className="text-sm text-muted-foreground">
+                <strong className="text-foreground">Plan includes:</strong> First {LOANS_PER_BLOCK} loans.
+                {extraBlocks > 0 ? (
+                  <>
+                    {" "}You use {formatNumber(loanCount, 0)} loans ({totalBlocks} block{totalBlocks !== 1 ? "s" : ""}) — +{formatCurrency(coreExtraBlockCost)}/mo
+                    {wantsTruesend && truesendExtraBlockCost > 0 && (
+                      <> (+{formatCurrency(truesendExtraBlockCost)} TrueSend™)</>
+                    )}.
+                  </>
+                ) : (
+                  <> Extra blocks: +{formatCurrency(EXTRA_BLOCK_PRICE)}/mo each{wantsTruesend && <> (+{formatCurrency(TRUESEND_EXTRA_BLOCK_PRICE)} TrueSend™)</>}.</>
+                )}
+              </p>
             </div>
+          </Card>
+
+          <div className="border-t border-border/100" aria-hidden />
+
+          {/* Add-on modules */}
+          <div className="flex flex-col gap-3">
+              {/* TrueSend */}
+              <AddOnCard
+                icon={Send}
+                name="TrueSend™"
+                badge="Monthly"
+                recommended
+                description={
+                  extraBlocks > 0
+                    ? `Automated email delivery — receipts, reminders, arrears & default notices. Current usage adds +${formatCurrency(truesendExtraBlockCost)}/month for ${extraBlocks} extra block${extraBlocks > 1 ? "s" : ""}.`
+                    : "Automated email delivery — receipts, reminders, arrears & default notices."
+                }
+                highlights={[
+                  "Reduce manual follow-ups and missed reminders",
+                  "Send receipts and notices instantly with audit trail",
+                  "Keep borrower communication consistent and professional",
+                ]}
+                priceLabel={`+${formatCurrency(TRUESEND_PRICE)} /mo`}
+                active={wantsTruesend}
+                onToggle={handleTruesendToggle}
+              />
+
+              {/* TrueIdentity */}
+              <AddOnCard
+                icon={Fingerprint}
+                name="TrueIdentity™"
+                badge="Pay per use"
+                recommended
+                description="e-KYC via QR code — IC capture, face liveness, KPKT compliant. RM 4 per verification."
+                highlights={[
+                  "Verify borrowers faster with QR-based self-service",
+                  "Reduce fraud risk using face liveness checks",
+                  "Store verification records for compliance and audits",
+                ]}
+                priceLabel="Free"
+                priceMuted
+                active={wantsTrueIdentity}
+                onToggle={handleTrueIdentityToggle}
+              />
           </div>
-        </Card>
 
-        {/* Core+ Plan (Core + TrueSend) */}
-        <Card
-          className={cn(
-            "relative flex flex-col p-6 border-2 transition-all",
-            isCorePlus
-              ? "border-primary bg-primary/5"
-              : "border-primary shadow-lg hover:shadow-xl"
-          )}
-        >
-          {isCorePlus && (
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <Badge variant="outline" className="bg-background">
-                Your current plan
-              </Badge>
-            </div>
-          )}
+          <div className="text-center lg:text-left">
+            <p className="text-sm text-muted-foreground">
+              Need more capabilities for your business?{" "}
+              <Link href="/dashboard/help" className="text-primary hover:underline">
+                Contact us
+              </Link>
+            </p>
+          </div>
+        </div>
 
-          <div className="flex flex-col flex-1 space-y-6">
-            <div>
-              <h3 className="text-xl font-semibold mb-2 flex items-center gap-2">
-                <Rocket className="h-5 w-5 text-primary" />
-                Core+
+        {/* ──── Right column: sticky summary ──── */}
+        <div className="lg:col-span-1">
+          <div className="lg:sticky lg:top-4">
+            <Card className="p-5 bg-muted/30">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                Summary
               </h3>
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold">RM 549</span>
-                <span className="text-muted-foreground">/month</span>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-foreground inline-flex items-center gap-2">
+                    Core Plan
+                    <Badge className="bg-black text-white hover:bg-black text-[10px] font-semibold border-0 px-1.5 py-0.5">
+                      Save {CORE_DISCOUNT_PCT}%
+                    </Badge>
+                  </span>
+                  <span className="tabular-nums">{formatCurrency(CORE_PRICE)}/mo</span>
+                </div>
+                {extraBlocks > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      Core extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
+                    </span>
+                    <span className="tabular-nums">+{formatCurrency(coreExtraBlockCost)}/mo</span>
+                  </div>
+                )}
+
+                {wantsTruesend && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground">TrueSend™</span>
+                    <span className="tabular-nums">+{formatCurrency(TRUESEND_PRICE)}/mo</span>
+                  </div>
+                )}
+                {wantsTruesend && truesendExtraBlockCost > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      TrueSend extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
+                    </span>
+                    <span className="tabular-nums">+{formatCurrency(truesendExtraBlockCost)}/mo</span>
+                  </div>
+                )}
+
+                {wantsTrueIdentity && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground">TrueIdentity™</span>
+                    <span className="text-muted-foreground tabular-nums">RM 4/use</span>
+                  </div>
+                )}
+
+                <Separator />
+
+                <div className="pt-1">
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-semibold text-foreground">Total</span>
+                    <div className="text-right">
+                      <span className="text-2xl font-bold tabular-nums">{formatCurrency(monthlyTotal)}</span>
+                      <span className="text-muted-foreground text-sm">/mo</span>
+                    </div>
+                  </div>
+                  {wantsTrueIdentity && (
+                    <p className="text-xs text-muted-foreground mt-1">+ RM 4 per e-KYC verification</p>
+                  )}
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground mt-2">Core + TrueSend™ subscription</p>
-            </div>
 
-            <ul className="flex-1 space-y-3">
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm font-medium">Everything in Core</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">TrueSend™ — automated email delivery</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Payment receipts & reminders auto-sent by email</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Arrears & default notices auto-sent by email</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <span className="text-sm">Delivery tracking & audit trail</span>
-              </li>
-            </ul>
-
-            <div className="mt-auto pt-4">
-              {isCorePlus ? (
-                <Button variant="default" className="w-full bg-gradient-accent hover:opacity-90" disabled>
-                  Current plan
-                </Button>
-              ) : subscriptionStatus === "PAID" ? (
-                <Button
-                  className="w-full bg-gradient-accent hover:opacity-90 text-primary-foreground"
-                  onClick={() => openUpgradeDialog("CORE_TRUESEND")}
-                  disabled={!!subscribing}
-                >
-                  {subscribing === "core-plus" ? "Processing..." : "Upgrade to Core+"}
-                </Button>
-              ) : (
-                <Button
-                  className="w-full bg-gradient-accent hover:opacity-90 text-primary-foreground"
-                  onClick={() => openUpgradeDialog("CORE_TRUESEND")}
-                  disabled={!!subscribing}
-                >
-                  {subscribing === "core-plus" ? "Processing..." : "Upgrade to Core+"}
-                </Button>
+              {/* Action button */}
+              <Button
+                className="w-full mt-5 bg-gradient-accent hover:opacity-90 text-primary-foreground h-11 text-base"
+                onClick={handleProceedToPayment}
+              >
+                Proceed to payment
+              </Button>
+              {isPaid && (
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  Add-on changes are applied when you proceed to payment.
+                </p>
               )}
-            </div>
+            </Card>
           </div>
-        </Card>
+        </div>
       </div>
 
-      {/* Disclaimer */}
-      <div className="mt-8 max-w-4xl mx-auto rounded-lg border border-border bg-muted/30 p-4">
-        <p className="text-sm text-muted-foreground">
-          <strong className="text-foreground">All plans:</strong> Includes up to 500 loans in system. Additional blocks of 500 loans will be charged at RM 200/month extra automatically. TrueSend™ will incur an additional RM 50/month for additional blocks of 500 loans.
-        </p>
-      </div>
-
-      <div className="text-center mt-8">
-        <p className="text-sm text-muted-foreground">
-          Need more capabilities for your business?{" "}
-          <Link href="/dashboard/help" className="text-primary hover:underline">
-            Contact us
-          </Link>
-        </p>
-      </div>
-
-      {/* Upgrade confirmation */}
-      <AlertDialog open={showUpgradeDialog} onOpenChange={(open) => { setShowUpgradeDialog(open); if (!open) setUpgradePlan(null); }}>
+      {/* ================================================ */}
+      {/* Dialog: Disable add-on confirmation              */}
+      {/* ================================================ */}
+      <AlertDialog
+        open={!!pendingDisableAddOn}
+        onOpenChange={(open) => !open && setPendingDisableAddOn(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Upgrade to {upgradePlan === "CORE_TRUESEND" ? "Core+" : "Core"}?
+              {pendingDisableAddOn === "TRUESEND" ? "Remove TrueSend™?" : "Disable TrueIdentity™?"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  This upgrade will take effect <strong>immediately</strong>. Your new monthly charge will be{" "}
-                  <strong>{formatCurrency(upgradePlan === "CORE_TRUESEND" ? 549 : 499)}</strong> until you downgrade.
-                </p>
-                <p>Are you sure you want to proceed?</p>
+              <div className="space-y-2">
+                {pendingDisableAddOn === "TRUESEND" ? (
+                  <>
+                    <p>
+                      This will disable TrueSend™. Automated emails will stop at the end of your current billing period.
+                      You will still have access to all Core features.
+                    </p>
+                    <p>Are you sure?</p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      This will disable TrueIdentity™. You will no longer be able to verify borrowers&apos; identities.
+                    </p>
+                    <p>Are you sure?</p>
+                  </>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={!!subscribing}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Keep enabled</AlertDialogCancel>
             <Button
-              disabled={!!subscribing}
-              onClick={handleUpgradeConfirm}
+              variant="destructive"
+              onClick={() => {
+                if (pendingDisableAddOn === "TRUESEND") setWantsTruesend(false);
+                if (pendingDisableAddOn === "TRUEIDENTITY") setWantsTrueIdentity(false);
+                setPendingDisableAddOn(null);
+              }}
             >
-              {subscribing ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  Processing…
-                </>
-              ) : (
-                `Upgrade to ${upgradePlan === "CORE_TRUESEND" ? "Core+" : "Core"}`
-              )}
+              {pendingDisableAddOn === "TRUESEND" ? "Remove TrueSend" : "Disable"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Downgrade confirmation */}
-      <AlertDialog open={showDowngradeDialog} onOpenChange={setShowDowngradeDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Downgrade to Core?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  This will remove TrueSend™ from your subscription and revert your plan from <strong>Core+</strong> to <strong>Core</strong>.
-                </p>
-                <p className="font-medium text-foreground">You will lose:</p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>TrueSend™ — automated email delivery</li>
-                  <li>Payment receipts & reminders auto-sent by email</li>
-                  <li>Arrears & default notices auto-sent by email</li>
-                  <li>Delivery tracking & audit trail</li>
-                </ul>
-                <p>
-                  TrueSend™ will be disabled at the end of your current billing period. You will still have access to all Core features.
-                </p>
-                <p>Are you sure you want to proceed?</p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={downgrading}>Keep Core+</AlertDialogCancel>
-            <Button
-              variant="destructive"
-              disabled={downgrading}
-              onClick={handleDowngrade}
-            >
-              {downgrading ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  Downgrading…
-                </>
-              ) : (
-                "Downgrade to Core"
-              )}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
+  );
+}
+
+// ============================================
+// AddOnCard component
+// ============================================
+
+function AddOnCard({
+  icon: Icon,
+  name,
+  badge,
+  description,
+  highlights,
+  priceLabel,
+  priceMuted = false,
+  active,
+  onToggle,
+  recommended = false,
+}: {
+  icon: React.ElementType;
+  name: string;
+  badge: string;
+  description: string;
+  highlights?: string[];
+  priceLabel: string;
+  priceMuted?: boolean;
+  active: boolean;
+  onToggle: (value: boolean) => void;
+  recommended?: boolean;
+}) {
+  return (
+    <Card
+      className={cn(
+        "relative overflow-hidden p-4 sm:p-5 border-2 transition-all cursor-pointer",
+        active
+          ? "border-primary bg-primary/5"
+          : "border-border bg-background hover:border-primary/50"
+      )}
+      onClick={() => onToggle(!active)}
+    >
+      {recommended && (
+        <Badge
+          variant="secondary"
+          className={cn(
+            "pointer-events-none absolute right-3 top-3 z-10 text-[10px] font-semibold uppercase tracking-wider",
+            active && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/15 border-0"
+          )}
+        >
+          {active ? "Enabled" : "Add-on"}
+        </Badge>
+      )}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
+        {/* Left: icon, name, description */}
+        <div className="flex items-start gap-3 sm:flex-1 min-w-0">
+          <div
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+              active ? "bg-primary/10" : "bg-muted/60 dark:bg-muted"
+            )}
+          >
+            <Icon className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground")} />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-foreground">{name}</span>
+              <Badge variant="secondary" className="text-xs">
+                {badge}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">{description}</p>
+            {highlights && highlights.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {highlights.map((item) => (
+                  <li key={item} className="flex items-start gap-2">
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-xs text-muted-foreground">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        {/* Right: price + toggle (Apple configurator style) */}
+        <div className="flex items-center justify-between sm:justify-end gap-4 sm:shrink-0 sm:border-l sm:border-border/50 sm:pl-6">
+          <span className={cn("text-sm font-semibold tabular-nums", priceMuted && "text-muted-foreground")}>
+            {priceLabel}
+          </span>
+          <Switch
+            checked={active}
+            onCheckedChange={onToggle}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      </div>
+    </Card>
   );
 }

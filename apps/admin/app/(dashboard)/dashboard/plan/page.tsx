@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { toast } from "sonner";
 import {
   Send,
   Fingerprint,
-  Loader2,
   ExternalLink,
   Check,
   X,
@@ -15,15 +13,6 @@ import {
   Rocket,
 } from "lucide-react";
 import Link from "next/link";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -149,9 +138,6 @@ export default function PlanPage() {
   const [emailStats, setEmailStats] = useState<EmailStats | null>(null);
   const [verificationStats, setVerificationStats] = useState<VerificationStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [toggling, setToggling] = useState<string | null>(null);
-  const [subscribeAddOnType, setSubscribeAddOnType] = useState<string | null>(null);
-  const [cancelAddOnType, setCancelAddOnType] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<DetailSelection>("TRUESEND");
   const [loanCount, setLoanCount] = useState<number>(0);
 
@@ -201,41 +187,10 @@ export default function PlanPage() {
 
   const planName =
     subscription?.plan === "Core+"
-      ? "Core+"
+      ? "Core"
       : subscription?.plan === "Core"
         ? "Core"
         : "Free";
-  const trueSendPlanContext =
-    isTrueSendActive ? "CORE_PLUS" : subscription?.plan === "Core" ? "CORE" : "FREE";
-
-  const isCorePlus = planName === "Core+";
-  const planFeaturesSectionTitle = isCorePlus
-    ? "Included in your plan"
-    : "Not included in your plan";
-
-  const handleToggleAddOn = async (addOnType: string) => {
-    setToggling(addOnType);
-    try {
-      const res = await api.post<{ addOnType: string; status: string }>(
-        "/api/billing/add-ons/toggle",
-        { addOnType }
-      );
-      if (res.success && res.data) {
-        toast.success(
-          res.data.status === "ACTIVE"
-            ? "TrueIdentity activated successfully"
-            : "TrueIdentity cancelled"
-        );
-        fetchData();
-      } else {
-        toast.error(res.error || "Failed to toggle add-on");
-      }
-    } catch {
-      toast.error("Failed to toggle add-on");
-    } finally {
-      setToggling(null);
-    }
-  };
 
   if (loading) {
     return (
@@ -291,8 +246,8 @@ export default function PlanPage() {
                     Unlock your full plan
                   </h2>
                   <p className="text-muted-foreground mt-2">
-                    Subscribe to Core or Core+ to access loan management, compliance tools,
-                    schedules, and optional automated emails.
+                    Subscribe to Core to access loan management, compliance tools,
+                    schedules, and optional add-ons like TrueSend™.
                   </p>
                 </div>
                 <ul className="text-left space-y-3 text-sm text-muted-foreground max-w-sm mx-auto">
@@ -310,7 +265,7 @@ export default function PlanPage() {
                   </li>
                   <li className="flex gap-3 items-start">
                     <Check className="h-5 w-5 shrink-0 text-emerald-500 mt-0.5" />
-                    Core+ adds TrueSend™ — automated email delivery
+                    Add TrueSend™ as an add-on — automated email delivery
                   </li>
                 </ul>
                 <Button
@@ -337,21 +292,17 @@ export default function PlanPage() {
                   Your plan
                 </h2>
                 <p className="text-xl font-heading font-bold text-foreground flex items-center gap-2">
-                  {planName === "Core+" ? (
-                    <Rocket className="h-5 w-5 text-primary" />
-                  ) : planName === "Core" ? (
+                  {planName === "Core" ? (
                     <Zap className="h-5 w-5 text-primary" />
                   ) : null}
                   {planName} Plan
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {planName === "Core+"
-                    ? "Full loan management, compliance, schedules, and automated emails (TrueSend™) included."
-                    : planName === "Core"
-                      ? "Full loan management, compliance, and schedules. Upgrade to Core+ for automated emails."
-                      : "Subscribe to Core or Core+ to unlock the full platform."}
+                  {planName === "Core"
+                    ? "Full loan management, compliance, and schedules. Add TrueSend™ as an add-on for automated emails."
+                    : "Subscribe to Core to unlock the full platform."}
                 </p>
-                {(planName === "Core" || planName === "Core+") && (
+                {planName === "Core" && (
                   <LoanUsageBar used={loanCount} limit={LOANS_INCLUDED} truesendActive={isTrueSendActive} />
                 )}
                 <Button variant="outline" size="sm" asChild className="mt-4">
@@ -363,91 +314,75 @@ export default function PlanPage() {
               </CardContent>
             </Card>
 
-            {/* Plan features — title depends on Core vs Core+ */}
+            {/* Add-ons — TrueSend (billed with Core) + TrueIdentity (usage-based) */}
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                {planFeaturesSectionTitle}
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Add-ons
               </h2>
-              {!isCorePlus && (
-                <p className="text-sm text-muted-foreground mb-3">
-                  Upgrade to Core+ to unlock these features.
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground mb-3">
+                TrueSend™ is billed with your Core plan cycle. TrueIdentity™ is pay-per-use.
+                Manage add-ons on the <Link href="/dashboard/subscription" className="text-foreground hover:underline">Subscription</Link> page.
+              </p>
               <div className="space-y-2">
-                <Card
-                  className={`cursor-pointer transition-colors ${
-                    isTrueSendActive ? "border-l-4 border-l-emerald-500" : ""
-                  } ${selectedDetail === "TRUESEND" ? "ring-2 ring-primary/20" : ""}`}
-                  onClick={() => setSelectedDetail("TRUESEND")}
-                >
-                  <CardContent className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      <div
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                          isTrueSendActive ? "bg-emerald-500/20" : "bg-muted"
-                        }`}
-                      >
-                        {isTrueSendActive ? (
-                          <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                        ) : (
-                          <X className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-foreground">
-                            TrueSend™
-                          </span>
-                          <span
-                            className={`text-xs font-medium ${
-                              isTrueSendActive
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {isTrueSendActive ? "Enabled" : "Not enabled"}
-                          </span>
+                {/* TrueSend — add-on billed with Core */}
+                {planName === "Core" && (
+                  <Card
+                    className={`cursor-pointer transition-colors ${
+                      isTrueSendActive ? "border-l-4 border-l-emerald-500" : ""
+                    } ${selectedDetail === "TRUESEND" ? "ring-2 ring-primary/20" : ""}`}
+                    onClick={() => setSelectedDetail("TRUESEND")}
+                  >
+                    <CardContent className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                            isTrueSendActive ? "bg-emerald-500/20" : "bg-muted"
+                          }`}
+                        >
+                          {isTrueSendActive ? (
+                            <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <X className="h-4 w-4 text-muted-foreground" />
+                          )}
                         </div>
-                        <p className="text-sm text-muted-foreground mt-0.5">
-                          {isTrueSendActive
-                            ? "Auto-sends receipts, reminders, arrears & default notices."
-                            : trueSendPlanContext === "CORE"
-                              ? "Upgrade to Core+ to enable automated emails."
-                              : "Subscribe to Core+ to enable automated emails."}
-                        </p>
-                        {isTrueSendActive && emailStats && (
-                          <p className="text-xs text-muted-foreground mt-2">
-                            {formatNumber(emailStats.total, 0)} emails sent ·{" "}
-                            {formatTimeSaved(emailStats.total, MINS_PER_EMAIL)}{" "}
-                            saved
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-foreground">
+                              TrueSend™
+                            </span>
+                            <span
+                              className={`text-xs font-medium ${
+                                isTrueSendActive
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {isTrueSendActive ? "Enabled" : "Not enabled"}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            {isTrueSendActive
+                              ? "Auto-sends receipts, reminders, arrears & default notices. Billed with your Core plan."
+                              : "RM 50/month — billed with your Core plan cycle. Automated email delivery."}
                           </p>
-                        )}
+                          {isTrueSendActive && emailStats && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              {formatNumber(emailStats.total, 0)} emails sent ·{" "}
+                              {formatTimeSaved(emailStats.total, MINS_PER_EMAIL)}{" "}
+                              saved
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {!isTrueSendActive && (
                       <Button variant="outline" size="sm" asChild className="shrink-0">
                         <Link href="/dashboard/subscription">
-                          {trueSendPlanContext === "CORE"
-                            ? "Upgrade to Core+"
-                            : "Subscribe"}
+                          Manage
                           <ExternalLink className="h-3 w-3 ml-1.5" />
                         </Link>
                       </Button>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* Available add-ons — usage based */}
-            <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Available add-ons
-              </h2>
-              <p className="text-sm text-muted-foreground mb-3">
-                Pay per use — no monthly fee. Activate anytime.
-              </p>
-              <div className="space-y-2">
+                    </CardContent>
+                  </Card>
+                )}
                 <Card
                   className={`cursor-pointer transition-colors ${
                     isTrueIdentityActive ? "border-l-4 border-l-emerald-500" : ""
@@ -497,38 +432,12 @@ export default function PlanPage() {
                         )}
                       </div>
                     </div>
-                    {isTrueIdentityActive ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={toggling === "TRUEIDENTITY"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCancelAddOnType("TRUEIDENTITY");
-                        }}
-                        className="shrink-0"
-                      >
-                        {toggling === "TRUEIDENTITY" && (
-                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                        )}
-                        Deactivate
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        disabled={toggling === "TRUEIDENTITY"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSubscribeAddOnType("TRUEIDENTITY");
-                        }}
-                        className="shrink-0"
-                      >
-                        {toggling === "TRUEIDENTITY" && (
-                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                        )}
-                        Activate
-                      </Button>
-                    )}
+                    <Button variant="outline" size="sm" asChild className="shrink-0">
+                      <Link href="/dashboard/subscription">
+                        Manage
+                        <ExternalLink className="h-3 w-3 ml-1.5" />
+                      </Link>
+                    </Button>
                   </CardContent>
                 </Card>
               </div>
@@ -578,7 +487,7 @@ export default function PlanPage() {
                       </li>
                     </ul>
                     <p className="text-sm font-medium text-foreground">
-                      RM 50/month extra per extra block of 500 loans
+                      RM 50/month — billed with your Core plan cycle. +RM 50/month per extra block of 500 loans.
                     </p>
                     <Link
                       href="/dashboard/help?doc=add-ons/automated-emails"
@@ -638,88 +547,6 @@ export default function PlanPage() {
         </div>
         )}
 
-        {/* Activate confirmation (TrueIdentity only) */}
-        <AlertDialog
-          open={!!subscribeAddOnType}
-          onOpenChange={(open) => !open && setSubscribeAddOnType(null)}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Activate TrueIdentity™?</AlertDialogTitle>
-              <AlertDialogDescription asChild>
-                <div className="space-y-2">
-                  <p>
-                    TrueIdentity™ is free to activate — you only pay RM 4 per
-                    verification. No monthly fee.
-                  </p>
-                  <p>Do you want to proceed?</p>
-                </div>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={!!toggling}>Cancel</AlertDialogCancel>
-              <Button
-                disabled={!!toggling}
-                onClick={async () => {
-                  if (!subscribeAddOnType) return;
-                  await handleToggleAddOn(subscribeAddOnType);
-                  setSubscribeAddOnType(null);
-                }}
-              >
-                {toggling === subscribeAddOnType ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                    Activating…
-                  </>
-                ) : (
-                  "Activate"
-                )}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* Deactivate confirmation (TrueIdentity only) */}
-        <AlertDialog
-          open={!!cancelAddOnType}
-          onOpenChange={(open) => !open && setCancelAddOnType(null)}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Deactivate TrueIdentity™</AlertDialogTitle>
-              <AlertDialogDescription asChild>
-                <div className="space-y-2">
-                  <p>
-                    This will disable TrueIdentity™. You will no longer be
-                    able to verify borrowers' identities.
-                  </p>
-                  <p>Are you sure?</p>
-                </div>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={!!toggling}>Keep active</AlertDialogCancel>
-              <Button
-                variant="destructive"
-                disabled={!!toggling}
-                onClick={async () => {
-                  if (!cancelAddOnType) return;
-                  await handleToggleAddOn(cancelAddOnType);
-                  setCancelAddOnType(null);
-                }}
-              >
-                {toggling === cancelAddOnType ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                    Deactivating…
-                  </>
-                ) : (
-                  "Deactivate"
-                )}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     </RoleGate>
   );

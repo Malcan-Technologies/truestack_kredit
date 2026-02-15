@@ -7,6 +7,7 @@ import { requireAdmin } from '../../middleware/requireRole.js';
 import { nanoid } from 'nanoid';
 import { config } from '../../lib/config.js';
 import { AddOnService } from '../../lib/addOnService.js';
+import { derivePlanName, CORE_AMOUNT_CENTS, CORE_PLUS_AMOUNT_CENTS } from '../../lib/subscription.js';
 
 const router = Router();
 
@@ -26,9 +27,17 @@ const recordPaymentSchema = z.object({
  */
 router.get('/subscription', async (req, res, next) => {
   try {
-    const subscription = await prisma.subscription.findUnique({
-      where: { tenantId: req.tenantId },
-    });
+    const [subscription, tenant, truesendAddOn] = await Promise.all([
+      prisma.subscription.findUnique({ where: { tenantId: req.tenantId } }),
+      prisma.tenant.findUnique({
+        where: { id: req.tenantId },
+        select: { subscriptionStatus: true, subscriptionAmount: true },
+      }),
+      prisma.tenantAddOn.findUnique({
+        where: { tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' } },
+        select: { status: true },
+      }),
+    ]);
 
     if (!subscription) {
       return res.json({
@@ -37,11 +46,14 @@ router.get('/subscription', async (req, res, next) => {
       });
     }
 
+    const truesendActive = truesendAddOn?.status === 'ACTIVE';
+    const plan = tenant ? derivePlanName(tenant, truesendActive) : 'Core';
+
     res.json({
       success: true,
       data: {
         id: subscription.id,
-        plan: subscription.plan,
+        plan,
         status: subscription.status,
         currentPeriodStart: subscription.currentPeriodStart,
         currentPeriodEnd: subscription.currentPeriodEnd,
@@ -251,9 +263,12 @@ router.get('/events', async (req, res, next) => {
   }
 });
 
+const CORE_TRUESEND_AMOUNT_CENTS = CORE_PLUS_AMOUNT_CENTS;
+
 /**
  * Subscribe tenant (upgrade from FREE to PAID)
  * POST /api/billing/subscribe
+ * Body: { plan?: 'CORE' | 'CORE_TRUESEND' } — defaults to CORE
  */
 router.post('/subscribe', async (req, res, next) => {
   try {
@@ -263,26 +278,53 @@ router.post('/subscribe', async (req, res, next) => {
 
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.tenantId },
-      select: { subscriptionStatus: true },
+      select: { subscriptionStatus: true, subscriptionAmount: true },
     });
 
     if (!tenant) {
       throw new NotFoundError('Tenant');
     }
 
-    if (tenant.subscriptionStatus === 'PAID') {
+    const plan = (req.body as { plan?: string })?.plan === 'CORE_TRUESEND' ? 'CORE_TRUESEND' : 'CORE';
+    const subscriptionAmount = plan === 'CORE_TRUESEND' ? CORE_TRUESEND_AMOUNT_CENTS : CORE_AMOUNT_CENTS;
+
+    const currentAmount = tenant.subscriptionAmount ?? CORE_AMOUNT_CENTS;
+    const isUpgradeToCorePlus = plan === 'CORE_TRUESEND' && subscriptionAmount !== currentAmount;
+
+    if (tenant.subscriptionStatus === 'PAID' && !isUpgradeToCorePlus) {
       throw new BadRequestError('Tenant is already subscribed');
     }
+    if (tenant.subscriptionStatus === 'PAID' && currentAmount === CORE_TRUESEND_AMOUNT_CENTS && plan === 'CORE') {
+      throw new BadRequestError('To downgrade from Core+, please contact support');
+    }
 
-    // Update tenant subscription status
-    const updated = await prisma.tenant.update({
-      where: { id: req.tenantId },
-      data: {
-        subscriptionStatus: 'PAID',
-        subscriptionAmount: 49900, // RM 499 in cents
-        subscribedAt: new Date(),
-      },
-    });
+    // Update tenant subscription status and optionally enable TrueSend
+    const isNewSubscription = tenant.subscriptionStatus === 'FREE';
+    const [updated] = await prisma.$transaction([
+      prisma.tenant.update({
+        where: { id: req.tenantId },
+        data: {
+          subscriptionStatus: 'PAID',
+          subscriptionAmount,
+          ...(isNewSubscription ? { subscribedAt: new Date() } : {}),
+        },
+      }),
+      ...(plan === 'CORE_TRUESEND'
+        ? [
+            prisma.tenantAddOn.upsert({
+              where: {
+                tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' },
+              },
+              create: {
+                tenantId: req.tenantId!,
+                addOnType: 'TRUESEND',
+                status: 'ACTIVE',
+              },
+              update: { status: 'ACTIVE', enabledAt: new Date(), cancelledAt: null },
+            }),
+          ]
+        : []),
+    ]);
 
     res.json({
       success: true,
@@ -290,6 +332,7 @@ router.post('/subscribe', async (req, res, next) => {
         subscriptionStatus: updated.subscriptionStatus,
         subscriptionAmount: updated.subscriptionAmount,
         subscribedAt: updated.subscribedAt,
+        plan,
       },
     });
   } catch (error) {
@@ -431,14 +474,32 @@ router.post('/add-ons/toggle', async (req, res, next) => {
     if (existing) {
       // Toggle: ACTIVE -> CANCELLED, anything else -> ACTIVE
       const newStatus = existing.status === 'ACTIVE' ? 'CANCELLED' : 'ACTIVE';
-      const updated = await prisma.tenantAddOn.update({
-        where: { id: existing.id },
-        data: {
-          status: newStatus,
-          ...(newStatus === 'ACTIVE' ? { enabledAt: new Date(), cancelledAt: null } : { cancelledAt: new Date() }),
-        },
+      const isCancellingTrueSend = addOnType === 'TRUESEND' && newStatus === 'CANCELLED';
+
+      await prisma.$transaction(async (tx) => {
+        await tx.tenantAddOn.update({
+          where: { id: existing.id },
+          data: {
+            status: newStatus,
+            ...(newStatus === 'ACTIVE' ? { enabledAt: new Date(), cancelledAt: null } : { cancelledAt: new Date() }),
+          },
+        });
+
+        // When cancelling TrueSend, revert plan from Core+ to Core
+        if (isCancellingTrueSend) {
+          await tx.tenant.updateMany({
+            where: {
+              id: tenantId,
+              subscriptionAmount: CORE_PLUS_AMOUNT_CENTS,
+            },
+            data: { subscriptionAmount: CORE_AMOUNT_CENTS },
+          });
+        }
       });
 
+      const updated = await prisma.tenantAddOn.findUniqueOrThrow({
+        where: { id: existing.id },
+      });
       res.json({ success: true, data: { addOnType: updated.addOnType, status: updated.status } });
     } else {
       // Create new subscription

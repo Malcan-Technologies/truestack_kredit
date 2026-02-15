@@ -12,6 +12,7 @@ import {
   saveLogoFile, 
   deleteLogoFile 
 } from '../../lib/upload.js';
+import { derivePlanName } from '../../lib/subscription.js';
 // @ts-ignore - better-auth crypto module
 import { hashPassword } from 'better-auth/crypto';
 
@@ -202,23 +203,39 @@ const updateMemberSchema = z.object({
  */
 router.get('/current', async (req, res, next) => {
   try {
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: req.tenantId },
-      include: {
-        subscription: true,
-        _count: {
-          select: {
-            members: true,
-            borrowers: true,
-            loans: true,
+    const [tenant, truesendAddOn] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: req.tenantId },
+        include: {
+          subscription: true,
+          _count: {
+            select: {
+              members: true,
+              borrowers: true,
+              loans: true,
+            },
           },
         },
-      },
-    });
+      }),
+      prisma.tenantAddOn.findUnique({
+        where: { tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' } },
+        select: { status: true },
+      }),
+    ]);
 
     if (!tenant) {
       throw new NotFoundError('Tenant');
     }
+
+    // Derive plan name (Core/Core+) from subscriptionStatus, subscriptionAmount, and TrueSend
+    const truesendActive = truesendAddOn?.status === 'ACTIVE';
+    const derivedPlan =
+      tenant.subscriptionStatus === 'PAID'
+        ? derivePlanName(
+            { subscriptionStatus: tenant.subscriptionStatus, subscriptionAmount: tenant.subscriptionAmount },
+            truesendActive
+          )
+        : 'Free';
 
     res.json({
       success: true,
@@ -235,7 +252,7 @@ router.get('/current', async (req, res, next) => {
         logoUrl: tenant.logoUrl,
         status: tenant.status,
         subscription: tenant.subscription ? {
-          plan: tenant.subscription.plan,
+          plan: derivedPlan,
           status: tenant.subscription.status,
           currentPeriodEnd: tenant.subscription.currentPeriodEnd,
           gracePeriodEnd: tenant.subscription.gracePeriodEnd,

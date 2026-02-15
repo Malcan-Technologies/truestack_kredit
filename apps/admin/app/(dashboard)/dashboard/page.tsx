@@ -9,6 +9,7 @@ import {
   CircleDollarSign,
   BarChart3,
   ArrowUpRight,
+  Check,
   CheckCircle,
   Package,
   Bell,
@@ -16,6 +17,9 @@ import {
   Banknote,
   Send,
   Fingerprint,
+  Zap,
+  Rocket,
+  ExternalLink,
 } from "lucide-react";
 import {
   Bar,
@@ -198,6 +202,15 @@ const collectionChartConfig: ChartConfig = {
     color: "hsl(142, 71%, 45%)",
   },
 };
+
+/** Normalize plan string to match plan page logic */
+function getPlanName(plan: string | null | undefined): "Core+" | "Core" | "Free" {
+  if (!plan) return "Free";
+  const p = plan.toLowerCase();
+  if (p === "core+" || p === "core-plus" || p === "core_plus") return "Core+";
+  if (p === "core") return "Core";
+  return "Free";
+}
 
 const STATUS_COLORS: Record<string, string> = {
   ACTIVE: "hsl(0, 0%, 20%)",
@@ -447,69 +460,89 @@ export default function DashboardPage() {
           {/* Billing Status */}
           <Card className="lg:col-span-3">
             <CardContent className="py-4">
-              {tenant?.subscription ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary/80">
-                        <CreditCard className="h-5 w-5 text-muted-foreground" />
+              {(() => {
+                const planName = getPlanName(tenant?.subscription?.plan);
+                const hasPaidPlan = planName === "Core" || planName === "Core+";
+
+                if (!hasPaidPlan) {
+                  return (
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                          <Rocket className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-heading font-semibold text-foreground">
+                            Unlock your full plan
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-0.5">
+                            Subscribe to Core or Core+ to access loan management, compliance, and more.
+                          </p>
+                        </div>
                       </div>
+                      <Button asChild className="shrink-0 bg-black text-white hover:bg-black/90">
+                        <Link href="/dashboard/plan" className="inline-flex items-center">
+                          View plans
+                          <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+                        </Link>
+                      </Button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="font-heading font-semibold">
-                            {tenant.subscription.plan.charAt(0).toUpperCase() +
-                              tenant.subscription.plan.slice(1)}{" "}
-                            Plan
-                          </p>
+                          <Link
+                            href="/dashboard/plan"
+                            className="font-heading font-semibold hover:underline underline-offset-2 inline-flex items-center gap-2"
+                          >
+                            {planName === "Core+" ? (
+                              <Rocket className="h-4 w-4 text-primary" />
+                            ) : (
+                              <Zap className="h-4 w-4 text-primary" />
+                            )}
+                            {planName} Plan
+                          </Link>
                           <Badge
                             variant={
-                              tenant.subscription.status === "ACTIVE"
+                              tenant!.subscription!.status === "ACTIVE"
                                 ? "success"
-                                : tenant.subscription.status === "GRACE_PERIOD"
+                                : tenant!.subscription!.status === "GRACE_PERIOD"
                                   ? "warning"
                                   : "destructive"
                             }
                           >
-                            {tenant.subscription.status === "ACTIVE"
+                            {tenant!.subscription!.status === "ACTIVE"
                               ? "Active"
-                              : tenant.subscription.status === "GRACE_PERIOD"
+                              : tenant!.subscription!.status === "GRACE_PERIOD"
                                 ? "Grace Period"
-                                : tenant.subscription.status}
+                                : tenant!.subscription!.status}
                           </Badge>
                         </div>
                         <p className="text-base text-muted mt-0.5">
-                          {tenant.subscription.status === "GRACE_PERIOD"
-                            ? `Grace period ends ${formatDate(tenant.subscription.gracePeriodEnd!)}`
-                            : `Renews ${formatDate(tenant.subscription.currentPeriodEnd)}`}
+                          {tenant!.subscription!.status === "GRACE_PERIOD"
+                            ? `Grace period ends ${formatDate(tenant!.subscription!.gracePeriodEnd!)}`
+                            : `Renews ${formatDate(tenant!.subscription!.currentPeriodEnd)}`}
                         </p>
                       </div>
+                      <div className="hidden sm:flex items-center">
+                        <BillingCountdown
+                          date={
+                            tenant!.subscription!.status === "GRACE_PERIOD"
+                              ? tenant!.subscription!.gracePeriodEnd!
+                              : tenant!.subscription!.currentPeriodEnd
+                          }
+                          isGrace={tenant!.subscription!.status === "GRACE_PERIOD"}
+                        />
+                      </div>
                     </div>
-                    <div className="hidden sm:flex items-center gap-6">
-                      {/* Loan usage */}
-                      <LoanUsage
-                        used={stats?.kpiCards.totalLoans || 0}
-                        limit={500}
-                      />
-                      <div className="h-8 w-px bg-border" />
-                      <BillingCountdown
-                        date={
-                          tenant.subscription.status === "GRACE_PERIOD"
-                            ? tenant.subscription.gracePeriodEnd!
-                            : tenant.subscription.currentPeriodEnd
-                        }
-                        isGrace={tenant.subscription.status === "GRACE_PERIOD"}
-                      />
-                    </div>
+                    <AddOnIndicators addOns={addOns} />
                   </div>
-                  {/* Add-ons row */}
-                  <AddOnIndicators addOns={addOns} />
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 text-muted">
-                  <CreditCard className="h-5 w-5" />
-                  <p className="text-sm">No subscription configured</p>
-                </div>
-              )}
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -1288,8 +1321,8 @@ function AddOnIndicators({ addOns }: { addOns: AddOnStatus[] }) {
   const trueIdentityActive = addOns.some(a => a.addOnType === "TRUEIDENTITY" && a.status === "ACTIVE");
 
   const items = [
-    { label: "TrueSend", icon: Send, active: trueSendActive, color: "text-purple-500", bg: "bg-purple-500/10" },
-    { label: "TrueIdentity", icon: Fingerprint, active: trueIdentityActive, color: "text-emerald-700 dark:text-emerald-500", bg: "bg-emerald-500/10" },
+    { label: "TrueSend™", icon: Send, active: trueSendActive },
+    { label: "TrueIdentity™", icon: Fingerprint, active: trueIdentityActive },
   ];
 
   return (
@@ -1298,60 +1331,18 @@ function AddOnIndicators({ addOns }: { addOns: AddOnStatus[] }) {
       {items.map((item) => (
         <Link
           key={item.label}
-          href="/dashboard/add-ons"
-          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+          href="/dashboard/plan"
+          className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors ${
             item.active
-              ? `border-transparent ${item.bg} ${item.color} font-medium`
-              : "border-dashed border-border/70 text-muted-foreground/50 hover:text-muted-foreground hover:border-border"
+              ? "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+              : "bg-neutral-100 dark:bg-neutral-800/40 text-muted-foreground/60"
           }`}
         >
-          <item.icon className="h-3 w-3" />
+          <item.icon className="h-3 w-3 shrink-0" />
           {item.label}
-          {item.active ? (
-            <CheckCircle className="h-3 w-3 ml-0.5" />
-          ) : (
-            <span className="text-xs opacity-60">Off</span>
-          )}
+          {item.active && <Check className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />}
         </Link>
       ))}
-    </div>
-  );
-}
-
-function LoanUsage({ used, limit }: { used: number; limit: number }) {
-  const percentage = Math.min((used / limit) * 100, 100);
-  const isNearLimit = percentage >= 80;
-  const isAtLimit = percentage >= 100;
-
-  return (
-    <div className="text-right min-w-[100px]">
-      <div className="flex items-baseline justify-end gap-1">
-        <span
-          className={`text-lg font-heading font-bold tabular-nums ${
-            isAtLimit
-              ? "text-destructive"
-              : isNearLimit
-                ? "text-warning"
-                : "text-foreground"
-          }`}
-        >
-          {used}
-        </span>
-        <span className="text-xs text-muted">/ {limit}</span>
-      </div>
-      <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden mt-1">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${
-            isAtLimit
-              ? "bg-destructive"
-              : isNearLimit
-                ? "bg-warning"
-                : "bg-foreground"
-          }`}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-      <p className="text-xs text-muted mt-0.5">loans used</p>
     </div>
   );
 }

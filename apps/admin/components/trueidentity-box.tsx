@@ -74,7 +74,7 @@ export function TrueIdentityBox({ borrowerId }: TrueIdentityBoxProps) {
               Subscribe to TrueIdentity to verify borrower identity via QR-based IC capture and face liveness check.
             </p>
             <Button asChild variant="outline" size="sm" className="gap-1.5">
-              <Link href="/dashboard/add-ons">
+              <Link href="/dashboard/plan">
                 <Sparkles className="h-3.5 w-3.5" />
                 Learn More
               </Link>

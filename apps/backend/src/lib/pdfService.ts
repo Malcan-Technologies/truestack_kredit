@@ -68,6 +68,7 @@ interface Signatory {
   // Corporate director info (filled in the signature space area)
   directorName?: string;
   directorIc?: string;
+  directorPosition?: string; // Designation, defaults to "Director"
 }
 
 interface JadualRow {
@@ -398,6 +399,7 @@ function getBorrowerSignatories(loan: LoanForAgreement, borrowerName: string): S
       label: 'No. Pendaftaran Syarikat',
       directorName: d.name,
       directorIc: d.icNumber,
+      directorPosition: d.position?.trim() || 'Director',
     }));
   }
 
@@ -454,10 +456,11 @@ function drawBorrowerSigBlock(doc: PDFKit.PDFDocument, sig: Signatory, y: number
     doc.save().lineWidth(0.4).dash(1.5, { space: 2 });
     doc.moveTo(rightX, sigLineY).lineTo(rightX + rightW, sigLineY).stroke('#000');
     doc.undash().restore();
-    // Director name + IC below the signature line
+    // Director name + IC + Designation below the signature line
     doc.font(FR).fontSize(FS_SMALL);
     doc.text(sig.directorName, rightX, sigLineY + 3, { width: rightW, align: 'center' });
     doc.text(`No. K.P.: ${sig.directorIc || ''}`, rightX, doc.y + 1, { width: rightW, align: 'center' });
+    doc.text(`Designation: ${sig.directorPosition || 'Director'}`, rightX, doc.y + 1, { width: rightW, align: 'center' });
     doc.font(FR).fontSize(FS_BODY); // restore
   }
 

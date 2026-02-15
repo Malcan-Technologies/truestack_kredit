@@ -3192,7 +3192,7 @@ export default function LoanDetailPage() {
                   <TrueSendBadge showTooltip={false} />
                   <p>
                     If your company has subscribed to the{" "}
-                    <Link href="/dashboard/add-ons" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-muted-foreground">
+                    <Link href="/dashboard/plan" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-muted-foreground">
                       TrueSend
                       <ExternalLink className="h-3 w-3" />
                     </Link>{" "}
@@ -3248,7 +3248,7 @@ export default function LoanDetailPage() {
                   <TrueSendBadge showTooltip={false} />
                   <p>
                     If your company has subscribed to the{" "}
-                    <Link href="/dashboard/add-ons" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-muted-foreground">
+                    <Link href="/dashboard/plan" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-muted-foreground">
                       TrueSend
                       <ExternalLink className="h-3 w-3" />
                     </Link>{" "}

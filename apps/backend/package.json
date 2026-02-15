@@ -11,7 +11,8 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed-500-loans": "tsx scripts/seed-500-loans.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.982.0",

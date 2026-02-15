@@ -26,7 +26,7 @@ import {
   Lock,
   ChevronsLeft,
   ChevronsRight,
-  Puzzle,
+  Layers,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -93,7 +93,7 @@ const navigationSections: NavSection[] = [
     items: [
       { name: "Compliance", href: "/dashboard/compliance", icon: Shield },
       { name: "Billing", href: "/dashboard/billing", icon: Wallet },
-      { name: "Add-ons", href: "/dashboard/add-ons", icon: Puzzle },
+      { name: "Plan", href: "/dashboard/plan", icon: Layers },
       { name: "Promotions", href: "/dashboard/promotions", icon: Megaphone },
     ],
   },

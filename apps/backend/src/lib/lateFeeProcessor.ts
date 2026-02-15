@@ -28,6 +28,7 @@ import { ONE_DAY_MS, calculateDaysOverdueMalaysia, getMalaysiaDateRange, getMala
 
 // Advisory lock ID for late fee processing
 const LATE_FEE_LOCK_ID = 789012345;
+const LOAN_PROCESSING_CONCURRENCY = 8;
 
 // ============================================
 // Processing Result Types
@@ -55,6 +56,26 @@ interface LoanProcessingDetail {
   daysBackfilled: number;
   statusChange?: string;
   letterGenerated?: string;
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let cursor = 0;
+
+  const runners = Array.from({ length: limit }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor++;
+      await worker(items[index]);
+    }
+  });
+
+  await Promise.all(runners);
 }
 
 // ============================================
@@ -127,11 +148,6 @@ export class LateFeeProcessor {
             },
           },
           include: {
-            allocations: true,
-            lateFeeEntries: {
-              orderBy: { accrualDate: 'desc' },
-              take: 1, // Get the most recent entry to know where we left off
-            },
             scheduleVersion: {
               include: {
                 loan: {
@@ -139,15 +155,6 @@ export class LateFeeProcessor {
                     product: true,
                     borrower: true,
                     tenant: true,
-                    scheduleVersions: {
-                      orderBy: { version: 'desc' },
-                      take: 1,
-                      include: {
-                        repayments: {
-                          orderBy: { dueDate: 'asc' },
-                        },
-                      },
-                    },
                   },
                 },
               },
@@ -165,24 +172,21 @@ export class LateFeeProcessor {
           loanMap.get(loanId)!.push(rep);
         }
 
-        // 5. Process each loan
-        for (const [loanId, repayments] of loanMap) {
+        // 5. Process each loan with bounded concurrency
+        const loanEntries = Array.from(loanMap.entries());
+        await runWithConcurrency(loanEntries, LOAN_PROCESSING_CONCURRENCY, async ([loanId, repayments]) => {
           try {
             const loan = repayments[0].scheduleVersion.loan;
             const product = loan.product;
             const latePaymentRate = toSafeNumber(product.latePaymentRate);
             
-            if (latePaymentRate <= 0) continue; // No late fee configured
+            if (latePaymentRate <= 0) return; // No late fee configured
 
             const rate = dailyLateFeeRate(latePaymentRate);
 
             let loanTotalFee = 0;
             let loanFeesCount = 0;
             let loanDaysBackfilled = 0;
-
-            // Find the repayment number for each overdue repayment
-            const currentSchedule = loan.scheduleVersions[0];
-            const allRepayments = currentSchedule?.repayments || [];
 
             for (const repayment of repayments) {
               try {
@@ -232,6 +236,16 @@ export class LateFeeProcessor {
                   );
                   let allocationCursor = 0;
                   let paidBeforeAccrual = 0;
+                  const feeEntries: Array<{
+                    tenantId: string;
+                    loanId: string;
+                    repaymentId: string;
+                    accrualDate: Date;
+                    daysOverdue: number;
+                    outstandingAmount: number;
+                    dailyRate: number;
+                    feeAmount: number;
+                  }> = [];
 
                   for (const accrualDate of datesToCharge) {
                     while (
@@ -251,30 +265,27 @@ export class LateFeeProcessor {
                     const daysOverdue = calculateDaysOverdueMalaysia(lockedRepayment.dueDate, accrualDate);
                     if (daysOverdue <= 0) continue;
 
-                    try {
-                      await tx.lateFeeEntry.create({
-                        data: {
-                          tenantId: loan.tenantId,
-                          loanId: loan.id,
-                          repaymentId: lockedRepayment.id,
-                          accrualDate,
-                          daysOverdue,
-                          outstandingAmount: outstandingForDay,
-                          dailyRate: rate,
-                          feeAmount: dailyFee,
-                        },
-                      });
+                    feeEntries.push({
+                      tenantId: loan.tenantId,
+                      loanId: loan.id,
+                      repaymentId: lockedRepayment.id,
+                      accrualDate,
+                      daysOverdue,
+                      outstandingAmount: outstandingForDay,
+                      dailyRate: rate,
+                      feeAmount: dailyFee,
+                    });
 
-                      repaymentFeeTotal = safeAdd(repaymentFeeTotal, dailyFee);
-                      repaymentFeesCount++;
-                      repaymentDaysBackfilled++;
-                    } catch (err: unknown) {
-                      // P2002 = unique constraint violation → already charged this day, skip
-                      if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'P2002') {
-                        continue;
-                      }
-                      throw err;
-                    }
+                    repaymentFeeTotal = safeAdd(repaymentFeeTotal, dailyFee);
+                    repaymentFeesCount++;
+                    repaymentDaysBackfilled++;
+                  }
+
+                  if (feeEntries.length > 0) {
+                    await tx.lateFeeEntry.createMany({
+                      data: feeEntries,
+                      skipDuplicates: true,
+                    });
                   }
 
                   if (repaymentFeeTotal > 0) {
@@ -341,6 +352,16 @@ export class LateFeeProcessor {
                   where: { id: { in: repayments.map(r => r.id) } },
                   include: { allocations: true },
                 });
+                const latestSchedule = await prisma.loanScheduleVersion.findFirst({
+                  where: { loanId },
+                  orderBy: { version: 'desc' },
+                  include: {
+                    repayments: {
+                      orderBy: { dueDate: 'asc' },
+                    },
+                  },
+                });
+                const allRepayments = latestSchedule?.repayments || [];
 
                 const overdueDetails = freshRepayments.map(r => {
                   const repIdx = allRepayments.findIndex(ar => ar.id === r.id);
@@ -501,7 +522,7 @@ export class LateFeeProcessor {
           } catch (loanErr) {
             errors.push(`Loan ${loanId}: ${loanErr instanceof Error ? loanErr.message : 'Unknown error'}`);
           }
-        }
+        });
 
         // 6. Write processing log
         await prisma.lateFeeProcessingLog.create({

@@ -13,6 +13,29 @@ import { TrueSendService } from '../modules/notifications/trueSendService.js';
 import { toSafeNumber } from './math.js';
 import { addMalaysiaDays, getMalaysiaDateString, getMalaysiaStartOfDay } from './malaysiaTime.js';
 
+const TENANT_PROCESSING_CONCURRENCY = 5;
+const REMINDER_SENDING_CONCURRENCY = 10;
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let cursor = 0;
+
+  const runners = Array.from({ length: limit }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor++;
+      await worker(items[index]);
+    }
+  });
+
+  await Promise.all(runners);
+}
+
 export class PaymentReminderProcessor {
   /**
    * Process payment reminders for all tenants with TrueSend active.
@@ -29,6 +52,15 @@ export class PaymentReminderProcessor {
     let remindersSent = 0;
 
     try {
+      // Calculate deterministic MYT windows and target dates once per run
+      const reminderDayStart = getMalaysiaStartOfDay(new Date());
+      const threeDaysTarget = addMalaysiaDays(reminderDayStart, 3);
+      const oneDayTarget = addMalaysiaDays(reminderDayStart, 1);
+      const threeDaysEnd = addMalaysiaDays(threeDaysTarget, 1);
+      const oneDayEnd = addMalaysiaDays(oneDayTarget, 1);
+      const threeDaysStr = getMalaysiaDateString(threeDaysTarget);
+      const oneDayStr = getMalaysiaDateString(oneDayTarget);
+
       // Find all tenants with active TrueSend add-on
       const trueSendAddOns = await prisma.tenantAddOn.findMany({
         where: {
@@ -38,29 +70,45 @@ export class PaymentReminderProcessor {
         select: { tenantId: true },
       });
 
-      for (const { tenantId } of trueSendAddOns) {
+      await runWithConcurrency(trueSendAddOns, TENANT_PROCESSING_CONCURRENCY, async ({ tenantId }) => {
         try {
           // Verify add-on is truly active (subscription check too)
           const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-          if (!isActive) continue;
+          if (!isActive) return;
 
           tenantsChecked++;
 
-          // Calculate deterministic MYT windows and target dates
-          const reminderDayStart = getMalaysiaStartOfDay(new Date());
-          const threeDaysTarget = addMalaysiaDays(reminderDayStart, 3);
-          const oneDayTarget = addMalaysiaDays(reminderDayStart, 1);
-          const threeDaysStr = getMalaysiaDateString(threeDaysTarget);
-          const oneDayStr = getMalaysiaDateString(oneDayTarget);
-
-          // Find active/in-arrears loans for this tenant with upcoming PENDING repayments
+          // Find active/in-arrears loans for this tenant with relevant upcoming repayments
           const loans = await prisma.loan.findMany({
             where: {
               tenantId,
               status: { in: ['ACTIVE', 'IN_ARREARS'] },
+              scheduleVersions: {
+                some: {
+                  repayments: {
+                    some: {
+                      status: { in: ['PENDING', 'PARTIAL'] },
+                      OR: [
+                        { dueDate: { gte: threeDaysTarget, lt: threeDaysEnd } },
+                        { dueDate: { gte: oneDayTarget, lt: oneDayEnd } },
+                      ],
+                    },
+                  },
+                },
+              },
             },
             include: {
               borrower: { select: { id: true, email: true, name: true } },
+              tenant: {
+                select: {
+                  name: true,
+                  logoUrl: true,
+                  registrationNumber: true,
+                  email: true,
+                  contactNumber: true,
+                  businessAddress: true,
+                },
+              },
               scheduleVersions: {
                 orderBy: { version: 'desc' },
                 take: 1,
@@ -68,6 +116,10 @@ export class PaymentReminderProcessor {
                   repayments: {
                     where: {
                       status: { in: ['PENDING', 'PARTIAL'] },
+                      OR: [
+                        { dueDate: { gte: threeDaysTarget, lt: threeDaysEnd } },
+                        { dueDate: { gte: oneDayTarget, lt: oneDayEnd } },
+                      ],
                     },
                     orderBy: { dueDate: 'asc' },
                   },
@@ -75,6 +127,14 @@ export class PaymentReminderProcessor {
               },
             },
           });
+
+          const reminderJobs: Array<{
+            loan: (typeof loans)[number];
+            repayment: (typeof loans)[number]['scheduleVersions'][number]['repayments'][number];
+            milestoneNumber: number;
+            daysUntilDue: number;
+            reminderType: 'DUE_IN_3_DAYS' | 'DUE_IN_1_DAY';
+          }> = [];
 
           for (const loan of loans) {
             if (!loan.borrower.email) continue;
@@ -98,55 +158,67 @@ export class PaymentReminderProcessor {
               }
 
               if (daysUntilDue === null || reminderType === null) continue;
-
-              // Deterministic de-dup guard with DB-level uniqueness
-              let dispatchId: string | null = null;
-              try {
-                const dispatch = await prisma.paymentReminderDispatch.create({
-                  data: {
-                    tenantId,
-                    loanId: loan.id,
-                    repaymentId: repayment.id,
-                    reminderType,
-                    reminderDateMYT: reminderDayStart,
-                  },
-                });
-                dispatchId = dispatch.id;
-              } catch (error) {
-                if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-                  continue;
-                }
-                throw error;
-              }
-
-              // Calculate milestone number (1-based index across all repayments)
-              const milestoneNumber = i + 1;
-              const amount = toSafeNumber(repayment.totalDue);
-
-              try {
-                await TrueSendService.sendPaymentReminder(
-                  tenantId,
-                  loan.id,
-                  repayment.dueDate,
-                  amount,
-                  milestoneNumber,
-                  daysUntilDue
-                );
-                remindersSent++;
-              } catch (error) {
-                if (dispatchId) {
-                  await prisma.paymentReminderDispatch.delete({ where: { id: dispatchId } }).catch(() => undefined);
-                }
-                const msg = error instanceof Error ? error.message : 'Unknown error';
-                errors.push(`Loan ${loan.id}: ${msg}`);
-              }
+              reminderJobs.push({
+                loan,
+                repayment,
+                milestoneNumber: i + 1,
+                daysUntilDue,
+                reminderType,
+              });
             }
           }
+
+          await runWithConcurrency(reminderJobs, REMINDER_SENDING_CONCURRENCY, async (job) => {
+            const { loan, repayment, milestoneNumber, daysUntilDue, reminderType } = job;
+            // Deterministic de-dup guard with DB-level uniqueness
+            let dispatchId: string | null = null;
+            try {
+              const dispatch = await prisma.paymentReminderDispatch.create({
+                data: {
+                  tenantId,
+                  loanId: loan.id,
+                  repaymentId: repayment.id,
+                  reminderType,
+                  reminderDateMYT: reminderDayStart,
+                },
+              });
+              dispatchId = dispatch.id;
+            } catch (error) {
+              if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                return;
+              }
+              throw error;
+            }
+
+            const amount = toSafeNumber(repayment.totalDue);
+
+            try {
+              await TrueSendService.sendPaymentReminderWithContext({
+                tenantId,
+                loanId: loan.id,
+                borrowerId: loan.borrower.id,
+                recipientEmail: loan.borrower.email!,
+                recipientName: loan.borrower.name,
+                tenant: loan.tenant,
+                dueDate: repayment.dueDate,
+                amount,
+                milestoneNumber,
+                daysUntilDue,
+              });
+              remindersSent++;
+            } catch (error) {
+              if (dispatchId) {
+                await prisma.paymentReminderDispatch.delete({ where: { id: dispatchId } }).catch(() => undefined);
+              }
+              const msg = error instanceof Error ? error.message : 'Unknown error';
+              errors.push(`Loan ${loan.id}: ${msg}`);
+            }
+          });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Unknown error';
           errors.push(`Tenant ${tenantId}: ${msg}`);
         }
-      }
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       errors.push(`Global: ${msg}`);

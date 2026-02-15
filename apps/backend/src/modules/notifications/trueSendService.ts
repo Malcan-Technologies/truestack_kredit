@@ -55,6 +55,8 @@ interface TenantEmailInfo {
   businessAddress?: string | null;
 }
 
+const RESEND_REQUEST_TIMEOUT_MS = 20_000;
+
 async function buildEmailWrapper(tenant: TenantEmailInfo, content: string): Promise<string> {
   const tenantName = tenant.name;
 
@@ -134,6 +136,27 @@ function formatDate(date: Date): string {
   }).format(date);
 }
 
+async function sendResendRequest(apiKey: string, payload: Record<string, unknown>): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, RESEND_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // ============================================
 // TrueSend Service
 // ============================================
@@ -205,19 +228,12 @@ export class TrueSendService {
         }
       }
 
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: `${config.email.fromName} <${config.email.fromAddress}>`,
-          to: recipientEmail,
-          subject,
-          html: htmlBody,
-          ...(resendAttachments.length > 0 ? { attachments: resendAttachments } : {}),
-        }),
+      const response = await sendResendRequest(apiKey, {
+        from: `${config.email.fromName} <${config.email.fromAddress}>`,
+        to: recipientEmail,
+        subject,
+        html: htmlBody,
+        ...(resendAttachments.length > 0 ? { attachments: resendAttachments } : {}),
       });
 
       if (!response.ok) {
@@ -277,28 +293,37 @@ export class TrueSendService {
   /**
    * Payment Reminder — sent 3 days and 1 day before a milestone due date
    */
-  static async sendPaymentReminder(
-    tenantId: string,
-    loanId: string,
-    dueDate: Date,
-    amount: number,
-    milestoneNumber: number,
-    daysUntilDue: number
-  ): Promise<boolean> {
-    // Check add-on
-    const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return false;
-
-    const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+  static async sendPaymentReminderWithContext(params: {
+    tenantId: string;
+    loanId: string;
+    borrowerId?: string;
+    recipientEmail: string;
+    recipientName: string;
+    tenant: TenantEmailInfo;
+    dueDate: Date;
+    amount: number;
+    milestoneNumber: number;
+    daysUntilDue: number;
+  }): Promise<boolean> {
+    const {
+      tenantId,
+      loanId,
+      borrowerId,
+      recipientEmail,
+      recipientName,
+      tenant,
+      dueDate,
+      amount,
+      milestoneNumber,
+      daysUntilDue,
+    } = params;
 
     const amountFormatted = formatCurrency(safeRound(amount, 2));
     const dueDateFormatted = formatDate(dueDate);
-    const tenantName = loan.tenant.name;
 
     const content = `
       <h2>Payment Reminder</h2>
-      <p>Dear ${loan.borrower.name},</p>
+      <p>Dear ${recipientName},</p>
       <p>This is a friendly reminder that your loan repayment is due ${daysUntilDue === 1 ? '<strong>tomorrow</strong>' : `in <strong>${daysUntilDue} days</strong>`}.</p>
       <div class="highlight">
         <table class="details">
@@ -315,12 +340,41 @@ export class TrueSendService {
     return await this.sendEmail({
       tenantId,
       loanId,
-      borrowerId: loan.borrowerId,
+      borrowerId,
       emailType: 'PAYMENT_REMINDER',
+      recipientEmail,
+      recipientName,
+      subject: `Payment Reminder — ${amountFormatted} due ${dueDateFormatted}`,
+      htmlBody: await buildEmailWrapper(tenant, content),
+    });
+  }
+
+  static async sendPaymentReminder(
+    tenantId: string,
+    loanId: string,
+    dueDate: Date,
+    amount: number,
+    milestoneNumber: number,
+    daysUntilDue: number
+  ): Promise<boolean> {
+    // Check add-on
+    const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
+    if (!isActive) return false;
+
+    const loan = await this.getLoanContext(tenantId, loanId);
+    if (!loan || !loan.borrower.email) return false;
+
+    return await this.sendPaymentReminderWithContext({
+      tenantId,
+      loanId,
+      borrowerId: loan.borrowerId ?? undefined,
       recipientEmail: loan.borrower.email,
       recipientName: loan.borrower.name,
-      subject: `Payment Reminder — ${amountFormatted} due ${dueDateFormatted}`,
-      htmlBody: await buildEmailWrapper(loan.tenant, content),
+      tenant: loan.tenant,
+      dueDate,
+      amount,
+      milestoneNumber,
+      daysUntilDue,
     });
   }
 
@@ -731,19 +785,12 @@ export class TrueSendService {
         <p>If you have any questions about this notice, please contact ${tenantInfo.name} directly.</p>
       `);
 
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: `${config.email.fromName} <${config.email.fromAddress}>`,
-          to: emailLog.recipientEmail,
-          subject: `[Resent] ${emailLog.subject}`,
-          html: htmlBody,
-          ...(attachments ? { attachments } : {}),
-        }),
+      const response = await sendResendRequest(apiKey, {
+        from: `${config.email.fromName} <${config.email.fromAddress}>`,
+        to: emailLog.recipientEmail,
+        subject: `[Resent] ${emailLog.subject}`,
+        html: htmlBody,
+        ...(attachments ? { attachments } : {}),
       });
 
       if (!response.ok) {

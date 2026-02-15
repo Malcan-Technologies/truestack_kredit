@@ -711,6 +711,7 @@ model LoanRepayment {
   @@index([scheduleVersionId])
   @@index([dueDate])
   @@index([status])
+  @@index([status, dueDate])
 }
 
 // A payment transaction represents a single payment made by a borrower

@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 
+const s3Bucket = process.env.S3_BUCKET || "truekredit-uploads-prod";
+const awsRegion = process.env.AWS_REGION || "ap-southeast-5";
+
 const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
@@ -10,6 +13,16 @@ const nextConfig: NextConfig = {
         hostname: "localhost",
         port: "4000",
         pathname: "/uploads/**",
+      },
+      {
+        protocol: "https",
+        hostname: `${s3Bucket}.s3.${awsRegion}.amazonaws.com`,
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: `${s3Bucket}.s3.amazonaws.com`,
+        pathname: "/**",
       },
     ],
   },

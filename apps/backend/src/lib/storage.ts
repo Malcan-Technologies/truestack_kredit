@@ -5,7 +5,13 @@
 
 import fs from 'fs';
 import path from 'path';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  type S3ClientConfig,
+} from '@aws-sdk/client-s3';
 import { config } from './config.js';
 
 // Storage configuration
@@ -17,17 +23,33 @@ let s3Client: S3Client | null = null;
 
 function getS3Client(): S3Client {
   if (!s3Client) {
-    if (!config.storage.s3.accessKey || !config.storage.s3.secretKey) {
-      throw new Error('S3 credentials not configured');
-    }
-    s3Client = new S3Client({
+    const accessKey = config.storage.s3.accessKey;
+    const secretKey = config.storage.s3.secretKey;
+    const hasStaticCredentials = Boolean(accessKey && secretKey);
+    const hasCustomEndpoint = Boolean(config.storage.s3.endpoint);
+
+    const clientConfig: S3ClientConfig = {
       region: process.env.AWS_REGION || 'ap-southeast-1',
-      endpoint: config.storage.s3.endpoint,
-      credentials: {
-        accessKeyId: config.storage.s3.accessKey,
-        secretAccessKey: config.storage.s3.secretKey,
-      },
-    });
+    };
+
+    if (hasCustomEndpoint) {
+      clientConfig.endpoint = config.storage.s3.endpoint;
+      // MinIO/local S3-compatible providers generally require path-style requests.
+      clientConfig.forcePathStyle = true;
+    }
+
+    if (accessKey && secretKey) {
+      clientConfig.credentials = {
+        accessKeyId: accessKey,
+        secretAccessKey: secretKey,
+      };
+    } else if (hasCustomEndpoint) {
+      throw new Error('S3 custom endpoint requires S3_ACCESS_KEY and S3_SECRET_KEY');
+    }
+
+    // When explicit credentials are absent, AWS SDK falls back to the default
+    // provider chain (ECS task role / EC2 role / environment credentials).
+    s3Client = new S3Client(clientConfig);
   }
   return s3Client;
 }

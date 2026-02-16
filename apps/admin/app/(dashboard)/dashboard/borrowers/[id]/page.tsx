@@ -1238,10 +1238,10 @@ export default function BorrowerDetailPage() {
                 return (
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="rounded-lg border border-border bg-secondary p-3 space-y-2">
-                        <p className="text-xs text-muted-foreground mb-1">Risk Profile</p>
-                        <Badge variant={performanceMeta.variant}>{performanceMeta.label}</Badge>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="rounded-lg border border-border bg-secondary p-3">
+                        <p className="text-xs text-muted-foreground mb-2">Risk Profile</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={performanceMeta.variant}>{performanceMeta.label}</Badge>
                           {tags.length > 0 ? (
                             tags.map((tag) => (
                               <Badge key={tag} variant="outline">{tag}</Badge>

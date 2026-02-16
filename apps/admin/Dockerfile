@@ -28,6 +28,10 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV BACKEND_URL=${BACKEND_URL}
 
+# Admin auth route uses Prisma via Better Auth; generate client in this image.
+RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" \
+  npx prisma generate --schema=/app/apps/backend/prisma/schema.prisma
+
 RUN npm run build
 
 FROM base AS runner

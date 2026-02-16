@@ -523,6 +523,9 @@ export default function EditProductPage() {
                 </div>
               </div>
 
+              {/* Divider */}
+              <div className="border-t border-border" />
+
               {/* Loan Schedule Type */}
               <div className="space-y-3 p-4 border rounded-lg">
                 <Label>Loan Schedule Type *</Label>

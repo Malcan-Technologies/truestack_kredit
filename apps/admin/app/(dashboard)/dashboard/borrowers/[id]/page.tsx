@@ -506,13 +506,13 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
 
   return (
     <div className="flex gap-4">
-      <div className="flex flex-col items-center">
+      <div className="flex flex-col items-center shrink-0">
         <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
           <Icon className="h-4 w-4 text-foreground" />
         </div>
         <div className="w-px flex-1 bg-border mt-2" />
       </div>
-      <div className="flex-1 pb-6">
+      <div className="flex-1 min-w-0 pb-6">
         <div className="flex items-center gap-2 mb-1">
           <span className="font-medium text-foreground">{actionInfo.label}</span>
           <span className="text-xs text-muted-foreground">
@@ -520,21 +520,21 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </span>
         </div>
         {event.user && (
-          <p className="text-sm text-muted-foreground mb-2">
+          <p className="text-sm text-muted-foreground mb-2 break-words">
             by {event.user.name || event.user.email}
           </p>
         )}
         {changes && changes.length > 0 && (
-          <div className="bg-secondary border border-border rounded-lg p-3 space-y-2">
+          <div className="bg-secondary border border-border rounded-lg p-3 space-y-2 min-w-0">
             {changes.map((change, idx) => (
-              <div key={idx} className="text-xs space-y-0.5">
+              <div key={idx} className="text-xs space-y-0.5 min-w-0">
                 <span className="font-medium text-foreground">{change.field}</span>
-                <div className="flex items-start gap-2 pl-2">
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-foreground/5 text-muted-foreground line-through">
+                <div className="flex flex-wrap items-start gap-2 pl-2 min-w-0">
+                  <span className="inline-block max-w-full px-1.5 py-0.5 rounded bg-foreground/5 text-muted-foreground line-through break-words">
                     {change.from}
                   </span>
-                  <span className="text-muted-foreground self-center">→</span>
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium">
+                  <span className="text-muted-foreground self-center shrink-0">→</span>
+                  <span className="inline-block max-w-full px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium break-words">
                     {change.to}
                   </span>
                 </div>
@@ -543,8 +543,8 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </div>
         )}
         {event.action === "CREATE" && event.newData && (
-          <div className="bg-secondary border border-border rounded-lg p-3">
-            <p className="text-xs text-muted-foreground">
+          <div className="bg-secondary border border-border rounded-lg p-3 min-w-0">
+            <p className="text-xs text-muted-foreground break-words">
               Borrower record created with name: <span className="font-medium text-foreground">
                 {event.newData.borrowerType === "CORPORATE" 
                   ? (event.newData.companyName as string) || (event.newData.name as string)
@@ -554,8 +554,8 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </div>
         )}
         {event.action === "DOCUMENT_UPLOAD" && event.newData && (
-          <div className="bg-secondary border border-border rounded-lg p-3">
-            <p className="text-xs text-muted-foreground">
+          <div className="bg-secondary border border-border rounded-lg p-3 min-w-0">
+            <p className="text-xs text-muted-foreground break-words">
               Uploaded document: <span className="font-medium text-foreground">
                 {String(event.newData.filename || event.newData.category || "")}
               </span>
@@ -566,8 +566,8 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </div>
         )}
         {event.action === "DOCUMENT_DELETE" && event.previousData && (
-          <div className="bg-secondary border border-border rounded-lg p-3">
-            <p className="text-xs text-muted-foreground">
+          <div className="bg-secondary border border-border rounded-lg p-3 min-w-0">
+            <p className="text-xs text-muted-foreground break-words">
               Deleted document: <span className="font-medium text-foreground">
                 {String(event.previousData.filename || event.previousData.category || "")}
               </span>
@@ -578,7 +578,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           </div>
         )}
         <p className="text-xs text-muted-foreground mt-2">
-          {formatDate(event.createdAt)} {event.ipAddress && `• IP: ${event.ipAddress}`}
+          {formatDate(event.createdAt)}
         </p>
       </div>
     </div>
@@ -2007,7 +2007,7 @@ export default function BorrowerDetailPage() {
                   No activity recorded yet
                 </p>
               ) : (
-                <div className="space-y-0">
+                <div className="space-y-0 min-w-0">
                   {timeline.map((event) => (
                     <TimelineItem key={event.id} event={event} />
                   ))}

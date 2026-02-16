@@ -507,11 +507,16 @@ router.get('/referral-code', authenticateToken, async (req, res, next) => {
 router.post('/log-login', authenticateToken, async (req, res, next) => {
   try {
     const userAgent = req.headers['user-agent'];
+    const tenantId = req.user?.tenantId ?? req.tenantId;
+
+    if (!tenantId) {
+      throw new UnauthorizedError('No active tenant in session');
+    }
     
     await prisma.adminAuditLog.create({
       data: {
         userId: req.user!.userId,
-        tenantId: req.user!.tenantId,
+        tenantId,
         action: 'LOGIN',
         ipAddress: getClientIp(req) ?? undefined,
         userAgent: userAgent?.substring(0, 500) ?? undefined,

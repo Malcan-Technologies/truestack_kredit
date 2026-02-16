@@ -240,7 +240,7 @@ export function requireRole(...allowedRoles: string[]) {
       return;
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (!req.user.role || !allowedRoles.includes(req.user.role)) {
       next(new ForbiddenError('Insufficient permissions'));
       return;
     }

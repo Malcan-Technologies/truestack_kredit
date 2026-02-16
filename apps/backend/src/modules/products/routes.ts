@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError } from '../../lib/errors.js';
+import { NotFoundError, UnauthorizedError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireAdmin } from '../../middleware/requireRole.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
@@ -21,6 +21,17 @@ const router = Router();
 // All routes require authentication and active subscription
 router.use(authenticateToken);
 router.use(requirePaidSubscription);
+
+function requireAuditContext(req: import('express').Request): { tenantId: string; memberId: string } {
+  const tenantId = req.tenantId ?? req.user?.tenantId;
+  const memberId = req.memberId ?? req.user?.memberId;
+
+  if (!tenantId || !memberId) {
+    throw new UnauthorizedError('Active tenant context required');
+  }
+
+  return { tenantId, memberId };
+}
 
 // Schema for required document categories
 const requiredDocumentSchema = z.object({
@@ -262,13 +273,14 @@ router.get('/:productId', async (req, res, next) => {
 router.post('/', requireAdmin, async (req, res, next) => {
   try {
     const data = createProductSchema.parse(req.body);
+    const { tenantId, memberId } = requireAuditContext(req);
 
     // Use default required documents if none provided
     const requiredDocuments = data.requiredDocuments ?? DEFAULT_REQUIRED_DOCUMENTS;
 
     const product = await prisma.product.create({
       data: {
-        tenantId: req.tenantId!,
+        tenantId,
         ...data,
         requiredDocuments,
       },
@@ -276,8 +288,8 @@ router.post('/', requireAdmin, async (req, res, next) => {
 
     // Log audit event for product creation
     await AuditService.logCreate(
-      req.tenantId!,
-      req.user!.memberId,
+      tenantId,
+      memberId,
       'Product',
       product.id,
       {
@@ -309,12 +321,13 @@ router.patch('/:productId', requireAdmin, async (req, res, next) => {
   try {
     const data = updateProductSchema.parse(req.body);
     const productId = req.params.productId as string;
+    const { tenantId, memberId } = requireAuditContext(req);
 
     // Verify product belongs to tenant
     const existing = await prisma.product.findFirst({
       where: {
         id: productId,
-        tenantId: req.tenantId,
+        tenantId,
       },
     });
 
@@ -344,8 +357,8 @@ router.patch('/:productId', requireAdmin, async (req, res, next) => {
 
     if (Object.keys(changedFields).length > 0) {
       await AuditService.logUpdate(
-        req.tenantId!,
-        req.user!.memberId,
+        tenantId,
+        memberId,
         'Product',
         product.id,
         previousFields,
@@ -370,12 +383,13 @@ router.patch('/:productId', requireAdmin, async (req, res, next) => {
 router.delete('/:productId', requireAdmin, async (req, res, next) => {
   try {
     const productId = req.params.productId as string;
+    const { tenantId, memberId } = requireAuditContext(req);
 
     // Verify product belongs to tenant
     const product = await prisma.product.findFirst({
       where: {
         id: productId,
-        tenantId: req.tenantId,
+        tenantId,
       },
       include: {
         _count: {
@@ -397,8 +411,8 @@ router.delete('/:productId', requireAdmin, async (req, res, next) => {
 
       // Log audit event for deactivation
       await AuditService.logUpdate(
-        req.tenantId!,
-        req.user!.memberId,
+        tenantId,
+        memberId,
         'Product',
         product.id,
         { isActive: true },
@@ -418,8 +432,8 @@ router.delete('/:productId', requireAdmin, async (req, res, next) => {
 
     // Log audit event for deletion
     await AuditService.logDelete(
-      req.tenantId!,
-      req.user!.memberId,
+      tenantId,
+      memberId,
       'Product',
       product.id,
       {

@@ -492,6 +492,7 @@ model BorrowerPerformanceProjection {
   paidOnTimeCount        Int       @default(0)
   paidLateCount          Int       @default(0)
   overdueCount           Int       @default(0)
+  lastPaymentAt          DateTime?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 

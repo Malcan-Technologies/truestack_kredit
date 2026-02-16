@@ -124,6 +124,10 @@ interface Borrower {
     readyForDefaultLoans: number;
     completedLoans: number;
     pendingDisbursementLoans: number;
+    paidOnTimeCount: number;
+    paidLateCount: number;
+    overdueCount: number;
+    lastPaymentAt: string | null;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -1219,6 +1223,12 @@ export default function BorrowerDetailPage() {
                 const projection = borrower.performanceProjection;
                 const performanceMeta = getPerformanceBadgeMeta(projection?.riskLevel);
                 const onTimeRate = projection?.onTimeRate ? Number(projection.onTimeRate) : null;
+                const paidOnTimeCount = projection?.paidOnTimeCount ?? 0;
+                const paidLateCount = projection?.paidLateCount ?? 0;
+                const overdueCount = projection?.overdueCount ?? 0;
+                const sampleSize = paidOnTimeCount + paidLateCount + overdueCount;
+                const lastPaymentAt = projection?.lastPaymentAt ?? null;
+                const tags = (projection?.tags || []).slice(0, 4);
                 const signalItems = [
                   projection?.defaultedLoans ? `${projection.defaultedLoans} defaulted` : null,
                   projection?.inArrearsLoans ? `${projection.inArrearsLoans} in arrears` : null,
@@ -1228,9 +1238,18 @@ export default function BorrowerDetailPage() {
                 return (
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="rounded-lg border border-border bg-secondary p-3">
+                      <div className="rounded-lg border border-border bg-secondary p-3 space-y-2">
                         <p className="text-xs text-muted-foreground mb-1">Risk Profile</p>
                         <Badge variant={performanceMeta.variant}>{performanceMeta.label}</Badge>
+                        <div className="flex flex-wrap gap-2">
+                          {tags.length > 0 ? (
+                            tags.map((tag) => (
+                              <Badge key={tag} variant="outline">{tag}</Badge>
+                            ))
+                          ) : (
+                            <Badge variant="outline">No repayment track record</Badge>
+                          )}
+                        </div>
                       </div>
                       <div className="rounded-lg border border-border bg-secondary p-3">
                         <p className="text-xs text-muted-foreground mb-1">On-Time Rate</p>
@@ -1258,13 +1277,21 @@ export default function BorrowerDetailPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      {(projection?.tags || []).slice(0, 4).map((tag) => (
-                        <Badge key={tag} variant="outline">{tag}</Badge>
-                      ))}
-                      {(projection?.tags || []).length === 0 && (
-                        <Badge variant="outline">No repayment track record</Badge>
-                      )}
+                    <div className="rounded-lg border border-border bg-secondary p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">Sample Size</p>
+                        <p className="text-sm font-medium">
+                          {sampleSize} repayment{sampleSize === 1 ? "" : "s"} analyzed
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline-success">On-time: {paidOnTimeCount}</Badge>
+                        <Badge variant="outline-warning">Late: {paidLateCount}</Badge>
+                        <Badge variant="outline-destructive">Overdue: {overdueCount}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Last payment date: {lastPaymentAt ? formatDate(lastPaymentAt) : "No payments recorded"}
+                      </p>
                     </div>
 
                     {signalItems.length > 0 && (

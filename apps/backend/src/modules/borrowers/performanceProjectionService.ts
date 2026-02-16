@@ -221,6 +221,7 @@ export async function recalculateBorrowerPerformanceProjection(
   let completedLoans = 0;
   let writtenOffLoans = 0;
   let readyForDefaultLoans = 0;
+  let lastPaymentAt: Date | null = null;
 
   const operations: Prisma.PrismaPromise<unknown>[] = [];
 
@@ -256,6 +257,17 @@ export async function recalculateBorrowerPerformanceProjection(
     paidOnTimeCount += metrics.paidOnTime;
     paidLateCount += metrics.paidLate;
     overdueCount += metrics.overdueCount;
+
+    const currentSchedule = loan.scheduleVersions[0];
+    if (currentSchedule) {
+      for (const repayment of currentSchedule.repayments) {
+        for (const allocation of repayment.allocations) {
+          if (!lastPaymentAt || allocation.allocatedAt > lastPaymentAt) {
+            lastPaymentAt = allocation.allocatedAt;
+          }
+        }
+      }
+    }
 
     if (metrics.repaymentRate !== null) {
       const currentRepaymentRate = loan.repaymentRate === null ? null : toSafeNumber(loan.repaymentRate);
@@ -313,6 +325,7 @@ export async function recalculateBorrowerPerformanceProjection(
         paidOnTimeCount,
         paidLateCount,
         overdueCount,
+        lastPaymentAt,
       },
       create: {
         tenantId,
@@ -331,6 +344,7 @@ export async function recalculateBorrowerPerformanceProjection(
         paidOnTimeCount,
         paidLateCount,
         overdueCount,
+        lastPaymentAt,
       },
     })
   );

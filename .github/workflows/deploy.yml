@@ -36,6 +36,7 @@ env:
   ECS_TASK_MIGRATIONS: truekredit-prod-migrations
   FRONTEND_URL: https://kredit.truestack.my
   API_URL: https://kredit-api.truestack.my
+  APP_SECRETS_ARN: arn:aws:secretsmanager:ap-southeast-5:491694399426:secret:truekredit-prod-35BjQ9
   PROD_DEMO_OWNER_EMAIL: admin@demo.com
   PROD_DEMO_OWNER_NAME: Demo Owner
 
@@ -513,6 +514,13 @@ jobs:
           task-definition: task-definition-frontend.json
           container-name: frontend
           image: ${{ steps.get-image.outputs.image }}
+          environment-variables: |
+            BACKEND_URL=${{ env.API_URL }}
+            NEXT_PUBLIC_API_URL=${{ env.API_URL }}
+            NEXT_PUBLIC_APP_URL=${{ env.FRONTEND_URL }}
+          secrets: |
+            DATABASE_URL=${{ env.APP_SECRETS_ARN }}:database_url::
+            BETTER_AUTH_SECRET=${{ env.APP_SECRETS_ARN }}:better_auth_secret::
 
       - name: Deploy frontend to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1

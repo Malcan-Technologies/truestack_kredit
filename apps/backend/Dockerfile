@@ -41,6 +41,8 @@ COPY --from=builder --chown=nodejs:nodejs /app/node_modules /app/node_modules
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend/dist ./dist
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend/prisma ./prisma
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend/package.json ./package.json
+# User-guide docs for /api/docs (help center) - must be at /app/docs for path.join(process.cwd(), '..', '..', 'docs', 'user-guide')
+COPY --from=builder --chown=nodejs:nodejs /app/docs /app/docs
 
 USER nodejs
 

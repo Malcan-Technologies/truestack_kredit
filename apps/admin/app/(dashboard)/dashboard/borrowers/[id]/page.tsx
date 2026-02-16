@@ -311,6 +311,9 @@ const RELATIONSHIP_OPTIONS = [
   { value: "OTHER", label: "Other" },
 ];
 
+/** Bank account: digits only, 8-17 digits */
+const BANK_ACCOUNT_REGEX = /^\d{8,17}$/;
+
 // Document categories
 const INDIVIDUAL_DOCUMENT_OPTIONS = [
   { value: "IC_FRONT", label: "IC Front" },
@@ -803,6 +806,9 @@ export default function BorrowerDetailPage() {
         errors.bankNameOther = "Bank name is required";
       }
       if (!formData.bankAccountNo.trim()) errors.bankAccountNo = "Account number is required";
+      else if (!BANK_ACCOUNT_REGEX.test(formData.bankAccountNo.replace(/\D/g, ""))) {
+        errors.bankAccountNo = "Account number must be 8-17 digits only";
+      }
       if (formData.directors.length < 1) {
         errors.directors = "At least 1 director is required";
       } else if (formData.directors.length > 10) {
@@ -848,6 +854,9 @@ export default function BorrowerDetailPage() {
         errors.bankNameOther = "Bank name is required";
       }
       if (!formData.bankAccountNo.trim()) errors.bankAccountNo = "Account number is required";
+      else if (!BANK_ACCOUNT_REGEX.test(formData.bankAccountNo.replace(/\D/g, ""))) {
+        errors.bankAccountNo = "Account number must be 8-17 digits only";
+      }
     }
     
     setValidationErrors(errors);
@@ -1238,10 +1247,9 @@ export default function BorrowerDetailPage() {
                       <Briefcase className="h-5 w-5 text-muted-foreground" />
                       Additional Details
                     </CardTitle>
-                    <CardDescription>Optional company information</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-4">
                       <Field
                         label="Paid-up Capital (RM)"
                         value={borrower.paidUpCapital ? `RM ${Number(borrower.paidUpCapital).toLocaleString()}` : "-"}
@@ -1865,11 +1873,12 @@ export default function BorrowerDetailPage() {
                       value={borrower.bankAccountNo || "-"}
                       editValue={formData.bankAccountNo}
                       onChange={(val) => {
-                        setFormData((prev) => ({ ...prev, bankAccountNo: val }));
+                        const clean = val.replace(/\D/g, "").substring(0, 17);
+                        setFormData((prev) => ({ ...prev, bankAccountNo: clean }));
                         if (validationErrors.bankAccountNo) setValidationErrors((prev) => ({ ...prev, bankAccountNo: "" }));
                       }}
                       error={validationErrors.bankAccountNo}
-                      placeholder="1234567890"
+                      placeholder="8-17 digits"
                       isEditing={isEditing}
                     />
                   </>

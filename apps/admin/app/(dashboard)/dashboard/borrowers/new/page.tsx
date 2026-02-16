@@ -239,6 +239,9 @@ const RELATIONSHIP_OPTIONS = [
   { value: "OTHER", label: "Other" },
 ];
 
+/** Bank account: digits only, 8-17 digits */
+const BANK_ACCOUNT_REGEX = /^\d{8,17}$/;
+
 // ============================================
 // Field Component
 // ============================================
@@ -410,6 +413,9 @@ export default function NewBorrowerPage() {
       errors.bankNameOther = "Bank name is required";
     }
     if (!data.bankAccountNo.trim()) errors.bankAccountNo = "Account number is required";
+    else if (!BANK_ACCOUNT_REGEX.test(data.bankAccountNo.replace(/\D/g, ""))) {
+      errors.bankAccountNo = "Account number must be 8-17 digits only";
+    }
     
     setValidationErrors(errors);
     if (Object.keys(errors).length > 0) {
@@ -433,6 +439,9 @@ export default function NewBorrowerPage() {
       errors.bankNameOther = "Bank name is required";
     }
     if (!data.bankAccountNo.trim()) errors.bankAccountNo = "Account number is required";
+    else if (!BANK_ACCOUNT_REGEX.test(data.bankAccountNo.replace(/\D/g, ""))) {
+      errors.bankAccountNo = "Account number must be 8-17 digits only";
+    }
     if (!Array.isArray(data.directors) || data.directors.length < 1) {
       errors.directors = "At least 1 director is required";
     } else if (data.directors.length > 10) {
@@ -871,11 +880,12 @@ export default function NewBorrowerPage() {
                       label="Account Number"
                       value={individualFormData.bankAccountNo}
                       onChange={(val) => {
-                        setIndividualFormData((prev) => ({ ...prev, bankAccountNo: val }));
+                        const clean = val.replace(/\D/g, "").substring(0, 17);
+                        setIndividualFormData((prev) => ({ ...prev, bankAccountNo: clean }));
                         if (validationErrors.bankAccountNo) setValidationErrors((prev) => ({ ...prev, bankAccountNo: "" }));
                       }}
                       error={validationErrors.bankAccountNo}
-                      placeholder="1234567890"
+                      placeholder="8-17 digits"
                     />
                   </div>
                 </CardContent>
@@ -1009,10 +1019,9 @@ export default function NewBorrowerPage() {
                       <Briefcase className="h-5 w-5 text-muted-foreground" />
                       Additional Company Details
                     </CardTitle>
-                    <CardDescription>Optional</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-4">
                       <Field
                         label="Paid-up Capital (RM)"
                         value={corporateFormData.paidUpCapital}
@@ -1254,11 +1263,12 @@ export default function NewBorrowerPage() {
                       label="Account Number"
                       value={corporateFormData.bankAccountNo}
                       onChange={(val) => {
-                        setCorporateFormData((prev) => ({ ...prev, bankAccountNo: val }));
+                        const clean = val.replace(/\D/g, "").substring(0, 17);
+                        setCorporateFormData((prev) => ({ ...prev, bankAccountNo: clean }));
                         if (validationErrors.bankAccountNo) setValidationErrors((prev) => ({ ...prev, bankAccountNo: "" }));
                       }}
                       error={validationErrors.bankAccountNo}
-                      placeholder="1234567890"
+                      placeholder="8-17 digits"
                     />
                   </div>
                 </CardContent>

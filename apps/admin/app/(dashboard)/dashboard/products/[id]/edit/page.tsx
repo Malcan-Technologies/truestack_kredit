@@ -24,6 +24,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -68,30 +69,32 @@ interface Product {
   earlySettlementDiscountValue: string;
 }
 
+type NumericValue = number | "";
+
 interface ProductFormData {
   name: string;
   description: string;
   interestModel: string;
-  interestRate: number;
-  latePaymentRate: number;
-  arrearsPeriod: number;
-  defaultPeriod: number;
-  minAmount: number;
-  maxAmount: number;
-  minTerm: number;
-  maxTerm: number;
+  interestRate: NumericValue;
+  latePaymentRate: NumericValue;
+  arrearsPeriod: NumericValue;
+  defaultPeriod: NumericValue;
+  minAmount: NumericValue;
+  maxAmount: NumericValue;
+  minTerm: NumericValue;
+  maxTerm: NumericValue;
   isActive: boolean;
   legalFeeType: string;
-  legalFeeValue: number;
+  legalFeeValue: NumericValue;
   stampingFeeType: string;
-  stampingFeeValue: number;
+  stampingFeeValue: NumericValue;
   requiredDocuments: RequiredDocument[];
   eligibleBorrowerTypes: string;
   loanScheduleType: string;
   earlySettlementEnabled: boolean;
-  earlySettlementLockInMonths: number;
+  earlySettlementLockInMonths: NumericValue;
   earlySettlementDiscountType: string;
-  earlySettlementDiscountValue: number;
+  earlySettlementDiscountValue: NumericValue;
 }
 
 // ============================================
@@ -298,33 +301,41 @@ export default function EditProductPage() {
       }
     }
     if (currentStep === 2) {
-      if (formData.interestRate < 0 || formData.interestRate > 100) {
+      const interestRate = formData.interestRate === "" ? NaN : formData.interestRate;
+      const latePaymentRate = formData.latePaymentRate === "" ? NaN : formData.latePaymentRate;
+      if (Number.isNaN(interestRate) || interestRate < 0 || interestRate > 100) {
         toast.error("Interest rate must be between 0 and 100");
         return;
       }
-      if (formData.latePaymentRate < 0 || formData.latePaymentRate > 100) {
+      if (Number.isNaN(latePaymentRate) || latePaymentRate < 0 || latePaymentRate > 100) {
         toast.error("Late payment rate must be between 0 and 100");
         return;
       }
     }
     if (currentStep === 3) {
-      if (formData.minAmount <= 0) {
+      const minAmount = formData.minAmount === "" ? NaN : formData.minAmount;
+      const maxAmount = formData.maxAmount === "" ? NaN : formData.maxAmount;
+      const minTerm = formData.minTerm === "" ? NaN : formData.minTerm;
+      const maxTerm = formData.maxTerm === "" ? NaN : formData.maxTerm;
+      const arrearsPeriod = formData.arrearsPeriod === "" ? NaN : formData.arrearsPeriod;
+      const defaultPeriod = formData.defaultPeriod === "" ? NaN : formData.defaultPeriod;
+      if (Number.isNaN(minAmount) || minAmount <= 0) {
         toast.error("Minimum amount must be greater than 0");
         return;
       }
-      if (formData.maxAmount < formData.minAmount) {
+      if (Number.isNaN(maxAmount) || maxAmount < minAmount) {
         toast.error("Maximum amount must be greater than or equal to minimum amount");
         return;
       }
-      if (formData.minTerm <= 0) {
+      if (Number.isNaN(minTerm) || minTerm <= 0) {
         toast.error("Minimum term must be greater than 0");
         return;
       }
-      if (formData.maxTerm < formData.minTerm) {
+      if (Number.isNaN(maxTerm) || maxTerm < minTerm) {
         toast.error("Maximum term must be greater than or equal to minimum term");
         return;
       }
-      if (formData.arrearsPeriod > formData.defaultPeriod) {
+      if (Number.isNaN(arrearsPeriod) || Number.isNaN(defaultPeriod) || arrearsPeriod > defaultPeriod) {
         toast.error("Arrears period must be less than or equal to default period");
         return;
       }
@@ -336,10 +347,28 @@ export default function EditProductPage() {
     setCurrentStep((prev) => Math.max(prev - 1, 1));
   };
 
+  const toNum = (v: NumericValue, fallback: number) => (v === "" ? fallback : v);
+  const displayNum = (v: NumericValue, suffix = "") => (v === "" ? "-" : `${v}${suffix}`);
+
   const handleSave = async () => {
+    const payload = {
+      ...formData,
+      interestRate: toNum(formData.interestRate, 0),
+      latePaymentRate: toNum(formData.latePaymentRate, 0),
+      arrearsPeriod: toNum(formData.arrearsPeriod, 14),
+      defaultPeriod: toNum(formData.defaultPeriod, 28),
+      minAmount: toNum(formData.minAmount, 0),
+      maxAmount: toNum(formData.maxAmount, 0),
+      minTerm: toNum(formData.minTerm, 1),
+      maxTerm: toNum(formData.maxTerm, 1),
+      legalFeeValue: toNum(formData.legalFeeValue, 0),
+      stampingFeeValue: toNum(formData.stampingFeeValue, 0),
+      earlySettlementLockInMonths: toNum(formData.earlySettlementLockInMonths, 0),
+      earlySettlementDiscountValue: toNum(formData.earlySettlementDiscountValue, 0),
+    };
     setSaving(true);
     try {
-      const res = await api.patch<Product>(`/api/products/${productId}`, formData);
+      const res = await api.patch<Product>(`/api/products/${productId}`, payload);
       if (res.success) {
         toast.success("Product updated successfully");
         router.push(`/dashboard/products/${productId}`);
@@ -560,15 +589,15 @@ export default function EditProductPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Interest Rate (% per annum) *</Label>
-                  <Input
-                    type="number"
+                  <NumericInput
+                    mode="float"
+                    min={0}
+                    max={100}
                     step="0.01"
-                    min="0"
-                    max="100"
                     value={formData.interestRate}
-                    onChange={(e) => setFormData({ ...formData, interestRate: parseFloat(e.target.value) || 0 })}
+                    onChange={(v) => setFormData({ ...formData, interestRate: v })}
                   />
-                  {formData.loanScheduleType === "JADUAL_K" && formData.interestRate !== 12 && (
+                  {formData.loanScheduleType === "JADUAL_K" && formData.interestRate !== "" && formData.interestRate !== 12 && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
                       Note: Jadual K loans typically have a maximum rate of 12% p.a.
                     </p>
@@ -576,13 +605,13 @@ export default function EditProductPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Late Payment Rate (% per annum) *</Label>
-                  <Input
-                    type="number"
+                  <NumericInput
+                    mode="float"
+                    min={0}
+                    max={100}
                     step="0.01"
-                    min="0"
-                    max="100"
                     value={formData.latePaymentRate}
-                    onChange={(e) => setFormData({ ...formData, latePaymentRate: parseFloat(e.target.value) || 0 })}
+                    onChange={(v) => setFormData({ ...formData, latePaymentRate: v })}
                   />
                 </div>
               </div>
@@ -609,12 +638,12 @@ export default function EditProductPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
+                    <NumericInput
+                      mode="float"
+                      min={0}
                       step="0.01"
-                      min="0"
                       value={formData.legalFeeValue}
-                      onChange={(e) => setFormData({ ...formData, legalFeeValue: parseFloat(e.target.value) || 0 })}
+                      onChange={(v) => setFormData({ ...formData, legalFeeValue: v })}
                     />
                     <span className="text-sm text-muted-foreground">
                       {formData.legalFeeType === "PERCENTAGE" ? "%" : "RM"}
@@ -642,12 +671,12 @@ export default function EditProductPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
+                    <NumericInput
+                      mode="float"
+                      min={0}
                       step="0.01"
-                      min="0"
                       value={formData.stampingFeeValue}
-                      onChange={(e) => setFormData({ ...formData, stampingFeeValue: parseFloat(e.target.value) || 0 })}
+                      onChange={(v) => setFormData({ ...formData, stampingFeeValue: v })}
                     />
                     <span className="text-sm text-muted-foreground">
                       {formData.stampingFeeType === "PERCENTAGE" ? "%" : "RM"}
@@ -677,12 +706,11 @@ export default function EditProductPage() {
                   <div className="space-y-4 pt-2 border-t border-border">
                     <div className="space-y-2">
                       <Label>Lock-in Period (months)</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max="120"
+                      <NumericInput
+                        min={0}
+                        max={120}
                         value={formData.earlySettlementLockInMonths}
-                        onChange={(e) => setFormData({ ...formData, earlySettlementLockInMonths: parseInt(e.target.value) || 0 })}
+                        onChange={(v) => setFormData({ ...formData, earlySettlementLockInMonths: v })}
                       />
                       <p className="text-xs text-muted-foreground">
                         Minimum months before a loan is eligible for early settlement. Set to 0 for no lock-in.
@@ -743,13 +771,13 @@ export default function EditProductPage() {
                         {formData.earlySettlementDiscountType === "FIXED" && (
                           <span className="text-sm text-muted-foreground">RM</span>
                         )}
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                        <NumericInput
+                          mode="float"
+                          min={0}
                           max={formData.earlySettlementDiscountType === "PERCENTAGE" ? 100 : undefined}
+                          step="0.01"
                           value={formData.earlySettlementDiscountValue}
-                          onChange={(e) => setFormData({ ...formData, earlySettlementDiscountValue: parseFloat(e.target.value) || 0 })}
+                          onChange={(v) => setFormData({ ...formData, earlySettlementDiscountValue: v })}
                         />
                         {formData.earlySettlementDiscountType === "PERCENTAGE" && (
                           <span className="text-sm text-muted-foreground">%</span>
@@ -778,20 +806,18 @@ export default function EditProductPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Minimum Amount (RM) *</Label>
-                    <Input
-                      type="number"
-                      min="0"
+                    <NumericInput
+                      min={0}
                       value={formData.minAmount}
-                      onChange={(e) => setFormData({ ...formData, minAmount: parseInt(e.target.value) || 0 })}
+                      onChange={(v) => setFormData({ ...formData, minAmount: v })}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Maximum Amount (RM) *</Label>
-                    <Input
-                      type="number"
-                      min="0"
+                    <NumericInput
+                      min={0}
                       value={formData.maxAmount}
-                      onChange={(e) => setFormData({ ...formData, maxAmount: parseInt(e.target.value) || 0 })}
+                      onChange={(v) => setFormData({ ...formData, maxAmount: v })}
                     />
                   </div>
                 </div>
@@ -803,20 +829,20 @@ export default function EditProductPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Minimum Term (months) *</Label>
-                    <Input
-                      type="number"
-                      min="1"
+                    <NumericInput
+                      min={1}
                       value={formData.minTerm}
-                      onChange={(e) => setFormData({ ...formData, minTerm: parseInt(e.target.value) || 1 })}
+                      onChange={(v) => setFormData({ ...formData, minTerm: v })}
+                      fallback={1}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Maximum Term (months) *</Label>
-                    <Input
-                      type="number"
-                      min="1"
+                    <NumericInput
+                      min={1}
                       value={formData.maxTerm}
-                      onChange={(e) => setFormData({ ...formData, maxTerm: parseInt(e.target.value) || 1 })}
+                      onChange={(v) => setFormData({ ...formData, maxTerm: v })}
+                      fallback={1}
                     />
                   </div>
                 </div>
@@ -828,23 +854,23 @@ export default function EditProductPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Arrears Period (days) *</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="365"
+                    <NumericInput
+                      min={1}
+                      max={365}
                       value={formData.arrearsPeriod}
-                      onChange={(e) => setFormData({ ...formData, arrearsPeriod: parseInt(e.target.value) || 14 })}
+                      onChange={(v) => setFormData({ ...formData, arrearsPeriod: v })}
+                      fallback={14}
                     />
                     <p className="text-xs text-muted-foreground">Days after missed payment before loan is flagged as at-risk. Arrears notice will be auto-generated.</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Default Period (days) *</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="365"
+                    <NumericInput
+                      min={1}
+                      max={365}
                       value={formData.defaultPeriod}
-                      onChange={(e) => setFormData({ ...formData, defaultPeriod: parseInt(e.target.value) || 28 })}
+                      onChange={(v) => setFormData({ ...formData, defaultPeriod: v })}
+                      fallback={28}
                     />
                     <p className="text-xs text-muted-foreground">Days after missed payment before loan is flagged to be marked as defaulted</p>
                   </div>
@@ -1094,26 +1120,30 @@ export default function EditProductPage() {
                     <CardContent className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Interest Rate</span>
-                        <span className="font-medium">{formData.interestRate}% p.a.</span>
+                        <span className="font-medium">{displayNum(formData.interestRate, "% p.a.")}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Late Payment Rate</span>
-                        <span className="font-medium">{formData.latePaymentRate}% p.a.</span>
+                        <span className="font-medium">{displayNum(formData.latePaymentRate, "% p.a.")}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Legal Fee</span>
                         <span className="font-medium">
-                          {formData.legalFeeType === "PERCENTAGE"
-                            ? `${formData.legalFeeValue}%`
-                            : formatCurrency(formData.legalFeeValue)}
+                          {formData.legalFeeValue === ""
+                            ? "-"
+                            : formData.legalFeeType === "PERCENTAGE"
+                              ? `${formData.legalFeeValue}%`
+                              : formatCurrency(formData.legalFeeValue)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Stamping Fee</span>
                         <span className="font-medium">
-                          {formData.stampingFeeType === "PERCENTAGE"
-                            ? `${formData.stampingFeeValue}%`
-                            : formatCurrency(formData.stampingFeeValue)}
+                          {formData.stampingFeeValue === ""
+                            ? "-"
+                            : formData.stampingFeeType === "PERCENTAGE"
+                              ? `${formData.stampingFeeValue}%`
+                              : formatCurrency(formData.stampingFeeValue)}
                         </span>
                       </div>
                     </CardContent>
@@ -1130,20 +1160,26 @@ export default function EditProductPage() {
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Amount Range</span>
                         <span className="font-medium">
-                          {formatCurrency(formData.minAmount)} - {formatCurrency(formData.maxAmount)}
+                          {formData.minAmount === "" || formData.maxAmount === ""
+                            ? "-"
+                            : `${formatCurrency(formData.minAmount)} - ${formatCurrency(formData.maxAmount)}`}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Term Range</span>
-                        <span className="font-medium">{formData.minTerm} - {formData.maxTerm} months</span>
+                        <span className="font-medium">
+                          {formData.minTerm === "" || formData.maxTerm === ""
+                            ? "-"
+                            : `${formData.minTerm} - ${formData.maxTerm} months`}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Arrears Period</span>
-                        <span className="font-medium">{formData.arrearsPeriod} days</span>
+                        <span className="font-medium">{displayNum(formData.arrearsPeriod, " days")}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Default Period</span>
-                        <span className="font-medium">{formData.defaultPeriod} days</span>
+                        <span className="font-medium">{displayNum(formData.defaultPeriod, " days")}</span>
                       </div>
                     </CardContent>
                   </Card>

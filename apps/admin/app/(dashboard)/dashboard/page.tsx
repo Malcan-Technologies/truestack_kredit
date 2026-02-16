@@ -701,18 +701,18 @@ export default function DashboardPage() {
           </Card>
 
           {/* Loan Portfolio Distribution (Pie) */}
-          <Card>
+          <Card className="min-w-0">
             <CardHeader className="pb-2">
               <CardTitle className="font-heading text-xl">
                 Loan Portfolio
               </CardTitle>
               <p className="text-sm text-muted">Distribution by status</p>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-w-0">
               {loanStatusData.length > 0 ? (
                 <ChartContainer
                   config={loanPieConfig}
-                  className="h-[280px] w-full"
+                  className="h-[280px] w-full min-w-0"
                 >
                   <PieChart>
                     <ChartTooltip

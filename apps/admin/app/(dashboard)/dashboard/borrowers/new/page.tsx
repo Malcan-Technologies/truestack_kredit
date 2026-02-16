@@ -16,6 +16,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -247,6 +248,8 @@ interface FieldProps {
   value: string;
   onChange: (val: string) => void;
   type?: "text" | "email" | "date" | "select" | "number";
+  /** For type="number": "int" or "float". Default "int" */
+  numberMode?: "int" | "float";
   error?: string;
   disabled?: boolean;
   placeholder?: string;
@@ -260,6 +263,7 @@ function Field({
   value, 
   onChange, 
   type = "text",
+  numberMode = "int",
   error,
   disabled,
   placeholder,
@@ -286,11 +290,29 @@ function Field({
     );
   }
 
+  if (type === "number") {
+    const numValue: number | "" = value === "" ? "" : (numberMode === "float" ? (parseFloat(value) || 0) : (parseInt(value, 10) || 0));
+    return (
+      <div className={className}>
+        <Label className="text-xs text-muted-foreground">{label} {required && "*"}</Label>
+        <NumericInput
+          mode={numberMode}
+          value={numValue}
+          onChange={(v) => onChange(v === "" ? "" : String(v))}
+          placeholder={placeholder}
+          disabled={disabled}
+          className={error ? "border-red-500" : ""}
+        />
+        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      </div>
+    );
+  }
+
   return (
     <div className={className}>
       <Label className="text-xs text-muted-foreground">{label} {required && "*"}</Label>
       <Input
-        type={type === "number" ? "number" : type}
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -725,11 +747,11 @@ export default function NewBorrowerPage() {
                     />
                     <div>
                       <Label className="text-xs text-muted-foreground">Monthly Income (RM) *</Label>
-                      <Input
-                        type="number"
-                        value={noMonthlyIncome ? "0" : individualFormData.monthlyIncome}
-                        onChange={(e) => {
-                          setIndividualFormData((prev) => ({ ...prev, monthlyIncome: e.target.value }));
+                      <NumericInput
+                        mode="float"
+                        value={noMonthlyIncome ? 0 : (individualFormData.monthlyIncome === "" ? "" : (parseFloat(individualFormData.monthlyIncome) || 0))}
+                        onChange={(v) => {
+                          setIndividualFormData((prev) => ({ ...prev, monthlyIncome: v === "" ? "" : String(v) }));
                           if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
                         }}
                         placeholder="e.g., 3500"
@@ -996,6 +1018,7 @@ export default function NewBorrowerPage() {
                         value={corporateFormData.paidUpCapital}
                         onChange={(val) => setCorporateFormData((prev) => ({ ...prev, paidUpCapital: val }))}
                         type="number"
+                        numberMode="float"
                         placeholder="100000"
                         required={false}
                       />

@@ -29,6 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import {
   Select,
   SelectContent,
@@ -1635,11 +1636,11 @@ export default function BorrowerDetailPage() {
                     ) : (
                       <div>
                         <label className="text-xs text-muted-foreground">Monthly Income (RM) *</label>
-                        <Input
-                          type="number"
-                          value={noMonthlyIncome ? "0" : formData.monthlyIncome}
-                          onChange={(e) => {
-                            setFormData((prev) => ({ ...prev, monthlyIncome: e.target.value }));
+                        <NumericInput
+                          mode="float"
+                          value={noMonthlyIncome ? 0 : (formData.monthlyIncome === "" ? "" : (parseFloat(formData.monthlyIncome) || 0))}
+                          onChange={(v) => {
+                            setFormData((prev) => ({ ...prev, monthlyIncome: v === "" ? "" : String(v) }));
                             if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
                           }}
                           placeholder="e.g., 3500"

@@ -23,6 +23,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import {
@@ -161,11 +162,11 @@ export default function NewApplicationPage() {
   const [borrowerSearch, setBorrowerSearch] = useState("");
   const [selectedBorrower, setSelectedBorrower] = useState<Borrower | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [amount, setAmount] = useState(0);
-  const [term, setTerm] = useState(12);
+  const [amount, setAmount] = useState<number | "">(0);
+  const [term, setTerm] = useState<number | "">(12);
   const [notes, setNotes] = useState("");
   const [collateralType, setCollateralType] = useState("");
-  const [collateralValue, setCollateralValue] = useState(0);
+  const [collateralValue, setCollateralValue] = useState<number | "">(0);
 
   // Fetch borrowers and products on mount
   useEffect(() => {
@@ -195,13 +196,15 @@ export default function NewApplicationPage() {
 
   // Calculate preview when amount/term/product changes
   useEffect(() => {
-    if (!selectedProduct || amount <= 0 || term <= 0) {
+    const numAmount = amount === "" ? 0 : amount;
+    const numTerm = term === "" ? 0 : term;
+    if (!selectedProduct || numAmount <= 0 || numTerm <= 0) {
       setPreview(null);
       return;
     }
 
     const calculatePreview = () => {
-      const loanAmount = amount;
+      const loanAmount = numAmount;
       const interestRate = toSafeNumber(selectedProduct.interestRate);
 
       // Calculate fees
@@ -231,29 +234,29 @@ export default function NewApplicationPage() {
         const annualRate = safeDivide(interestRate, 100);
         totalInterest = safeMultiply(
           safeMultiply(loanAmount, annualRate),
-          safeDivide(term, 12)
+          safeDivide(numTerm, 12)
         );
         totalPayable = safeAdd(loanAmount, totalInterest);
-        monthlyPayment = safeDivide(totalPayable, term);
+        monthlyPayment = safeDivide(totalPayable, numTerm);
       } else {
         // Declining balance EMI
         const monthlyRate = safeDivide(interestRate, 12 * 100);
         if (monthlyRate === 0) {
-          monthlyPayment = safeDivide(loanAmount, term);
+          monthlyPayment = safeDivide(loanAmount, numTerm);
         } else {
-          const factor = Math.pow(1 + monthlyRate, term);
+          const factor = Math.pow(1 + monthlyRate, numTerm);
           monthlyPayment = safeMultiply(
             loanAmount,
             safeDivide(safeMultiply(monthlyRate, factor), factor - 1)
           );
         }
-        totalPayable = safeMultiply(monthlyPayment, term);
+        totalPayable = safeMultiply(monthlyPayment, numTerm);
         totalInterest = safeSubtract(totalPayable, loanAmount);
       }
 
       setPreview({
         loanAmount,
-        term,
+        term: numTerm,
         interestRate,
         interestModel: selectedProduct.interestModel,
         legalFee,
@@ -296,28 +299,31 @@ export default function NewApplicationPage() {
       const maxAmount = toSafeNumber(selectedProduct.maxAmount);
       const minTerm = selectedProduct.minTerm;
       const maxTerm = selectedProduct.maxTerm;
+      const numAmount = amount === "" ? 0 : amount;
+      const numTerm = term === "" ? 0 : term;
+      const numCollateral = collateralValue === "" ? 0 : collateralValue;
 
-      if (amount <= 0) {
+      if (numAmount <= 0) {
         toast.error("Please enter a valid amount");
         return;
       }
-      if (amount < minAmount) {
+      if (numAmount < minAmount) {
         toast.error(`Loan amount must be at least ${formatCurrency(minAmount)}`);
         return;
       }
-      if (amount > maxAmount) {
+      if (numAmount > maxAmount) {
         toast.error(`Loan amount cannot exceed ${formatCurrency(maxAmount)}`);
         return;
       }
-      if (term <= 0) {
+      if (numTerm <= 0) {
         toast.error("Please enter a valid term");
         return;
       }
-      if (term < minTerm) {
+      if (numTerm < minTerm) {
         toast.error(`Term must be at least ${minTerm} months`);
         return;
       }
-      if (term > maxTerm) {
+      if (numTerm > maxTerm) {
         toast.error(`Term cannot exceed ${maxTerm} months`);
         return;
       }
@@ -327,7 +333,7 @@ export default function NewApplicationPage() {
           toast.error("Please enter the collateral type for Jadual K loan");
           return;
         }
-        if (collateralValue <= 0) {
+        if (numCollateral <= 0) {
           toast.error("Please enter the collateral value for Jadual K loan");
           return;
         }
@@ -345,15 +351,18 @@ export default function NewApplicationPage() {
 
     setCreating(true);
     try {
+      const numAmount = amount === "" ? 0 : amount;
+      const numTerm = term === "" ? 0 : term;
+      const numCollateral = collateralValue === "" ? 0 : collateralValue;
       const res = await api.post<{ id: string }>("/api/loans/applications", {
         borrowerId: selectedBorrower.id,
         productId: selectedProduct.id,
-        amount,
-        term,
+        amount: numAmount,
+        term: numTerm,
         notes: notes || undefined,
         ...(selectedProduct.loanScheduleType === "JADUAL_K" && collateralType.trim() ? {
           collateralType: collateralType.trim(),
-          collateralValue: collateralValue > 0 ? collateralValue : undefined,
+          collateralValue: numCollateral > 0 ? numCollateral : undefined,
         } : {}),
       });
 
@@ -647,7 +656,8 @@ export default function NewApplicationPage() {
                   {(() => {
                     const minAmount = toSafeNumber(selectedProduct.minAmount);
                     const maxAmount = toSafeNumber(selectedProduct.maxAmount);
-                    const isAmountInvalid = amount > 0 && (amount < minAmount || amount > maxAmount);
+                    const numAmount = amount === "" ? 0 : amount;
+                    const isAmountInvalid = numAmount > 0 && (numAmount < minAmount || numAmount > maxAmount);
                     return (
                       <div>
                         <label className="text-sm font-medium">
@@ -656,17 +666,16 @@ export default function NewApplicationPage() {
                             ({formatCurrency(minAmount)} - {formatCurrency(maxAmount)})
                           </span>
                         </label>
-                        <Input
-                          type="number"
+                        <NumericInput
                           value={amount}
-                          onChange={(e) => setAmount(parseInt(e.target.value) || 0)}
+                          onChange={setAmount}
                           min={minAmount}
                           max={maxAmount}
                           className={`mt-1 ${isAmountInvalid ? "border-red-500 focus:ring-red-500" : ""}`}
                         />
                         {isAmountInvalid && (
                           <p className="text-xs text-red-500 mt-1">
-                            {amount < minAmount
+                            {numAmount < minAmount
                               ? `Minimum amount is ${formatCurrency(minAmount)}`
                               : `Maximum amount is ${formatCurrency(maxAmount)}`}
                           </p>
@@ -678,7 +687,8 @@ export default function NewApplicationPage() {
                   {(() => {
                     const minTerm = selectedProduct.minTerm;
                     const maxTerm = selectedProduct.maxTerm;
-                    const isTermInvalid = term > 0 && (term < minTerm || term > maxTerm);
+                    const numTerm = term === "" ? 0 : term;
+                    const isTermInvalid = numTerm > 0 && (numTerm < minTerm || numTerm > maxTerm);
                     return (
                       <div>
                         <label className="text-sm font-medium">
@@ -687,17 +697,16 @@ export default function NewApplicationPage() {
                             ({minTerm} - {maxTerm})
                           </span>
                         </label>
-                        <Input
-                          type="number"
+                        <NumericInput
                           value={term}
-                          onChange={(e) => setTerm(parseInt(e.target.value) || 0)}
+                          onChange={setTerm}
                           min={minTerm}
                           max={maxTerm}
                           className={`mt-1 ${isTermInvalid ? "border-red-500 focus:ring-red-500" : ""}`}
                         />
                         {isTermInvalid && (
                           <p className="text-xs text-red-500 mt-1">
-                            {term < minTerm
+                            {numTerm < minTerm
                               ? `Minimum term is ${minTerm} months`
                               : `Maximum term is ${maxTerm} months`}
                           </p>
@@ -741,10 +750,10 @@ export default function NewApplicationPage() {
                         <label className="text-sm font-medium">
                           Collateral Value (RM) *
                         </label>
-                        <Input
-                          type="number"
-                          value={collateralValue || ""}
-                          onChange={(e) => setCollateralValue(parseFloat(e.target.value) || 0)}
+                        <NumericInput
+                          mode="float"
+                          value={collateralValue}
+                          onChange={setCollateralValue}
                           placeholder="0.00"
                           min={0}
                           className="mt-1"
@@ -1007,11 +1016,11 @@ export default function NewApplicationPage() {
                         <span className="text-muted-foreground">Type</span>
                         <span className="font-medium text-foreground">{collateralType}</span>
                       </div>
-                      {collateralValue > 0 && (
+                      {(collateralValue === "" ? 0 : collateralValue) > 0 && (
                         <div className="flex justify-between items-center">
                           <span className="text-muted-foreground">Value</span>
                           <span className="font-medium text-foreground">
-                            {formatCurrency(collateralValue)}
+                            {formatCurrency(collateralValue === "" ? 0 : collateralValue)}
                           </span>
                         </div>
                       )}

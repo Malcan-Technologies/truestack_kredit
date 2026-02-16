@@ -42,6 +42,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -602,7 +603,7 @@ export default function LoanDetailPage() {
   const [showEarlySettlementDialog, setShowEarlySettlementDialog] = useState(false);
 
   // Payment dialog state
-  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState<number | "">("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
@@ -815,8 +816,8 @@ export default function LoanDetailPage() {
   };
 
   const handleRecordPayment = async () => {
-    const amount = parseFloat(paymentAmount);
-    if (isNaN(amount) || amount <= 0) {
+    const amount = paymentAmount === "" ? NaN : paymentAmount;
+    if (Number.isNaN(amount) || amount <= 0) {
       toast.error("Please enter a valid amount");
       return;
     }
@@ -1088,7 +1089,7 @@ export default function LoanDetailPage() {
         const remaining = safeSubtract(toSafeNumber(nextRepayment.totalDue), paid);
         const outstandingLateFees = Math.max(0, safeSubtract(toSafeNumber(nextRepayment.lateFeeAccrued), toSafeNumber(nextRepayment.lateFeesPaid)));
         const totalRemaining = safeAdd(remaining, outstandingLateFees);
-        setPaymentAmount(totalRemaining.toFixed(2));
+        setPaymentAmount(totalRemaining);
       }
     }
     setShowPaymentDialog(true);
@@ -2780,12 +2781,11 @@ export default function LoanDetailPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="payment-amount">Amount (RM) *</Label>
-                <Input
+                <NumericInput
                   id="payment-amount"
-                  type="number"
-                  step="0.01"
+                  mode="float"
                   value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  onChange={setPaymentAmount}
                   placeholder="Enter payment amount"
                   className="mt-1"
                 />

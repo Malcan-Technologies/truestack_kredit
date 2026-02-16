@@ -11,11 +11,9 @@
  */
 
 import PDFDocument from 'pdfkit';
-import path from 'path';
-import fs from 'fs';
-import { UPLOAD_DIR } from './upload.js';
 import { toSafeNumber, safeRound, safeAdd, safeSubtract } from './math.js';
 import { fetchLogoBuffer } from './safeLogoFetch.js';
+import { saveFile } from './storage.js';
 
 // ============================================
 // Shared Helpers
@@ -23,7 +21,7 @@ import { fetchLogoBuffer } from './safeLogoFetch.js';
 
 // Helper function to fetch image from URL or local file
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
-  return fetchLogoBuffer(url, UPLOAD_DIR);
+  return fetchLogoBuffer(url, '');
 };
 
 // Format currency helper
@@ -321,29 +319,37 @@ function createPdfWriter(
   subDir: string,
   prefix: string,
   loanId: string
-): { doc: PDFKit.PDFDocument; pathPromise: Promise<string>; filePath: string } {
-  const lettersDir = path.join(UPLOAD_DIR, 'letters', subDir);
-  if (!fs.existsSync(lettersDir)) {
-    fs.mkdirSync(lettersDir, { recursive: true });
-  }
+): { doc: PDFKit.PDFDocument; pathPromise: Promise<string> } {
 
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
   const timeStr = now.toISOString().split('T')[1].replace(/[:.]/g, '').substring(0, 6); // HHmmss
   const filename = `${prefix}-${dateStr}-${timeStr}-${loanId.substring(0, 8)}.pdf`;
-  const filePath = path.join(lettersDir, filename);
-  const apiPath = `/api/uploads/letters/${subDir}/${filename}`;
 
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
-  const writeStream = fs.createWriteStream(filePath);
-  doc.pipe(writeStream);
-
-  const pathPromise = new Promise<string>((resolve, reject) => {
-    writeStream.on('finish', () => resolve(apiPath));
-    writeStream.on('error', reject);
+  const chunks: Buffer[] = [];
+  doc.on('data', (chunk: Buffer) => {
+    chunks.push(chunk);
   });
 
-  return { doc, pathPromise, filePath };
+  const pathPromise = new Promise<string>((resolve, reject) => {
+    doc.on('end', async () => {
+      try {
+        const { path: storedPath } = await saveFile(
+          Buffer.concat(chunks),
+          `letters/${subDir}`,
+          loanId,
+          filename
+        );
+        resolve(storedPath);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    doc.on('error', reject);
+  });
+
+  return { doc, pathPromise };
 }
 
 // ============================================
@@ -353,21 +359,17 @@ function createPdfWriter(
 export async function generateDischargeLetter(params: DischargeLetterParams): Promise<string> {
   const { loan, borrower, tenant, totalPaid, totalLateFees, dischargeNotes, earlySettlement } = params;
 
-  // Special handling: discharge letters go to discharge-letters subdirectory for backward compat
-  const lettersDir = path.join(UPLOAD_DIR, 'discharge-letters');
-  if (!fs.existsSync(lettersDir)) {
-    fs.mkdirSync(lettersDir, { recursive: true });
-  }
-
   const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
   const filename = `DIS-${dateStr}-${loan.id.substring(0, 8)}.pdf`;
-  const filePath = path.join(lettersDir, filename);
 
   return new Promise(async (resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: 'A4', margin: 50 });
-      const writeStream = fs.createWriteStream(filePath);
-      doc.pipe(writeStream);
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      doc.on('error', reject);
 
       // Shared header
       await addLetterHeader(doc, tenant);
@@ -550,12 +552,19 @@ export async function generateDischargeLetter(params: DischargeLetterParams): Pr
       addLetterFooter(doc, tenant);
 
       doc.end();
-
-      writeStream.on('finish', () => {
-        resolve(`/api/uploads/discharge-letters/${filename}`);
+      doc.on('end', async () => {
+        try {
+          const { path: dischargeLetterPath } = await saveFile(
+            Buffer.concat(chunks),
+            'discharge-letters',
+            loan.id,
+            filename
+          );
+          resolve(dischargeLetterPath);
+        } catch (error) {
+          reject(error);
+        }
       });
-
-      writeStream.on('error', reject);
     } catch (error) {
       reject(error);
     }

@@ -2,9 +2,11 @@ import { Request } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { BadRequestError } from './errors.js';
+import { saveFile, deleteFile } from './storage.js';
 
 // Configuration
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
+const USE_LOCAL_UPLOADS = (process.env.STORAGE_TYPE || 'local') !== 's3';
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB for logos
 const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024; // 10MB for documents
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -29,6 +31,9 @@ const LOGO_MAX_ASPECT_RATIO = 10.0; // 10:1 (very wide)
 
 // Ensure upload directory exists
 export function ensureUploadDir(): void {
+  if (!USE_LOCAL_UPLOADS) {
+    return;
+  }
   const logoDir = path.join(UPLOAD_DIR, 'logos');
   if (!fs.existsSync(logoDir)) {
     fs.mkdirSync(logoDir, { recursive: true });
@@ -37,6 +42,9 @@ export function ensureUploadDir(): void {
 
 // Ensure documents directory exists
 export function ensureDocumentsDir(): void {
+  if (!USE_LOCAL_UPLOADS) {
+    return;
+  }
   const docsDir = path.join(UPLOAD_DIR, 'documents');
   if (!fs.existsSync(docsDir)) {
     fs.mkdirSync(docsDir, { recursive: true });
@@ -212,31 +220,20 @@ export function validateImageDimensions(buffer: Buffer, mimeType: string): { wid
 }
 
 // Save file to local storage
-export function saveLogoFile(buffer: Buffer, tenantId: string, extension: string): string {
-  ensureUploadDir();
-  
-  const filename = `${tenantId}-${Date.now()}${extension}`;
-  const logoDir = path.join(UPLOAD_DIR, 'logos');
-  const filepath = path.join(logoDir, filename);
-  
-  fs.writeFileSync(filepath, buffer);
-  
-  // Return the URL path (not filesystem path)
-  return `${getUploadBaseUrl()}/logos/${filename}`;
+export async function saveLogoFile(buffer: Buffer, tenantId: string, extension: string): Promise<string> {
+  const { path: logoPath } = await saveFile(buffer, 'logos', tenantId, `logo${extension}`);
+  return logoPath;
 }
 
 // Delete old logo file
-export function deleteLogoFile(logoUrl: string): void {
-  if (!logoUrl || !logoUrl.startsWith(getUploadBaseUrl())) {
-    return; // S3 URL or no logo, don't delete
+export async function deleteLogoFile(logoUrl: string): Promise<void> {
+  if (!logoUrl) {
+    return;
   }
-  
-  const filename = logoUrl.replace(`${getUploadBaseUrl()}/logos/`, '');
-  const filepath = path.join(UPLOAD_DIR, 'logos', filename);
-  
-  if (fs.existsSync(filepath)) {
-    fs.unlinkSync(filepath);
+  if (!logoUrl.startsWith('s3://') && !logoUrl.startsWith(getUploadBaseUrl())) {
+    return;
   }
+  await deleteFile(logoUrl);
 }
 
 // Parse multipart form data for document uploads
@@ -384,46 +381,27 @@ export function saveDocumentFile(
   tenantId: string,
   applicationId: string,
   extension: string
-): { filename: string; path: string } {
-  ensureDocumentsDir();
-  
-  const filename = `${tenantId}-${applicationId}-${Date.now()}${extension}`;
-  const docsDir = path.join(UPLOAD_DIR, 'documents');
-  const filepath = path.join(docsDir, filename);
-  
-  fs.writeFileSync(filepath, buffer);
-  
-  // Return both the filename and the URL path
-  const urlPath = `${getUploadBaseUrl()}/documents/${filename}`;
-  return { filename, path: urlPath };
+): Promise<{ filename: string; path: string }> {
+  const entityId = `${tenantId}-${applicationId}`;
+  return saveFile(buffer, 'documents', entityId, `document${extension}`);
 }
 
 // Delete document file
-export function deleteDocumentFile(documentPath: string): void {
-  if (!documentPath || !documentPath.startsWith(getUploadBaseUrl())) {
-    return; // S3 URL or invalid path, don't delete locally
-  }
-  
-  // Try documents folder first
-  let filename = documentPath.replace(`${getUploadBaseUrl()}/documents/`, '');
-  let filepath = path.join(UPLOAD_DIR, 'documents', filename);
-  
-  if (fs.existsSync(filepath)) {
-    fs.unlinkSync(filepath);
+export async function deleteDocumentFile(documentPath: string): Promise<void> {
+  if (!documentPath) {
     return;
   }
-
-  // Try receipts folder
-  filename = documentPath.replace(`${getUploadBaseUrl()}/receipts/`, '');
-  filepath = path.join(UPLOAD_DIR, 'receipts', filename);
-  
-  if (fs.existsSync(filepath)) {
-    fs.unlinkSync(filepath);
+  if (!documentPath.startsWith('s3://') && !documentPath.startsWith(getUploadBaseUrl())) {
+    return;
   }
+  await deleteFile(documentPath);
 }
 
 // Ensure receipts directory exists
 export function ensureReceiptsDir(): void {
+  if (!USE_LOCAL_UPLOADS) {
+    return;
+  }
   const receiptsDir = path.join(UPLOAD_DIR, 'receipts');
   if (!fs.existsSync(receiptsDir)) {
     fs.mkdirSync(receiptsDir, { recursive: true });
@@ -437,18 +415,9 @@ export function savePaymentReceiptFile(
   loanId: string,
   allocationId: string,
   extension: string
-): { filename: string; path: string } {
-  ensureReceiptsDir();
-  
-  const filename = `${tenantId}-${loanId}-${allocationId}-${Date.now()}${extension}`;
-  const receiptsDir = path.join(UPLOAD_DIR, 'receipts');
-  const filepath = path.join(receiptsDir, filename);
-  
-  fs.writeFileSync(filepath, buffer);
-  
-  // Return both the filename and the URL path
-  const urlPath = `${getUploadBaseUrl()}/receipts/${filename}`;
-  return { filename, path: urlPath };
+): Promise<{ filename: string; path: string }> {
+  const entityId = `${tenantId}-${loanId}-${allocationId}`;
+  return saveFile(buffer, 'receipts', entityId, `receipt${extension}`);
 }
 
 export { UPLOAD_DIR, MAX_FILE_SIZE, MAX_DOCUMENT_SIZE, ALLOWED_MIME_TYPES, ALLOWED_DOCUMENT_MIME_TYPES };

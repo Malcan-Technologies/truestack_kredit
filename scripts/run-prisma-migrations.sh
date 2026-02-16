@@ -18,6 +18,13 @@ fi
 echo "DATABASE_URL is set."
 echo ""
 
+if [ "$RESET_DATABASE" = "true" ]; then
+  echo "Resetting database (RESET_DATABASE=true)..."
+  npx prisma migrate reset --force --skip-seed --schema=prisma/schema.prisma
+  echo "Database reset complete."
+  echo ""
+fi
+
 if [ "$SKIP_MIGRATIONS" = "true" ]; then
   echo "Skipping migrations (SKIP_MIGRATIONS=true)"
 else

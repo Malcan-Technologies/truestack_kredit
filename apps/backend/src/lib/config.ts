@@ -69,6 +69,14 @@ export function validateConfig(): void {
     return;
   }
 
+  if (config.storage.type !== 's3') {
+    throw new Error('FATAL: STORAGE_TYPE must be set to "s3" in production');
+  }
+
+  if (!process.env.S3_BUCKET) {
+    throw new Error('FATAL: S3_BUCKET must be set in production');
+  }
+
   const accessSecret = process.env.JWT_SECRET ?? config.jwt.secret;
   const refreshSecret = process.env.JWT_REFRESH_SECRET ?? config.jwt.refreshSecret;
   const webhookSecret = process.env.WEBHOOK_SECRET ?? config.webhook.secret;

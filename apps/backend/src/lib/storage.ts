@@ -69,6 +69,128 @@ export function getUploadBaseUrl(): string {
   return process.env.UPLOAD_BASE_URL || '/uploads';
 }
 
+function normalizeUploadBaseUrl(baseUrl: string): string {
+  if (!baseUrl || baseUrl === '/') {
+    return '/uploads';
+  }
+  const withLeadingSlash = baseUrl.startsWith('/') ? baseUrl : `/${baseUrl}`;
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash.slice(0, -1) : withLeadingSlash;
+}
+
+function pathFromUrlOrPath(filePath: string): string {
+  try {
+    const parsed = new URL(filePath);
+    return parsed.pathname || filePath;
+  } catch {
+    return filePath;
+  }
+}
+
+function extractRelativeUploadPath(filePath: string): string | null {
+  const normalizedPath = pathFromUrlOrPath(filePath);
+  const uploadBase = normalizeUploadBaseUrl(getUploadBaseUrl());
+  const apiUploadBase = `/api${uploadBase}`;
+
+  if (normalizedPath.startsWith(`${apiUploadBase}/`)) {
+    return normalizedPath.slice(apiUploadBase.length + 1);
+  }
+  if (normalizedPath.startsWith(`${uploadBase}/`)) {
+    return normalizedPath.slice(uploadBase.length + 1);
+  }
+
+  // Allow already-relative paths for internal helpers.
+  if (normalizedPath && !normalizedPath.startsWith('/')) {
+    return normalizedPath;
+  }
+
+  return null;
+}
+
+function resolveLocalPath(filePath: string): string | null {
+  const relativePath = extractRelativeUploadPath(filePath);
+  if (!relativePath) {
+    return null;
+  }
+
+  const baseDir = path.resolve(UPLOAD_DIR);
+  const fullPath = path.resolve(path.join(UPLOAD_DIR, relativePath));
+  const insideUploadDir = fullPath === baseDir || fullPath.startsWith(`${baseDir}${path.sep}`);
+  if (!insideUploadDir) {
+    console.warn(`[Storage] Rejected path outside upload directory: ${filePath}`);
+    return null;
+  }
+
+  return fullPath;
+}
+
+function isExplicitS3Path(filePath: string): boolean {
+  if (filePath.startsWith('s3://')) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(filePath);
+    const host = parsed.hostname.toLowerCase();
+    return host.includes('.s3.') || host.startsWith('s3.');
+  } catch {
+    return false;
+  }
+}
+
+function shouldUseS3(filePath: string): boolean {
+  return STORAGE_TYPE === 's3' || isExplicitS3Path(filePath);
+}
+
+function extractS3Key(filePath: string): string | null {
+  if (!filePath) {
+    return null;
+  }
+
+  if (filePath.startsWith('s3://')) {
+    // s3://bucket/key
+    const afterScheme = filePath.slice('s3://'.length);
+    const firstSlash = afterScheme.indexOf('/');
+    if (firstSlash === -1) {
+      return null;
+    }
+    const key = afterScheme.slice(firstSlash + 1);
+    return key || null;
+  }
+
+  // Supports /uploads/... and /api/uploads/... when STORAGE_TYPE=s3.
+  const uploadRelativePath = extractRelativeUploadPath(filePath);
+  if (uploadRelativePath) {
+    return uploadRelativePath;
+  }
+
+  // Support https://bucket.s3.region.amazonaws.com/key and path-style variants.
+  try {
+    const parsed = new URL(filePath);
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes('.s3.') || host.startsWith('s3.')) {
+      const pathname = parsed.pathname.replace(/^\/+/, '');
+      if (!pathname) {
+        return null;
+      }
+
+      // path-style URL: s3.region.amazonaws.com/<bucket>/<key>
+      if (host.startsWith('s3.')) {
+        const bucketPrefix = `${config.storage.s3.bucket}/`;
+        if (pathname.startsWith(bucketPrefix)) {
+          return pathname.slice(bucketPrefix.length) || null;
+        }
+      }
+
+      // virtual-hosted-style URL: <bucket>.s3.region.amazonaws.com/<key>
+      return pathname || null;
+    }
+  } catch {
+    // ignore parse errors and fall through
+  }
+
+  return null;
+}
+
 // ============================================
 // Local Storage Functions
 // ============================================
@@ -88,14 +210,12 @@ async function saveToLocal(
 }
 
 async function getFromLocal(filePath: string): Promise<Buffer | null> {
-  // Convert URL path to filesystem path
-  // Handle both /uploads/... and /api/uploads/... path formats
-  const relativePath = filePath
-    .replace(/^\/api\/uploads\//, '')
-    .replace(getUploadBaseUrl(), '')
-    .replace(/^\//, '');
-  const fullPath = path.join(UPLOAD_DIR, relativePath);
-  
+  const fullPath = resolveLocalPath(filePath);
+  if (!fullPath) {
+    console.warn(`[Storage] Invalid local file path: ${filePath}`);
+    return null;
+  }
+
   if (!fs.existsSync(fullPath)) {
     console.warn(`[Storage] File not found: ${fullPath} (original: ${filePath})`);
     return null;
@@ -105,18 +225,22 @@ async function getFromLocal(filePath: string): Promise<Buffer | null> {
 }
 
 async function deleteFromLocal(filePath: string): Promise<void> {
-  // Convert URL path to filesystem path
-  const relativePath = filePath.replace(/^\/api\/uploads\//, '').replace(getUploadBaseUrl(), '').replace(/^\//, '');
-  const fullPath = path.join(UPLOAD_DIR, relativePath);
-  
+  const fullPath = resolveLocalPath(filePath);
+  if (!fullPath) {
+    return;
+  }
+
   if (fs.existsSync(fullPath)) {
     fs.unlinkSync(fullPath);
   }
 }
 
 function getLocalFilePath(filePath: string): string {
-  const relativePath = filePath.replace(/^\/api\/uploads\//, '').replace(getUploadBaseUrl(), '').replace(/^\//, '');
-  return path.join(UPLOAD_DIR, relativePath);
+  const fullPath = resolveLocalPath(filePath);
+  if (!fullPath) {
+    throw new Error(`Invalid local storage path: ${filePath}`);
+  }
+  return fullPath;
 }
 
 // ============================================
@@ -138,15 +262,18 @@ async function saveToS3(
     ContentType: getMimeType(filename),
   }));
   
-  // Return S3 key as the path
-  return { path: `s3://${config.storage.s3.bucket}/${key}`, filename };
+  // Keep URL path format for compatibility across local and S3 storage modes.
+  const baseUrl = normalizeUploadBaseUrl(getUploadBaseUrl());
+  return { path: `${baseUrl}/${key}`, filename };
 }
 
 async function getFromS3(filePath: string): Promise<Buffer | null> {
   const client = getS3Client();
-  
-  // Extract key from S3 path
-  const key = filePath.replace(`s3://${config.storage.s3.bucket}/`, '');
+  const key = extractS3Key(filePath);
+  if (!key) {
+    console.warn(`[Storage] Could not resolve S3 key from path: ${filePath}`);
+    return null;
+  }
   
   try {
     const response = await client.send(new GetObjectCommand({
@@ -172,9 +299,10 @@ async function getFromS3(filePath: string): Promise<Buffer | null> {
 
 async function deleteFromS3(filePath: string): Promise<void> {
   const client = getS3Client();
-  
-  // Extract key from S3 path
-  const key = filePath.replace(`s3://${config.storage.s3.bucket}/`, '');
+  const key = extractS3Key(filePath);
+  if (!key) {
+    return;
+  }
   
   try {
     await client.send(new DeleteObjectCommand({
@@ -234,7 +362,7 @@ export async function saveAgreementFile(
  * Get an agreement file from storage
  */
 export async function getAgreementFile(filePath: string): Promise<Buffer | null> {
-  if (filePath.startsWith('s3://')) {
+  if (shouldUseS3(filePath)) {
     return getFromS3(filePath);
   }
   return getFromLocal(filePath);
@@ -244,7 +372,7 @@ export async function getAgreementFile(filePath: string): Promise<Buffer | null>
  * Delete an agreement file from storage
  */
 export async function deleteAgreementFile(filePath: string): Promise<void> {
-  if (filePath.startsWith('s3://')) {
+  if (shouldUseS3(filePath)) {
     return deleteFromS3(filePath);
   }
   return deleteFromLocal(filePath);
@@ -254,7 +382,7 @@ export async function deleteAgreementFile(filePath: string): Promise<void> {
  * Get the full filesystem path for a local file (for streaming)
  */
 export function getLocalPath(filePath: string): string | null {
-  if (filePath.startsWith('s3://')) {
+  if (shouldUseS3(filePath)) {
     return null; // S3 files cannot be accessed via filesystem
   }
   return getLocalFilePath(filePath);
@@ -292,7 +420,7 @@ export async function saveFile(
  * Get a file from storage
  */
 export async function getFile(filePath: string): Promise<Buffer | null> {
-  if (filePath.startsWith('s3://')) {
+  if (shouldUseS3(filePath)) {
     return getFromS3(filePath);
   }
   return getFromLocal(filePath);
@@ -302,7 +430,7 @@ export async function getFile(filePath: string): Promise<Buffer | null> {
  * Delete a file from storage
  */
 export async function deleteFile(filePath: string): Promise<void> {
-  if (filePath.startsWith('s3://')) {
+  if (shouldUseS3(filePath)) {
     return deleteFromS3(filePath);
   }
   return deleteFromLocal(filePath);

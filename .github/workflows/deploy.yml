@@ -19,6 +19,7 @@ on:
           - db-migrate
           - db-seed
           - db-migrate-and-seed
+          - db-reset-and-seed
       skip_migrations:
         description: "Skip auto-migrations (for full deploy only)"
         required: false
@@ -46,7 +47,8 @@ jobs:
       github.event.inputs.action != 'deploy-only' &&
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
-      github.event.inputs.action != 'db-migrate-and-seed'
+      github.event.inputs.action != 'db-migrate-and-seed' &&
+      github.event.inputs.action != 'db-reset-and-seed'
 
     outputs:
       backend_changed: ${{ steps.changes.outputs.backend_changed }}
@@ -113,6 +115,7 @@ jobs:
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
       github.event.inputs.action != 'db-migrate-and-seed' &&
+      github.event.inputs.action != 'db-reset-and-seed' &&
       (
         github.event.inputs.action == 'backend-only' ||
         github.event.inputs.action == 'full' ||
@@ -177,6 +180,7 @@ jobs:
         github.event.inputs.action == 'db-migrate' ||
         github.event.inputs.action == 'db-seed' ||
         github.event.inputs.action == 'db-migrate-and-seed' ||
+        github.event.inputs.action == 'db-reset-and-seed' ||
         (
           github.event.inputs.action != 'frontend-only' &&
           github.event.inputs.action != 'deploy-only' &&
@@ -219,16 +223,22 @@ jobs:
         run: |
           ACTION="${{ github.event.inputs.action }}"
 
-          if [ "$ACTION" = "db-migrate" ] || [ "$ACTION" = "db-migrate-and-seed" ] || [ "$ACTION" = "full" ] || [ -z "$ACTION" ]; then
+          if [ "$ACTION" = "db-migrate" ] || [ "$ACTION" = "db-migrate-and-seed" ] || [ "$ACTION" = "db-reset-and-seed" ] || [ "$ACTION" = "full" ] || [ -z "$ACTION" ]; then
             echo "run_migrations=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_migrations=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ "$ACTION" = "db-seed" ] || [ "$ACTION" = "db-migrate-and-seed" ]; then
+          if [ "$ACTION" = "db-seed" ] || [ "$ACTION" = "db-migrate-and-seed" ] || [ "$ACTION" = "db-reset-and-seed" ]; then
             echo "run_seed=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_seed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$ACTION" = "db-reset-and-seed" ]; then
+            echo "run_reset=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_reset=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run database task
@@ -253,6 +263,7 @@ jobs:
 
           RUN_MIGRATIONS="${{ steps.operation.outputs.run_migrations }}"
           RUN_SEED="${{ steps.operation.outputs.run_seed }}"
+          RUN_RESET="${{ steps.operation.outputs.run_reset }}"
 
           OVERRIDES='{"containerOverrides":[{"name":"migrations","environment":['
           ENV_VARS=""
@@ -261,6 +272,10 @@ jobs:
             ENV_VARS='{"name":"RUN_MIGRATIONS","value":"true"}'
           else
             ENV_VARS='{"name":"SKIP_MIGRATIONS","value":"true"}'
+          fi
+
+          if [ "$RUN_RESET" = "true" ]; then
+            ENV_VARS="$ENV_VARS,"'{"name":"RESET_DATABASE","value":"true"}'
           fi
 
           if [ "$RUN_SEED" = "true" ]; then
@@ -370,6 +385,8 @@ jobs:
           task-definition: task-definition-backend.json
           container-name: backend
           image: ${{ steps.get-image.outputs.image }}
+          environment-variables: |
+            UPLOAD_DIR=/tmp/uploads
 
       - name: Deploy backend to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
@@ -391,6 +408,7 @@ jobs:
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
       github.event.inputs.action != 'db-migrate-and-seed' &&
+      github.event.inputs.action != 'db-reset-and-seed' &&
       (
         github.event.inputs.action == 'frontend-only' ||
         github.event.inputs.action == 'full' ||

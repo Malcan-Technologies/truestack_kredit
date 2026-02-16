@@ -36,10 +36,34 @@ interface SendEmailParams {
   attachmentFilename?: string;
   /** Multiple file attachments */
   attachments?: EmailAttachment[];
+  /** If true, fail sending when any requested attachment cannot be loaded */
+  requireAllAttachments?: boolean;
 }
 
 interface ResendApiResponse {
   id: string;
+}
+
+function extractFilenameFromPath(filePath: string): string {
+  if (!filePath) return 'document.pdf';
+
+  if (filePath.startsWith('s3://')) {
+    const withoutScheme = filePath.slice('s3://'.length);
+    const parts = withoutScheme.split('/');
+    const maybeFile = parts[parts.length - 1];
+    return maybeFile || 'document.pdf';
+  }
+
+  try {
+    const parsed = new URL(filePath);
+    const pathname = parsed.pathname || '';
+    const lastSegment = pathname.split('/').filter(Boolean).pop();
+    return lastSegment || 'document.pdf';
+  } catch {
+    const cleanPath = filePath.split('?')[0].split('#')[0];
+    const lastSegment = cleanPath.split('/').filter(Boolean).pop();
+    return lastSegment || 'document.pdf';
+  }
 }
 
 // ============================================
@@ -166,7 +190,19 @@ export class TrueSendService {
    * Core email sending method — all public methods funnel through this
    */
   private static async sendEmail(params: SendEmailParams): Promise<boolean> {
-    const { tenantId, loanId, borrowerId, emailType, recipientEmail, recipientName, subject, htmlBody, attachmentPath, attachmentFilename } = params;
+    const {
+      tenantId,
+      loanId,
+      borrowerId,
+      emailType,
+      recipientEmail,
+      recipientName,
+      subject,
+      htmlBody,
+      attachmentPath,
+      attachmentFilename,
+      requireAllAttachments = false,
+    } = params;
 
     // Resolve the primary attachment path for logging (first attachment or legacy single)
     const primaryAttachmentPath = params.attachments?.[0]?.path || attachmentPath || undefined;
@@ -211,7 +247,11 @@ export class TrueSendService {
               content: fileBuffer.toString('base64'),
             });
           } else {
-            console.warn(`[TrueSend] Could not load attachment: ${att.path}`);
+            const message = `[TrueSend] Could not load attachment: ${att.path}`;
+            if (requireAllAttachments) {
+              throw new Error(message);
+            }
+            console.warn(message);
           }
         }
       }
@@ -224,7 +264,11 @@ export class TrueSendService {
             content: fileBuffer.toString('base64'),
           });
         } else {
-          console.warn(`[TrueSend] Could not load attachment: ${attachmentPath}`);
+          const message = `[TrueSend] Could not load attachment: ${attachmentPath}`;
+          if (requireAllAttachments) {
+            throw new Error(message);
+          }
+          console.warn(message);
         }
       }
 
@@ -476,6 +520,7 @@ export class TrueSendService {
       htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: letterPath,
       attachmentFilename: letterFilename,
+      requireAllAttachments: true,
     });
   }
 
@@ -519,6 +564,7 @@ export class TrueSendService {
       htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: letterPath,
       attachmentFilename: letterFilename,
+      requireAllAttachments: true,
     });
   }
 
@@ -588,6 +634,7 @@ export class TrueSendService {
       subject: `Loan Disbursement Confirmation — ${formatCurrency(principal)}`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
+      requireAllAttachments: emailAttachments.length > 0,
     });
   }
 
@@ -633,6 +680,7 @@ export class TrueSendService {
       htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: dischargePath,
       attachmentFilename: letterFilename,
+      requireAllAttachments: true,
     });
   }
 
@@ -686,6 +734,7 @@ export class TrueSendService {
       htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: receiptPath,
       attachmentFilename: receiptFilename,
+      requireAllAttachments: true,
     });
   }
 
@@ -762,8 +811,10 @@ export class TrueSendService {
       if (emailLog.attachmentPath) {
         const fileBuffer = await getFile(emailLog.attachmentPath);
         if (fileBuffer) {
-          const filename = emailLog.attachmentPath.split('/').pop() || 'document.pdf';
+          const filename = extractFilenameFromPath(emailLog.attachmentPath);
           attachments = [{ filename, content: fileBuffer.toString('base64') }];
+        } else {
+          throw new Error(`Attachment not found for resend: ${emailLog.attachmentPath}`);
         }
       }
 

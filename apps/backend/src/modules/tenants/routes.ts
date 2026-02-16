@@ -354,12 +354,12 @@ router.post('/current/logo', requireAdmin, async (req, res, next) => {
     
     // Delete old logo if exists
     if (currentTenant?.logoUrl) {
-      deleteLogoFile(currentTenant.logoUrl);
+      await deleteLogoFile(currentTenant.logoUrl);
     }
     
     // Save new logo
     const extension = path.extname(originalName).toLowerCase();
-    const logoUrl = saveLogoFile(buffer, req.tenantId!, extension);
+    const logoUrl = await saveLogoFile(buffer, req.tenantId!, extension);
     
     // Update tenant with new logo URL
     const tenant = await prisma.tenant.update({
@@ -408,7 +408,7 @@ router.delete('/current/logo', requireAdmin, async (req, res, next) => {
     }
     
     // Delete the file
-    deleteLogoFile(currentTenant.logoUrl);
+    await deleteLogoFile(currentTenant.logoUrl);
     
     // Update tenant
     await prisma.tenant.update({

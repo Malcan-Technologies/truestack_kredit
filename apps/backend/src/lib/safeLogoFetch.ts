@@ -1,5 +1,4 @@
-import fs from 'fs';
-import path from 'path';
+import { getFile } from './storage.js';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024; // 2MB
@@ -63,19 +62,15 @@ function localUploadPathFromUrl(urlPath: string): string | null {
 }
 
 export async function fetchLogoBuffer(url: string, uploadDir: string): Promise<Buffer> {
-  const relative = localUploadPathFromUrl(url);
-  if (relative !== null) {
-    const baseDir = path.resolve(uploadDir);
-    const fullPath = path.resolve(path.join(uploadDir, relative));
-    const insideUploadDir = fullPath === baseDir || fullPath.startsWith(`${baseDir}${path.sep}`);
-    if (!insideUploadDir) {
-      throw new Error('Invalid local logo path');
-    }
+  void uploadDir;
 
-    if (!fs.existsSync(fullPath)) {
-      throw new Error(`File not found: ${fullPath}`);
+  const relative = localUploadPathFromUrl(url);
+  if (relative !== null || url.startsWith('s3://')) {
+    const fileBuffer = await getFile(url);
+    if (!fileBuffer) {
+      throw new Error(`Logo file not found: ${url}`);
     }
-    return fs.readFileSync(fullPath);
+    return fileBuffer;
   }
 
   const validatedUrl = validateRemoteLogoUrl(url);

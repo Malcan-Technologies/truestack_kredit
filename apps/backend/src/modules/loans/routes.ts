@@ -81,13 +81,7 @@ interface SettlementReceiptParams {
 }
 
 async function generateSettlementReceipt(params: SettlementReceiptParams): Promise<string> {
-  const receiptsDir = path.join(UPLOAD_DIR, 'receipts');
-  if (!fs.existsSync(receiptsDir)) {
-    fs.mkdirSync(receiptsDir, { recursive: true });
-  }
-
-  const filename = `${params.receiptNumber}.pdf`;
-  const filePath = path.join(receiptsDir, filename);
+  const originalFilename = `${params.receiptNumber}.pdf`;
 
   const formatRM = (amount: unknown): string => {
     const num = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
@@ -101,8 +95,11 @@ async function generateSettlementReceipt(params: SettlementReceiptParams): Promi
   return new Promise(async (resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: 'A4', margin: 50 });
-      const writeStream = fs.createWriteStream(filePath);
-      doc.pipe(writeStream);
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      doc.on('error', reject);
 
       // Add logo if available
       let logoAdded = false;
@@ -261,11 +258,19 @@ async function generateSettlementReceipt(params: SettlementReceiptParams): Promi
          .text('Powered by TrueKredit', 50, 765, { align: 'center' });
 
       doc.end();
-
-      writeStream.on('finish', () => {
-        resolve(`/api/uploads/receipts/${filename}`);
+      doc.on('end', async () => {
+        try {
+          const { path: receiptPath } = await saveFile(
+            Buffer.concat(chunks),
+            'receipts',
+            params.loan.id,
+            originalFilename
+          );
+          resolve(receiptPath);
+        } catch (error) {
+          reject(error);
+        }
       });
-      writeStream.on('error', reject);
     } catch (error) {
       reject(error);
     }
@@ -1029,7 +1034,7 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
 
     // Save the file
     const extension = path.extname(originalName).toLowerCase();
-    const { filename, path: filePath } = saveDocumentFile(buffer, req.tenantId!, applicationId, extension);
+    const { filename, path: filePath } = await saveDocumentFile(buffer, req.tenantId!, applicationId, extension);
 
     // Create document record
     const document = await prisma.applicationDocument.create({
@@ -1142,7 +1147,7 @@ router.delete('/applications/:applicationId/documents/:documentId', async (req, 
     }
 
     // Delete the file from storage
-    deleteDocumentFile(document.path);
+    await deleteDocumentFile(document.path);
 
     // Delete the document record
     await prisma.applicationDocument.delete({
@@ -2113,23 +2118,15 @@ router.get('/:loanId/discharge-letter', async (req, res, next) => {
       throw new NotFoundError('Discharge letter not generated');
     }
 
-    // Extract filename from path
-    const filename = loan.dischargeLetterPath.split('/').pop();
-    if (!filename) {
-      throw new NotFoundError('Discharge letter file');
-    }
-
-    const filePath = path.join(UPLOAD_DIR, 'discharge-letters', filename);
-    
-    if (!fs.existsSync(filePath)) {
+    const fileBuffer = await getFile(loan.dischargeLetterPath);
+    if (!fileBuffer) {
       throw new NotFoundError('Discharge letter file');
     }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Discharge-Letter-${loan.id.substring(0, 8)}.pdf"`);
-    
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
   } catch (error) {
     next(error);
   }
@@ -2156,23 +2153,15 @@ router.get('/:loanId/arrears-letter', async (req, res, next) => {
       throw new NotFoundError('Arrears letter not generated');
     }
 
-    // Extract filename from path
-    const filename = loan.arrearsLetterPath.split('/').pop();
-    if (!filename) {
-      throw new NotFoundError('Arrears letter file');
-    }
-
-    const filePath = path.join(UPLOAD_DIR, 'letters', 'arrears', filename);
-    
-    if (!fs.existsSync(filePath)) {
+    const fileBuffer = await getFile(loan.arrearsLetterPath);
+    if (!fileBuffer) {
       throw new NotFoundError('Arrears letter file');
     }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Arrears-Letter-${loan.id.substring(0, 8)}.pdf"`);
-    
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
   } catch (error) {
     next(error);
   }
@@ -2199,23 +2188,15 @@ router.get('/:loanId/default-letter', async (req, res, next) => {
       throw new NotFoundError('Default letter not generated');
     }
 
-    // Extract filename from path
-    const filename = loan.defaultLetterPath.split('/').pop();
-    if (!filename) {
-      throw new NotFoundError('Default letter file');
-    }
-
-    const filePath = path.join(UPLOAD_DIR, 'letters', 'default', filename);
-    
-    if (!fs.existsSync(filePath)) {
+    const fileBuffer = await getFile(loan.defaultLetterPath);
+    if (!fileBuffer) {
       throw new NotFoundError('Default letter file');
     }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Default-Letter-${loan.id.substring(0, 8)}.pdf"`);
-    
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
   } catch (error) {
     next(error);
   }
@@ -2802,20 +2783,15 @@ router.post('/:loanId/disburse', async (req, res, next) => {
     } | null = null;
 
     if (proofFile) {
-      // Ensure disbursement-proofs directory exists
-      const proofsDir = path.join(UPLOAD_DIR, 'disbursement-proofs');
-      if (!fs.existsSync(proofsDir)) {
-        fs.mkdirSync(proofsDir, { recursive: true });
-      }
-
-      // Save the file
-      const extension = path.extname(proofFile.originalName).toLowerCase();
-      const filename = `${loan.id}-${Date.now()}${extension}`;
-      const filePath = path.join(proofsDir, filename);
-      fs.writeFileSync(filePath, proofFile.buffer);
+      const { path: disbursementProofPath } = await saveFile(
+        proofFile.buffer,
+        'disbursement-proofs',
+        loan.id,
+        proofFile.originalName
+      );
 
       proofData = {
-        disbursementProofPath: `/api/uploads/disbursement-proofs/${filename}`,
+        disbursementProofPath,
         disbursementProofName: proofFile.originalName,
         disbursementProofMime: proofFile.mimeType,
         disbursementProofSize: proofFile.buffer.length,
@@ -2973,35 +2949,24 @@ router.post('/:loanId/disbursement-proof', async (req, res, next) => {
 
     // If proof already exists, delete old file first
     if (loan.disbursementProofPath) {
-      const oldFilename = loan.disbursementProofPath.split('/').pop();
-      if (oldFilename) {
-        const oldFilePath = path.join(UPLOAD_DIR, 'disbursement-proofs', oldFilename);
-        if (fs.existsSync(oldFilePath)) {
-          fs.unlinkSync(oldFilePath);
-        }
-      }
+      await deleteFile(loan.disbursementProofPath);
     }
 
     // Parse the file upload (use parseFileUpload which doesn't require category)
     const { buffer, originalName, mimeType } = await parseFileUpload(req);
 
-    // Ensure disbursement-proofs directory exists
-    const proofsDir = path.join(UPLOAD_DIR, 'disbursement-proofs');
-    if (!fs.existsSync(proofsDir)) {
-      fs.mkdirSync(proofsDir, { recursive: true });
-    }
-
-    // Save the file
-    const extension = path.extname(originalName).toLowerCase();
-    const filename = `${loanId}-${Date.now()}${extension}`;
-    const filePath = path.join(proofsDir, filename);
-    fs.writeFileSync(filePath, buffer);
+    const { path: disbursementProofPath } = await saveFile(
+      buffer,
+      'disbursement-proofs',
+      loanId,
+      originalName
+    );
 
     // Update loan with proof info
     const updatedLoan = await prisma.loan.update({
       where: { id: loanId },
       data: {
-        disbursementProofPath: `/api/uploads/disbursement-proofs/${filename}`,
+        disbursementProofPath,
         disbursementProofName: originalName,
         disbursementProofMime: mimeType,
         disbursementProofSize: buffer.length,
@@ -3058,22 +3023,15 @@ router.get('/:loanId/disbursement-proof', async (req, res, next) => {
       throw new NotFoundError('Proof of disbursement');
     }
 
-    const filename = loan.disbursementProofPath.split('/').pop();
-    if (!filename) {
-      throw new NotFoundError('Proof of disbursement file');
-    }
-
-    const filePath = path.join(UPLOAD_DIR, 'disbursement-proofs', filename);
-    
-    if (!fs.existsSync(filePath)) {
+    const fileBuffer = await getFile(loan.disbursementProofPath);
+    if (!fileBuffer) {
       throw new NotFoundError('Proof of disbursement file');
     }
 
     res.setHeader('Content-Type', loan.disbursementProofMime || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${loan.disbursementProofName}"`);
-    
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
   } catch (error) {
     next(error);
   }
@@ -3084,7 +3042,7 @@ router.get('/:loanId/disbursement-proof', async (req, res, next) => {
 // ============================================
 
 import { generateLoanAgreement, LoanForAgreement } from '../../lib/pdfService.js';
-import { saveAgreementFile, getAgreementFile, deleteAgreementFile, getLocalPath, isS3Storage } from '../../lib/storage.js';
+import { saveAgreementFile, getAgreementFile, deleteAgreementFile, getLocalPath, saveFile, getFile, deleteFile } from '../../lib/storage.js';
 
 /**
  * Generate pre-filled loan agreement PDF (Jadual J)

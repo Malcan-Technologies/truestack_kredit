@@ -812,7 +812,7 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
 
     if (existingDoc) {
       // Delete the old file and record
-      deleteDocumentFile(existingDoc.path);
+      await deleteDocumentFile(existingDoc.path);
       await prisma.borrowerDocument.delete({
         where: { id: existingDoc.id },
       });
@@ -821,7 +821,7 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
     // Save the file
     ensureDocumentsDir();
     const ext = path.extname(originalName).toLowerCase();
-    const { filename, path: filePath } = saveDocumentFile(
+    const { filename, path: filePath } = await saveDocumentFile(
       buffer,
       req.tenantId!,
       req.params.borrowerId,
@@ -898,7 +898,7 @@ router.delete('/:borrowerId/documents/:documentId', async (req, res, next) => {
     }
 
     // Delete the file
-    deleteDocumentFile(document.path);
+    await deleteDocumentFile(document.path);
 
     // Delete the record
     await prisma.borrowerDocument.delete({

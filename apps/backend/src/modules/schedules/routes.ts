@@ -1,15 +1,14 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import path from 'path';
-import fs from 'fs';
 import PDFDocument from 'pdfkit';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { previewSchedule, generateSchedule } from './service.js';
-import { parseFileUpload, savePaymentReceiptFile, deleteDocumentFile, UPLOAD_DIR } from '../../lib/upload.js';
+import { parseFileUpload, UPLOAD_DIR } from '../../lib/upload.js';
+import { saveFile, getFile, deleteFile } from '../../lib/storage.js';
 import { AuditService } from '../compliance/auditService.js';
 import { TrueSendService } from '../notifications/trueSendService.js';
 import { calculateDailyLateFee, dailyLateFeeRate, toSafeNumber, safeAdd, safeSubtract } from '../../lib/math.js';
@@ -206,16 +205,7 @@ interface ReceiptParams {
 // Generate and store receipt PDF
 async function generateAndStoreReceipt(params: ReceiptParams): Promise<string> {
   const { transaction, allocations, loan, borrower, tenant, totalLateFees, totalOutstandingAfter } = params;
-  
-  // Ensure receipts directory exists
-  const receiptsDir = path.join(UPLOAD_DIR, 'receipts');
-  if (!fs.existsSync(receiptsDir)) {
-    fs.mkdirSync(receiptsDir, { recursive: true });
-  }
-
-  // Generate filename
-  const filename = `${transaction.receiptNumber}.pdf`;
-  const filePath = path.join(receiptsDir, filename);
+  const originalFilename = `${transaction.receiptNumber}.pdf`;
 
   // Format currency helper
   const formatRM = (amount: unknown): string => {
@@ -231,9 +221,11 @@ async function generateAndStoreReceipt(params: ReceiptParams): Promise<string> {
   return new Promise(async (resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: 'A4', margin: 50 });
-      const writeStream = fs.createWriteStream(filePath);
-      
-      doc.pipe(writeStream);
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      doc.on('error', reject);
 
       // Add logo if available
       let logoAdded = false;
@@ -387,12 +379,19 @@ async function generateAndStoreReceipt(params: ReceiptParams): Promise<string> {
          .text('Powered by TrueKredit', 50, 765, { align: 'center' });
 
       doc.end();
-
-      writeStream.on('finish', () => {
-        resolve(`/api/uploads/receipts/${filename}`);
+      doc.on('end', async () => {
+        try {
+          const { path: receiptPath } = await saveFile(
+            Buffer.concat(chunks),
+            'receipts',
+            transaction.id,
+            originalFilename
+          );
+          resolve(receiptPath);
+        } catch (error) {
+          reject(error);
+        }
       });
-
-      writeStream.on('error', reject);
     } catch (error) {
       reject(error);
     }
@@ -1435,23 +1434,15 @@ router.get('/transactions/:transactionId/receipt', async (req, res, next) => {
       throw new NotFoundError('Receipt not generated');
     }
 
-    // Extract filename from path
-    const filename = transaction.receiptPath.split('/').pop();
-    if (!filename) {
-      throw new NotFoundError('Receipt file');
-    }
-
-    const filePath = path.join(UPLOAD_DIR, 'receipts', filename);
-    
-    if (!fs.existsSync(filePath)) {
+    const fileBuffer = await getFile(transaction.receiptPath);
+    if (!fileBuffer) {
       throw new NotFoundError('Receipt file');
     }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${transaction.receiptNumber}.pdf"`);
-    
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
   } catch (error) {
     next(error);
   }
@@ -1481,39 +1472,28 @@ router.post('/transactions/:transactionId/proof', async (req, res, next) => {
 
     // If proof already exists, delete old file first
     if (transaction.proofPath) {
-      const oldFilename = transaction.proofPath.split('/').pop();
-      if (oldFilename) {
-        const oldFilePath = path.join(UPLOAD_DIR, 'proofs', oldFilename);
-        if (fs.existsSync(oldFilePath)) {
-          fs.unlinkSync(oldFilePath);
-        }
-      }
+      await deleteFile(transaction.proofPath);
     }
 
     // Parse the file upload (use parseFileUpload which doesn't require category)
     const { buffer, originalName, mimeType } = await parseFileUpload(req);
 
-    // Ensure proofs directory exists
-    const proofsDir = path.join(UPLOAD_DIR, 'proofs');
-    if (!fs.existsSync(proofsDir)) {
-      fs.mkdirSync(proofsDir, { recursive: true });
-    }
-
-    // Save the file
-    const extension = path.extname(originalName).toLowerCase();
-    const filename = `${transactionId}-${Date.now()}${extension}`;
-    const filePath = path.join(proofsDir, filename);
-    fs.writeFileSync(filePath, buffer);
+    const { path: proofPath, filename: proofFilename } = await saveFile(
+      buffer,
+      'proofs',
+      transactionId,
+      originalName
+    );
 
     // Update transaction with proof info
     const updatedTransaction = await prisma.paymentTransaction.update({
       where: { id: transactionId },
       data: {
-        proofFilename: filename,
+        proofFilename,
         proofOriginalName: originalName,
         proofMimeType: mimeType,
         proofSize: buffer.length,
-        proofPath: `/api/uploads/proofs/${filename}`,
+        proofPath,
         proofUploadedAt: new Date(),
       },
     });
@@ -1568,17 +1548,15 @@ router.get('/transactions/:transactionId/proof', async (req, res, next) => {
       throw new NotFoundError('Proof of payment');
     }
 
-    const filePath = path.join(UPLOAD_DIR, 'proofs', transaction.proofFilename);
-    
-    if (!fs.existsSync(filePath)) {
+    const fileBuffer = await getFile(transaction.proofPath);
+    if (!fileBuffer) {
       throw new NotFoundError('Proof of payment file');
     }
 
     res.setHeader('Content-Type', transaction.proofMimeType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${transaction.proofOriginalName}"`);
-    
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
   } catch (error) {
     next(error);
   }

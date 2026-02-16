@@ -6,6 +6,7 @@ import { prisma } from './lib/prisma.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { ensureUploadDir, UPLOAD_DIR } from './lib/upload.js';
+import { getFile } from './lib/storage.js';
 import { initCronJobs } from './lib/cronJobs.js';
 
 // Import routes
@@ -44,8 +45,40 @@ app.use(requestLogger);
 
 // Serve uploaded files (in dev; in prod, use S3/CDN)
 // Mounted on both /uploads and /api/uploads to support direct access and proxy access
-app.use('/uploads', express.static(UPLOAD_DIR));
-app.use('/api/uploads', express.static(UPLOAD_DIR));
+if (config.storage.type === 'local') {
+  app.use('/uploads', express.static(UPLOAD_DIR));
+  app.use('/api/uploads', express.static(UPLOAD_DIR));
+} else {
+  app.get(/^\/(?:api\/)?uploads\/(.+)$/, async (req, res, next) => {
+    try {
+      const normalizedPath = req.path.startsWith('/api/uploads/')
+        ? req.path.replace('/api/uploads/', '/uploads/')
+        : req.path;
+
+      const fileBuffer = await getFile(normalizedPath);
+      if (!fileBuffer) {
+        res.status(404).json({ success: false, error: 'File not found' });
+        return;
+      }
+
+      const extension = path.extname(normalizedPath).toLowerCase();
+      const contentTypeByExt: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
+        '.pdf': 'application/pdf',
+      };
+      const contentType = contentTypeByExt[extension] || 'application/octet-stream';
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', fileBuffer.length);
+      res.send(fileBuffer);
+    } catch (error) {
+      next(error);
+    }
+  });
+}
 
 // Health check
 app.get('/health', (req, res) => {

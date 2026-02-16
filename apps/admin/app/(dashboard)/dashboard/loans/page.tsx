@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { FileText, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck } from "lucide-react";
@@ -150,7 +150,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   WRITTEN_OFF: "destructive",
 };
 
-export default function LoansPage() {
+function LoansPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialFilter = searchParams.get("filter") || "";
@@ -745,5 +745,19 @@ export default function LoansPage() {
       </Card>
     </div>
     </TooltipProvider>
+  );
+}
+
+export default function LoansPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[40vh] text-muted-foreground">
+          Loading...
+        </div>
+      }
+    >
+      <LoansPageContent />
+    </Suspense>
   );
 }

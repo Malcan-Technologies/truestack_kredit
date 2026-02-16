@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Book, ChevronRight, FileText, Search, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ interface DocContent {
   frontmatter: Record<string, string>;
 }
 
-export default function HelpPage() {
+function HelpPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [categories, setCategories] = useState<DocCategory[]>([]);
@@ -307,6 +307,20 @@ export default function HelpPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function HelpPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[40vh] flex items-center justify-center text-muted-foreground">
+          Loading...
+        </div>
+      }
+    >
+      <HelpPageContent />
+    </Suspense>
   );
 }
 

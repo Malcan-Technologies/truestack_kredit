@@ -1,25 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { notFound } from "next/navigation";
+import { useTenantContext } from "@/components/tenant-context";
 
 export default function CalculatorLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
+  const { subscriptionStatus } = useTenantContext();
 
-  useEffect(() => {
-    fetch("/api/proxy/auth/me", { credentials: "include" })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.data.tenant?.subscriptionStatus === "FREE") {
-          toast.error("Upgrade to access this feature");
-          router.push("/dashboard/billing");
-        }
-      })
-      .catch(() => {
-        // Silently fail - let the page render
-      });
-  }, [router]);
+  if (subscriptionStatus === "FREE") {
+    notFound();
+  }
 
   return <>{children}</>;
 }

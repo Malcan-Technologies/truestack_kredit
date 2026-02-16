@@ -54,6 +54,8 @@ import {
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate, safePercentage, safeSubtract } from "@/lib/utils";
 import { PromotionsCarousel } from "@/components/promotions-carousel";
+import { useTenantContext } from "@/components/tenant-context";
+import { NoTenantPrompt } from "@/components/no-tenant-prompt";
 
 // ============================================
 // Types
@@ -262,6 +264,7 @@ interface AddOnStatus {
 }
 
 export default function DashboardPage() {
+  const { hasTenants } = useTenantContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [tenant, setTenant] = useState<TenantStats | null>(null);
   const [addOns, setAddOns] = useState<AddOnStatus[]>([]);
@@ -295,8 +298,12 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    fetchData(datePreset);
-  }, [datePreset, fetchData]);
+    if (hasTenants) {
+      fetchData(datePreset);
+    } else {
+      setLoading(false);
+    }
+  }, [datePreset, fetchData, hasTenants]);
 
   // Transform chart data
   const disbursementData = useMemo(() => {
@@ -348,9 +355,12 @@ export default function DashboardPage() {
   }, [loanStatusData]);
 
   // ============================================
-  // Loading State
-  // ============================================
+  // No tenant: show create-tenant prompt (no API calls made)
+  if (!hasTenants) {
+    return <NoTenantPrompt />;
+  }
 
+  // Loading State
   if (loading && !stats) {
     return <DashboardSkeleton />;
   }

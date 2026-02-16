@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { Suspense, useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -100,7 +100,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 // Page
 // ============================================
 
-export default function PaymentPage() {
+function PaymentPageContent() {
   const searchParams = useSearchParams();
 
   // Parse query params from subscription page
@@ -514,5 +514,19 @@ export default function PaymentPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function PaymentPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <PaymentPageContent />
+    </Suspense>
   );
 }

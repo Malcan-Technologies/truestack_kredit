@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, ClipboardList, Building2, User, Search, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
@@ -59,7 +59,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   CANCELLED: "destructive",
 };
 
-export default function ApplicationsPage() {
+function ApplicationsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialFilter = searchParams.get("filter") || "";
@@ -428,5 +428,19 @@ export default function ApplicationsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function ApplicationsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[40vh] text-muted-foreground">
+          Loading...
+        </div>
+      }
+    >
+      <ApplicationsPageContent />
+    </Suspense>
   );
 }

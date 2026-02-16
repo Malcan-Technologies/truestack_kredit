@@ -295,6 +295,22 @@ model Verification {
   @@index([identifier])
 }
 
+// Password reset code - app-owned table for code-based reset UX
+// Stores hashed code, Better Auth token, and enforces single-use + expiry
+model PasswordResetCode {
+  id              String    @id @default(cuid())
+  email           String
+  codeHash        String    // Hashed 6-digit code (never store plaintext)
+  betterAuthToken String    // Token from Better Auth for resetPassword call
+  expiresAt       DateTime
+  usedAt          DateTime? // Set when code is consumed (single-use)
+  attemptCount    Int       @default(0) // For throttling verification attempts
+  createdAt       DateTime  @default(now())
+
+  @@index([email])
+  @@index([email, usedAt])
+}
+
 // Admin audit log for tracking admin actions (login, user management, etc.)
 model AdminAuditLog {
   id         String   @id @default(cuid())

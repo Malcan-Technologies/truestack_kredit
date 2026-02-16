@@ -3,8 +3,12 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { PrismaClient } from "@prisma/client";
+import crypto from "node:crypto";
+import { sendEmail } from "./sendEmail";
 
 const prisma = new PrismaClient();
+
+const RESET_CODE_EXPIRY_SECONDS = 15 * 60; // 15 minutes
 
 // Define permission statements for your application
 const statement = {
@@ -81,6 +85,45 @@ export const auth = betterAuth({
     maxPasswordLength: 128,
     // Auto sign in after registration
     autoSignIn: true,
+    resetPasswordTokenExpiresIn: RESET_CODE_EXPIRY_SECONDS,
+    sendResetPassword: async ({ user, token }, _request) => {
+      const code = String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
+      const emailLower = user.email.toLowerCase();
+      const codeHash = crypto
+        .createHash("sha256")
+        .update(`${emailLower}:${code}`)
+        .digest("hex");
+      const expiresAt = new Date(Date.now() + RESET_CODE_EXPIRY_SECONDS * 1000);
+
+      await prisma.passwordResetCode.deleteMany({
+        where: { email: emailLower, usedAt: null },
+      });
+      await prisma.passwordResetCode.create({
+        data: {
+          email: emailLower,
+          codeHash,
+          betterAuthToken: token,
+          expiresAt,
+        },
+      });
+      void sendEmail({
+        to: user.email,
+        subject: "Reset your TrueKredit password",
+        html: `
+          <p>Hi ${user.name || "there"},</p>
+          <p>Use this code to reset your password:</p>
+          <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${code}</p>
+          <p>This code expires in 15 minutes.</p>
+          <p>If you didn't request this, you can ignore this email.</p>
+        `,
+      });
+    },
+    onPasswordReset: async ({ user }, _request) => {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordChangedAt: new Date() },
+      });
+    },
   },
   
   // Session configuration

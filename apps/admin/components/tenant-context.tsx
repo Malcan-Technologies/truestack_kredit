@@ -19,6 +19,16 @@ interface TenantContextValue {
    * Defaults to "STAFF" until membership data is loaded.
    */
   currentRole: TenantRole;
+  /**
+   * Whether the user has at least one tenant membership.
+   * When false, membership-only sidebar items are disabled and those routes return 404.
+   */
+  hasTenants: boolean;
+  /**
+   * Current tenant's subscription status (FREE or PAID).
+   * When FREE, premium features are disabled.
+   */
+  subscriptionStatus: "FREE" | "PAID";
 }
 
 const TenantContext = createContext<TenantContextValue | null>(null);
@@ -27,9 +37,13 @@ interface TenantProviderProps {
   children: ReactNode;
   /** Role passed from the layout after membership is fetched */
   role?: TenantRole;
+  /** Whether the user has at least one tenant membership */
+  hasTenants?: boolean;
+  /** Current tenant's subscription status */
+  subscriptionStatus?: "FREE" | "PAID";
 }
 
-export function TenantProvider({ children, role }: TenantProviderProps) {
+export function TenantProvider({ children, role, hasTenants = true, subscriptionStatus = "FREE" }: TenantProviderProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [currentRole, setCurrentRole] = useState<TenantRole>(role || "STAFF");
 
@@ -45,7 +59,7 @@ export function TenantProvider({ children, role }: TenantProviderProps) {
   }, []);
 
   return (
-    <TenantContext.Provider value={{ refreshKey, refreshTenantData, currentRole }}>
+    <TenantContext.Provider value={{ refreshKey, refreshTenantData, currentRole, hasTenants, subscriptionStatus }}>
       {children}
     </TenantContext.Provider>
   );

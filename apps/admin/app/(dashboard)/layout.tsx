@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { useTheme } from "next-themes";
@@ -113,6 +113,43 @@ const navigationSections: NavSection[] = [
   },
 ];
 
+// Paths that require a tenant membership; without membership, sidebar items are disabled and direct URL returns 404
+const PATHS_REQUIRING_MEMBERSHIP = [
+  "/dashboard/borrowers",
+  "/dashboard/products",
+  "/dashboard/applications",
+  "/dashboard/loans",
+  "/dashboard/compliance",
+  "/dashboard/billing",
+  "/dashboard/plan",
+  "/dashboard/promotions",
+  "/dashboard/calculator",
+  "/dashboard/admin-logs",
+  "/dashboard/subscription",
+  "/dashboard/add-ons",
+];
+
+// Paths that require PAID subscription; FREE users can only access dashboard, billing, plan, promotions, help, settings, and subscription (to subscribe)
+const PATHS_REQUIRING_PAID = [
+  "/dashboard/borrowers",
+  "/dashboard/products",
+  "/dashboard/applications",
+  "/dashboard/loans",
+  "/dashboard/compliance",
+  "/dashboard/calculator",
+  "/dashboard/reports",
+  "/dashboard/admin-logs",
+  "/dashboard/add-ons",
+];
+
+function pathRequiresMembership(href: string): boolean {
+  return PATHS_REQUIRING_MEMBERSHIP.some((p) => href === p || href.startsWith(p + "/"));
+}
+
+function pathRequiresPaid(href: string): boolean {
+  return PATHS_REQUIRING_PAID.some((p) => href === p || href.startsWith(p + "/"));
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -158,19 +195,32 @@ export default function DashboardLayout({
 
   const ensureActiveTenantAndFetchMembership = async () => {
     try {
-      // Use proxy route for backend calls (ensures cookies work correctly)
-      // First, check memberships and ensure active tenant is set
       const membershipsRes = await fetch("/api/proxy/auth/memberships", {
         credentials: "include",
       });
-      const membershipsData = await membershipsRes.json();
+
+      if (membershipsRes.status === 401) {
+        setMembership({ role: "NONE", tenantName: undefined });
+        setHasTenants(false);
+        setMembershipCheckComplete(true);
+        return;
+      }
+
+      let membershipsData: { success?: boolean; data?: { memberships?: unknown[]; activeTenantId?: string } };
+      try {
+        membershipsData = await membershipsRes.json();
+      } catch {
+        setMembership({ role: "NONE", tenantName: undefined });
+        setHasTenants(false);
+        setMembershipCheckComplete(true);
+        return;
+      }
 
       if (
         !membershipsData.success ||
         !membershipsData.data?.memberships?.length
       ) {
-        // User has no tenants - show create tenant prompt (don't render tenant-scoped pages yet)
-        setMembership({ role: 'NONE', tenantName: undefined });
+        setMembership({ role: "NONE", tenantName: undefined });
         setHasTenants(false);
         setMembershipCheckComplete(true);
         return;
@@ -178,16 +228,14 @@ export default function DashboardLayout({
 
       setHasTenants(true);
 
-      // If no active tenant, set the first one
       if (!membershipsData.data.activeTenantId) {
-        const firstTenant = membershipsData.data.memberships[0];
+        const firstTenant = membershipsData.data.memberships[0] as { tenantId: string; role: string; tenantName?: string };
         await fetch("/api/proxy/auth/switch-tenant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({ tenantId: firstTenant.tenantId }),
         });
-        // Set membership from the first tenant
         setMembership({
           role: firstTenant.role,
           tenantName: firstTenant.tenantName,
@@ -196,10 +244,8 @@ export default function DashboardLayout({
         return;
       }
 
-      // Active tenant exists, find the active membership and fetch full info
-      const activeMembership = membershipsData.data.memberships.find(
-        (m: { tenantId: string }) =>
-          m.tenantId === membershipsData.data.activeTenantId,
+      const activeMembership = (membershipsData.data.memberships as { tenantId: string; tenantName?: string }[]).find(
+        (m) => m.tenantId === membershipsData.data!.activeTenantId,
       );
 
       const response = await fetch("/api/proxy/auth/me", {
@@ -213,13 +259,14 @@ export default function DashboardLayout({
             tenantName:
               activeMembership?.tenantName || data.data.user.tenantName,
           });
-          // Grant PAID tenants access to all pages; FREE stays restricted
           const status = data.data.tenant?.subscriptionStatus;
           setSubscriptionStatus(status === "PAID" ? "PAID" : "FREE");
         }
       }
     } catch (error) {
       console.error("Failed to fetch membership:", error);
+      setMembership({ role: "NONE", tenantName: undefined });
+      setHasTenants(false);
     } finally {
       setMembershipCheckComplete(true);
     }
@@ -254,8 +301,19 @@ export default function DashboardLayout({
 
   const user = session.user;
 
+  const pathRequiresMembershipCheck = PATHS_REQUIRING_MEMBERSHIP.some(
+    (p) => pathname === p || pathname.startsWith(p + "/"),
+  );
+  const pathRequiresPaidCheck = pathRequiresPaid(pathname);
+  if (!hasTenants && pathRequiresMembershipCheck) {
+    notFound();
+  }
+  if (subscriptionStatus === "FREE" && pathRequiresPaidCheck) {
+    notFound();
+  }
+
   return (
-    <TenantProvider role={(membership?.role as TenantRole) || "STAFF"}>
+    <TenantProvider role={(membership?.role as TenantRole) || "STAFF"} hasTenants={hasTenants} subscriptionStatus={subscriptionStatus}>
       <div className="min-h-screen bg-background">
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
@@ -312,8 +370,12 @@ export default function DashboardLayout({
                             pathname.startsWith(item.href));
                         const memberRole = (membership?.role as TenantRole) || "STAFF";
                         const hasAccess = canAccessPage(memberRole, item.href);
+                        const requiresMembership = pathRequiresMembership(item.href);
+                        const requiresPaid = pathRequiresPaid(item.href);
+                        const disabledNoMembership = !hasTenants && requiresMembership;
+                        const disabledFreeSubscription = subscriptionStatus === "FREE" && requiresPaid;
 
-                        if (!hasAccess) {
+                        if (!hasAccess || disabledNoMembership || disabledFreeSubscription) {
                           const lockedContent = (
                             <div
                               key={item.name}
@@ -340,9 +402,15 @@ export default function DashboardLayout({
                                 <TooltipTrigger asChild>
                                   {lockedContent}
                                 </TooltipTrigger>
-                                <TooltipContent side="right">
+                                <TooltipContent side="right" className="max-w-xs">
                                   <p>{item.name}</p>
-                                  <p className="opacity-70 text-xs">Locked</p>
+                                  <p className="opacity-70 text-xs">
+                                    {disabledNoMembership
+                                      ? "Create or join a tenant to access"
+                                      : disabledFreeSubscription
+                                      ? "Upgrade to access"
+                                      : "Locked"}
+                                  </p>
                                 </TooltipContent>
                               </Tooltip>
                             );

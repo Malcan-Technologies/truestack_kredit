@@ -7,6 +7,7 @@ import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { AuditService } from '../compliance/auditService.js';
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
+import { ensureBorrowerPerformanceProjections } from './performanceProjectionService.js';
 
 const router = Router();
 
@@ -140,20 +141,42 @@ router.get('/', async (req, res, next) => {
       }),
     };
 
-    const [borrowers, total] = await Promise.all([
-      prisma.borrower.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          _count: {
-            select: { loans: true, applications: true },
+    const borrowerListQuery = {
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: 'desc' as const },
+      include: {
+        _count: {
+          select: { loans: true, applications: true },
+        },
+        performanceProjection: {
+          select: {
+            riskLevel: true,
+            onTimeRate: true,
+            tags: true,
+            defaultedLoans: true,
+            inArrearsLoans: true,
+            readyForDefaultLoans: true,
+            totalLoans: true,
           },
         },
-      }),
+      },
+    };
+
+    let [borrowers, total] = await Promise.all([
+      prisma.borrower.findMany(borrowerListQuery),
       prisma.borrower.count({ where }),
     ]);
+
+    const missingProjectionBorrowerIds = borrowers
+      .filter((borrower) => !borrower.performanceProjection)
+      .map((borrower) => borrower.id);
+
+    if (missingProjectionBorrowerIds.length > 0) {
+      await ensureBorrowerPerformanceProjections(req.tenantId!, missingProjectionBorrowerIds);
+      borrowers = await prisma.borrower.findMany(borrowerListQuery);
+    }
 
     res.json({
       success: true,
@@ -200,6 +223,7 @@ router.get('/:borrowerId', async (req, res, next) => {
         directors: {
           orderBy: { order: 'asc' },
         },
+        performanceProjection: true,
       },
     });
 

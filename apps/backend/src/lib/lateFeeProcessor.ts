@@ -25,6 +25,7 @@ import { generateArrearsLetter } from './letterService.js';
 import { AuditService } from '../modules/compliance/auditService.js';
 import { TrueSendService } from '../modules/notifications/trueSendService.js';
 import { ONE_DAY_MS, calculateDaysOverdueMalaysia, getMalaysiaDateRange, getMalaysiaEndOfDay, getMalaysiaStartOfDay } from './malaysiaTime.js';
+import { recalculateBorrowerPerformanceProjection } from '../modules/borrowers/performanceProjectionService.js';
 
 // Advisory lock ID for late fee processing
 const LATE_FEE_LOCK_ID = 789012345;
@@ -461,6 +462,12 @@ export class LateFeeProcessor {
                   trigger,
                 },
               });
+
+              try {
+                await recalculateBorrowerPerformanceProjection(loan.tenantId, loan.borrowerId);
+              } catch (projectionError) {
+                errors.push(`Borrower projection refresh for loan ${loanId}: ${projectionError instanceof Error ? projectionError.message : 'Unknown error'}`);
+              }
             }
 
             // 5e. Check default period
@@ -488,6 +495,12 @@ export class LateFeeProcessor {
                   trigger,
                 },
               });
+
+              try {
+                await recalculateBorrowerPerformanceProjection(loan.tenantId, loan.borrowerId);
+              } catch (projectionError) {
+                errors.push(`Borrower projection refresh for loan ${loanId}: ${projectionError instanceof Error ? projectionError.message : 'Unknown error'}`);
+              }
             }
 
             loansProcessed++;

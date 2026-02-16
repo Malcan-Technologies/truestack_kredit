@@ -195,7 +195,7 @@ export default function ProductsPage() {
         </div>
 
         {/* Borrower Type Filter */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 pl-4 border-l border-border">
           <span className="text-sm text-muted-foreground">Borrower:</span>
           <div className="flex gap-1">
             <Button
@@ -228,7 +228,7 @@ export default function ProductsPage() {
         </div>
 
         {/* Schedule Type Filter */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 pl-4 border-l border-border">
           <span className="text-sm text-muted-foreground">Schedule:</span>
           <div className="flex gap-1">
             <Button

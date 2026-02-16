@@ -462,7 +462,7 @@ router.post('/add-ons/toggle', async (req, res, next) => {
     const tenantId = req.tenantId!;
     const { addOnType } = req.body as { addOnType: string };
 
-    if (!addOnType || !['TRUESEND', 'TRUEIDENTITY'].includes(addOnType)) {
+    if (!addOnType || !['TRUESEND', 'TRUEIDENTITY', 'BORROWER_PERFORMANCE'].includes(addOnType)) {
       return res.status(400).json({ success: false, error: 'Invalid addOnType' });
     }
 

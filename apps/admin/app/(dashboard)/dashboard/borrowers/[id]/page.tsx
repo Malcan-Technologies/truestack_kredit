@@ -24,6 +24,7 @@ import {
   FileText,
   Download,
   Briefcase,
+  TrendingUp,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +113,18 @@ interface Borrower {
   dateOfIncorporation: string | null;
   paidUpCapital: string | null;
   numberOfEmployees: number | null;
+  performanceProjection: {
+    riskLevel: BorrowerPerformanceRiskLevel;
+    onTimeRate: string | null;
+    tags: string[];
+    totalLoans: number;
+    activeLoans: number;
+    inArrearsLoans: number;
+    defaultedLoans: number;
+    readyForDefaultLoans: number;
+    completedLoans: number;
+    pendingDisbursementLoans: number;
+  } | null;
   createdAt: string;
   updatedAt: string;
   loans: Array<{
@@ -144,6 +157,8 @@ interface TimelineEvent {
     name: string | null;
   } | null;
 }
+
+type BorrowerPerformanceRiskLevel = "NO_HISTORY" | "GOOD" | "WATCH" | "HIGH_RISK" | "DEFAULTED";
 
 interface FormData {
   // Common fields
@@ -345,6 +360,27 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | null | undefined) {
+  switch (riskLevel) {
+    case "DEFAULTED":
+      return { label: "Defaulted", variant: "destructive" as const };
+    case "HIGH_RISK":
+      return { label: "High Risk", variant: "warning" as const };
+    case "WATCH":
+      return { label: "Watch", variant: "info" as const };
+    case "GOOD":
+      return { label: "Good", variant: "success" as const };
+    default:
+      return { label: "No History", variant: "outline" as const };
+  }
+}
+
+function getOnTimeRateBarColor(rate: number): string {
+  if (rate >= 80) return "bg-emerald-500";
+  if (rate >= 50) return "bg-amber-500";
+  return "bg-red-500";
 }
 
 // ============================================
@@ -1130,6 +1166,18 @@ export default function BorrowerDetailPage() {
           <Card>
             <CardContent className="py-4">
               <div className="flex items-center gap-6 flex-wrap">
+                {(() => {
+                  const performanceMeta = getPerformanceBadgeMeta(borrower.performanceProjection?.riskLevel);
+                  return (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Performance</span>
+                        <Badge variant={performanceMeta.variant}>{performanceMeta.label}</Badge>
+                      </div>
+                      <div className="h-4 w-px bg-border" />
+                    </>
+                  );
+                })()}
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Borrower Type</span>
                   <Badge variant={borrower.borrowerType === "CORPORATE" ? "secondary" : "outline"}>
@@ -1152,6 +1200,81 @@ export default function BorrowerDetailPage() {
                   <span className="text-sm font-medium">{formatDate(borrower.createdAt)}</span>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment Performance */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-muted-foreground" />
+                Payment Performance
+              </CardTitle>
+              <CardDescription>
+                Borrower repayment behavior aggregated across all loans
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const projection = borrower.performanceProjection;
+                const performanceMeta = getPerformanceBadgeMeta(projection?.riskLevel);
+                const onTimeRate = projection?.onTimeRate ? Number(projection.onTimeRate) : null;
+                const signalItems = [
+                  projection?.defaultedLoans ? `${projection.defaultedLoans} defaulted` : null,
+                  projection?.inArrearsLoans ? `${projection.inArrearsLoans} in arrears` : null,
+                  projection?.readyForDefaultLoans ? `${projection.readyForDefaultLoans} default ready` : null,
+                ].filter(Boolean) as string[];
+
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="rounded-lg border border-border bg-secondary p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Risk Profile</p>
+                        <Badge variant={performanceMeta.variant}>{performanceMeta.label}</Badge>
+                      </div>
+                      <div className="rounded-lg border border-border bg-secondary p-3">
+                        <p className="text-xs text-muted-foreground mb-1">On-Time Rate</p>
+                        {onTimeRate !== null ? (
+                          <div className="space-y-2">
+                            <p className="text-lg font-heading font-semibold">
+                              {onTimeRate.toFixed(1)}%
+                            </p>
+                            <div className="h-2 w-full rounded-full bg-border/70 overflow-hidden">
+                              <div
+                                className={`h-full ${getOnTimeRateBarColor(onTimeRate)} transition-all`}
+                                style={{ width: `${Math.min(100, Math.max(0, onTimeRate))}%` }}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                              <span>0</span>
+                              <span>50</span>
+                              <span>80</span>
+                              <span>100</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-lg font-heading font-semibold">No repayment data yet</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {(projection?.tags || []).slice(0, 4).map((tag) => (
+                        <Badge key={tag} variant="outline">{tag}</Badge>
+                      ))}
+                      {(projection?.tags || []).length === 0 && (
+                        <Badge variant="outline">No repayment track record</Badge>
+                      )}
+                    </div>
+
+                    {signalItems.length > 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        Signals: {signalItems.join(" • ")}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
           {/* Conditional rendering based on borrower type */}

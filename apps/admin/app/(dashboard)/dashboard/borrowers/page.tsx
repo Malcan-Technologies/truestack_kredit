@@ -40,10 +40,21 @@ interface Borrower {
   companyName: string | null;
   createdAt: string;
   updatedAt: string;
+  performanceProjection: {
+    riskLevel: BorrowerPerformanceRiskLevel;
+    onTimeRate: string | null;
+    tags: string[];
+    defaultedLoans: number;
+    inArrearsLoans: number;
+    readyForDefaultLoans: number;
+    totalLoans: number;
+  } | null;
   _count: {
     loans: number;
   };
 }
+
+type BorrowerPerformanceRiskLevel = "NO_HISTORY" | "GOOD" | "WATCH" | "HIGH_RISK" | "DEFAULTED";
 
 interface PaginatedResponse {
   data: Borrower[];
@@ -67,6 +78,21 @@ function formatICForDisplay(icNumber: string): string {
     return `${cleanIC.substring(0, 6)}-${cleanIC.substring(6, 8)}-${cleanIC.substring(8, 12)}`;
   }
   return icNumber;
+}
+
+function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | undefined) {
+  switch (riskLevel) {
+    case "DEFAULTED":
+      return { label: "Defaulted", variant: "destructive" as const };
+    case "HIGH_RISK":
+      return { label: "High Risk", variant: "warning" as const };
+    case "WATCH":
+      return { label: "Watch", variant: "info" as const };
+    case "GOOD":
+      return { label: "Good", variant: "success" as const };
+    default:
+      return { label: "No History", variant: "outline" as const };
+  }
 }
 
 // ============================================
@@ -253,12 +279,13 @@ export default function BorrowersPage() {
         <CardContent>
           {loading ? (
             <TableSkeleton
-              headers={["Name", "Identity", "Verification", "Contact", "Created", "Loans"]}
+              headers={["Name", "Identity", "Verification", "Contact", "Performance", "Created", "Loans"]}
               columns={[
                 { width: "w-32", subLine: true },
                 { width: "w-28", subLine: true },
                 { badge: true, width: "w-16" },
                 { width: "w-24", subLine: true },
+                { badge: true, width: "w-24", subLine: true },
                 { width: "w-28" },
                 { badge: true, width: "w-8" },
               ]}
@@ -318,6 +345,7 @@ export default function BorrowersPage() {
                       </button>
                     </TableHead>
                     <TableHead>Contact</TableHead>
+                    <TableHead>Performance</TableHead>
                     <TableHead>
                       <button onClick={() => toggleSort("created")} className="flex items-center gap-1 hover:text-foreground transition-colors">
                         Created
@@ -402,6 +430,32 @@ export default function BorrowersPage() {
                             </div>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const projection = borrower.performanceProjection;
+                          const meta = getPerformanceBadgeMeta(projection?.riskLevel);
+                          const onTimeRate = projection?.onTimeRate ? Number(projection.onTimeRate) : null;
+                          const riskNotes = [
+                            projection?.defaultedLoans ? `${projection.defaultedLoans} defaulted` : null,
+                            projection?.inArrearsLoans ? `${projection.inArrearsLoans} in arrears` : null,
+                            projection?.readyForDefaultLoans ? `${projection.readyForDefaultLoans} default ready` : null,
+                          ].filter(Boolean) as string[];
+
+                          return (
+                            <div className="space-y-1">
+                              <Badge variant={meta.variant}>{meta.label}</Badge>
+                              <p className="text-xs text-muted-foreground">
+                                {onTimeRate !== null ? `On-time ${onTimeRate.toFixed(1)}%` : "No repayment track record"}
+                              </p>
+                              {riskNotes.length > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                  {riskNotes.join(" • ")}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <span>{formatDate(borrower.createdAt)}</span>

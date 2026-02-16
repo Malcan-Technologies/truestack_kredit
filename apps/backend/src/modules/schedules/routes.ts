@@ -17,6 +17,7 @@ import { beginPaymentIdempotency, completePaymentIdempotency, failPaymentIdempot
 import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receiptNumber.js';
 import { fetchLogoBuffer } from '../../lib/safeLogoFetch.js';
 import { createHash } from 'crypto';
+import { recalculateBorrowerPerformanceProjection } from '../borrowers/performanceProjectionService.js';
 
 const router = Router();
 
@@ -768,6 +769,12 @@ router.post('/payments', async (req, res, next) => {
       ipAddress: req.ip,
     });
 
+    try {
+      await recalculateBorrowerPerformanceProjection(req.tenantId!, loan.borrowerId);
+    } catch (projectionError) {
+      console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${loan.borrowerId}:`, projectionError);
+    }
+
     const responsePayload = {
       success: true,
       data: result,
@@ -1312,6 +1319,12 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
         },
         ipAddress: req.ip,
       });
+    }
+
+    try {
+      await recalculateBorrowerPerformanceProjection(req.tenantId!, loan.borrowerId);
+    } catch (projectionError) {
+      console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${loan.borrowerId}:`, projectionError);
     }
 
     // TrueSend: send payment receipt email with PDF attached

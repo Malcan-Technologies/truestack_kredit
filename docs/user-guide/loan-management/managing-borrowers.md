@@ -76,10 +76,10 @@ The table displays:
 |--------|-------------|
 | Name | Borrower's full name (click to view details) |
 | Identity | IC/Passport number with verification status |
+| Verification | e-KYC verified or manual verification indicator |
 | Contact | Phone number and email |
-| Bank | Bank name and account number |
+| Performance | Borrower-level repayment risk profile and on-time behavior |
 | Created | When the borrower was registered |
-| Updated | Last modification date |
 | Loans | Number of active loans |
 
 ### Searching Borrowers
@@ -100,6 +100,7 @@ Click on a borrower's name to view their full profile, including:
 - Personal details (DOB, gender, race, education, occupation)
 - Contact information
 - Bank details
+- Payment performance summary (risk profile, on-time rate, and borrower-level signals)
 - Emergency contact
 - Activity timeline
 
@@ -330,6 +331,7 @@ The Bumi Status field is required for both the [Lampiran A](?doc=compliance/lamp
 
 ## Related Documentation
 
+- [Borrower Performance & Risk](?doc=loan-management/borrower-performance-and-risk) — Understanding borrower-level risk badges, on-time rate, tags, and signals
 - [Lampiran A (Borrower Ledger)](?doc=compliance/lampiran-a) — How borrower details appear in the Lampiran A regulatory document
 - [KPKT Portal Export (iDeal CSV)](?doc=compliance/kpkt-ideal-export) — How borrower data is used in the KPKT export
 - [Compliance & Exports Overview](?doc=compliance/compliance-overview) — Overview of all compliance and data export features

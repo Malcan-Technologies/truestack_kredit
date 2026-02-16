@@ -20,6 +20,7 @@ import { beginPaymentIdempotency, completePaymentIdempotency, failPaymentIdempot
 import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receiptNumber.js';
 import { fetchLogoBuffer } from '../../lib/safeLogoFetch.js';
 import PDFDocument from 'pdfkit';
+import { recalculateBorrowerPerformanceProjection } from '../borrowers/performanceProjectionService.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
@@ -853,6 +854,12 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
       ipAddress: req.ip,
     });
 
+    try {
+      await recalculateBorrowerPerformanceProjection(req.tenantId!, application.borrowerId);
+    } catch (projectionError) {
+      console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${application.borrowerId}:`, projectionError);
+    }
+
     res.json({
       success: true,
       data: result,
@@ -1510,6 +1517,12 @@ router.post('/:loanId/update-status', async (req, res, next) => {
         },
         ipAddress: req.ip,
       });
+
+      try {
+        await recalculateBorrowerPerformanceProjection(req.tenantId!, loan.borrowerId);
+      } catch (projectionError) {
+        console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${loan.borrowerId}:`, projectionError);
+      }
     }
 
     res.json({
@@ -1603,6 +1616,12 @@ router.post('/update-all-statuses', async (req, res, next) => {
           newData: { status: newStatus, oldestOverdueDays },
           ipAddress: req.ip,
         });
+
+        try {
+          await recalculateBorrowerPerformanceProjection(req.tenantId!, loan.borrowerId);
+        } catch (projectionError) {
+          console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${loan.borrowerId}:`, projectionError);
+        }
 
         results.push({ loanId: loan.id, previousStatus, newStatus, changed: true, oldestOverdueDays });
       } else {
@@ -2069,6 +2088,12 @@ router.post('/:loanId/complete', async (req, res, next) => {
       },
       ipAddress: req.ip,
     });
+
+    try {
+      await recalculateBorrowerPerformanceProjection(req.tenantId!, loan.borrowerId);
+    } catch (projectionError) {
+      console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${loan.borrowerId}:`, projectionError);
+    }
 
     // TrueSend: send completion notification with discharge letter
     let emailSent = false;
@@ -2682,6 +2707,12 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
       ipAddress: req.ip,
     });
 
+    try {
+      await recalculateBorrowerPerformanceProjection(req.tenantId!, loan.borrowerId);
+    } catch (projectionError) {
+      console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${loan.borrowerId}:`, projectionError);
+    }
+
     // TrueSend: send default notice email with letter attached
     let emailSent = false;
     if (defaultLetterPath) {
@@ -2904,6 +2935,12 @@ router.post('/:loanId/disburse', async (req, res, next) => {
         },
         ipAddress: req.ip,
       });
+    }
+
+    try {
+      await recalculateBorrowerPerformanceProjection(req.tenantId!, loan.borrowerId);
+    } catch (projectionError) {
+      console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${loan.borrowerId}:`, projectionError);
     }
 
     // TrueSend: send disbursement notification email
@@ -4299,6 +4336,12 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       },
       ipAddress: req.ip,
     });
+
+    try {
+      await recalculateBorrowerPerformanceProjection(req.tenantId!, loan.borrowerId);
+    } catch (projectionError) {
+      console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${loan.borrowerId}:`, projectionError);
+    }
 
     // TrueSend: send early settlement receipt email with PDF attached
     if (receiptPath) {

@@ -138,6 +138,7 @@ model Tenant {
   lateFeeEntries       LateFeeEntry[] // Daily late fee accrual entries
   addOns               TenantAddOn[] // Subscribed add-ons (TrueSend, TrueIdentity)
   emailLogs            EmailLog[] // TrueSend email delivery logs
+  borrowerPerformanceProjections BorrowerPerformanceProjection[]
 }
 
 // ============================================
@@ -466,10 +467,40 @@ model Borrower {
   documents    BorrowerDocument[]
   directors    BorrowerDirector[]
   emailLogs    EmailLog[] // TrueSend email delivery logs
+  performanceProjection BorrowerPerformanceProjection?
 
   @@unique([tenantId, icNumber])
   @@index([tenantId])
   @@index([borrowerType])
+}
+
+model BorrowerPerformanceProjection {
+  id                     String    @id @default(cuid())
+  tenantId               String
+  borrowerId             String    @unique
+  riskLevel              String    @default("NO_HISTORY") // NO_HISTORY, GOOD, WATCH, HIGH_RISK, DEFAULTED
+  onTimeRate             Decimal?  @db.Decimal(5, 2) // Borrower-level on-time payment rate (%)
+  tags                   String[]  @default([])
+  totalLoans             Int       @default(0)
+  activeLoans            Int       @default(0)
+  inArrearsLoans         Int       @default(0)
+  defaultedLoans         Int       @default(0)
+  completedLoans         Int       @default(0)
+  writtenOffLoans        Int       @default(0)
+  pendingDisbursementLoans Int     @default(0)
+  readyForDefaultLoans   Int       @default(0)
+  paidOnTimeCount        Int       @default(0)
+  paidLateCount          Int       @default(0)
+  overdueCount           Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([riskLevel])
+  @@index([onTimeRate])
 }
 
 model BorrowerDirector {
@@ -912,13 +943,13 @@ model LateFeeEntry {
 }
 
 // ============================================
-// Add-on Models (TrueSend, TrueIdentity)
+// Add-on Models (TrueSend, TrueIdentity, Borrower Performance)
 // ============================================
 
 model TenantAddOn {
   id          String    @id @default(cuid())
   tenantId    String
-  addOnType   String // "TRUESEND", "TRUEIDENTITY"
+  addOnType   String // "TRUESEND", "TRUEIDENTITY", "BORROWER_PERFORMANCE"
   status      String    @default("ACTIVE") // ACTIVE, CANCELLED, EXPIRED
   enabledAt   DateTime  @default(now())
   cancelledAt DateTime?

@@ -358,6 +358,30 @@ const previewSchema = z.object({
 // Note: Letter generation (discharge, arrears, default) is consolidated in letterService.ts
 
 /**
+ * Get application counts for action-needed badges (SUBMITTED, UNDER_REVIEW)
+ * GET /api/loans/applications/counts
+ */
+router.get('/applications/counts', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const [submitted, underReview] = await Promise.all([
+      prisma.loanApplication.count({
+        where: { tenantId, status: 'SUBMITTED' },
+      }),
+      prisma.loanApplication.count({
+        where: { tenantId, status: 'UNDER_REVIEW' },
+      }),
+    ]);
+    res.json({
+      success: true,
+      data: { submitted, underReview },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * List loan applications
  * GET /api/loans/applications
  */

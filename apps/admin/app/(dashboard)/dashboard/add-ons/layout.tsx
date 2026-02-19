@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import { RestrictedAccessControl } from "@/components/restricted-access-control";
 
 export const metadata: Metadata = {
-  title: "Loans - TrueKredit",
-  description: "View and manage loan disbursements, repayments, and schedules",
+  title: "Add-ons - TrueKredit",
+  description: "Purchase add-ons and extras",
 };
 
-export default function LoansLayout({
+export default function AddOnsLayout({
   children,
 }: {
   children: React.ReactNode;

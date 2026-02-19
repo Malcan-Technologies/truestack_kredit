@@ -1,14 +1,15 @@
-"use client";
+import type { Metadata } from "next";
+import { RestrictedAccessControl } from "@/components/restricted-access-control";
 
-import { notFound } from "next/navigation";
-import { useTenantContext } from "@/components/tenant-context";
+export const metadata: Metadata = {
+  title: "Calculator - TrueKredit",
+  description: "Calculate EMI, interest, and loan schedules",
+};
 
-export default function CalculatorLayout({ children }: { children: React.ReactNode }) {
-  const { subscriptionStatus } = useTenantContext();
-
-  if (subscriptionStatus === "FREE") {
-    notFound();
-  }
-
-  return <>{children}</>;
+export default function CalculatorLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return <RestrictedAccessControl>{children}</RestrictedAccessControl>;
 }

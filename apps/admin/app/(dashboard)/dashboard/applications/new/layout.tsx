@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Sign In - TrueKredit",
-  description: "Sign in to TrueKredit",
+  title: "New Application - TrueKredit",
+  description: "Create a new loan application",
 };
 
-export default function AuthLayout({
+export default function NewApplicationLayout({
   children,
 }: {
   children: React.ReactNode;

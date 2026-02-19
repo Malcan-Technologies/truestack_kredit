@@ -1,14 +1,15 @@
-"use client";
+import type { Metadata } from "next";
+import { RestrictedAccessControl } from "@/components/restricted-access-control";
 
-import { notFound } from "next/navigation";
-import { useTenantContext } from "@/components/tenant-context";
+export const metadata: Metadata = {
+  title: "Reports - TrueKredit",
+  description: "Analytics and business reports",
+};
 
-export default function RestrictedLayout({ children }: { children: React.ReactNode }) {
-  const { subscriptionStatus } = useTenantContext();
-
-  if (subscriptionStatus === "FREE") {
-    notFound();
-  }
-
-  return <>{children}</>;
+export default function ReportsLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return <RestrictedAccessControl>{children}</RestrictedAccessControl>;
 }

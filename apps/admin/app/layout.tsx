@@ -13,12 +13,36 @@ const rethinkSans = Rethink_Sans({
   variable: "--font-rethink-sans",
 });
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://kredit.truestack.my";
+
 export const metadata: Metadata = {
-  title: "TrueKredit - Admin",
-  description: "Multi-tenant loan management platform",
+  metadataBase: new URL(appUrl),
+  title: "TrueKredit",
+  description: "Multi-tenant loan management platform for lenders",
+  keywords: [
+    "loan management",
+    "lending platform",
+    "multi-tenant",
+    "Malaysia",
+    "compliance",
+    "Schedule A",
+    "loan origination",
+  ],
   icons: {
     icon: "/favicon.png",
     apple: "/favicon.png",
+  },
+  openGraph: {
+    title: "TrueKredit",
+    description: "Multi-tenant loan management platform for lenders",
+    url: "/",
+    siteName: "TrueKredit",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TrueKredit",
+    description: "Multi-tenant loan management platform for lenders",
   },
 };
 

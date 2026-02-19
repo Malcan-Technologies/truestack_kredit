@@ -1,4 +1,26 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "TrueKredit - Loan Management Platform",
+  },
+  description: "Multi-tenant loan management platform for lenders",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "TrueKredit - Loan Management Platform",
+    description: "Multi-tenant loan management platform for lenders",
+    url: "/",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TrueKredit - Loan Management Platform",
+    description: "Multi-tenant loan management platform for lenders",
+  },
+};
 
 export default function Home() {
   return (

@@ -79,6 +79,7 @@ import { CopyField } from "@/components/ui/copy-field";
 import { PhoneDisplay } from "@/components/ui/phone-display";
 import { api } from "@/lib/api";
 import {
+  cn,
   formatCurrency,
   formatDate,
   formatRelativeTime,
@@ -326,11 +327,13 @@ function ProgressDonut({
   size = 80,
   strokeWidth = 8,
   status,
+  className,
 }: {
   percent: number;
   size?: number;
   strokeWidth?: number;
   status?: string;
+  className?: string;
 }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -348,7 +351,7 @@ function ProgressDonut({
   }
 
   return (
-    <div className="relative inline-flex items-center justify-center mt-2">
+    <div className={cn("relative inline-flex items-center justify-center", size <= 56 ? "" : "mt-2", className)}>
       <svg width={size} height={size} className="-rotate-90 shrink-0">
         <circle
           cx={center}
@@ -1472,8 +1475,79 @@ export default function LoanDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - 2/3 width */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Info Cards */}
-          <div className="grid md:grid-cols-3 gap-4">
+          {/* Progress Card - compact single row */}
+          <Card>
+            <CardContent className="pt-4">
+              {loan.status === "PENDING_DISBURSEMENT" ? (
+                <div className="flex items-center gap-3">
+                  <Calendar className="h-5 w-5 text-amber-600 shrink-0" />
+                  <div>
+                    <p className="font-medium text-amber-600">Pending disbursement</p>
+                    <p className="text-xs text-muted-foreground">Awaiting disbursement</p>
+                  </div>
+                </div>
+              ) : metrics ? (
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                  <ProgressDonut percent={metrics.progressPercent} status={loan.status} size={68} strokeWidth={7} />
+                  <div className="min-w-0 shrink-0">
+                    <p className="text-2xl font-heading font-bold text-foreground tabular-nums">
+                      {formatCurrency(metrics.totalPaid)}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      of {formatCurrency(metrics.totalDue)}
+                    </p>
+                    {metrics.totalDue - metrics.totalPaid > 0 && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Outstanding: <span className="font-semibold text-foreground">{formatCurrency(metrics.totalDue - metrics.totalPaid)}</span>
+                      </p>
+                    )}
+                    {metrics.earlySettlement?.discountAmount && (
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400">incl. {formatCurrency(metrics.earlySettlement.discountAmount)} discount</p>
+                    )}
+                    {metrics.progressPercent >= 100 && (loan.status === "ACTIVE" || loan.status === "IN_ARREARS") && (
+                      <Badge variant="success" className="mt-1.5 inline-flex gap-1 text-xs">
+                        <CheckCircle className="h-3 w-3" />
+                        Ready to complete
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:gap-3 flex-1 min-w-0 ml-4 sm:ml-6">
+                    <div className="rounded-md bg-secondary border border-border px-3 py-1.5 shrink-0">
+                      <span className="text-xs text-muted-foreground">Paid </span>
+                      <span className="text-sm font-heading font-bold tabular-nums">{metrics.paidCount}</span>
+                      <span className="text-xs text-muted-foreground">/ {metrics.totalRepayments}</span>
+                    </div>
+                    <div className="rounded-md bg-secondary border border-border px-3 py-1.5 shrink-0">
+                      <span className="text-xs text-muted-foreground">Overdue </span>
+                      <span className={`text-sm font-heading font-bold tabular-nums ${metrics.overdueCount > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                        {metrics.overdueCount}
+                      </span>
+                      {metrics.oldestOverdueDays > 0 && (
+                        <span className="text-xs text-destructive ml-0.5">({metrics.oldestOverdueDays}d)</span>
+                      )}
+                    </div>
+                    <div className="rounded-md bg-secondary border border-border px-3 py-1.5 shrink-0">
+                      <span className="text-xs text-muted-foreground">Late </span>
+                      <span className={`text-sm font-heading font-bold tabular-nums ${metrics.totalLateFees > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+                        {formatCurrency(metrics.totalLateFees)}
+                      </span>
+                    </div>
+                    <div className="rounded-md bg-secondary border border-border px-3 py-1.5 shrink-0">
+                      <span className="text-xs text-muted-foreground">On-Time </span>
+                      <span className={`text-sm font-heading font-bold tabular-nums ${metrics.repaymentRate >= 80 ? "text-success" : metrics.repaymentRate >= 50 ? "text-amber-600 dark:text-amber-400" : "text-destructive"}`}>
+                        {metrics.repaymentRate}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">Loading...</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Borrower & Loan Details - 2 columns */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Borrower Card */}
             <Card>
               <CardHeader className="pb-2">
@@ -1719,91 +1793,6 @@ export default function LoanDetailPage() {
                     </div>
                   );
                 })()}
-              </CardContent>
-            </Card>
-
-            {/* Progress Card */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  {loan.status === "PENDING_DISBURSEMENT" ? "Status" : "Progress"}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {loan.status === "PENDING_DISBURSEMENT" ? (
-                  <>
-                    <p className="text-lg font-medium text-amber-600">Pending</p>
-                    <p className="text-sm text-muted-foreground">
-                      Awaiting disbursement
-                    </p>
-                  </>
-                ) : metrics ? (
-                  <>
-                    <div className="flex items-center gap-4">
-                      <ProgressDonut percent={metrics.progressPercent} status={loan.status} />
-                      <div className="min-w-0">
-                        <p className="text-lg font-heading font-bold text-foreground truncate">
-                          {formatCurrency(metrics.totalPaid)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          of {formatCurrency(metrics.totalDue)}
-                        </p>
-                        {metrics.earlySettlement?.discountAmount ? (
-                          <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                            incl. {formatCurrency(metrics.earlySettlement.discountAmount)} discount
-                          </p>
-                        ) : null}
-                        {metrics.totalDue - metrics.totalPaid > 0 && (
-                          <p className="text-sm mt-1">
-                            <span className="text-muted-foreground">Outstanding: </span>
-                            <span className="font-semibold">{formatCurrency(metrics.totalDue - metrics.totalPaid)}</span>
-                          </p>
-                        )}
-                        {metrics.progressPercent >= 100 && (loan.status === "ACTIVE" || loan.status === "IN_ARREARS") && (
-                          <Badge variant="success" className="mt-2 inline-flex items-center gap-1">
-                            <CheckCircle className="h-3 w-3" />
-                            Ready to complete
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4">
-                      <div className="rounded-lg bg-secondary border border-border px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">Paid</p>
-                        <p className="text-xl font-heading font-bold text-foreground tabular-nums">{metrics.paidCount}</p>
-                        <p className="text-xs text-muted-foreground">of {metrics.totalRepayments}</p>
-                      </div>
-                      <div className="rounded-lg bg-secondary border border-border px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">Overdue</p>
-                        <p className={`text-xl font-heading font-bold tabular-nums ${metrics.overdueCount > 0 ? "text-destructive" : "text-muted-foreground"}`}>
-                          {metrics.overdueCount}
-                        </p>
-                        {metrics.oldestOverdueDays > 0 ? (
-                          <p className="text-xs text-destructive">{metrics.oldestOverdueDays} days</p>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">&nbsp;</p>
-                        )}
-                      </div>
-                      <div className="rounded-lg bg-secondary border border-border px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">Late Fees</p>
-                        <p className={`text-xl font-heading font-bold tabular-nums ${metrics.totalLateFees > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-                          {formatCurrency(metrics.totalLateFees)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">&nbsp;</p>
-                      </div>
-                      <div className="rounded-lg bg-secondary border border-border px-4 py-3">
-                        <p className="text-sm font-medium text-foreground">On-Time</p>
-                        <p className={`text-xl font-heading font-bold tabular-nums ${metrics.repaymentRate >= 80 ? "text-success" : metrics.repaymentRate >= 50 ? "text-amber-600 dark:text-amber-400" : "text-destructive"}`}>
-                          {metrics.repaymentRate}%
-                        </p>
-                        <p className="text-xs text-muted-foreground">&nbsp;</p>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-muted-foreground">Loading...</p>
-                )}
               </CardContent>
             </Card>
           </div>

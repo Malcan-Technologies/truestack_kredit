@@ -428,7 +428,7 @@ export default function NewBorrowerPage() {
     if (!data.postcode.trim()) errors.postcode = "Postcode is required";
     else if (!POSTCODE_REGEX.test(data.postcode)) errors.postcode = "Postcode must contain numbers only";
     if (!data.country) errors.country = "Country is required";
-    if (!data.state) errors.state = "State is required";
+    if (data.country && getStateOptions(data.country).length > 0 && !data.state) errors.state = "State is required";
     if (!data.dateOfBirth) errors.dateOfBirth = "Date of birth is required";
     if (!data.gender) errors.gender = "Gender is required";
     if (!data.race) errors.race = "Race is required";
@@ -466,7 +466,7 @@ export default function NewBorrowerPage() {
     if (!data.postcode.trim()) errors.postcode = "Postcode is required";
     else if (!POSTCODE_REGEX.test(data.postcode)) errors.postcode = "Postcode must contain numbers only";
     if (!data.country) errors.country = "Country is required";
-    if (!data.state) errors.state = "State is required";
+    if (data.country && getStateOptions(data.country).length > 0 && !data.state) errors.state = "State is required";
     if (!data.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
     if (!data.companyPhone.trim()) errors.companyPhone = "Company phone is required";
     if (!data.companyEmail.trim()) errors.companyEmail = "Company email is required";
@@ -858,8 +858,9 @@ export default function NewBorrowerPage() {
                           if (validationErrors.phone) setValidationErrors((prev) => ({ ...prev, phone: "" }));
                         }}
                         error={!!validationErrors.phone}
-                        placeholder="16 2487680"
+                        placeholder="16 4818800"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">e.g. 16 4818800</p>
                       {validationErrors.phone && (
                         <p className="text-xs text-red-500 mt-1">{validationErrors.phone}</p>
                       )}
@@ -1023,8 +1024,9 @@ export default function NewBorrowerPage() {
                       <PhoneInput
                         value={individualFormData.emergencyContactPhone || undefined}
                         onChange={(val: string | undefined) => setIndividualFormData((prev) => ({ ...prev, emergencyContactPhone: val ?? "" }))}
-                        placeholder="16 2487680"
+                        placeholder="16 4818800"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">e.g. 16 4818800</p>
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">Relationship</Label>
@@ -1230,8 +1232,9 @@ export default function NewBorrowerPage() {
                             if (validationErrors.companyPhone) setValidationErrors((prev) => ({ ...prev, companyPhone: "" }));
                           }}
                           error={!!validationErrors.companyPhone}
-                          placeholder="3-12345678"
+                          placeholder="16 4818800"
                         />
+                        <p className="text-xs text-muted-foreground mt-1">e.g. 16 4818800</p>
                         {validationErrors.companyPhone && (
                           <p className="text-xs text-red-500 mt-1">{validationErrors.companyPhone}</p>
                         )}

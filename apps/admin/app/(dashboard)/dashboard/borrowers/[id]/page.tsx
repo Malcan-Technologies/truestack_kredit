@@ -982,7 +982,7 @@ export default function BorrowerDetailPage() {
       if (!formData.postcode.trim()) errors.postcode = "Postcode is required";
       else if (!POSTCODE_REGEX.test(formData.postcode)) errors.postcode = "Postcode must contain numbers only";
       if (!formData.country) errors.country = "Country is required";
-      if (!formData.state) errors.state = "State is required";
+      if (formData.country && getStateOptions(formData.country).length > 0 && !formData.state) errors.state = "State is required";
       if (!formData.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
       if (!formData.companyPhone.trim()) errors.companyPhone = "Company phone is required";
       if (!formData.companyEmail.trim()) errors.companyEmail = "Company email is required";
@@ -1028,7 +1028,7 @@ export default function BorrowerDetailPage() {
       if (!formData.postcode.trim()) errors.postcode = "Postcode is required";
       else if (!POSTCODE_REGEX.test(formData.postcode)) errors.postcode = "Postcode must contain numbers only";
       if (!formData.country) errors.country = "Country is required";
-      if (!formData.state) errors.state = "State is required";
+      if (formData.country && getStateOptions(formData.country).length > 0 && !formData.state) errors.state = "State is required";
       if (!formData.dateOfBirth) errors.dateOfBirth = "Date of birth is required";
       if (!formData.gender) errors.gender = "Gender is required";
       if (!formData.race) errors.race = "Race is required";

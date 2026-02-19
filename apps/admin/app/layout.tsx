@@ -29,8 +29,8 @@ export const metadata: Metadata = {
     "loan origination",
   ],
   icons: {
-    icon: "/favicon.svg",
-    apple: "/favicon.svg",
+    icon: "/favicon.png",
+    apple: "/favicon.png",
   },
   openGraph: {
     title: "TrueKredit",

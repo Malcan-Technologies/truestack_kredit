@@ -11,6 +11,8 @@ import {
   MapPin,
   Building2,
   Calendar,
+  ChevronDown,
+  ChevronUp,
   ShieldCheck,
   Fingerprint,
   AlertTriangle,
@@ -766,6 +768,7 @@ export default function BorrowerDetailPage() {
   const [timelineCursor, setTimelineCursor] = useState<string | null>(null);
   const [hasMoreTimeline, setHasMoreTimeline] = useState(false);
   const [loadingMoreTimeline, setLoadingMoreTimeline] = useState(false);
+  const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2625,38 +2628,65 @@ export default function BorrowerDetailPage() {
 
           {/* Activity Timeline */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-muted-foreground" />
-                Activity Timeline
-              </CardTitle>
-              <CardDescription>Changes and events for this borrower</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {timeline.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No activity recorded yet
-                </p>
-              ) : (
-                <div className="space-y-0 min-w-0">
-                  {timeline.map((event) => (
-                    <TimelineItem key={event.id} event={event} />
-                  ))}
-                  {hasMoreTimeline && (
-                    <div className="pt-4 text-center">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => fetchTimeline(timelineCursor || undefined, true)}
-                        disabled={loadingMoreTimeline}
-                      >
-                        {loadingMoreTimeline ? "Loading..." : "Load More"}
-                      </Button>
-                    </div>
-                  )}
+            <CardHeader
+              className="cursor-pointer select-none"
+              onClick={() => setTimelineExpanded((p) => !p)}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-muted-foreground" />
+                    Activity Timeline
+                  </CardTitle>
+                  <CardDescription>Changes and events for this borrower</CardDescription>
                 </div>
-              )}
-            </CardContent>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 h-8 w-8"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTimelineExpanded((p) => !p);
+                  }}
+                >
+                  {timelineExpanded ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            {timelineExpanded && (
+              <CardContent>
+                {timeline.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No activity recorded yet
+                  </p>
+                ) : (
+                  <div className="space-y-0 min-w-0">
+                    {timeline.map((event) => (
+                      <TimelineItem key={event.id} event={event} />
+                    ))}
+                    {hasMoreTimeline && (
+                      <div className="pt-4 text-center">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            fetchTimeline(timelineCursor || undefined, true);
+                          }}
+                          disabled={loadingMoreTimeline}
+                        >
+                          {loadingMoreTimeline ? "Loading..." : "Load More"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            )}
           </Card>
         </div>
       </div>

@@ -11,9 +11,9 @@ TrueIdentity is TrueKredit's integrated e-KYC (electronic Know Your Customer) ve
 
 ## How It Works
 
-### 1. Generate QR Code
+### 1. Send Verification
 
-From TrueKredit, generate a unique QR code for the borrower during the application process. Each QR code is tied to the specific borrower and loan file.
+From the borrower detail page in TrueKredit, click **Send Verification**. A QR code and verification link are generated. Share the QR code or link with the borrower (e.g. in person, via messaging). Each session is tied to the specific borrower.
 
 ### 2. Borrower Scans & Verifies
 
@@ -84,3 +84,29 @@ Yes. You can generate a verification QR code for any borrower at any time, not j
 ### How do I subscribe to TrueIdentity?
 
 Contact your TrueKredit account manager or visit the billing section in your admin dashboard to enable the add-on.
+
+---
+
+## Technical Integration
+
+### Verification Flow (Option A)
+
+1. From the borrower detail page, click **Send Verification**.
+2. TrueKredit sends a signed webhook request to TrueStack Admin.
+3. Admin creates an Innovatif verification session and returns the onboarding URL in the same response.
+4. The UI displays a QR code and copy-link button for the borrower to complete verification offline.
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `TRUEIDENTITY_ADMIN_BASE_URL` | Base URL of TrueStack Admin (e.g. `https://admin.truestack.my`) |
+| `KREDIT_TRUESTACK_WEBHOOK_SECRET` | Shared secret for signing Kredit→Admin requests |
+| `TRUEIDENTITY_WEBHOOK_SHARED_SECRET` | Secret for validating Admin→Kredit callbacks (defaults to `KREDIT_TRUESTACK_WEBHOOK_SECRET` if unset) |
+| `APP_BASE_URL` or `BACKEND_URL` | Kredit API base URL for webhook callback registration |
+
+### API Endpoints
+
+- **POST /api/borrowers/:id/verify/start** — Initiates verification, calls Admin webhook, returns `session_id`, `onboarding_url`, `status`, `expires_at`.
+- **GET /api/borrowers/:id/verify/status** — Returns latest verification status for the borrower.
+- **POST /api/webhooks/trueidentity** — Public callback endpoint for Admin lifecycle events (HMAC-verified, idempotent).

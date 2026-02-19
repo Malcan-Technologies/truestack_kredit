@@ -139,6 +139,9 @@ model Tenant {
   addOns               TenantAddOn[] // Subscribed add-ons (TrueSend, TrueIdentity)
   emailLogs            EmailLog[] // TrueSend email delivery logs
   borrowerPerformanceProjections BorrowerPerformanceProjection[]
+  trueIdentitySessions TrueIdentitySession[]
+  trueIdentityWebhookEvents TrueIdentityWebhookEvent[]
+  trueIdentityUsageDaily TrueIdentityUsageDaily[]
 }
 
 // ============================================
@@ -433,6 +436,15 @@ model Borrower {
   verifiedAt       DateTime? // When verification was completed
   verifiedBy       String? // e-KYC provider or manual verification
 
+  // TrueIdentity verification snapshot (updated from Admin webhooks)
+  trueIdentityStatus        String?   // pending, processing, completed, expired, failed
+  trueIdentityResult        String?   // approved, rejected (when status=completed)
+  trueIdentitySessionId     String?   // Admin/Innovatif session id
+  trueIdentityOnboardingUrl String?   // URL for QR / copy-link
+  trueIdentityExpiresAt     DateTime? // Session expiry
+  trueIdentityLastWebhookAt DateTime? // Last callback processed
+  trueIdentityRejectMessage String?   // Rejection reason when result=rejected
+
   // Compliance fields (mandatory for regulatory reporting - Individual borrowers)
   dateOfBirth      DateTime? // Extracted from IC or manually entered for passport holders
   gender           String? // MALE, FEMALE
@@ -474,6 +486,7 @@ model Borrower {
   directors    BorrowerDirector[]
   emailLogs    EmailLog[] // TrueSend email delivery logs
   performanceProjection BorrowerPerformanceProjection?
+  trueIdentitySessions TrueIdentitySession[] // Verification sessions
 
   @@unique([tenantId, icNumber])
   @@index([tenantId])
@@ -1041,6 +1054,65 @@ model PaymentReminderDispatch {
   @@unique([tenantId, loanId, repaymentId, reminderType, reminderDateMYT])
   @@index([tenantId, reminderDateMYT])
   @@index([loanId, repaymentId])
+}
+
+// ============================================
+// TrueIdentity Verification Models
+// ============================================
+
+model TrueIdentitySession {
+  id               String    @id @default(cuid())
+  tenantId         String
+  borrowerId       String
+  adminSessionId   String    @unique // Session id from Admin/Innovatif
+  onboardingUrl    String
+  status           String    @default("pending") // pending, processing, completed, expired, failed
+  result           String?   // approved, rejected (when status=completed)
+  rejectMessage    String?
+  expiresAt        DateTime
+  requestPayload   Json?     // Snapshot of request sent to Admin
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([borrowerId])
+  @@index([status])
+}
+
+model TrueIdentityWebhookEvent {
+  id             String    @id @default(cuid())
+  tenantId       String?
+  idempotencyKey String    @unique // event+session_id+timestamp hash
+  rawPayload     Json
+  signatureHeader String?
+  timestampHeader String?
+  status         String    @default("PENDING") // PENDING, PROCESSED, FAILED
+  processedAt    DateTime?
+  errorMessage   String?
+  createdAt      DateTime  @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model TrueIdentityUsageDaily {
+  id          String   @id @default(cuid())
+  tenantId    String
+  usageDate   DateTime // Start of day (UTC)
+  count       Int      @default(0) // Verifications completed that day
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, usageDate])
+  @@index([tenantId])
+  @@index([usageDate])
 }
 
 // Audit trail for each cron / manual late fee processing run

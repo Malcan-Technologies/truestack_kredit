@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
+import { getVerificationUsage } from '../trueidentity/usageService.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireAdmin } from '../../middleware/requireRole.js';
@@ -444,6 +445,51 @@ router.get('/add-ons', async (req, res, next) => {
         })),
         emailStats,
         verificationStats,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Get TrueIdentity verification usage for billing
+ * GET /api/billing/trueidentity-usage?periodStart=YYYY-MM-DD&periodEnd=YYYY-MM-DD
+ */
+router.get('/trueidentity-usage', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const periodStart = req.query.periodStart as string;
+    const periodEnd = req.query.periodEnd as string;
+
+    if (!periodStart || !periodEnd) {
+      return res.status(400).json({
+        success: false,
+        error: 'periodStart and periodEnd query params required (YYYY-MM-DD)',
+      });
+    }
+
+    const start = new Date(periodStart);
+    const end = new Date(periodEnd);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date format',
+      });
+    }
+    if (start > end) {
+      return res.status(400).json({
+        success: false,
+        error: 'periodStart must be before periodEnd',
+      });
+    }
+
+    const usage = await getVerificationUsage(tenantId, start, end);
+    res.json({
+      success: true,
+      data: {
+        ...usage,
+        amountRm: (usage.amountCents / 100).toFixed(2),
       },
     });
   } catch (error) {

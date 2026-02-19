@@ -125,6 +125,18 @@ export const auth = betterAuth({
       });
     },
   },
+
+  // Rate limit: global + stricter login (10 attempts per 5 minutes, then cooldown)
+  rateLimit: {
+    window: 60,
+    max: 100,
+    customRules: {
+      "/sign-in/email": {
+        window: 300, // 5 minutes
+        max: 10,
+      },
+    },
+  },
   
   // Session configuration
   session: {

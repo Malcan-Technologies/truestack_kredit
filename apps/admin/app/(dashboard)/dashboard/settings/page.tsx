@@ -30,7 +30,7 @@ import {
 import Link from "next/link";
 import { useSession } from "@/lib/auth-client";
 import { useTenantContext } from "@/components/tenant-context";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
 import { canManageSettings } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
 
@@ -55,6 +55,7 @@ interface User {
   role: string;
   isActive: boolean;
   createdAt: string;
+  lastLoginAt: string | null;
 }
 
 interface CurrentMembership {
@@ -706,6 +707,7 @@ export default function SettingsPage() {
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Joined</TableHead>
+                <TableHead>Last Login</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -730,6 +732,18 @@ export default function SettingsPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>{formatDate(user.createdAt)}</TableCell>
+                  <TableCell
+                    className="text-muted"
+                    title={
+                      user.lastLoginAt
+                        ? formatDateTime(user.lastLoginAt)
+                        : undefined
+                    }
+                  >
+                    {user.lastLoginAt
+                      ? formatSmartDateTime(user.lastLoginAt)
+                      : "—"}
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       {user.role !== "OWNER" && currentRole === "OWNER" && (

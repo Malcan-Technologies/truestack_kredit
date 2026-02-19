@@ -456,6 +456,16 @@ router.get('/users', async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
     });
 
+    const userIds = members.map((m) => m.user.id);
+    const lastLogins = await prisma.session.groupBy({
+      by: ['userId'],
+      _max: { createdAt: true },
+      where: { userId: { in: userIds } },
+    });
+    const lastLoginMap = new Map(
+      lastLogins.map((l) => [l.userId, l._max.createdAt ?? null])
+    );
+
     res.json({
       success: true,
       data: members.map((m) => ({
@@ -466,6 +476,7 @@ router.get('/users', async (req, res, next) => {
         role: m.role,
         isActive: m.isActive,
         createdAt: m.createdAt,
+        lastLoginAt: lastLoginMap.get(m.user.id) ?? null,
       })),
     });
   } catch (error) {

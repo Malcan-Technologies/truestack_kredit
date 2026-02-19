@@ -25,26 +25,17 @@ router.get('/stats', async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const now = new Date();
+    const presetAll = req.query.preset === 'all';
 
     // Parse date range (defaults to last 12 months)
     let fromDate: Date;
     let toDate: Date;
-
-    if (req.query.from && typeof req.query.from === 'string') {
-      fromDate = new Date(req.query.from);
-      if (isNaN(fromDate.getTime())) {
-        fromDate = new Date(now.getFullYear(), now.getMonth() - 11, 1); // 12 months ago, start of month
-      }
-    } else {
-      fromDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
-    }
 
     if (req.query.to && typeof req.query.to === 'string') {
       toDate = new Date(req.query.to);
       if (isNaN(toDate.getTime())) {
         toDate = now;
       } else {
-        // Set to end of day
         toDate.setHours(23, 59, 59, 999);
       }
     } else {
@@ -53,6 +44,7 @@ router.get('/stats', async (req, res, next) => {
 
     // ========================================
     // 1. KPI Cards - Run all count/aggregate queries in parallel
+    // When preset=all, also fetch tenant createdAt to derive fromDate
     // ========================================
     const [
       totalBorrowers,
@@ -62,6 +54,7 @@ router.get('/stats', async (req, res, next) => {
       submittedApplications,
       loansPendingDisbursement,
       loansReadyForDefault,
+      tenantForAll,
     ] = await Promise.all([
       prisma.borrower.count({ where: { tenantId } }),
       prisma.borrower.findMany({
@@ -91,7 +84,26 @@ router.get('/stats', async (req, res, next) => {
       prisma.loan.count({
         where: { tenantId, readyForDefault: true, status: { not: 'DEFAULTED' } },
       }),
+      presetAll
+        ? prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { createdAt: true },
+          })
+        : Promise.resolve(null),
     ]);
+
+    // Set fromDate: use tenant start (start of month) when preset=all, else from query
+    if (presetAll && tenantForAll?.createdAt) {
+      const created = new Date(tenantForAll.createdAt);
+      fromDate = new Date(created.getFullYear(), created.getMonth(), 1);
+    } else if (req.query.from && typeof req.query.from === 'string') {
+      fromDate = new Date(req.query.from);
+      if (isNaN(fromDate.getTime())) {
+        fromDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      }
+    } else {
+      fromDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    }
 
     const activeBorrowers = activeBorrowersResult.length;
 
@@ -105,13 +117,16 @@ router.get('/stats', async (req, res, next) => {
     const activeLoans = (statusCountMap['ACTIVE'] || 0) + (statusCountMap['IN_ARREARS'] || 0);
     const loansInArrears = statusCountMap['IN_ARREARS'] || 0;
 
-    // Financial aggregates - from loans with schedules
-    // Run loans + allocationSums in parallel (neither depends on the other)
-    const [loans, allocationSums] = await Promise.all([
+    // Financial aggregates - loans in range (for disbursed, overdue, PAR) + all loans (for outstanding)
+    const [loansInRange, loansForOutstanding, allocationSums, paymentsInRange] = await Promise.all([
       prisma.loan.findMany({
         where: {
           tenantId,
           status: { in: ['ACTIVE', 'IN_ARREARS', 'COMPLETED', 'DEFAULTED', 'WRITTEN_OFF'] },
+          disbursementDate: {
+            gte: fromDate,
+            lte: toDate,
+          },
         },
         include: {
           product: {
@@ -131,6 +146,19 @@ router.get('/stats', async (req, res, next) => {
           },
         },
       }),
+      prisma.loan.findMany({
+        where: {
+          tenantId,
+          status: { in: ['ACTIVE', 'IN_ARREARS', 'COMPLETED', 'DEFAULTED', 'WRITTEN_OFF'] },
+        },
+        include: {
+          scheduleVersions: {
+            orderBy: { version: 'desc' },
+            take: 1,
+            include: { repayments: true },
+          },
+        },
+      }),
       prisma.paymentAllocation.groupBy({
         by: ['repaymentId'],
         _sum: { amount: true },
@@ -142,6 +170,16 @@ router.get('/stats', async (req, res, next) => {
           },
         },
       }),
+      prisma.paymentTransaction.findMany({
+        where: {
+          tenantId,
+          paymentDate: {
+            gte: fromDate,
+            lte: toDate,
+          },
+        },
+        select: { paymentDate: true, totalAmount: true },
+      }),
     ]);
     const paidByRepaymentId = new Map<string, number>();
     for (const row of allocationSums) {
@@ -151,18 +189,24 @@ router.get('/stats', async (req, res, next) => {
     let totalDisbursed = 0;
     let totalNetDisbursed = 0;
     let totalOutstanding = 0;
+    let totalDisbursedAllTime = 0;
     let totalCollected = 0;
     let overdueAmount = 0;
     let totalLateFees = 0;
     let totalLateFeesPaid = 0;
 
-    // PAR calculation: outstanding balance of loans with payments X+ days overdue
+    // PAR calculation: outstanding balance of loans with payments X+ days overdue (for loans in range)
     let par30Outstanding = 0;
     let par60Outstanding = 0;
     let par90Outstanding = 0;
     let totalActiveOutstanding = 0; // denominator for PAR
 
-    for (const loan of loans) {
+    // Total collected = sum of payments received in date range
+    for (const payment of paymentsInRange) {
+      totalCollected = safeAdd(totalCollected, Number(payment.totalAmount));
+    }
+
+    for (const loan of loansInRange) {
       // Disbursed = principal of disbursed loans (have disbursementDate)
       if (loan.disbursementDate) {
         const principal = Number(loan.principalAmount);
@@ -192,7 +236,6 @@ router.get('/stats', async (req, res, next) => {
       if (!schedule) continue;
 
       let loanOutstanding = 0;
-      let loanCollected = 0;
       let maxDaysOverdue = 0;
 
       for (const rep of schedule.repayments) {
@@ -200,8 +243,6 @@ router.get('/stats', async (req, res, next) => {
 
         const due = Number(rep.totalDue);
         const paid = paidByRepaymentId.get(rep.id) ?? 0;
-
-        loanCollected = safeAdd(loanCollected, paid);
 
         if (rep.status !== 'PAID') {
           const remaining = safeSubtract(due, paid);
@@ -216,10 +257,7 @@ router.get('/stats', async (req, res, next) => {
         }
       }
 
-      totalOutstanding = safeAdd(totalOutstanding, loanOutstanding);
-      totalCollected = safeAdd(totalCollected, loanCollected);
-
-      // PAR: if loan is active/in_arrears, use its outstanding for the calculation
+      // PAR: if loan is active/in_arrears (and in range), use its outstanding for the calculation
       if (['ACTIVE', 'IN_ARREARS'].includes(loan.status)) {
         totalActiveOutstanding = safeAdd(totalActiveOutstanding, loanOutstanding);
         if (maxDaysOverdue >= 30) par30Outstanding = safeAdd(par30Outstanding, loanOutstanding);
@@ -228,84 +266,56 @@ router.get('/stats', async (req, res, next) => {
       }
     }
 
-    const totalDue = safeAdd(totalCollected, totalOutstanding);
-    const collectionRate = safePercentage(totalCollected, totalDue, 2);
-
-    const portfolioAtRisk = {
-      par30: safePercentage(par30Outstanding, totalActiveOutstanding, 2),
-      par60: safePercentage(par60Outstanding, totalActiveOutstanding, 2),
-      par90: safePercentage(par90Outstanding, totalActiveOutstanding, 2),
-    };
-
-    // Loans ready to complete: active/in_arrears loans where all repayments are PAID/CANCELLED
-    const loansReadyToComplete = loans.filter((loan) => {
-      if (!['ACTIVE', 'IN_ARREARS'].includes(loan.status)) return false;
+    // Outstanding: all-time (from all loans, not filtered by disbursement date)
+    for (const loan of loansForOutstanding) {
+      if (loan.disbursementDate) {
+        totalDisbursedAllTime = safeAdd(totalDisbursedAllTime, Number(loan.principalAmount));
+      }
       const schedule = loan.scheduleVersions[0];
-      if (!schedule || schedule.repayments.length === 0) return false;
-      return schedule.repayments.every((r) => r.status === 'PAID' || r.status === 'CANCELLED');
-    }).length;
+      if (!schedule) continue;
+      let loanOutstanding = 0;
+      for (const rep of schedule.repayments) {
+        if (rep.status === 'CANCELLED') continue;
+        const due = Number(rep.totalDue);
+        const paid = paidByRepaymentId.get(rep.id) ?? 0;
+        if (rep.status !== 'PAID') {
+          loanOutstanding = safeAdd(loanOutstanding, safeSubtract(due, paid));
+        }
+      }
+      totalOutstanding = safeAdd(totalOutstanding, loanOutstanding);
+    }
 
-    // ========================================
-    // 2. Loan status distribution (for pie chart)
-    // ========================================
-    const loansByStatus = loanStatusCounts.map((row) => ({
-      status: row.status,
-      count: row._count.id,
-    }));
-
-    // ========================================
-    // 3–7. Run independent queries in parallel (disbursement, collection, applications, products, recent)
-    // ========================================
+    // Collection rate + chart data: run collection-rate queries and chart-data queries in parallel
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
     const [
-      disbursedLoans,
-      payments,
+      repaymentsDueInRange,
       repaymentsDue,
       applicationStatusCounts,
       loansByProductRaw,
       recentLoansRaw,
       recentApplicationsRaw,
+      loansReadyToCompleteRaw,
     ] = await Promise.all([
-      prisma.loan.findMany({
+      prisma.loanRepayment.findMany({
         where: {
-          tenantId,
-          disbursementDate: {
-            gte: fromDate,
-            lte: toDate,
+          dueDate: { gte: fromDate, lte: todayEnd },
+          status: { not: 'CANCELLED' },
+          scheduleVersion: {
+            loan: {
+              tenantId,
+              disbursementDate: { gte: fromDate, lte: toDate },
+            },
           },
         },
-        select: {
-          disbursementDate: true,
-          principalAmount: true,
-        },
-      }),
-      prisma.paymentTransaction.findMany({
-        where: {
-          tenantId,
-          paymentDate: {
-            gte: fromDate,
-            lte: toDate,
-          },
-        },
-        select: {
-          paymentDate: true,
-          totalAmount: true,
-        },
+        select: { id: true, totalDue: true },
       }),
       prisma.loanRepayment.findMany({
         where: {
-          dueDate: {
-            gte: fromDate,
-            lte: toDate,
-          },
+          dueDate: { gte: fromDate, lte: toDate },
           status: { not: 'CANCELLED' },
-          scheduleVersion: {
-            loan: { tenantId },
-          },
+          scheduleVersion: { loan: { tenantId } },
         },
-        select: {
-          dueDate: true,
-          totalDue: true,
-        },
+        select: { dueDate: true, totalDue: true },
       }),
       prisma.loanApplication.groupBy({
         by: ['status'],
@@ -322,23 +332,78 @@ router.get('/stats', async (req, res, next) => {
         where: { tenantId },
         orderBy: { createdAt: 'desc' },
         take: 5,
-        include: {
-          borrower: { select: { name: true } },
-        },
+        include: { borrower: { select: { name: true } } },
       }),
       prisma.loanApplication.findMany({
         where: { tenantId },
         orderBy: { createdAt: 'desc' },
         take: 5,
-        include: {
-          borrower: { select: { name: true } },
+        include: { borrower: { select: { name: true } } },
+      }),
+      prisma.loan.findMany({
+        where: {
+          tenantId,
+          status: { in: ['ACTIVE', 'IN_ARREARS'] },
+        },
+        select: {
+          id: true,
+          scheduleVersions: {
+            orderBy: { version: 'desc' },
+            take: 1,
+            select: { repayments: { select: { status: true } } },
+          },
         },
       }),
     ]);
 
-    // Group disbursement by month
+    const allocationSumsForDueRepayments = repaymentsDueInRange.length > 0
+      ? await prisma.paymentAllocation.groupBy({
+          by: ['repaymentId'],
+          _sum: { amount: true },
+          where: {
+            repaymentId: { in: repaymentsDueInRange.map((r) => r.id) },
+          },
+        })
+      : [];
+    const paidForDueRepayment = new Map<string, number>();
+    for (const row of allocationSumsForDueRepayments) {
+      paidForDueRepayment.set(row.repaymentId, toSafeNumber(row._sum.amount));
+    }
+    let totalDueInPeriod = 0;
+    let totalCollectedForDuePeriod = 0;
+    for (const rep of repaymentsDueInRange) {
+      totalDueInPeriod = safeAdd(totalDueInPeriod, Number(rep.totalDue));
+      totalCollectedForDuePeriod = safeAdd(totalCollectedForDuePeriod, paidForDueRepayment.get(rep.id) ?? 0);
+    }
+    const collectionRate = safePercentage(totalCollectedForDuePeriod, totalDueInPeriod, 2);
+
+    // Active loans and loans in arrears for date range (for KPI card subtitles)
+    const activeLoansInRange = loansInRange.filter((l) => ['ACTIVE', 'IN_ARREARS'].includes(l.status)).length;
+    const loansInArrearsInRange = loansInRange.filter((l) => l.status === 'IN_ARREARS').length;
+
+    const portfolioAtRisk = {
+      par30: safePercentage(par30Outstanding, totalActiveOutstanding, 2),
+      par60: safePercentage(par60Outstanding, totalActiveOutstanding, 2),
+      par90: safePercentage(par90Outstanding, totalActiveOutstanding, 2),
+    };
+
+    const loansReadyToComplete = loansReadyToCompleteRaw.filter((loan) => {
+      const schedule = loan.scheduleVersions[0];
+      if (!schedule || schedule.repayments.length === 0) return false;
+      return schedule.repayments.every((r) => r.status === 'PAID' || r.status === 'CANCELLED');
+    }).length;
+
+    // ========================================
+    // 2. Loan status distribution (for pie chart)
+    // ========================================
+    const loansByStatus = loanStatusCounts.map((row) => ({
+      status: row.status,
+      count: row._count.id,
+    }));
+
+    // Group disbursement by month (use loansInRange - already fetched)
     const disbursementMap = new Map<string, { amount: number; count: number }>();
-    for (const loan of disbursedLoans) {
+    for (const loan of loansInRange) {
       if (!loan.disbursementDate) continue;
       const monthKey = `${loan.disbursementDate.getFullYear()}-${String(loan.disbursementDate.getMonth() + 1).padStart(2, '0')}`;
       const existing = disbursementMap.get(monthKey) || { amount: 0, count: 0 };
@@ -347,9 +412,9 @@ router.get('/stats', async (req, res, next) => {
       disbursementMap.set(monthKey, existing);
     }
 
-    // Group collection by month
+    // Group collection by month (use paymentsInRange - already fetched)
     const collectionMap = new Map<string, number>();
-    for (const payment of payments) {
+    for (const payment of paymentsInRange) {
       const monthKey = `${payment.paymentDate.getFullYear()}-${String(payment.paymentDate.getMonth() + 1).padStart(2, '0')}`;
       const existing = collectionMap.get(monthKey) || 0;
       collectionMap.set(monthKey, safeAdd(existing, Number(payment.totalAmount)));
@@ -452,11 +517,14 @@ router.get('/stats', async (req, res, next) => {
           totalDisbursed: safeRound(totalDisbursed, 2),
           totalNetDisbursed: safeRound(totalNetDisbursed, 2),
           totalOutstanding: safeRound(totalOutstanding, 2),
+          totalDisbursedAllTime: safeRound(totalDisbursedAllTime, 2),
           totalCollected: safeRound(totalCollected, 2),
           overdueAmount: safeRound(overdueAmount, 2),
           collectionRate,
           totalLateFees: safeRound(totalLateFees, 2),
           totalLateFeesPaid: safeRound(totalLateFeesPaid, 2),
+          activeLoansInRange,
+          loansInArrearsInRange,
           loansInArrears,
           pendingApplications,
         },

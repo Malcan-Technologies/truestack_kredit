@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   CreditCard,
@@ -20,6 +20,8 @@ import {
   Zap,
   Rocket,
   ExternalLink,
+  Info,
+  RefreshCw,
 } from "lucide-react";
 import {
   Bar,
@@ -88,11 +90,14 @@ interface DashboardStats {
     totalDisbursed: number;
     totalNetDisbursed: number;
     totalOutstanding: number;
+    totalDisbursedAllTime: number;
     totalCollected: number;
     overdueAmount: number;
     collectionRate: number;
     totalLateFees: number;
     totalLateFeesPaid: number;
+    activeLoansInRange: number;
+    loansInArrearsInRange: number;
     loansInArrears: number;
     pendingApplications: number;
   };
@@ -145,14 +150,22 @@ interface DashboardStats {
 
 type DatePreset = "1m" | "3m" | "6m" | "1y" | "all";
 
+/** Format date as YYYY-MM-DD using local timezone (avoids UTC shift from toISOString) */
+function toLocalDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function getDateRange(preset: DatePreset): { from: string; to: string } {
   const now = new Date();
-  const to = now.toISOString().split("T")[0];
+  const to = toLocalDateString(now);
   let fromDate: Date;
 
   switch (preset) {
     case "1m":
-      fromDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
       break;
     case "3m":
       fromDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
@@ -168,7 +181,7 @@ function getDateRange(preset: DatePreset): { from: string; to: string } {
       break;
   }
 
-  return { from: fromDate.toISOString().split("T")[0], to };
+  return { from: toLocalDateString(fromDate), to };
 }
 
 const DATE_PRESETS: { label: string; value: DatePreset }[] = [
@@ -269,41 +282,59 @@ export default function DashboardPage() {
   const [tenant, setTenant] = useState<TenantStats | null>(null);
   const [addOns, setAddOns] = useState<AddOnStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [datePreset, setDatePreset] = useState<DatePreset>("6m");
+  const [datePreset, setDatePreset] = useState<DatePreset>("3m");
+  const hasInitialFetched = useRef(false);
 
-  const fetchData = useCallback(async (preset: DatePreset) => {
+  // Fetch dashboard stats (depends on date range)
+  const fetchDashboardStats = useCallback(async (preset: DatePreset) => {
     setLoading(true);
     try {
       const { from, to } = getDateRange(preset);
-      const [tenantRes, dashRes, addOnsRes] = await Promise.all([
-        api.get<TenantStats>("/api/tenants/current"),
-        api.get<DashboardStats>(`/api/dashboard/stats?from=${from}&to=${to}`),
-        api.get<{ addOns: AddOnStatus[] }>("/api/billing/add-ons"),
-      ]);
-
-      if (tenantRes.success && tenantRes.data) {
-        setTenant(tenantRes.data);
-      }
-      if (dashRes.success && dashRes.data) {
-        setStats(dashRes.data);
-      }
-      if (addOnsRes.success && addOnsRes.data) {
-        setAddOns(addOnsRes.data.addOns);
-      }
+      const params = new URLSearchParams({ from, to });
+      if (preset === "all") params.set("preset", "all");
+      const dashRes = await api.get<DashboardStats>(`/api/dashboard/stats?${params}`);
+      if (dashRes.success && dashRes.data) setStats(dashRes.data);
     } catch (error) {
-      console.error("Failed to fetch dashboard data:", error);
+      console.error("Failed to fetch dashboard stats:", error);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Refresh: fetch all data in parallel
+  const handleRefresh = useCallback(() => {
+    setLoading(true);
+    const { from, to } = getDateRange(datePreset);
+    const params = new URLSearchParams({ from, to });
+    if (datePreset === "all") params.set("preset", "all");
+    Promise.all([
+      api.get<TenantStats>("/api/tenants/current"),
+      api.get<DashboardStats>(`/api/dashboard/stats?${params}`),
+      api.get<{ addOns: AddOnStatus[] }>("/api/billing/add-ons"),
+    ])
+      .then(([tenantRes, dashRes, addOnsRes]) => {
+        if (tenantRes.success && tenantRes.data) setTenant(tenantRes.data);
+        if (dashRes.success && dashRes.data) setStats(dashRes.data);
+        if (addOnsRes.success && addOnsRes.data) setAddOns(addOnsRes.data.addOns);
+      })
+      .catch((err) => console.error("Failed to refresh:", err))
+      .finally(() => setLoading(false));
+  }, [datePreset]);
+
   useEffect(() => {
-    if (hasTenants) {
-      fetchData(datePreset);
-    } else {
+    if (!hasTenants) {
       setLoading(false);
+      return;
     }
-  }, [datePreset, fetchData, hasTenants]);
+    // Initial load: fetch all 3 in parallel for fast first paint
+    if (!hasInitialFetched.current) {
+      hasInitialFetched.current = true;
+      handleRefresh();
+    } else {
+      // Date change: only re-fetch stats (tenant/add-ons unchanged)
+      fetchDashboardStats(datePreset);
+    }
+  }, [hasTenants, datePreset, fetchDashboardStats, handleRefresh]);
 
   // Transform chart data
   const disbursementData = useMemo(() => {
@@ -380,22 +411,39 @@ export default function DashboardPage() {
               Financial overview and portfolio performance
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-secondary border border-border rounded-lg p-1">
-            {DATE_PRESETS.map((preset) => (
+          <div className="flex flex-col items-end gap-1.5">
+            <p className="text-xs text-muted-foreground">
+              Disbursed, Collected, Overdue: filtered by period. Outstanding: all-time.
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-secondary border border-border rounded-lg p-1 h-9">
+                {DATE_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.value}
+                    variant={datePreset === preset.value ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setDatePreset(preset.value)}
+                    className={
+                      datePreset === preset.value
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted hover:text-foreground"
+                    }
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
               <Button
-                key={preset.value}
-                variant={datePreset === preset.value ? "default" : "ghost"}
+                variant="outline"
                 size="sm"
-                onClick={() => setDatePreset(preset.value)}
-                className={
-                  datePreset === preset.value
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted hover:text-foreground"
-                }
+                onClick={handleRefresh}
+                disabled={loading}
+                className="shrink-0 h-9"
               >
-                {preset.label}
+                <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? "animate-spin" : ""}`} />
+                Refresh
               </Button>
-            ))}
+            </div>
           </div>
         </div>
 
@@ -565,34 +613,37 @@ export default function DashboardPage() {
             icon={CircleDollarSign}
             subtitle={`Net: ${formatCurrency(stats?.kpiCards.totalNetDisbursed || 0)}`}
             accentColor="text-foreground"
-            secondaryLabel="Fees"
+            secondaryLabel="Collected Fees"
             secondaryValue={`${safePercentage(
               (stats?.kpiCards.totalDisbursed || 0) - (stats?.kpiCards.totalNetDisbursed || 0),
               stats?.kpiCards.totalDisbursed || 0
             )}%`}
             secondaryColor="text-foreground"
+            tooltipText="Total principal disbursed to borrowers in the selected period. Net excludes legal and stamping fees deducted at disbursement."
           />
           <KPICard
             title="Outstanding"
             value={formatCurrency(stats?.kpiCards.totalOutstanding || 0)}
             icon={Wallet}
-            subtitle={`${stats?.kpiCards.activeLoans || 0} active loans`}
+            subtitle={`${stats?.kpiCards.activeLoans ?? 0} active loans`}
+            titleSuffix="(all-time)"
             accentColor="text-foreground"
-            secondaryLabel="As % of Disbursed"
+            secondaryLabel="As % of Total Disbursed"
             secondaryValue={`${safePercentage(
               stats?.kpiCards.totalOutstanding || 0,
-              stats?.kpiCards.totalDisbursed || 0
+              (stats?.kpiCards.totalDisbursedAllTime ?? stats?.kpiCards.totalDisbursed) || 0
             )}%`}
             secondaryColor="text-foreground"
+            tooltipText="Total remaining balance owed across all loans (all-time). Your current portfolio exposure. As % of total disbursed since inception."
           />
           <KPICard
             title="Collected"
             value={formatCurrency(stats?.kpiCards.totalCollected || 0)}
             icon={CheckCircle}
-            subtitle="Total repayments received"
+            subtitle="Payments received in period"
             accentColor="text-foreground"
             iconColor="text-success"
-            secondaryLabel="Collection Rate"
+            secondaryLabel="Scheduled Collection Rate"
             secondaryValue={`${stats?.kpiCards.collectionRate || 0}%`}
             secondaryColor={
               (stats?.kpiCards.collectionRate || 0) >= 80
@@ -601,12 +652,13 @@ export default function DashboardPage() {
                   ? "text-warning"
                   : "text-destructive"
             }
+            tooltipText="Total payments received in the selected period. Schedulled collection rate: % of repayments due in this period that have been collected (excludes future scheduled payments)."
           />
           <KPICard
             title="Overdue"
             value={formatCurrency(stats?.kpiCards.overdueAmount || 0)}
             icon={AlertTriangle}
-            subtitle={`${stats?.kpiCards.loansInArrears || 0} loans in arrears`}
+            subtitle={`${stats?.kpiCards.loansInArrearsInRange ?? stats?.kpiCards.loansInArrears ?? 0} loans in arrears`}
             accentColor="text-foreground"
             iconColor="text-destructive"
             secondaryLabel="PAR 30"
@@ -618,7 +670,7 @@ export default function DashboardPage() {
                   ? "text-warning"
                   : "text-destructive"
             }
-            tooltipText="PAR 30: Percentage of outstanding loan balance with repayments overdue by 30+ days. Industry benchmark: below 5% is excellent."
+            tooltipText="Amount overdue on loans disbursed in the selected period. PAR 30: % of outstanding balance with repayments overdue by 30+ days. Industry benchmark: below 5% is excellent."
           />
         </div>
 
@@ -1269,6 +1321,7 @@ function KPICard({
   secondaryLabel,
   secondaryValue,
   secondaryColor,
+  titleSuffix,
 }: {
   title: string;
   value: string;
@@ -1280,15 +1333,37 @@ function KPICard({
   secondaryLabel?: string;
   secondaryValue?: string;
   secondaryColor?: string;
+  titleSuffix?: string;
 }) {
   const iconClass = iconColor ?? accentColor;
-  const cardContent = (
+  return (
     <Card className="hover:border-border transition-colors">
       <CardContent className="pt-5 pb-4 px-5">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-            {title}
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide truncate">
+              {title}
+              {titleSuffix && (
+                <span className="font-normal normal-case tracking-normal ml-0.5"> {titleSuffix}</span>
+              )}
+            </p>
+            {tooltipText && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                    aria-label="More info"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>{tooltipText}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
           <div className="h-8 w-8 rounded-md bg-secondary flex items-center justify-center shrink-0">
             <Icon className={`h-4 w-4 ${iconClass}`} />
           </div>
@@ -1306,19 +1381,6 @@ function KPICard({
       </CardContent>
     </Card>
   );
-
-  if (tooltipText) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>{cardContent}</TooltipTrigger>
-        <TooltipContent className="max-w-xs">
-          <p>{tooltipText}</p>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-
-  return cardContent;
 }
 
 function AddOnIndicators({ addOns }: { addOns: AddOnStatus[] }) {

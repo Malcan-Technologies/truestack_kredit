@@ -452,6 +452,34 @@ router.get('/add-ons', async (req, res, next) => {
 });
 
 /**
+ * Get TrueIdentity verification usage for billing
+ * GET /api/billing/trueidentity-usage
+ */
+router.get('/trueidentity-usage', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    const { getVerificationUsage } = await import('../trueidentity/usageService.js');
+    const count = await getVerificationUsage(tenantId, periodStart, periodEnd);
+
+    res.json({
+      success: true,
+      data: {
+        periodStart: periodStart.toISOString(),
+        periodEnd: periodEnd.toISOString(),
+        count,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Toggle an add-on subscription (subscribe / cancel)
  * POST /api/billing/add-ons/toggle
  *

@@ -11,9 +11,9 @@ TrueIdentity is TrueKredit's integrated e-KYC (electronic Know Your Customer) ve
 
 ## How It Works
 
-### 1. Generate QR Code
+### 1. Generate QR Code or Link
 
-From TrueKredit, generate a unique QR code for the borrower during the application process. Each QR code is tied to the specific borrower and loan file.
+From the borrower detail page in TrueKredit, click **Send Verification**. A unique QR code and shareable link are generated for that borrower. Each session is tied to the specific borrower.
 
 ### 2. Borrower Scans & Verifies
 

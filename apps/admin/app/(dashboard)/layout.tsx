@@ -53,6 +53,7 @@ import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NoTenantPrompt } from "@/components/no-tenant-prompt";
 import { cn } from "@/lib/utils";
+import { APP_VERSION } from "@/lib/version";
 
 interface Membership {
   role: string;
@@ -557,15 +558,19 @@ export default function DashboardLayout({
 
             {/* TrueKredit branding */}
             <div className={cn(
-              "border-t border-border py-3 flex flex-col items-center gap-1",
-              sidebarCollapsed ? "px-1" : "px-4",
+              "border-t border-border py-3 flex flex-row items-center gap-2",
+              sidebarCollapsed ? "px-1 justify-center" : "px-4 justify-between",
             )}>
-              {!sidebarCollapsed && (
-                <p className="text-[10px] font-medium text-muted-foreground/50 tracking-wide">
-                  Powered by
-                </p>
-              )}
-              <a href="https://truestack.my" target="_blank" rel="noopener noreferrer" className="flex items-center">
+              <div className={cn(
+                "flex flex-row items-center gap-2",
+                sidebarCollapsed && "justify-center",
+              )}>
+                {!sidebarCollapsed && (
+                  <p className="text-[10px] font-medium text-muted-foreground/50 tracking-wide shrink-0">
+                    Powered by
+                  </p>
+                )}
+                <a href="https://truestack.my" target="_blank" rel="noopener noreferrer" className="flex items-center shrink-0">
                 {mounted ? (
                   <Image
                     src={
@@ -574,17 +579,23 @@ export default function DashboardLayout({
                         : "/logo-light.svg"
                     }
                     alt="TrueKredit"
-                    width={sidebarCollapsed ? 24 : 80}
-                    height={sidebarCollapsed ? 24 : 18}
+                    width={sidebarCollapsed ? 40 : 80}
+                    height={sidebarCollapsed ? 40 : 18}
                     className={cn(
                       "object-contain opacity-40 hover:opacity-60 transition-opacity",
-                      sidebarCollapsed ? "h-5 w-5" : "h-4 w-auto",
+                      sidebarCollapsed ? "h-10 w-10" : "h-4 w-auto",
                     )}
                   />
                 ) : (
-                  <div className={sidebarCollapsed ? "h-5 w-5" : "h-4 w-[80px]"} />
+                  <div className={sidebarCollapsed ? "h-10 w-10" : "h-4 w-[80px]"} />
                 )}
               </a>
+              </div>
+              {!sidebarCollapsed && (
+                <span className="text-[10px] font-medium text-muted-foreground/50 shrink-0">
+                  v{APP_VERSION}
+                </span>
+              )}
             </div>
           </div>
         </aside>

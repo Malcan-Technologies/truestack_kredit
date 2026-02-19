@@ -628,6 +628,7 @@ router.post('/applications', async (req, res, next) => {
 /**
  * Get single application
  * GET /api/loans/applications/:applicationId
+ * Includes documents to avoid a separate round-trip.
  */
 router.get('/applications/:applicationId', async (req, res, next) => {
   try {
@@ -637,20 +638,25 @@ router.get('/applications/:applicationId', async (req, res, next) => {
         tenantId: req.tenantId,
       },
       include: {
-        borrower: true,
-        product: true,
-        loan: {
-          include: {
-            scheduleVersions: {
-              orderBy: { version: 'desc' },
-              take: 1,
-              include: {
-                repayments: {
-                  orderBy: { dueDate: 'asc' },
-                },
-              },
-            },
+        borrower: {
+          select: {
+            id: true,
+            name: true,
+            borrowerType: true,
+            icNumber: true,
+            documentType: true,
+            phone: true,
+            email: true,
+            companyName: true,
+            documentVerified: true,
           },
+        },
+        product: true,
+        documents: {
+          orderBy: { uploadedAt: 'desc' },
+        },
+        loan: {
+          select: { id: true, status: true },
         },
       },
     });

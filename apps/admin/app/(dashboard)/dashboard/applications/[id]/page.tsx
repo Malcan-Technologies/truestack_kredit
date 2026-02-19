@@ -114,7 +114,7 @@ interface Application {
     earlySettlementDiscountType: string;
     earlySettlementDiscountValue: string;
   };
-  documents?: ApplicationDocument[];
+  documents: ApplicationDocument[];
   loan?: {
     id: string;
     status: string;
@@ -219,7 +219,6 @@ export default function ApplicationDetailPage() {
   const currentRole = useCurrentRole();
 
   const [application, setApplication] = useState<Application | null>(null);
-  const [documents, setDocuments] = useState<ApplicationDocument[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [timelineCursor, setTimelineCursor] = useState<string | null>(null);
   const [hasMoreTimeline, setHasMoreTimeline] = useState(false);
@@ -233,14 +232,15 @@ export default function ApplicationDetailPage() {
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
 
-  // Check for missing required documents
+  // Check for missing required documents (documents come from application.documents)
   const getMissingRequiredDocs = useCallback(() => {
     if (!application) return [];
     const requiredDocs = application.product.requiredDocuments || [];
+    const docs = application.documents ?? [];
     return requiredDocs.filter(
-      (doc) => doc.required && !documents.some((d) => d.category === doc.key)
+      (doc) => doc.required && !docs.some((d) => d.category === doc.key)
     );
-  }, [application, documents]);
+  }, [application]);
 
   const missingRequiredDocs = getMissingRequiredDocs();
   const canSubmit = missingRequiredDocs.length === 0;
@@ -253,17 +253,6 @@ export default function ApplicationDetailPage() {
       }
     } catch (error) {
       console.error("Failed to fetch application:", error);
-    }
-  }, [applicationId]);
-
-  const fetchDocuments = useCallback(async () => {
-    try {
-      const res = await api.get<ApplicationDocument[]>(`/api/loans/applications/${applicationId}/documents`);
-      if (res.success && res.data) {
-        setDocuments(res.data);
-      }
-    } catch (error) {
-      console.error("Failed to fetch documents:", error);
     }
   }, [applicationId]);
 
@@ -299,11 +288,11 @@ export default function ApplicationDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchApplication(), fetchDocuments(), fetchTimeline()]);
+      await Promise.all([fetchApplication(), fetchTimeline()]);
       setLoading(false);
     };
     loadData();
-  }, [fetchApplication, fetchDocuments, fetchTimeline]);
+  }, [fetchApplication, fetchTimeline]);
 
   const handleSubmitClick = () => {
     if (!canSubmit) {
@@ -383,7 +372,7 @@ export default function ApplicationDetailPage() {
       const json = await res.json();
       if (json.success) {
         toast.success("Document uploaded");
-        fetchDocuments();
+        fetchApplication();
         fetchTimeline();
       } else {
         toast.error(json.error || "Failed to upload document");
@@ -399,7 +388,7 @@ export default function ApplicationDetailPage() {
     const res = await api.delete(`/api/loans/applications/${applicationId}/documents/${documentId}`);
     if (res.success) {
       toast.success("Document deleted");
-      fetchDocuments();
+      fetchApplication();
       fetchTimeline();
     } else {
       toast.error(res.error || "Failed to delete document");
@@ -782,7 +771,7 @@ export default function ApplicationDetailPage() {
             <CardContent>
               <div className="space-y-4">
                 {requiredDocs.map((docType) => {
-                  const uploadedDoc = documents.find((d) => d.category === docType.key);
+                  const uploadedDoc = (application.documents ?? []).find((d) => d.category === docType.key);
 
                   return (
                     <div
@@ -849,7 +838,7 @@ export default function ApplicationDetailPage() {
                 {/* Other documents */}
                 <div className="pt-4 border-t">
                   <p className="text-sm font-medium mb-2">Other Documents</p>
-                  {documents
+                  {(application.documents ?? [])
                     .filter((d) => !requiredDocs.some((r) => r.key === d.category))
                     .map((doc) => (
                       <div

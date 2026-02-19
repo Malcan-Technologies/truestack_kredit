@@ -301,10 +301,7 @@ router.get('/stats', async (req, res, next) => {
           dueDate: { gte: fromDate, lte: todayEnd },
           status: { not: 'CANCELLED' },
           scheduleVersion: {
-            loan: {
-              tenantId,
-              disbursementDate: { gte: fromDate, lte: toDate },
-            },
+            loan: { tenantId },
           },
         },
         select: { id: true, totalDue: true },

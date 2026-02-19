@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Check, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,7 @@ export default function PromotionsPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-heading font-bold text-gradient">Promotions</h1>
-        <p className="text-muted">Special offers to enhance your TrueKredit experience</p>
+        <p className="text-muted">Special offers, just for you</p>
       </div>
 
       {/* Promotion Cards */}
@@ -126,20 +127,26 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
           <p className="text-sm text-muted-foreground">
             {promotion.badge === "Coming Soon"
               ? "Under development. Stay tuned!"
-              : "Contact your account manager to enable."}
+              : promotion.href
+                ? "Get started and share your referral link."
+                : "Contact your account manager to enable."}
           </p>
-          <Button
-            variant={
-              promotion.badge === "Coming Soon" ? "outline" : "default"
-            }
-            size="sm"
-            className="shrink-0"
-            disabled={promotion.badge === "Coming Soon"}
-          >
-            {promotion.badge === "Coming Soon"
-              ? "Coming Soon"
-              : "Contact Us"}
-          </Button>
+          {promotion.href ? (
+            <Button variant="default" size="sm" className="shrink-0" asChild>
+              <Link href={promotion.href}>{promotion.cta}</Link>
+            </Button>
+          ) : (
+            <Button
+              variant={promotion.badge === "Coming Soon" ? "outline" : "default"}
+              size="sm"
+              className="shrink-0"
+              disabled={promotion.badge === "Coming Soon"}
+            >
+              {promotion.badge === "Coming Soon"
+                ? "Coming Soon"
+                : "Contact Us"}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

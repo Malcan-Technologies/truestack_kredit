@@ -2,8 +2,7 @@ import { Router } from 'express';
 import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { config } from '../../lib/config.js';
-import { NotFoundError, ConflictError, BadRequestError } from '../../lib/errors.js';
+import { NotFoundError, ConflictError } from '../../lib/errors.js';
 import { toSafeNumber } from '../../lib/math.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
@@ -12,6 +11,8 @@ import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocume
 import { ensureBorrowerPerformanceProjections } from './performanceProjectionService.js';
 import { AddOnService } from '../../lib/addOnService.js';
 import { requestVerificationSession } from '../trueidentity/adminWebhookClient.js';
+import { recordVerificationStart } from '../trueidentity/usageService.js';
+import { config } from '../../lib/config.js';
 
 const router = Router();
 
@@ -492,86 +493,88 @@ router.get('/:borrowerId/timeline', async (req, res, next) => {
 });
 
 /**
- * Start TrueIdentity verification (sends request to Admin, returns onboarding URL for QR/copy)
+ * Start TrueIdentity verification
  * POST /api/borrowers/:borrowerId/verify/start
  */
 router.post('/:borrowerId/verify/start', async (req, res, next) => {
   try {
     const borrowerId = req.params.borrowerId;
-    const tenantId = req.tenantId!;
 
-    const hasAddOn = await AddOnService.hasActiveAddOn(tenantId, 'TRUEIDENTITY');
+    const hasAddOn = await AddOnService.hasActiveAddOn(req.tenantId!, 'TRUEIDENTITY');
     if (!hasAddOn) {
-      throw new BadRequestError('TrueIdentity add-on is not active for this tenant');
+      res.status(403).json({
+        success: false,
+        error: 'TrueIdentity add-on is not active for this tenant',
+      });
+      return;
     }
 
     const borrower = await prisma.borrower.findFirst({
-      where: { id: borrowerId, tenantId },
+      where: {
+        id: borrowerId,
+        tenantId: req.tenantId,
+      },
     });
+
     if (!borrower) {
       throw new NotFoundError('Borrower');
     }
 
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { slug: true },
-    });
-
-    const documentName = borrower.documentType === 'IC' ? 'MyKad' : 'Passport';
-    const documentNumber = borrower.icNumber;
-    const documentType = borrower.documentType === 'IC' ? '1' : '2';
-    const borrowerEmail = borrower.email || borrower.companyEmail || null;
-
-    const webhookCallbackUrl = `${config.trueIdentity.kreditBaseUrl.replace(/\/$/, '')}/api/webhooks/trueidentity`;
+    const baseUrl = config.trueIdentity.kreditBaseUrl?.replace(/\/$/, '') || '';
+    const callbackUrl = `${baseUrl}/api/webhooks/trueidentity`;
 
     const payload = {
-      tenant_id: tenantId,
-      borrower_id: borrowerId,
-      document_name: documentName,
-      document_number: documentNumber,
-      document_type: documentType,
-      borrower_email: borrowerEmail,
-      metadata: {
-        tenant_slug: tenant?.slug,
-        borrower_name: borrower.name,
-        borrower_type: borrower.borrowerType,
-      },
+      tenantId: req.tenantId!,
+      borrowerId,
+      refId: borrowerId,
+      name: borrower.name,
+      icNumber: borrower.icNumber,
+      callbackUrl,
     };
 
-    const adminResponse = await requestVerificationSession(payload, webhookCallbackUrl);
+    const adminRes = await requestVerificationSession(payload);
 
-    const expiresAt = new Date(adminResponse.expires_at);
+    const expiresAt = adminRes.expires_at ? new Date(adminRes.expires_at) : new Date(Date.now() + 15 * 60 * 1000);
+
+    await recordVerificationStart(req.tenantId!);
 
     await prisma.$transaction([
-      prisma.trueIdentitySession.create({
-        data: {
-          tenantId,
+      prisma.trueIdentitySession.upsert({
+        where: { adminSessionId: adminRes.session_id },
+        create: {
+          tenantId: req.tenantId!,
           borrowerId,
-          adminSessionId: adminResponse.session_id,
-          onboardingUrl: adminResponse.onboarding_url,
-          status: adminResponse.status,
+          adminSessionId: adminRes.session_id,
+          onboardingUrl: adminRes.onboarding_url,
+          status: adminRes.status || 'pending',
           expiresAt,
-          requestPayload: payload as object,
+          requestPayload: payload,
+        },
+        update: {
+          onboardingUrl: adminRes.onboarding_url,
+          status: adminRes.status || 'pending',
+          expiresAt,
+          updatedAt: new Date(),
         },
       }),
       prisma.borrower.update({
         where: { id: borrowerId },
         data: {
-          trueIdentityStatus: adminResponse.status,
-          trueIdentitySessionId: adminResponse.session_id,
-          trueIdentityOnboardingUrl: adminResponse.onboarding_url,
+          trueIdentityStatus: adminRes.status || 'pending',
+          trueIdentitySessionId: adminRes.session_id,
+          trueIdentityOnboardingUrl: adminRes.onboarding_url,
           trueIdentityExpiresAt: expiresAt,
         },
       }),
     ]);
 
-    res.status(201).json({
+    res.status(200).json({
       success: true,
       data: {
-        session_id: adminResponse.session_id,
-        onboarding_url: adminResponse.onboarding_url,
-        status: adminResponse.status,
-        expires_at: adminResponse.expires_at,
+        sessionId: adminRes.session_id,
+        onboardingUrl: adminRes.onboarding_url,
+        status: adminRes.status || 'pending',
+        expiresAt: expiresAt.toISOString(),
       },
     });
   } catch (error) {
@@ -580,27 +583,17 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
 });
 
 /**
- * Get TrueIdentity verification status for borrower
+ * Get TrueIdentity verification status
  * GET /api/borrowers/:borrowerId/verify/status
  */
 router.get('/:borrowerId/verify/status', async (req, res, next) => {
   try {
     const borrowerId = req.params.borrowerId;
-    const tenantId = req.tenantId!;
 
     const borrower = await prisma.borrower.findFirst({
-      where: { id: borrowerId, tenantId },
-      select: {
-        id: true,
-        documentVerified: true,
-        verifiedAt: true,
-        trueIdentityStatus: true,
-        trueIdentityResult: true,
-        trueIdentitySessionId: true,
-        trueIdentityOnboardingUrl: true,
-        trueIdentityExpiresAt: true,
-        trueIdentityLastWebhookAt: true,
-        trueIdentityRejectMessage: true,
+      where: {
+        id: borrowerId,
+        tenantId: req.tenantId,
       },
     });
 
@@ -608,32 +601,15 @@ router.get('/:borrowerId/verify/status', async (req, res, next) => {
       throw new NotFoundError('Borrower');
     }
 
-    const latestSession = await prisma.trueIdentitySession.findFirst({
-      where: { borrowerId, tenantId },
-      orderBy: { createdAt: 'desc' },
-    });
-
     res.json({
       success: true,
       data: {
         status: borrower.trueIdentityStatus ?? null,
         result: borrower.trueIdentityResult ?? null,
-        session_id: borrower.trueIdentitySessionId ?? null,
-        onboarding_url: borrower.trueIdentityOnboardingUrl ?? null,
-        expires_at: borrower.trueIdentityExpiresAt?.toISOString() ?? null,
-        last_webhook_at: borrower.trueIdentityLastWebhookAt?.toISOString() ?? null,
-        reject_message: borrower.trueIdentityRejectMessage ?? null,
-        document_verified: borrower.documentVerified,
-        verified_at: borrower.verifiedAt?.toISOString() ?? null,
-        latest_session: latestSession
-          ? {
-              id: latestSession.id,
-              admin_session_id: latestSession.adminSessionId,
-              status: latestSession.status,
-              result: latestSession.result,
-              expires_at: latestSession.expiresAt.toISOString(),
-            }
-          : null,
+        rejectMessage: borrower.trueIdentityRejectMessage ?? null,
+        onboardingUrl: borrower.trueIdentityOnboardingUrl ?? null,
+        expiresAt: borrower.trueIdentityExpiresAt?.toISOString() ?? null,
+        lastWebhookAt: borrower.trueIdentityLastWebhookAt?.toISOString() ?? null,
       },
     });
   } catch (error) {

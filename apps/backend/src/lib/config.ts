@@ -57,13 +57,9 @@ export const config = {
   // TrueIdentity / TrueStack Admin integration
   trueIdentity: {
     adminBaseUrl: process.env.TRUEIDENTITY_ADMIN_BASE_URL || '',
-    /** Base URL for Kredit API (used for webhook callback URL in Admin requests) */
     kreditBaseUrl: process.env.APP_BASE_URL || process.env.BACKEND_URL || 'http://localhost:4000',
-    /** Secret for signing outgoing requests from Kredit to Admin */
     kreditWebhookSecret: process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET || '',
-    /** Secret for validating incoming callbacks from Admin to Kredit */
     callbackWebhookSecret: process.env.TRUEIDENTITY_WEBHOOK_SHARED_SECRET || process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET || '',
-    /** Max age of timestamp for replay protection (ms). Default 5 minutes. */
     timestampMaxAgeMs: parseInt(process.env.TRUEIDENTITY_TIMESTAMP_MAX_AGE_MS || '300000', 10),
   },
 };

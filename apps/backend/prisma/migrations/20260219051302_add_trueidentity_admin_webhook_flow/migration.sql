@@ -1,11 +1,11 @@
 -- AlterTable
-ALTER TABLE "Borrower" ADD COLUMN     "trueIdentityExpiresAt" TIMESTAMP(3),
-ADD COLUMN     "trueIdentityLastWebhookAt" TIMESTAMP(3),
-ADD COLUMN     "trueIdentityOnboardingUrl" TEXT,
-ADD COLUMN     "trueIdentityRejectMessage" TEXT,
-ADD COLUMN     "trueIdentityResult" TEXT,
-ADD COLUMN     "trueIdentitySessionId" TEXT,
-ADD COLUMN     "trueIdentityStatus" TEXT;
+ALTER TABLE "Borrower" ADD COLUMN "trueIdentityStatus" TEXT,
+ADD COLUMN "trueIdentityResult" TEXT,
+ADD COLUMN "trueIdentitySessionId" TEXT,
+ADD COLUMN "trueIdentityOnboardingUrl" TEXT,
+ADD COLUMN "trueIdentityExpiresAt" TIMESTAMP(3),
+ADD COLUMN "trueIdentityLastWebhookAt" TIMESTAMP(3),
+ADD COLUMN "trueIdentityRejectMessage" TEXT;
 
 -- CreateTable
 CREATE TABLE "TrueIdentitySession" (
@@ -63,25 +63,16 @@ CREATE INDEX "TrueIdentitySession_tenantId_idx" ON "TrueIdentitySession"("tenant
 CREATE INDEX "TrueIdentitySession_borrowerId_idx" ON "TrueIdentitySession"("borrowerId");
 
 -- CreateIndex
-CREATE INDEX "TrueIdentitySession_status_idx" ON "TrueIdentitySession"("status");
-
--- CreateIndex
 CREATE UNIQUE INDEX "TrueIdentityWebhookEvent_idempotencyKey_key" ON "TrueIdentityWebhookEvent"("idempotencyKey");
 
 -- CreateIndex
 CREATE INDEX "TrueIdentityWebhookEvent_tenantId_idx" ON "TrueIdentityWebhookEvent"("tenantId");
 
 -- CreateIndex
-CREATE INDEX "TrueIdentityWebhookEvent_status_idx" ON "TrueIdentityWebhookEvent"("status");
+CREATE UNIQUE INDEX "TrueIdentityUsageDaily_tenantId_usageDate_key" ON "TrueIdentityUsageDaily"("tenantId", "usageDate");
 
 -- CreateIndex
 CREATE INDEX "TrueIdentityUsageDaily_tenantId_idx" ON "TrueIdentityUsageDaily"("tenantId");
-
--- CreateIndex
-CREATE INDEX "TrueIdentityUsageDaily_usageDate_idx" ON "TrueIdentityUsageDaily"("usageDate");
-
--- CreateIndex
-CREATE UNIQUE INDEX "TrueIdentityUsageDaily_tenantId_usageDate_key" ON "TrueIdentityUsageDaily"("tenantId", "usageDate");
 
 -- AddForeignKey
 ALTER TABLE "TrueIdentitySession" ADD CONSTRAINT "TrueIdentitySession_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;

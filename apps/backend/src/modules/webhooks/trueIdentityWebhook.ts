@@ -1,204 +1,175 @@
 /**
- * TrueIdentity Webhook Handler
+ * TrueIdentity (Admin) callback webhook handler
  *
  * POST /api/webhooks/trueidentity
  *
- * Public endpoint — receives verification lifecycle events from TrueStack Admin.
- * Validates HMAC signature, processes idempotently, updates borrower/session state.
+ * Receives KYC session lifecycle events from TrueStack Admin.
+ * Verifies HMAC signature, processes idempotently, updates borrower and session.
  *
  * Events: kyc.session.started, kyc.session.processing, kyc.session.completed, kyc.session.expired
  */
 
 import { Router } from 'express';
-import { createHash } from 'crypto';
-import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
+import { AuditService } from '../compliance/auditService.js';
 
 const router = Router();
 
-const HANDLED_EVENTS = new Set([
-  'kyc.session.started',
-  'kyc.session.processing',
-  'kyc.session.completed',
-  'kyc.session.expired',
-]);
+const STATUS_MAP: Record<string, string> = {
+  'kyc.session.started': 'pending',
+  'kyc.session.processing': 'processing',
+  'kyc.session.completed': 'completed',
+  'kyc.session.expired': 'expired',
+  'kyc.session.failed': 'failed',
+};
 
-interface TrueIdentityWebhookPayload {
-  event: string;
+function deriveIdempotencyKey(payload: {
+  event?: string;
   session_id?: string;
   ref_id?: string;
-  status?: string;
-  result?: string | null;
-  reject_message?: string | null;
-  tenant_id?: string;
-  borrower_id?: string;
-  metadata?: Record<string, unknown>;
   timestamp?: string;
-}
-
-function buildIdempotencyKey(payload: TrueIdentityWebhookPayload): string {
-  const sessionId = payload.session_id ?? '';
+}): string {
   const event = payload.event ?? '';
-  const ts = payload.timestamp ?? '';
+  const sessionId = payload.session_id ?? '';
   const refId = payload.ref_id ?? '';
-  const input = `${event}:${sessionId}:${refId}:${ts}`;
-  return createHash('sha256').update(input).digest('hex');
+  const ts = payload.timestamp ?? '';
+  return `${event}:${sessionId}:${refId}:${ts}`;
 }
 
 /**
  * POST /api/webhooks/trueidentity
  *
- * Registered with express.raw({ type: 'application/json' }) so req.body is a Buffer.
+ * Registered with express.raw() before express.json() so req.body is a Buffer.
  */
 router.post('/', async (req, res) => {
   try {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : JSON.stringify(req.body);
+    const signatureHeader = req.headers['x-trueidentity-signature'] as string | undefined;
+    const timestampHeader = req.headers['x-trueidentity-timestamp'] as string | undefined;
 
-    const webhookSecret = config.trueIdentity.callbackWebhookSecret;
-    if (!webhookSecret) {
+    const secret = config.trueIdentity.callbackWebhookSecret;
+    if (!secret) {
       console.error('[Webhook/TrueIdentity] Callback secret not configured');
       res.status(500).json({ error: 'Webhook secret not configured' });
       return;
     }
 
-    const signatureHeader = req.headers['x-trueidentity-signature'] as string | undefined;
-    const timestampHeader = req.headers['x-trueidentity-timestamp'] as string | undefined;
-
-    if (!verifyCallbackSignature(
+    const valid = verifyCallbackSignature(
       rawBody,
       signatureHeader,
-      webhookSecret,
+      secret,
       timestampHeader,
       config.trueIdentity.timestampMaxAgeMs
-    )) {
+    );
+    if (!valid) {
       console.error('[Webhook/TrueIdentity] Invalid signature or expired timestamp');
-      res.status(401).json({ error: 'Invalid webhook signature' });
+      res.status(401).json({ error: 'Invalid signature' });
       return;
     }
 
-    let payload: TrueIdentityWebhookPayload;
-    try {
-      payload = JSON.parse(rawBody) as TrueIdentityWebhookPayload;
-    } catch {
-      res.status(400).json({ error: 'Invalid JSON' });
+    const payload = JSON.parse(rawBody) as {
+      event?: string;
+      session_id?: string;
+      ref_id?: string;
+      timestamp?: string;
+      status?: string;
+      result?: string;
+      reject_message?: string;
+    };
+
+    const idempotencyKey = deriveIdempotencyKey(payload);
+    const existing = await prisma.trueIdentityWebhookEvent.findUnique({
+      where: { idempotencyKey },
+    });
+    if (existing) {
+      res.status(200).json({ ok: true, processed: 'idempotent' });
       return;
     }
 
-    const event = payload.event;
-    if (!event || !HANDLED_EVENTS.has(event)) {
-      console.log(`[Webhook/TrueIdentity] Ignoring unhandled event: ${event}`);
-      res.status(200).json({ received: true });
-      return;
-    }
+    await prisma.trueIdentityWebhookEvent.create({
+      data: {
+        idempotencyKey,
+        rawPayload: payload as object,
+        signatureHeader: signatureHeader ?? null,
+        timestampHeader: timestampHeader ?? null,
+        status: 'PENDING',
+      },
+    });
 
-    const idempotencyKey = buildIdempotencyKey(payload);
-    const tenantId = payload.tenant_id ?? null;
-
-    let webhookRecord: { id: string; status: string };
-    try {
-      webhookRecord = await prisma.trueIdentityWebhookEvent.create({
-        data: {
-          idempotencyKey,
-          tenantId,
-          rawPayload: payload as object,
-          signatureHeader: signatureHeader ?? null,
-          timestampHeader: timestampHeader ?? null,
-          status: 'PENDING',
-        },
-      });
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        res.status(200).json({ received: true });
-        return;
-      }
-      throw e;
-    }
-
-    const sessionId = payload.session_id;
-    const borrowerId = payload.borrower_id ?? payload.ref_id;
-    const status = payload.status ?? 'pending';
+    const event = payload.event ?? '';
+    const status = STATUS_MAP[event] ?? payload.status ?? null;
     const result = payload.result ?? null;
     const rejectMessage = payload.reject_message ?? null;
-
-    if (!sessionId) {
-      console.warn('[Webhook/TrueIdentity] No session_id in payload');
-      await prisma.trueIdentityWebhookEvent.update({
-        where: { id: webhookRecord.id },
-        data: { status: 'PROCESSED', processedAt: new Date() },
-      });
-      res.status(200).json({ received: true });
-      return;
-    }
+    const sessionId = payload.session_id ?? '';
+    const refId = payload.ref_id ?? '';
 
     const session = await prisma.trueIdentitySession.findUnique({
       where: { adminSessionId: sessionId },
       include: { borrower: true },
     });
 
-    if (!session) {
-      console.warn(`[Webhook/TrueIdentity] No session found for admin_session_id: ${sessionId}`);
-      await prisma.trueIdentityWebhookEvent.update({
-        where: { id: webhookRecord.id },
-        data: { status: 'PROCESSED', processedAt: new Date() },
+    const borrowerId = session?.borrowerId ?? refId;
+    const tenantId = session?.tenantId ?? null;
+
+    if (session && borrowerId) {
+      const updateData: Record<string, unknown> = {
+        trueIdentityStatus: status,
+        trueIdentityLastWebhookAt: new Date(),
+      };
+      if (result) updateData.trueIdentityResult = result;
+      if (rejectMessage) updateData.trueIdentityRejectMessage = rejectMessage;
+      if (status === 'completed' && result === 'approved') {
+        updateData.documentVerified = true;
+        updateData.verifiedAt = new Date();
+        updateData.verifiedBy = 'TrueIdentity';
+      }
+
+      await prisma.borrower.update({
+        where: { id: borrowerId },
+        data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
       });
-      res.status(200).json({ received: true });
-      return;
-    }
 
-    const resolvedBorrowerId = borrowerId || session.borrowerId;
-    const resolvedTenantId = tenantId || session.tenantId;
-
-    await prisma.$transaction([
-      prisma.trueIdentitySession.update({
-        where: { id: session.id },
+      await prisma.trueIdentitySession.update({
+        where: { adminSessionId: sessionId },
         data: {
-          status,
+          status: status ?? undefined,
           result: result ?? undefined,
           rejectMessage: rejectMessage ?? undefined,
-          updatedAt: new Date(),
         },
-      }),
-      prisma.borrower.update({
-        where: { id: resolvedBorrowerId },
-        data: {
-          trueIdentityStatus: status,
-          trueIdentityResult: result ?? undefined,
-          trueIdentityLastWebhookAt: new Date(),
-          trueIdentityRejectMessage: rejectMessage ?? undefined,
-          ...(status === 'completed' && result === 'approved'
-            ? {
-                documentVerified: true,
-                verifiedAt: new Date(),
-                verifiedBy: 'TrueIdentity',
-              }
-            : {}),
-        },
-      }),
-      prisma.trueIdentityWebhookEvent.update({
-        where: { id: webhookRecord.id },
-        data: { status: 'PROCESSED', processedAt: new Date() },
-      }),
-    ]);
-
-    if (status === 'completed' && result === 'approved') {
-      const today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
-      await prisma.trueIdentityUsageDaily.upsert({
-        where: {
-          tenantId_usageDate: { tenantId: resolvedTenantId, usageDate: today },
-        },
-        create: { tenantId: resolvedTenantId, usageDate: today, count: 1 },
-        update: { count: { increment: 1 } },
       });
+
+      if (tenantId) {
+        await AuditService.log({
+          tenantId,
+          action: 'TRUEIDENTITY_WEBHOOK',
+          entityType: 'Borrower',
+          entityId: borrowerId,
+          newData: {
+            event,
+            status,
+            result,
+            sessionId,
+          },
+          ipAddress: req.ip,
+        });
+      }
     }
 
-    console.log(`[Webhook/TrueIdentity] Processed ${event} for session ${sessionId}`);
-    res.status(200).json({ received: true });
+    await prisma.trueIdentityWebhookEvent.update({
+      where: { idempotencyKey },
+      data: {
+        tenantId,
+        status: 'PROCESSED',
+        processedAt: new Date(),
+      },
+    });
+
+    res.status(200).json({ ok: true });
   } catch (error) {
     console.error('[Webhook/TrueIdentity] Error:', error);
-    res.status(200).json({ received: true, error: 'Internal processing error' });
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 

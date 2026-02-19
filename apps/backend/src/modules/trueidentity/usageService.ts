@@ -1,53 +1,45 @@
 /**
  * TrueIdentity usage aggregation for billing.
- * Verifications are counted when webhook receives kyc.session.completed with result=approved.
- * RM 4 per verification (usage charge).
+ * Records verification starts per tenant per day.
  */
 
 import { prisma } from '../../lib/prisma.js';
 
-const VERIFICATION_FEE_CENTS = 400; // RM 4.00
-
-export interface UsagePeriodResult {
-  tenantId: string;
-  periodStart: string;
-  periodEnd: string;
-  count: number;
-  amountCents: number;
+function startOfDayUtc(d: Date): Date {
+  const copy = new Date(d);
+  copy.setUTCHours(0, 0, 0, 0);
+  return copy;
 }
 
-/**
- * Get verification count for a tenant within a date range (inclusive).
- * Uses TrueIdentityUsageDaily aggregated records.
- */
-export async function getVerificationUsage(
-  tenantId: string,
-  periodStart: Date,
-  periodEnd: Date
-): Promise<UsagePeriodResult> {
-  const start = new Date(periodStart);
-  start.setUTCHours(0, 0, 0, 0);
-  const end = new Date(periodEnd);
-  end.setUTCHours(23, 59, 59, 999);
+export async function recordVerificationStart(tenantId: string): Promise<void> {
+  const today = startOfDayUtc(new Date());
+  await prisma.trueIdentityUsageDaily.upsert({
+    where: {
+      tenantId_usageDate: { tenantId, usageDate: today },
+    },
+    create: { tenantId, usageDate: today, count: 1 },
+    update: { count: { increment: 1 } },
+  });
+}
 
-  const records = await prisma.trueIdentityUsageDaily.findMany({
+export async function getUsageForTenant(
+  tenantId: string,
+  fromDate?: Date,
+  toDate?: Date
+): Promise<{ date: string; count: number }[]> {
+  const from = fromDate ? startOfDayUtc(fromDate) : startOfDayUtc(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
+  const to = toDate ? startOfDayUtc(toDate) : startOfDayUtc(new Date());
+
+  const rows = await prisma.trueIdentityUsageDaily.findMany({
     where: {
       tenantId,
-      usageDate: {
-        gte: start,
-        lte: end,
-      },
+      usageDate: { gte: from, lte: to },
     },
+    orderBy: { usageDate: 'asc' },
   });
 
-  const count = records.reduce((sum, r) => sum + r.count, 0);
-  const amountCents = count * VERIFICATION_FEE_CENTS;
-
-  return {
-    tenantId,
-    periodStart: start.toISOString(),
-    periodEnd: end.toISOString(),
-    count,
-    amountCents,
-  };
+  return rows.map((r) => ({
+    date: r.usageDate.toISOString().slice(0, 10),
+    count: r.count,
+  }));
 }

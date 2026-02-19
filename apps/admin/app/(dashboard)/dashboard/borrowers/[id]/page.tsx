@@ -1725,7 +1725,7 @@ export default function BorrowerDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       <Field
                         label="Paid-up Capital (RM)"
                         value={borrower.paidUpCapital ? `RM ${Number(borrower.paidUpCapital).toLocaleString()}` : "-"}
@@ -1755,7 +1755,7 @@ export default function BorrowerDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       {!isEditing ? (
                         <>
                           <PhoneDisplay label="Phone" value={borrower.companyPhone || borrower.phone} />
@@ -2321,7 +2321,7 @@ export default function BorrowerDetailPage() {
                     {isEditing && <CardDescription>Optional</CardDescription>}
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       {!isEditing ? (
                         <>
                           <div>
@@ -2385,7 +2385,7 @@ export default function BorrowerDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       {!isEditing ? (
                         <>
                           <PhoneDisplay label="Phone" value={borrower.phone} />

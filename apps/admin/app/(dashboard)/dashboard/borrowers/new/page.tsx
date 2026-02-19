@@ -848,7 +848,7 @@ export default function NewBorrowerPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
                       <Label className="text-xs text-muted-foreground">Phone *</Label>
                       <PhoneInput
@@ -884,7 +884,6 @@ export default function NewBorrowerPage() {
                       }}
                       error={validationErrors.addressLine1}
                       placeholder="Street, building, unit"
-                      className="md:col-span-2"
                     />
                     <Field
                       label="Address Line 2 (optional)"
@@ -892,7 +891,6 @@ export default function NewBorrowerPage() {
                       onChange={(val) => setIndividualFormData((prev) => ({ ...prev, addressLine2: val }))}
                       placeholder="Apartment, suite, floor"
                       required={false}
-                      className="md:col-span-2"
                     />
                     <Field
                       label="City"
@@ -1011,7 +1009,7 @@ export default function NewBorrowerPage() {
                   <CardDescription>Optional</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
                       <Label className="text-xs text-muted-foreground">Name</Label>
                       <Input
@@ -1190,7 +1188,7 @@ export default function NewBorrowerPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       <Field
                         label="Paid-up Capital (RM)"
                         value={corporateFormData.paidUpCapital}
@@ -1221,7 +1219,7 @@ export default function NewBorrowerPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       <div>
                         <Label className="text-xs text-muted-foreground">Company Phone *</Label>
                         <PhoneInput

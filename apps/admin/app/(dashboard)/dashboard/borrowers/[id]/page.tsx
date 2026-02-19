@@ -25,6 +25,7 @@ import {
   Download,
   Briefcase,
   TrendingUp,
+  Copy,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -39,9 +40,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { api } from "@/lib/api";
-import { formatDate, formatRelativeTime } from "@/lib/utils";
+import { formatDate, formatRelativeTime, formatCurrency } from "@/lib/utils";
+import {
+  DEFAULT_COUNTRY_CODE,
+  formatFullAddress,
+  getCountryFlag,
+  getCountryName,
+  getCountryOptions,
+  getStateName,
+  getStateOptions,
+} from "@/lib/address-options";
 import { CopyField } from "@/components/ui/copy-field";
+import { PhoneDisplay } from "@/components/ui/phone-display";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,6 +92,12 @@ interface Borrower {
   phone: string | null;
   email: string | null;
   address: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  country: string | null;
   dateOfBirth: string | null;
   gender: string | null;
   race: string | null;
@@ -121,6 +139,7 @@ interface Borrower {
     activeLoans: number;
     inArrearsLoans: number;
     defaultedLoans: number;
+    writtenOffLoans?: number;
     readyForDefaultLoans: number;
     completedLoans: number;
     pendingDisbursementLoans: number;
@@ -138,13 +157,10 @@ interface Borrower {
     createdAt: string;
     product: { name: string } | null;
   }>;
-  applications: Array<{
-    id: string;
-    status: string;
-    requestedAmount: string;
-    createdAt: string;
-    product: { name: string } | null;
-  }>;
+  loanSummary?: {
+    totalBorrowed: number;
+    totalPaid: number;
+  };
   documents: BorrowerDocument[];
 }
 
@@ -171,7 +187,12 @@ interface FormData {
   documentType: string;
   phone: string;
   email: string;
-  address: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postcode: string;
+  country: string;
   bankName: string;
   bankNameOther: string;
   bankAccountNo: string;
@@ -189,7 +210,6 @@ interface FormData {
   // Corporate fields
   companyName: string;
   ssmRegistrationNo: string;
-  businessAddress: string;
   bumiStatus: string;
   authorizedRepName: string;
   authorizedRepIc: string;
@@ -333,6 +353,9 @@ const RELATIONSHIP_OPTIONS = [
 /** Bank account: digits only, 8-17 digits */
 const BANK_ACCOUNT_REGEX = /^\d{8,17}$/;
 
+/** Postcode: digits only */
+const POSTCODE_REGEX = /^\d+$/;
+
 // Document categories
 const INDIVIDUAL_DOCUMENT_OPTIONS = [
   { value: "IC_FRONT", label: "IC Front" },
@@ -381,10 +404,106 @@ function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | null 
   }
 }
 
-function getOnTimeRateBarColor(rate: number): string {
-  if (rate >= 80) return "bg-emerald-500";
-  if (rate >= 50) return "bg-amber-500";
-  return "bg-red-500";
+function getOnTimeRateDonutColor(rate: number): string {
+  if (rate >= 80) return "text-emerald-500";
+  if (rate >= 50) return "text-amber-500";
+  return "text-red-500";
+}
+
+/** SVG donut chart for payment performance breakdown */
+function PaymentDonutChart({
+  paidOnTime,
+  paidLate,
+  overdue,
+  onTimeRate,
+}: {
+  paidOnTime: number;
+  paidLate: number;
+  overdue: number;
+  onTimeRate: number | null;
+}) {
+  const total = paidOnTime + paidLate + overdue;
+  const size = 140;
+  const strokeWidth = 14;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  if (total === 0) {
+    return (
+      <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90">
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            className="text-muted/30"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xs font-medium text-muted-foreground">No data</span>
+        </div>
+      </div>
+    );
+  }
+
+  const onTimeLen = (paidOnTime / total) * circumference;
+  const lateLen = (paidLate / total) * circumference;
+  const overdueLen = (overdue / total) * circumference;
+
+  return (
+    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${onTimeLen} ${circumference}`}
+          strokeDashoffset={0}
+          className="text-emerald-500"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${lateLen} ${circumference}`}
+          strokeDashoffset={-onTimeLen}
+          className="text-amber-500"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${overdueLen} ${circumference}`}
+          strokeDashoffset={-(onTimeLen + lateLen)}
+          className="text-red-500"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        {onTimeRate !== null ? (
+          <>
+            <span className={`text-2xl font-heading font-bold tabular-nums ${getOnTimeRateDonutColor(onTimeRate)}`}>
+              {onTimeRate.toFixed(0)}%
+            </span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">On-time</span>
+          </>
+        ) : (
+          <span className="text-xs font-medium text-muted-foreground">—</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ============================================
@@ -403,6 +522,7 @@ interface FieldProps {
   options?: { value: string; label: string }[];
   className?: string;
   isEditing: boolean;
+  required?: boolean;
 }
 
 function Field({ 
@@ -417,6 +537,7 @@ function Field({
   options,
   className,
   isEditing,
+  required = true,
 }: FieldProps) {
   if (!isEditing) {
     return (
@@ -432,7 +553,7 @@ function Field({
   if (type === "select" && options) {
     return (
       <div className={className}>
-        <label className="text-xs text-muted-foreground">{label} *</label>
+        <label className="text-xs text-muted-foreground">{label} {required && "*"}</label>
         <Select value={inputValue} onValueChange={onChange || (() => {})} disabled={disabled}>
           <SelectTrigger className={error ? "border-red-500" : ""}>
             <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
@@ -450,7 +571,7 @@ function Field({
 
   return (
     <div className={className}>
-      <label className="text-xs text-muted-foreground">{label} *</label>
+      <label className="text-xs text-muted-foreground">{label} {required && "*"}</label>
       <Input
         type={type}
         value={inputValue}
@@ -514,6 +635,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
     companyName: "Company Name",
     ssmRegistrationNo: "SSM Registration No",
     businessAddress: "Business Address",
+    addressLine1: "Address Line 1",
+    addressLine2: "Address Line 2",
+    city: "City",
+    state: "State",
+    postcode: "Postcode",
+    country: "Country",
     authorizedRepName: "Authorized Representative",
     authorizedRepIc: "Authorized Rep IC",
     companyPhone: "Company Phone",
@@ -649,7 +776,12 @@ export default function BorrowerDetailPage() {
     documentType: "IC",
     phone: "",
     email: "",
-    address: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postcode: "",
+    country: DEFAULT_COUNTRY_CODE,
     bankName: "",
     bankNameOther: "",
     bankAccountNo: "",
@@ -667,7 +799,6 @@ export default function BorrowerDetailPage() {
     // Corporate fields
     companyName: "",
     ssmRegistrationNo: "",
-    businessAddress: "",
     bumiStatus: "",
     authorizedRepName: "",
     authorizedRepIc: "",
@@ -687,6 +818,8 @@ export default function BorrowerDetailPage() {
   const [deletingDoc, setDeletingDoc] = useState(false);
 
   const isIC = formData.documentType === "IC";
+  const countryOptions = getCountryOptions();
+  const stateOptions = getStateOptions(formData.country);
 
   const fetchBorrower = useCallback(async () => {
     try {
@@ -740,6 +873,9 @@ export default function BorrowerDetailPage() {
     // Detect if borrower has 0 income (no monthly income)
     const incomeValue = data.monthlyIncome != null ? Number(data.monthlyIncome) : null;
     setNoMonthlyIncome(incomeValue === 0);
+    const fallbackAddressLine1 = data.borrowerType === "CORPORATE"
+      ? data.businessAddress || data.address
+      : data.address;
 
     setFormData({
       // Common fields
@@ -748,7 +884,12 @@ export default function BorrowerDetailPage() {
       documentType: docType,
       phone: data.phone || "",
       email: data.email || "",
-      address: data.address || "",
+      addressLine1: data.addressLine1 || fallbackAddressLine1 || "",
+      addressLine2: data.addressLine2 || "",
+      city: data.city || "",
+      state: data.state || "",
+      postcode: data.postcode || "",
+      country: data.country || DEFAULT_COUNTRY_CODE,
       bankName: data.bankName || "",
       bankNameOther: data.bankNameOther || "",
       bankAccountNo: data.bankAccountNo || "",
@@ -766,7 +907,6 @@ export default function BorrowerDetailPage() {
       // Corporate fields
       companyName: data.companyName || "",
       ssmRegistrationNo: data.ssmRegistrationNo || "",
-      businessAddress: data.businessAddress || "",
       bumiStatus: data.bumiStatus || "",
       authorizedRepName: data.authorizedRepName || "",
       authorizedRepIc: data.authorizedRepIc || "",
@@ -837,7 +977,12 @@ export default function BorrowerDetailPage() {
       // Corporate validation
       if (!formData.companyName.trim()) errors.companyName = "Company name is required";
       if (!formData.ssmRegistrationNo.trim()) errors.ssmRegistrationNo = "SSM registration number is required";
-      if (!formData.businessAddress.trim()) errors.businessAddress = "Business address is required";
+      if (!formData.addressLine1.trim()) errors.addressLine1 = "Address line 1 is required";
+      if (!formData.city.trim()) errors.city = "City is required";
+      if (!formData.postcode.trim()) errors.postcode = "Postcode is required";
+      else if (!POSTCODE_REGEX.test(formData.postcode)) errors.postcode = "Postcode must contain numbers only";
+      if (!formData.country) errors.country = "Country is required";
+      if (formData.country && getStateOptions(formData.country).length > 0 && !formData.state) errors.state = "State is required";
       if (!formData.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
       if (!formData.companyPhone.trim()) errors.companyPhone = "Company phone is required";
       if (!formData.companyEmail.trim()) errors.companyEmail = "Company email is required";
@@ -878,7 +1023,12 @@ export default function BorrowerDetailPage() {
       }
       if (!formData.phone.trim()) errors.phone = "Phone number is required";
       if (!formData.email.trim()) errors.email = "Email is required";
-      if (!formData.address.trim()) errors.address = "Address is required";
+      if (!formData.addressLine1.trim()) errors.addressLine1 = "Address line 1 is required";
+      if (!formData.city.trim()) errors.city = "City is required";
+      if (!formData.postcode.trim()) errors.postcode = "Postcode is required";
+      else if (!POSTCODE_REGEX.test(formData.postcode)) errors.postcode = "Postcode must contain numbers only";
+      if (!formData.country) errors.country = "Country is required";
+      if (formData.country && getStateOptions(formData.country).length > 0 && !formData.state) errors.state = "State is required";
       if (!formData.dateOfBirth) errors.dateOfBirth = "Date of birth is required";
       if (!formData.gender) errors.gender = "Gender is required";
       if (!formData.race) errors.race = "Race is required";
@@ -923,10 +1073,15 @@ export default function BorrowerDetailPage() {
           name: primaryDirector?.name || formData.authorizedRepName || undefined, // Rep name as primary name
           phone: formData.companyPhone || undefined,
           email: formData.companyEmail || undefined,
-          address: formData.businessAddress || undefined,
+          addressLine1: formData.addressLine1 || undefined,
+          addressLine2: formData.addressLine2 || undefined,
+          city: formData.city || undefined,
+          state: formData.state || undefined,
+          postcode: formData.postcode || undefined,
+          country: formData.country || undefined,
           companyName: formData.companyName || undefined,
           ssmRegistrationNo: formData.ssmRegistrationNo || undefined,
-          businessAddress: formData.businessAddress || undefined,
+          businessAddress: formData.addressLine1 || undefined,
           bumiStatus: formData.bumiStatus || undefined,
           authorizedRepName: primaryDirector?.name || formData.authorizedRepName || undefined,
           authorizedRepIc: primaryDirector?.icNumber || formData.authorizedRepIc || undefined,
@@ -953,7 +1108,12 @@ export default function BorrowerDetailPage() {
           documentType: formData.documentType,
           phone: formData.phone || undefined,
           email: formData.email || undefined,
-          address: formData.address || undefined,
+          addressLine1: formData.addressLine1 || undefined,
+          addressLine2: formData.addressLine2 || undefined,
+          city: formData.city || undefined,
+          state: formData.state || undefined,
+          postcode: formData.postcode || undefined,
+          country: formData.country || undefined,
           dateOfBirth: formData.dateOfBirth ? new Date(formData.dateOfBirth).toISOString() : undefined,
           gender: formData.gender || undefined,
           race: formData.race || undefined,
@@ -974,7 +1134,7 @@ export default function BorrowerDetailPage() {
       if (res.success) {
         toast.success("Borrower updated successfully");
         setIsEditing(false);
-        // Refetch full borrower data (including loans/applications relations)
+        // Refetch full borrower data (including loans, loanSummary)
         await fetchBorrower();
         fetchTimeline(); // Refresh timeline to show new update
       } else {
@@ -1107,17 +1267,6 @@ export default function BorrowerDetailPage() {
                   ? borrower.companyName
                   : isEditing ? formData.name || "Edit Borrower" : borrower.name}
               </h1>
-              {borrower.borrowerType === "CORPORATE" ? (
-                <Badge variant="secondary">
-                  <Building2 className="h-3 w-3 mr-1" />
-                  Corporate
-                </Badge>
-              ) : (
-                <Badge variant="outline">
-                  <User className="h-3 w-3 mr-1" />
-                  Individual
-                </Badge>
-              )}
               {borrower.documentVerified ? (
                 <Badge variant="verified">
                   <Fingerprint className="h-3 w-3 mr-1" />
@@ -1170,39 +1319,52 @@ export default function BorrowerDetailPage() {
           <Card>
             <CardContent className="py-4">
               <div className="flex items-center gap-6 flex-wrap">
-                {(() => {
-                  const performanceMeta = getPerformanceBadgeMeta(borrower.performanceProjection?.riskLevel);
-                  return (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Performance</span>
-                        <Badge variant={performanceMeta.variant}>{performanceMeta.label}</Badge>
-                      </div>
-                      <div className="h-4 w-px bg-border" />
-                    </>
-                  );
-                })()}
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Borrower Type</span>
                   <Badge variant={borrower.borrowerType === "CORPORATE" ? "secondary" : "outline"}>
+                    {borrower.borrowerType === "CORPORATE" ? (
+                      <Building2 className="h-3 w-3 mr-1" />
+                    ) : (
+                      <User className="h-3 w-3 mr-1" />
+                    )}
                     {borrower.borrowerType === "CORPORATE" ? "Corporate" : "Individual"}
                   </Badge>
                 </div>
                 <div className="h-4 w-px bg-border" />
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Active Loans</span>
+                  <span className="text-sm text-muted-foreground">Loans</span>
                   <Badge variant="outline">{borrower.loans.length}</Badge>
                 </div>
-                <div className="h-4 w-px bg-border" />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Applications</span>
-                  <Badge variant="outline">{borrower.applications.length}</Badge>
-                </div>
-                <div className="h-4 w-px bg-border" />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Added</span>
-                  <span className="text-sm font-medium">{formatDate(borrower.createdAt)}</span>
-                </div>
+                {(borrower.performanceProjection?.completedLoans ?? 0) > 0 && (
+                  <>
+                    <div className="h-4 w-px bg-border" />
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Completed</span>
+                      <Badge variant="outline" className="border-emerald-500/50 text-emerald-600 dark:text-emerald-400">
+                        {borrower.performanceProjection?.completedLoans ?? 0}
+                      </Badge>
+                    </div>
+                  </>
+                )}
+                {borrower.loanSummary && (
+                  <>
+                    <div className="h-4 w-px bg-border" />
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Total Borrowed</span>
+                      <span className="text-sm font-medium">{formatCurrency(borrower.loanSummary.totalBorrowed)}</span>
+                    </div>
+                    <div className="h-4 w-px bg-border" />
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Total Paid</span>
+                      <span className="text-sm font-medium">{formatCurrency(borrower.loanSummary.totalPaid)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="mt-3 pt-3 border-t border-border flex items-center gap-3 text-xs text-muted-foreground">
+                <span>Added {formatDate(borrower.createdAt)}</span>
+                <span className="opacity-50">·</span>
+                <span title={formatDate(borrower.updatedAt)}>Updated {formatRelativeTime(borrower.updatedAt)}</span>
               </div>
             </CardContent>
           </Card>
@@ -1231,73 +1393,108 @@ export default function BorrowerDetailPage() {
                 const tags = (projection?.tags || []).slice(0, 4);
                 const signalItems = [
                   projection?.defaultedLoans ? `${projection.defaultedLoans} defaulted` : null,
+                  projection?.writtenOffLoans ? `${projection.writtenOffLoans} written off` : null,
                   projection?.inArrearsLoans ? `${projection.inArrearsLoans} in arrears` : null,
                   projection?.readyForDefaultLoans ? `${projection.readyForDefaultLoans} default ready` : null,
                 ].filter(Boolean) as string[];
 
                 return (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="rounded-lg border border-border bg-secondary p-3">
-                        <p className="text-xs text-muted-foreground mb-2">Risk Profile</p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={performanceMeta.variant}>{performanceMeta.label}</Badge>
-                          {tags.length > 0 ? (
-                            tags.map((tag) => (
-                              <Badge key={tag} variant="outline">{tag}</Badge>
-                            ))
-                          ) : (
-                            <Badge variant="outline">No repayment track record</Badge>
-                          )}
+                  <div className="space-y-6">
+                    {/* Main row: Donut + Risk + Summary */}
+                    <div className="flex flex-col sm:flex-row gap-6 sm:gap-8 items-start">
+                      {/* Donut chart */}
+                      <div className="flex flex-col items-center shrink-0">
+                        <PaymentDonutChart
+                          paidOnTime={paidOnTimeCount}
+                          paidLate={paidLateCount}
+                          overdue={overdueCount}
+                          onTimeRate={onTimeRate}
+                        />
+                        <div className="mt-3 flex items-center gap-3 text-xs">
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                            On-time
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full bg-amber-500" />
+                            Late
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full bg-red-500" />
+                            Overdue
+                          </span>
                         </div>
                       </div>
-                      <div className="rounded-lg border border-border bg-secondary p-3">
-                        <p className="text-xs text-muted-foreground mb-1">On-Time Rate</p>
-                        {onTimeRate !== null ? (
-                          <div className="space-y-2">
-                            <p className="text-lg font-heading font-semibold">
-                              {onTimeRate.toFixed(1)}%
-                            </p>
-                            <div className="h-2 w-full rounded-full bg-border/70 overflow-hidden">
-                              <div
-                                className={`h-full ${getOnTimeRateBarColor(onTimeRate)} transition-all`}
-                                style={{ width: `${Math.min(100, Math.max(0, onTimeRate))}%` }}
-                              />
-                            </div>
-                            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                              <span>0</span>
-                              <span>50</span>
-                              <span>80</span>
-                              <span>100</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-lg font-heading font-semibold">No repayment data yet</p>
-                        )}
-                      </div>
-                    </div>
 
-                    <div className="rounded-lg border border-border bg-secondary p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">Sample Size</p>
-                        <p className="text-sm font-medium">
-                          {sampleSize} repayment{sampleSize === 1 ? "" : "s"} analyzed
-                        </p>
+                      {/* Risk & info */}
+                      <div className="flex-1 min-w-0 space-y-4">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-2">Risk Profile</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={performanceMeta.variant} className="text-sm">
+                              {performanceMeta.label}
+                            </Badge>
+                            {tags.length > 0 &&
+                              tags.map((tag) => (
+                                <Badge key={tag} variant="outline" className="text-xs">
+                                  {tag}
+                                </Badge>
+                              ))}
+                            {tags.length === 0 && sampleSize === 0 && (
+                              <Badge variant="outline" className="text-xs">
+                                No repayment track record
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="rounded-lg border border-border bg-emerald-500/10 px-3 py-2.5 text-center">
+                            <p className="text-lg font-heading font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                              {paidOnTimeCount}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">On-time</p>
+                          </div>
+                          <div className="rounded-lg border border-border bg-amber-500/10 px-3 py-2.5 text-center">
+                            <p className="text-lg font-heading font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
+                              {paidLateCount}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Late</p>
+                          </div>
+                          <div className="rounded-lg border border-border bg-red-500/10 px-3 py-2.5 text-center">
+                            <p className="text-lg font-heading font-semibold text-red-600 dark:text-red-400 tabular-nums">
+                              {overdueCount}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Overdue</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Clock className="h-4 w-4 shrink-0" />
+                          <span>
+                            {sampleSize > 0 ? (
+                              <>
+                                {sampleSize} repayment{sampleSize === 1 ? "" : "s"} analyzed
+                                {lastPaymentAt && (
+                                  <> · Last payment {formatRelativeTime(lastPaymentAt)}</>
+                                )}
+                              </>
+                            ) : (
+                              "No payments recorded"
+                            )}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline-success">On-time: {paidOnTimeCount}</Badge>
-                        <Badge variant="outline-warning">Late: {paidLateCount}</Badge>
-                        <Badge variant="outline-destructive">Overdue: {overdueCount}</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Last payment date: {lastPaymentAt ? formatDate(lastPaymentAt) : "No payments recorded"}
-                      </p>
                     </div>
 
                     {signalItems.length > 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        Signals: {signalItems.join(" • ")}
-                      </p>
+                      <div className="rounded-lg border border-border px-4 py-3">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                          <p className="text-xs font-medium text-muted-foreground">Signals</p>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{signalItems.join(" · ")}</p>
+                      </div>
                     )}
                   </div>
                 );
@@ -1316,7 +1513,7 @@ export default function BorrowerDetailPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Field
                       label="Company Name"
                       value={borrower.companyName || "-"}
@@ -1329,18 +1526,25 @@ export default function BorrowerDetailPage() {
                       placeholder="Company Sdn Bhd"
                       isEditing={isEditing}
                     />
-                    <Field
-                      label="SSM Registration No"
-                      value={borrower.ssmRegistrationNo || borrower.icNumber || "-"}
-                      editValue={formData.ssmRegistrationNo}
-                      onChange={(val) => {
-                        setFormData((prev) => ({ ...prev, ssmRegistrationNo: val }));
-                        if (validationErrors.ssmRegistrationNo) setValidationErrors((prev) => ({ ...prev, ssmRegistrationNo: "" }));
-                      }}
-                      error={validationErrors.ssmRegistrationNo}
-                      placeholder="202001012345"
-                      isEditing={isEditing}
-                    />
+                    {!isEditing ? (
+                      <CopyField
+                        label="SSM Registration No"
+                        value={borrower.ssmRegistrationNo || borrower.icNumber}
+                      />
+                    ) : (
+                      <Field
+                        label="SSM Registration No"
+                        value={borrower.ssmRegistrationNo || borrower.icNumber || "-"}
+                        editValue={formData.ssmRegistrationNo}
+                        onChange={(val) => {
+                          setFormData((prev) => ({ ...prev, ssmRegistrationNo: val }));
+                          if (validationErrors.ssmRegistrationNo) setValidationErrors((prev) => ({ ...prev, ssmRegistrationNo: "" }));
+                        }}
+                        error={validationErrors.ssmRegistrationNo}
+                        placeholder="202001012345"
+                        isEditing={isEditing}
+                      />
+                    )}
                     <Field
                       label="Taraf (Bumi Status)"
                       value={getOptionLabel(BUMI_STATUS_OPTIONS, borrower.bumiStatus)}
@@ -1370,21 +1574,143 @@ export default function BorrowerDetailPage() {
                       type="date"
                       isEditing={isEditing}
                     />
-                    <div className="col-span-2">
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Address - Full Width */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-muted-foreground" />
+                    Address
+                  </CardTitle>
+                  {!isEditing && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        const full = formatFullAddress(borrower);
+                        if (!full) {
+                          toast.error("No address to copy");
+                          return;
+                        }
+                        try {
+                          await navigator.clipboard.writeText(full);
+                          toast.success("Full address copied to clipboard");
+                        } catch {
+                          toast.error("Failed to copy to clipboard");
+                        }
+                      }}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy full address
+                    </Button>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  {!isEditing ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <CopyField
+                        label="Address Line 1"
+                        value={borrower.addressLine1 || borrower.businessAddress || borrower.address}
+                      />
+                      <CopyField label="Address Line 2 (optional)" value={borrower.addressLine2} />
+                      <CopyField label="City" value={borrower.city} />
+                      <CopyField
+                        label="State"
+                        value={getStateName(borrower.country, borrower.state)}
+                      />
+                      <CopyField label="Postcode" value={borrower.postcode} />
+                      <CopyField
+                        label="Country"
+                        value={borrower.country ? `${getCountryFlag(borrower.country)} ${getCountryName(borrower.country) || ""}`.trim() : undefined}
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <Field
-                        label="Business Address"
-                        value={borrower.businessAddress || borrower.address || "-"}
-                        editValue={formData.businessAddress}
+                        label="Address Line 1"
+                        value={borrower.addressLine1 || borrower.businessAddress || borrower.address || "-"}
+                        editValue={formData.addressLine1}
                         onChange={(val) => {
-                          setFormData((prev) => ({ ...prev, businessAddress: val }));
-                          if (validationErrors.businessAddress) setValidationErrors((prev) => ({ ...prev, businessAddress: "" }));
+                          setFormData((prev) => ({ ...prev, addressLine1: val }));
+                          if (validationErrors.addressLine1) setValidationErrors((prev) => ({ ...prev, addressLine1: "" }));
                         }}
-                        error={validationErrors.businessAddress}
-                        placeholder="Registered business address"
+                        error={validationErrors.addressLine1}
+                        placeholder="Street, building, unit"
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="Address Line 2 (optional)"
+                        value={borrower.addressLine2 || "-"}
+                        editValue={formData.addressLine2}
+                        onChange={(val) => setFormData((prev) => ({ ...prev, addressLine2: val }))}
+                        placeholder="Suite, floor, building"
+                        isEditing={isEditing}
+                        required={false}
+                      />
+                      <Field
+                        label="City"
+                        value={borrower.city || "-"}
+                        editValue={formData.city}
+                        onChange={(val) => {
+                          setFormData((prev) => ({ ...prev, city: val }));
+                          if (validationErrors.city) setValidationErrors((prev) => ({ ...prev, city: "" }));
+                        }}
+                        error={validationErrors.city}
+                        placeholder="City"
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="Postcode"
+                        value={borrower.postcode || "-"}
+                        editValue={formData.postcode}
+                        onChange={(val) => {
+                          const digitsOnly = val.replace(/\D/g, "");
+                          setFormData((prev) => ({ ...prev, postcode: digitsOnly }));
+                          if (validationErrors.postcode) setValidationErrors((prev) => ({ ...prev, postcode: "" }));
+                        }}
+                        error={validationErrors.postcode}
+                        placeholder="Postal code (numbers only)"
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="Country"
+                        value={getCountryName(borrower.country) || "-"}
+                        editValue={formData.country}
+                        onChange={(val) => {
+                          const nextStateOptions = getStateOptions(val);
+                          setFormData((prev) => ({
+                            ...prev,
+                            country: val,
+                            state: nextStateOptions.some((option) => option.value === prev.state) ? prev.state : "",
+                          }));
+                          if (validationErrors.country || validationErrors.state) {
+                            setValidationErrors((prev) => ({ ...prev, country: "", state: "" }));
+                          }
+                        }}
+                        type="select"
+                        options={countryOptions}
+                        error={validationErrors.country}
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="State"
+                        value={getStateName(borrower.country, borrower.state) || "-"}
+                        editValue={formData.state}
+                        onChange={(val) => {
+                          setFormData((prev) => ({ ...prev, state: val }));
+                          if (validationErrors.state) setValidationErrors((prev) => ({ ...prev, state: "" }));
+                        }}
+                        type="select"
+                        options={stateOptions}
+                        error={validationErrors.state}
+                        disabled={!formData.country || stateOptions.length === 0}
                         isEditing={isEditing}
                       />
                     </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1399,7 +1725,7 @@ export default function BorrowerDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4">
                       <Field
                         label="Paid-up Capital (RM)"
                         value={borrower.paidUpCapital ? `RM ${Number(borrower.paidUpCapital).toLocaleString()}` : "-"}
@@ -1429,26 +1755,29 @@ export default function BorrowerDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-1 gap-4">
                       {!isEditing ? (
                         <>
-                          <CopyField label="Phone" value={borrower.companyPhone || borrower.phone} />
+                          <PhoneDisplay label="Phone" value={borrower.companyPhone || borrower.phone} />
                           <CopyField label="Email" value={borrower.companyEmail || borrower.email} />
                         </>
                       ) : (
                         <>
-                          <Field
-                            label="Company Phone"
-                            value={borrower.companyPhone || borrower.phone || "-"}
-                            editValue={formData.companyPhone}
-                            onChange={(val) => {
-                              setFormData((prev) => ({ ...prev, companyPhone: val }));
-                              if (validationErrors.companyPhone) setValidationErrors((prev) => ({ ...prev, companyPhone: "" }));
-                            }}
-                            error={validationErrors.companyPhone}
-                            placeholder="+603-12345678"
-                            isEditing={isEditing}
-                          />
+                          <div>
+                            <label className="text-xs text-muted-foreground">Company Phone *</label>
+                            <PhoneInput
+                              value={formData.companyPhone || undefined}
+                              onChange={(val: string | undefined) => {
+                                setFormData((prev) => ({ ...prev, companyPhone: val ?? "" }));
+                                if (validationErrors.companyPhone) setValidationErrors((prev) => ({ ...prev, companyPhone: "" }));
+                              }}
+                              error={!!validationErrors.companyPhone}
+                              placeholder="3-12345678"
+                            />
+                            {validationErrors.companyPhone && (
+                              <p className="text-xs text-red-500 mt-1">{validationErrors.companyPhone}</p>
+                            )}
+                          </div>
                           <Field
                             label="Company Email"
                             value={borrower.companyEmail || borrower.email || "-"}
@@ -1520,7 +1849,7 @@ export default function BorrowerDetailPage() {
                               <p><span className="text-muted-foreground">Position:</span> {director.position || "-"}</p>
                             </div>
                           ) : (
-                            <div className="grid grid-cols-1 gap-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div>
                                 <label className="text-xs text-muted-foreground">Director Name *</label>
                                 <Input
@@ -1637,7 +1966,7 @@ export default function BorrowerDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <Field
                         label="Name"
                         value={borrower.name}
@@ -1667,6 +1996,32 @@ export default function BorrowerDetailPage() {
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Individual: Personal Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-muted-foreground" />
+                    Personal Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {!isEditing ? (
+                      <CopyField
+                        label={borrower.documentType === "IC" ? "IC Number" : "Passport Number"}
+                        value={
+                          borrower.documentType === "IC"
+                            ? formatICForDisplay(borrower.icNumber) || borrower.icNumber
+                            : borrower.icNumber
+                        }
+                        toastMessage="IC number copied"
+                      />
+                    ) : (
                       <div>
                         <label className="text-xs text-muted-foreground">
                           {isIC ? "IC Number" : "Passport Number"} *
@@ -1687,21 +2042,7 @@ export default function BorrowerDetailPage() {
                           </p>
                         )}
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Individual: Personal Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5 text-muted-foreground" />
-                    Personal Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    )}
                     <Field
                       label="Date of Birth"
                       value={borrower.dateOfBirth ? formatDate(borrower.dateOfBirth) : "-"}
@@ -1832,69 +2173,144 @@ export default function BorrowerDetailPage() {
                 </CardContent>
               </Card>
 
+              {/* Address - Full Width */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-muted-foreground" />
+                    Address
+                  </CardTitle>
+                  {!isEditing && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        const full = formatFullAddress(borrower);
+                        if (!full) {
+                          toast.error("No address to copy");
+                          return;
+                        }
+                        try {
+                          await navigator.clipboard.writeText(full);
+                          toast.success("Full address copied to clipboard");
+                        } catch {
+                          toast.error("Failed to copy to clipboard");
+                        }
+                      }}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy full address
+                    </Button>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  {!isEditing ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <CopyField
+                        label="Address Line 1"
+                        value={borrower.addressLine1 || borrower.address}
+                      />
+                      <CopyField label="Address Line 2 (optional)" value={borrower.addressLine2} />
+                      <CopyField label="City" value={borrower.city} />
+                      <CopyField
+                        label="State"
+                        value={getStateName(borrower.country, borrower.state)}
+                      />
+                      <CopyField label="Postcode" value={borrower.postcode} />
+                      <CopyField
+                        label="Country"
+                        value={borrower.country ? `${getCountryFlag(borrower.country)} ${getCountryName(borrower.country) || ""}`.trim() : undefined}
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Field
+                        label="Address Line 1"
+                        value={borrower.addressLine1 || borrower.address || "-"}
+                        editValue={formData.addressLine1}
+                        onChange={(val) => {
+                          setFormData((prev) => ({ ...prev, addressLine1: val }));
+                          if (validationErrors.addressLine1) setValidationErrors((prev) => ({ ...prev, addressLine1: "" }));
+                        }}
+                        error={validationErrors.addressLine1}
+                        placeholder="Street, building, unit"
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="Address Line 2 (optional)"
+                        value={borrower.addressLine2 || "-"}
+                        editValue={formData.addressLine2}
+                        onChange={(val) => setFormData((prev) => ({ ...prev, addressLine2: val }))}
+                        placeholder="Apartment, suite, floor"
+                        isEditing={isEditing}
+                        required={false}
+                      />
+                      <Field
+                        label="City"
+                        value={borrower.city || "-"}
+                        editValue={formData.city}
+                        onChange={(val) => {
+                          setFormData((prev) => ({ ...prev, city: val }));
+                          if (validationErrors.city) setValidationErrors((prev) => ({ ...prev, city: "" }));
+                        }}
+                        error={validationErrors.city}
+                        placeholder="City"
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="Postcode"
+                        value={borrower.postcode || "-"}
+                        editValue={formData.postcode}
+                        onChange={(val) => {
+                          const digitsOnly = val.replace(/\D/g, "");
+                          setFormData((prev) => ({ ...prev, postcode: digitsOnly }));
+                          if (validationErrors.postcode) setValidationErrors((prev) => ({ ...prev, postcode: "" }));
+                        }}
+                        error={validationErrors.postcode}
+                        placeholder="Postal code (numbers only)"
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="Country"
+                        value={getCountryName(borrower.country) || "-"}
+                        editValue={formData.country}
+                        onChange={(val) => {
+                          const nextStateOptions = getStateOptions(val);
+                          setFormData((prev) => ({
+                            ...prev,
+                            country: val,
+                            state: nextStateOptions.some((option) => option.value === prev.state) ? prev.state : "",
+                          }));
+                          if (validationErrors.country || validationErrors.state) {
+                            setValidationErrors((prev) => ({ ...prev, country: "", state: "" }));
+                          }
+                        }}
+                        type="select"
+                        options={countryOptions}
+                        error={validationErrors.country}
+                        isEditing={isEditing}
+                      />
+                      <Field
+                        label="State"
+                        value={getStateName(borrower.country, borrower.state) || "-"}
+                        editValue={formData.state}
+                        onChange={(val) => {
+                          setFormData((prev) => ({ ...prev, state: val }));
+                          if (validationErrors.state) setValidationErrors((prev) => ({ ...prev, state: "" }));
+                        }}
+                        type="select"
+                        options={stateOptions}
+                        error={validationErrors.state}
+                        disabled={!formData.country || stateOptions.length === 0}
+                        isEditing={isEditing}
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Individual: Contact & Emergency Contact Side by Side */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Contact Information */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Phone className="h-5 w-5 text-muted-foreground" />
-                      Contact Information
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {!isEditing ? (
-                        <>
-                          <CopyField label="Phone" value={borrower.phone} />
-                          <CopyField label="Email" value={borrower.email} />
-                          <CopyField label="Address" value={borrower.address} />
-                        </>
-                      ) : (
-                        <div className="space-y-3">
-                          <Field
-                            label="Phone"
-                            value={borrower.phone || "-"}
-                            editValue={formData.phone}
-                            onChange={(val) => {
-                              setFormData((prev) => ({ ...prev, phone: val }));
-                              if (validationErrors.phone) setValidationErrors((prev) => ({ ...prev, phone: "" }));
-                            }}
-                            error={validationErrors.phone}
-                            placeholder="+60123456789"
-                            isEditing={isEditing}
-                          />
-                          <Field
-                            label="Email"
-                            value={borrower.email || "-"}
-                            editValue={formData.email}
-                            onChange={(val) => {
-                              setFormData((prev) => ({ ...prev, email: val }));
-                              if (validationErrors.email) setValidationErrors((prev) => ({ ...prev, email: "" }));
-                            }}
-                            type="email"
-                            error={validationErrors.email}
-                            placeholder="email@example.com"
-                            isEditing={isEditing}
-                          />
-                          <Field
-                            label="Address"
-                            value={borrower.address || "-"}
-                            editValue={formData.address}
-                            onChange={(val) => {
-                              setFormData((prev) => ({ ...prev, address: val }));
-                              if (validationErrors.address) setValidationErrors((prev) => ({ ...prev, address: "" }));
-                            }}
-                            error={validationErrors.address}
-                            placeholder="Full address"
-                            isEditing={isEditing}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
                 {/* Emergency Contact */}
                 <Card>
                   <CardHeader>
@@ -1905,14 +2321,14 @@ export default function BorrowerDetailPage() {
                     {isEditing && <CardDescription>Optional</CardDescription>}
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-1 gap-4">
                       {!isEditing ? (
                         <>
                           <div>
                             <p className="text-xs text-muted-foreground">Name</p>
                             <p className="font-medium">{borrower.emergencyContactName || "-"}</p>
                           </div>
-                          <CopyField label="Phone" value={borrower.emergencyContactPhone} />
+                          <PhoneDisplay label="Phone" value={borrower.emergencyContactPhone} />
                           <div>
                             <p className="text-xs text-muted-foreground">Relationship</p>
                             <p className="font-medium">
@@ -1932,10 +2348,10 @@ export default function BorrowerDetailPage() {
                           </div>
                           <div>
                             <label className="text-xs text-muted-foreground">Phone</label>
-                            <Input
-                              value={formData.emergencyContactPhone}
-                              onChange={(e) => setFormData((prev) => ({ ...prev, emergencyContactPhone: e.target.value }))}
-                              placeholder="+60123456789"
+                            <PhoneInput
+                              value={formData.emergencyContactPhone || undefined}
+                              onChange={(val: string | undefined) => setFormData((prev) => ({ ...prev, emergencyContactPhone: val ?? "" }))}
+                              placeholder="16 2487680"
                             />
                           </div>
                           <div>
@@ -1959,6 +2375,57 @@ export default function BorrowerDetailPage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Contact Information */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Phone className="h-5 w-5 text-muted-foreground" />
+                      Contact Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 gap-4">
+                      {!isEditing ? (
+                        <>
+                          <PhoneDisplay label="Phone" value={borrower.phone} />
+                          <CopyField label="Email" value={borrower.email} />
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Phone *</label>
+                            <PhoneInput
+                              value={formData.phone || undefined}
+                              onChange={(val: string | undefined) => {
+                                setFormData((prev) => ({ ...prev, phone: val ?? "" }));
+                                if (validationErrors.phone) setValidationErrors((prev) => ({ ...prev, phone: "" }));
+                              }}
+                              error={!!validationErrors.phone}
+                              placeholder="16 2487680"
+                            />
+                            {validationErrors.phone && (
+                              <p className="text-xs text-red-500 mt-1">{validationErrors.phone}</p>
+                            )}
+                          </div>
+                          <Field
+                            label="Email"
+                            value={borrower.email || "-"}
+                            editValue={formData.email}
+                            onChange={(val) => {
+                              setFormData((prev) => ({ ...prev, email: val }));
+                              if (validationErrors.email) setValidationErrors((prev) => ({ ...prev, email: "" }));
+                            }}
+                            type="email"
+                            error={validationErrors.email}
+                            placeholder="email@example.com"
+                            isEditing={isEditing}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             </>
           )}
@@ -1972,7 +2439,7 @@ export default function BorrowerDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {!isEditing ? (
                   <>
                     <div>
@@ -2036,6 +2503,20 @@ export default function BorrowerDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Bottom Save/Cancel when editing */}
+          {isEditing && (
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={handleCancelEdit} disabled={saving}>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                <Save className="h-4 w-4 mr-2" />
+                {saving ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          )}
 
         </div>
 

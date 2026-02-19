@@ -269,6 +269,15 @@
   background: hsl(var(--selection-bg));
 }
 
+/* Phone input - theme overrides for react-phone-number-input */
+.PhoneInput {
+  --PhoneInput-color--focus: hsl(var(--ring));
+  --PhoneInputCountryFlag-borderColor: transparent;
+  --PhoneInputCountryFlag-borderColor--focus: transparent;
+  --PhoneInputCountrySelectArrow-color: hsl(var(--muted-foreground));
+  --PhoneInputCountrySelectArrow-color--focus: hsl(var(--ring));
+}
+
 /* Markdown content styles */
 .markdown-content {
   @apply text-foreground leading-relaxed;

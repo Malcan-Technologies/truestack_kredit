@@ -76,6 +76,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CopyField } from "@/components/ui/copy-field";
+import { PhoneDisplay } from "@/components/ui/phone-display";
 import { api } from "@/lib/api";
 import {
   formatCurrency,
@@ -1530,7 +1531,7 @@ export default function LoanDetailPage() {
                     value={loan.borrower.icNumber}
                   />
                   {loan.borrower.phone && (
-                    <CopyField label="Phone" value={loan.borrower.phone} />
+                    <PhoneDisplay label="Phone" value={loan.borrower.phone} />
                   )}
                   {loan.borrower.email && (
                     <CopyField label="Email" value={loan.borrower.email} />

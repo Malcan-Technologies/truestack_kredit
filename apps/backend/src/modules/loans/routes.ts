@@ -358,6 +358,30 @@ const previewSchema = z.object({
 // Note: Letter generation (discharge, arrears, default) is consolidated in letterService.ts
 
 /**
+ * Get application counts for action-needed badges (SUBMITTED, UNDER_REVIEW)
+ * GET /api/loans/applications/counts
+ */
+router.get('/applications/counts', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const [submitted, underReview] = await Promise.all([
+      prisma.loanApplication.count({
+        where: { tenantId, status: 'SUBMITTED' },
+      }),
+      prisma.loanApplication.count({
+        where: { tenantId, status: 'UNDER_REVIEW' },
+      }),
+    ]);
+    res.json({
+      success: true,
+      data: { submitted, underReview },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * List loan applications
  * GET /api/loans/applications
  */
@@ -604,6 +628,7 @@ router.post('/applications', async (req, res, next) => {
 /**
  * Get single application
  * GET /api/loans/applications/:applicationId
+ * Includes documents to avoid a separate round-trip.
  */
 router.get('/applications/:applicationId', async (req, res, next) => {
   try {
@@ -613,20 +638,25 @@ router.get('/applications/:applicationId', async (req, res, next) => {
         tenantId: req.tenantId,
       },
       include: {
-        borrower: true,
-        product: true,
-        loan: {
-          include: {
-            scheduleVersions: {
-              orderBy: { version: 'desc' },
-              take: 1,
-              include: {
-                repayments: {
-                  orderBy: { dueDate: 'asc' },
-                },
-              },
-            },
+        borrower: {
+          select: {
+            id: true,
+            name: true,
+            borrowerType: true,
+            icNumber: true,
+            documentType: true,
+            phone: true,
+            email: true,
+            companyName: true,
+            documentVerified: true,
           },
+        },
+        product: true,
+        documents: {
+          orderBy: { uploadedAt: 'desc' },
+        },
+        loan: {
+          select: { id: true, status: true },
         },
       },
     });

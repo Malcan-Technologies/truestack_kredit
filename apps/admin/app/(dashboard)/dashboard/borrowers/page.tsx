@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Search, User, Fingerprint, AlertTriangle, Building2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
@@ -191,20 +191,21 @@ export default function BorrowersPage() {
     }
   };
 
-  const sortedBorrowers = sortField
-    ? [...borrowers].sort((a, b) => {
-        let cmp = 0;
-        switch (sortField) {
-          case "verification":
-            cmp = Number(a.documentVerified) - Number(b.documentVerified);
-            break;
-          case "created":
-            cmp = a.createdAt.localeCompare(b.createdAt);
-            break;
-        }
-        return sortDir === "desc" ? -cmp : cmp;
-      })
-    : borrowers;
+  const sortedBorrowers = useMemo(() => {
+    if (!sortField) return borrowers;
+    return [...borrowers].sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case "verification":
+          cmp = Number(a.documentVerified) - Number(b.documentVerified);
+          break;
+        case "created":
+          cmp = a.createdAt.localeCompare(b.createdAt);
+          break;
+      }
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+  }, [borrowers, sortField, sortDir]);
 
   return (
     <div className="space-y-6">

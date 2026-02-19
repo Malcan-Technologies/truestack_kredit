@@ -52,11 +52,17 @@ router.get('/stats', async (req, res, next) => {
     }
 
     // ========================================
-    // 1. KPI Cards - Aggregate counts & financials
+    // 1. KPI Cards - Run all count/aggregate queries in parallel
     // ========================================
-
-    // Borrower counts
-    const [totalBorrowers, activeBorrowersResult] = await Promise.all([
+    const [
+      totalBorrowers,
+      activeBorrowersResult,
+      loanStatusCounts,
+      pendingApplications,
+      submittedApplications,
+      loansPendingDisbursement,
+      loansReadyForDefault,
+    ] = await Promise.all([
       prisma.borrower.count({ where: { tenantId } }),
       prisma.borrower.findMany({
         where: {
@@ -65,16 +71,29 @@ router.get('/stats', async (req, res, next) => {
         },
         select: { id: true },
       }),
+      prisma.loan.groupBy({
+        by: ['status'],
+        where: { tenantId },
+        _count: { id: true },
+      }),
+      prisma.loanApplication.count({
+        where: {
+          tenantId,
+          status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
+        },
+      }),
+      prisma.loanApplication.count({
+        where: { tenantId, status: 'SUBMITTED' },
+      }),
+      prisma.loan.count({
+        where: { tenantId, status: 'PENDING_DISBURSEMENT' },
+      }),
+      prisma.loan.count({
+        where: { tenantId, readyForDefault: true, status: { not: 'DEFAULTED' } },
+      }),
     ]);
 
     const activeBorrowers = activeBorrowersResult.length;
-
-    // Loan counts by status (all time - not filtered by date range)
-    const loanStatusCounts = await prisma.loan.groupBy({
-      by: ['status'],
-      where: { tenantId },
-      _count: { id: true },
-    });
 
     const statusCountMap: Record<string, number> = {};
     let totalLoans = 0;
@@ -86,80 +105,48 @@ router.get('/stats', async (req, res, next) => {
     const activeLoans = (statusCountMap['ACTIVE'] || 0) + (statusCountMap['IN_ARREARS'] || 0);
     const loansInArrears = statusCountMap['IN_ARREARS'] || 0;
 
-    // Pending applications
-    const pendingApplications = await prisma.loanApplication.count({
-      where: {
-        tenantId,
-        status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
-      },
-    });
-
-    // Action needed counts
-    const [submittedApplications, loansPendingDisbursement, loansReadyForDefault, readyToCompleteLoans] = await Promise.all([
-      prisma.loanApplication.count({
-        where: { tenantId, status: 'SUBMITTED' },
-      }),
-      prisma.loan.count({
-        where: { tenantId, status: 'PENDING_DISBURSEMENT' },
-      }),
-      prisma.loan.count({
-        where: { tenantId, readyForDefault: true, status: { not: 'DEFAULTED' } },
-      }),
+    // Financial aggregates - from loans with schedules
+    // Run loans + allocationSums in parallel (neither depends on the other)
+    const [loans, allocationSums] = await Promise.all([
       prisma.loan.findMany({
         where: {
           tenantId,
-          status: { in: ['ACTIVE', 'IN_ARREARS'] },
+          status: { in: ['ACTIVE', 'IN_ARREARS', 'COMPLETED', 'DEFAULTED', 'WRITTEN_OFF'] },
         },
-        select: {
-          id: true,
+        include: {
+          product: {
+            select: {
+              legalFeeType: true,
+              legalFeeValue: true,
+              stampingFeeType: true,
+              stampingFeeValue: true,
+            },
+          },
           scheduleVersions: {
             orderBy: { version: 'desc' },
             take: 1,
-            select: {
-              repayments: {
-                select: { status: true },
-              },
+            include: {
+              repayments: true,
+            },
+          },
+        },
+      }),
+      prisma.paymentAllocation.groupBy({
+        by: ['repaymentId'],
+        _sum: { amount: true },
+        where: {
+          repayment: {
+            scheduleVersion: {
+              loan: { tenantId },
             },
           },
         },
       }),
     ]);
-
-    // Count loans where every repayment in the latest schedule version is PAID/CANCELLED
-    const loansReadyToComplete = readyToCompleteLoans.filter(loan => {
-      const schedule = loan.scheduleVersions[0];
-      if (!schedule || schedule.repayments.length === 0) return false;
-      return schedule.repayments.every(r => r.status === 'PAID' || r.status === 'CANCELLED');
-    }).length;
-
-    // Financial aggregates - from loans with schedules
-    const loans = await prisma.loan.findMany({
-      where: {
-        tenantId,
-        status: { in: ['ACTIVE', 'IN_ARREARS', 'COMPLETED', 'DEFAULTED', 'WRITTEN_OFF'] },
-      },
-      include: {
-        product: {
-          select: {
-            legalFeeType: true,
-            legalFeeValue: true,
-            stampingFeeType: true,
-            stampingFeeValue: true,
-          },
-        },
-        scheduleVersions: {
-          orderBy: { version: 'desc' },
-          take: 1,
-          include: {
-            repayments: {
-              include: {
-                allocations: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const paidByRepaymentId = new Map<string, number>();
+    for (const row of allocationSums) {
+      paidByRepaymentId.set(row.repaymentId, toSafeNumber(row._sum.amount));
+    }
 
     let totalDisbursed = 0;
     let totalNetDisbursed = 0;
@@ -212,7 +199,7 @@ router.get('/stats', async (req, res, next) => {
         if (rep.status === 'CANCELLED') continue;
 
         const due = Number(rep.totalDue);
-        const paid = rep.allocations.reduce((sum, a) => safeAdd(sum, Number(a.amount)), 0);
+        const paid = paidByRepaymentId.get(rep.id) ?? 0;
 
         loanCollected = safeAdd(loanCollected, paid);
 
@@ -250,6 +237,14 @@ router.get('/stats', async (req, res, next) => {
       par90: safePercentage(par90Outstanding, totalActiveOutstanding, 2),
     };
 
+    // Loans ready to complete: active/in_arrears loans where all repayments are PAID/CANCELLED
+    const loansReadyToComplete = loans.filter((loan) => {
+      if (!['ACTIVE', 'IN_ARREARS'].includes(loan.status)) return false;
+      const schedule = loan.scheduleVersions[0];
+      if (!schedule || schedule.repayments.length === 0) return false;
+      return schedule.repayments.every((r) => r.status === 'PAID' || r.status === 'CANCELLED');
+    }).length;
+
     // ========================================
     // 2. Loan status distribution (for pie chart)
     // ========================================
@@ -259,23 +254,89 @@ router.get('/stats', async (req, res, next) => {
     }));
 
     // ========================================
-    // 3. Disbursement trend (monthly, within date range)
+    // 3–7. Run independent queries in parallel (disbursement, collection, applications, products, recent)
     // ========================================
-    const disbursedLoans = await prisma.loan.findMany({
-      where: {
-        tenantId,
-        disbursementDate: {
-          gte: fromDate,
-          lte: toDate,
+    const [
+      disbursedLoans,
+      payments,
+      repaymentsDue,
+      applicationStatusCounts,
+      loansByProductRaw,
+      recentLoansRaw,
+      recentApplicationsRaw,
+    ] = await Promise.all([
+      prisma.loan.findMany({
+        where: {
+          tenantId,
+          disbursementDate: {
+            gte: fromDate,
+            lte: toDate,
+          },
         },
-      },
-      select: {
-        disbursementDate: true,
-        principalAmount: true,
-      },
-    });
+        select: {
+          disbursementDate: true,
+          principalAmount: true,
+        },
+      }),
+      prisma.paymentTransaction.findMany({
+        where: {
+          tenantId,
+          paymentDate: {
+            gte: fromDate,
+            lte: toDate,
+          },
+        },
+        select: {
+          paymentDate: true,
+          totalAmount: true,
+        },
+      }),
+      prisma.loanRepayment.findMany({
+        where: {
+          dueDate: {
+            gte: fromDate,
+            lte: toDate,
+          },
+          status: { not: 'CANCELLED' },
+          scheduleVersion: {
+            loan: { tenantId },
+          },
+        },
+        select: {
+          dueDate: true,
+          totalDue: true,
+        },
+      }),
+      prisma.loanApplication.groupBy({
+        by: ['status'],
+        where: { tenantId },
+        _count: { id: true },
+      }),
+      prisma.loan.groupBy({
+        by: ['productId', 'status'],
+        where: { tenantId },
+        _count: { id: true },
+        _sum: { principalAmount: true },
+      }),
+      prisma.loan.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: {
+          borrower: { select: { name: true } },
+        },
+      }),
+      prisma.loanApplication.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: {
+          borrower: { select: { name: true } },
+        },
+      }),
+    ]);
 
-    // Group by month
+    // Group disbursement by month
     const disbursementMap = new Map<string, { amount: number; count: number }>();
     for (const loan of disbursedLoans) {
       if (!loan.disbursementDate) continue;
@@ -286,23 +347,7 @@ router.get('/stats', async (req, res, next) => {
       disbursementMap.set(monthKey, existing);
     }
 
-    // ========================================
-    // 4. Collection trend (monthly, based on payment transactions within date range)
-    // ========================================
-    const payments = await prisma.paymentTransaction.findMany({
-      where: {
-        tenantId,
-        paymentDate: {
-          gte: fromDate,
-          lte: toDate,
-        },
-      },
-      select: {
-        paymentDate: true,
-        totalAmount: true,
-      },
-    });
-
+    // Group collection by month
     const collectionMap = new Map<string, number>();
     for (const payment of payments) {
       const monthKey = `${payment.paymentDate.getFullYear()}-${String(payment.paymentDate.getMonth() + 1).padStart(2, '0')}`;
@@ -310,24 +355,7 @@ router.get('/stats', async (req, res, next) => {
       collectionMap.set(monthKey, safeAdd(existing, Number(payment.totalAmount)));
     }
 
-    // Get expected due amounts per month (repayments due within range)
-    const repaymentsDue = await prisma.loanRepayment.findMany({
-      where: {
-        dueDate: {
-          gte: fromDate,
-          lte: toDate,
-        },
-        status: { not: 'CANCELLED' },
-        scheduleVersion: {
-          loan: { tenantId },
-        },
-      },
-      select: {
-        dueDate: true,
-        totalDue: true,
-      },
-    });
-
+    // Group due amounts by month
     const dueMap = new Map<string, number>();
     for (const rep of repaymentsDue) {
       const monthKey = `${rep.dueDate.getFullYear()}-${String(rep.dueDate.getMonth() + 1).padStart(2, '0')}`;
@@ -355,29 +383,10 @@ router.get('/stats', async (req, res, next) => {
       due: dueMap.get(month) || 0,
     }));
 
-    // ========================================
-    // 5. Application pipeline (by status)
-    // ========================================
-    const applicationStatusCounts = await prisma.loanApplication.groupBy({
-      by: ['status'],
-      where: { tenantId },
-      _count: { id: true },
-    });
-
     const applicationsByStatus = applicationStatusCounts.map((row) => ({
       status: row.status,
       count: row._count.id,
     }));
-
-    // ========================================
-    // 6. Loans breakdown by product
-    // ========================================
-    const loansByProductRaw = await prisma.loan.groupBy({
-      by: ['productId', 'status'],
-      where: { tenantId },
-      _count: { id: true },
-      _sum: { principalAmount: true },
-    });
 
     // Fetch product names
     const productIds = [...new Set(loansByProductRaw.map((r) => r.productId))];
@@ -412,28 +421,6 @@ router.get('/stats', async (req, res, next) => {
     }
 
     const loansByProduct = [...productAggMap.values()].sort((a, b) => b.totalLoans - a.totalLoans);
-
-    // ========================================
-    // 7. Recent activity
-    // ========================================
-    const [recentLoansRaw, recentApplicationsRaw] = await Promise.all([
-      prisma.loan.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-        include: {
-          borrower: { select: { name: true } },
-        },
-      }),
-      prisma.loanApplication.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-        include: {
-          borrower: { select: { name: true } },
-        },
-      }),
-    ]);
 
     const recentLoans = recentLoansRaw.map((loan) => ({
       id: loan.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, ClipboardList, Building2, User, Search, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
@@ -130,15 +130,15 @@ function ApplicationsPageContent() {
 
   const fetchCounts = useCallback(async () => {
     try {
-      // Fetch counts for SUBMITTED and UNDER_REVIEW separately
-      const [submittedRes, underReviewRes] = await Promise.all([
-        api.get<Application[]>(`/api/loans/applications?status=SUBMITTED&page=1&pageSize=1`),
-        api.get<Application[]>(`/api/loans/applications?status=UNDER_REVIEW&page=1&pageSize=1`),
-      ]);
-      setCounts({
-        submitted: submittedRes.pagination?.total || 0,
-        underReview: underReviewRes.pagination?.total || 0,
-      });
+      const res = await api.get<{ submitted: number; underReview: number }>(
+        "/api/loans/applications/counts"
+      );
+      if (res.success && res.data) {
+        setCounts({
+          submitted: res.data.submitted,
+          underReview: res.data.underReview,
+        });
+      }
     } catch {
       // Non-critical
     }
@@ -173,26 +173,27 @@ function ApplicationsPageContent() {
     }
   };
 
-  const sortedApplications = sortField
-    ? [...applications].sort((a, b) => {
-        let cmp = 0;
-        switch (sortField) {
-          case "product":
-            cmp = a.product.name.localeCompare(b.product.name);
-            break;
-          case "amount":
-            cmp = Number(a.amount) - Number(b.amount);
-            break;
-          case "term":
-            cmp = a.term - b.term;
-            break;
-          case "created":
-            cmp = a.createdAt.localeCompare(b.createdAt);
-            break;
-        }
-        return sortDir === "desc" ? -cmp : cmp;
-      })
-    : applications;
+  const sortedApplications = useMemo(() => {
+    if (!sortField) return applications;
+    return [...applications].sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case "product":
+          cmp = a.product.name.localeCompare(b.product.name);
+          break;
+        case "amount":
+          cmp = Number(a.amount) - Number(b.amount);
+          break;
+        case "term":
+          cmp = a.term - b.term;
+          break;
+        case "created":
+          cmp = a.createdAt.localeCompare(b.createdAt);
+          break;
+      }
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+  }, [applications, sortField, sortDir]);
 
   return (
     <div className="space-y-6">

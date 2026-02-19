@@ -747,13 +747,15 @@ export default function LoanDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
+      await fetchLoan();
       setLoading(false);
+      refreshEmailLog();
+      fetchTimeline();
     };
     loadData();
-  }, [fetchLoan, fetchTimeline]);
+  }, [fetchLoan, fetchTimeline, refreshEmailLog]);
 
-  // Fetch metrics when loan is loaded and has a schedule
+  // Fetch metrics when loan is loaded and has a schedule (runs in parallel with timeline)
   useEffect(() => {
     if (loan && loan.status !== "PENDING_DISBURSEMENT") {
       fetchMetrics();

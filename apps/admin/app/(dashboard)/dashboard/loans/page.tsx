@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { FileText, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck } from "lucide-react";
@@ -284,37 +284,42 @@ function LoansPageContent() {
     }
   };
 
-  // Apply client-side filters
-  const filteredLoans = filter === "READY_TO_COMPLETE"
-    ? allLoans.filter(loan => loan.progress?.readyToComplete)
-    : filter === "READY_FOR_DEFAULT"
-    ? allLoans.filter(loan => loan.readyForDefault && loan.status !== "DEFAULTED")
-    : allLoans;
+  // Apply client-side filters (memoized to avoid recalculating on every render)
+  const filteredLoans = useMemo(() => {
+    if (filter === "READY_TO_COMPLETE") {
+      return allLoans.filter((loan) => loan.progress?.readyToComplete);
+    }
+    if (filter === "READY_FOR_DEFAULT") {
+      return allLoans.filter((loan) => loan.readyForDefault && loan.status !== "DEFAULTED");
+    }
+    return allLoans;
+  }, [allLoans, filter]);
 
-  // Apply sorting
-  const loans = sortField
-    ? [...filteredLoans].sort((a, b) => {
-        let cmp = 0;
-        switch (sortField) {
-          case "principal":
-            cmp = Number(a.principalAmount) - Number(b.principalAmount);
-            break;
-          case "term":
-            cmp = a.term - b.term;
-            break;
-          case "progress":
-            cmp = (a.progress?.progressPercent ?? -1) - (b.progress?.progressPercent ?? -1);
-            break;
-          case "lateFees":
-            cmp = (a.lateFeeBreakdown?.unpaid ?? 0) - (b.lateFeeBreakdown?.unpaid ?? 0);
-            break;
-          case "disbursed":
-            cmp = (a.disbursementDate || "").localeCompare(b.disbursementDate || "");
-            break;
-        }
-        return sortDir === "desc" ? -cmp : cmp;
-      })
-    : filteredLoans;
+  // Apply sorting (memoized)
+  const loans = useMemo(() => {
+    if (!sortField) return filteredLoans;
+    return [...filteredLoans].sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case "principal":
+          cmp = Number(a.principalAmount) - Number(b.principalAmount);
+          break;
+        case "term":
+          cmp = a.term - b.term;
+          break;
+        case "progress":
+          cmp = (a.progress?.progressPercent ?? -1) - (b.progress?.progressPercent ?? -1);
+          break;
+        case "lateFees":
+          cmp = (a.lateFeeBreakdown?.unpaid ?? 0) - (b.lateFeeBreakdown?.unpaid ?? 0);
+          break;
+        case "disbursed":
+          cmp = (a.disbursementDate || "").localeCompare(b.disbursementDate || "");
+          break;
+      }
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+  }, [filteredLoans, sortField, sortDir]);
 
   return (
     <TooltipProvider>

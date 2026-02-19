@@ -207,13 +207,21 @@ router.get('/:borrowerId', async (req, res, next) => {
       include: {
         loans: {
           orderBy: { createdAt: 'desc' },
-          include: {
+          select: {
+            id: true,
+            status: true,
+            principalAmount: true,
+            createdAt: true,
             product: { select: { name: true } },
           },
         },
         applications: {
           orderBy: { createdAt: 'desc' },
-          include: {
+          select: {
+            id: true,
+            status: true,
+            amount: true,
+            createdAt: true,
             product: { select: { name: true } },
           },
         },

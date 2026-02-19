@@ -3,6 +3,7 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, ConflictError } from '../../lib/errors.js';
+import { toSafeNumber } from '../../lib/math.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { AuditService } from '../compliance/auditService.js';
@@ -32,6 +33,11 @@ const BANK_VALUES = [
   'CITIBANK', 'BSN', 'AGROBANK', 'MUAMALAT', 'MBSB', 'OTHER'
 ] as const;
 
+const ADDRESS_LINE_MAX_LENGTH = 200;
+const CITY_MAX_LENGTH = 100;
+const STATE_MAX_LENGTH = 100;
+const POSTCODE_MAX_LENGTH = 20;
+
 // Document categories for individual borrowers
 const INDIVIDUAL_DOCUMENT_CATEGORIES = [
   'IC_FRONT', 'IC_BACK', 'PASSPORT', 'WORK_PERMIT'
@@ -45,6 +51,144 @@ const CORPORATE_DOCUMENT_CATEGORIES = [
 
 // All valid document categories
 const ALL_DOCUMENT_CATEGORIES = [...INDIVIDUAL_DOCUMENT_CATEGORIES, ...CORPORATE_DOCUMENT_CATEGORIES] as const;
+
+const optionalAddressField = (maxLength: number) =>
+  z.string().trim().max(maxLength).optional().or(z.literal(''));
+
+const POSTCODE_DIGITS_ONLY = /^\d+$/;
+
+const addressFieldsSchema = z.object({
+  addressLine1: optionalAddressField(ADDRESS_LINE_MAX_LENGTH),
+  addressLine2: optionalAddressField(ADDRESS_LINE_MAX_LENGTH),
+  city: optionalAddressField(CITY_MAX_LENGTH),
+  state: optionalAddressField(STATE_MAX_LENGTH),
+  postcode: optionalAddressField(POSTCODE_MAX_LENGTH).refine(
+    (val) => !val || val === '' || POSTCODE_DIGITS_ONLY.test(val),
+    'Postcode must contain numbers only'
+  ),
+  country: z.string().trim().length(2).optional().or(z.literal('')),
+});
+
+type AddressInput = {
+  address?: string;
+  businessAddress?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postcode?: string;
+  country?: string;
+};
+
+type ExistingAddressData = {
+  address: string | null;
+  businessAddress: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  country: string | null;
+};
+
+const normalizeOptionalText = (value: string | undefined): string | null | undefined => {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeCountryCode = (value: string | undefined): string | null | undefined => {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim().toUpperCase();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const buildLegacyAddress = (data: {
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  country: string | null;
+}): string | null => {
+  const parts = [
+    data.addressLine1,
+    data.addressLine2,
+    data.city,
+    data.state,
+    data.postcode,
+    data.country,
+  ].filter((part): part is string => Boolean(part && part.trim().length > 0));
+
+  return parts.length > 0 ? parts.join(', ') : null;
+};
+
+const resolveCreateAddressFields = (data: AddressInput) => {
+  const legacyAddressInput = normalizeOptionalText(data.businessAddress) ?? normalizeOptionalText(data.address);
+  const addressLine1 = normalizeOptionalText(data.addressLine1) ?? legacyAddressInput ?? null;
+  const addressLine2 = normalizeOptionalText(data.addressLine2) ?? null;
+  const city = normalizeOptionalText(data.city) ?? null;
+  const state = normalizeOptionalText(data.state) ?? null;
+  const postcode = normalizeOptionalText(data.postcode) ?? null;
+  const country = normalizeCountryCode(data.country) ?? null;
+
+  const legacyAddress = buildLegacyAddress({
+    addressLine1,
+    addressLine2,
+    city,
+    state,
+    postcode,
+    country,
+  }) ?? legacyAddressInput ?? null;
+
+  return {
+    addressLine1,
+    addressLine2,
+    city,
+    state,
+    postcode,
+    country,
+    legacyAddress,
+  };
+};
+
+const resolveUpdatedAddressFields = (existing: ExistingAddressData, data: AddressInput) => {
+  const legacyAddressInput = data.businessAddress !== undefined
+    ? normalizeOptionalText(data.businessAddress)
+    : data.address !== undefined
+      ? normalizeOptionalText(data.address)
+      : undefined;
+
+  const addressLine1 = data.addressLine1 !== undefined
+    ? normalizeOptionalText(data.addressLine1)
+    : legacyAddressInput !== undefined
+      ? legacyAddressInput
+      : existing.addressLine1;
+  const addressLine2 = data.addressLine2 !== undefined ? normalizeOptionalText(data.addressLine2) : existing.addressLine2;
+  const city = data.city !== undefined ? normalizeOptionalText(data.city) : existing.city;
+  const state = data.state !== undefined ? normalizeOptionalText(data.state) : existing.state;
+  const postcode = data.postcode !== undefined ? normalizeOptionalText(data.postcode) : existing.postcode;
+  const country = data.country !== undefined ? normalizeCountryCode(data.country) : existing.country;
+
+  const legacyAddress = buildLegacyAddress({
+    addressLine1: addressLine1 ?? null,
+    addressLine2: addressLine2 ?? null,
+    city: city ?? null,
+    state: state ?? null,
+    postcode: postcode ?? null,
+    country: country ?? null,
+  }) ?? legacyAddressInput ?? existing.businessAddress ?? existing.address ?? null;
+
+  return {
+    addressLine1: addressLine1 ?? null,
+    addressLine2: addressLine2 ?? null,
+    city: city ?? null,
+    state: state ?? null,
+    postcode: postcode ?? null,
+    country: country ?? null,
+    legacyAddress,
+  };
+};
 
 // Individual borrower fields schema
 const individualFieldsSchema = z.object({
@@ -103,7 +247,7 @@ const createBorrowerSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
   address: z.string().max(500).optional(),
   directors: z.array(directorSchema).min(1).max(10).optional(),
-}).merge(individualFieldsSchema).merge(corporateFieldsSchema);
+}).merge(individualFieldsSchema).merge(corporateFieldsSchema).merge(addressFieldsSchema);
 
 const updateBorrowerSchema = z.object({
   borrowerType: z.enum(BORROWER_TYPE_VALUES).optional(),
@@ -114,7 +258,7 @@ const updateBorrowerSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
   address: z.string().max(500).optional(),
   directors: z.array(directorSchema).min(1).max(10).optional(),
-}).merge(individualFieldsSchema).merge(corporateFieldsSchema);
+}).merge(individualFieldsSchema).merge(corporateFieldsSchema).merge(addressFieldsSchema);
 
 /**
  * List borrowers
@@ -199,49 +343,62 @@ router.get('/', async (req, res, next) => {
  */
 router.get('/:borrowerId', async (req, res, next) => {
   try {
-    const borrower = await prisma.borrower.findFirst({
-      where: {
-        id: req.params.borrowerId,
-        tenantId: req.tenantId,
-      },
-      include: {
-        loans: {
-          orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            status: true,
-            principalAmount: true,
-            createdAt: true,
-            product: { select: { name: true } },
+    const borrowerId = req.params.borrowerId;
+    const [borrower, totalBorrowedRes, totalPaidRes] = await Promise.all([
+      prisma.borrower.findFirst({
+        where: {
+          id: borrowerId,
+          tenantId: req.tenantId,
+        },
+        include: {
+          loans: {
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              status: true,
+              principalAmount: true,
+              createdAt: true,
+              product: { select: { name: true } },
+            },
           },
-        },
-        applications: {
-          orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            status: true,
-            amount: true,
-            createdAt: true,
-            product: { select: { name: true } },
+          documents: {
+            orderBy: { uploadedAt: 'desc' },
           },
+          directors: {
+            orderBy: { order: 'asc' },
+          },
+          performanceProjection: true,
         },
-        documents: {
-          orderBy: { uploadedAt: 'desc' },
+      }),
+      prisma.loan.aggregate({
+        where: {
+          borrowerId,
+          tenantId: req.tenantId!,
+          disbursementDate: { not: null },
         },
-        directors: {
-          orderBy: { order: 'asc' },
+        _sum: { principalAmount: true },
+      }),
+      prisma.paymentTransaction.aggregate({
+        where: {
+          tenantId: req.tenantId!,
+          loan: { borrowerId },
         },
-        performanceProjection: true,
-      },
-    });
+        _sum: { totalAmount: true },
+      }),
+    ]);
 
     if (!borrower) {
       throw new NotFoundError('Borrower');
     }
 
+    const loanSummary = {
+      totalBorrowed: toSafeNumber(totalBorrowedRes._sum.principalAmount),
+      totalPaid: toSafeNumber(totalPaidRes._sum.totalAmount),
+    };
+
     res.json({
       success: true,
-      data: borrower,
+      data: { ...borrower, loanSummary },
     });
   } catch (error) {
     next(error);
@@ -360,6 +517,7 @@ router.post('/', async (req, res, next) => {
       position: director.position?.trim() || null,
       order: index,
     }));
+    const normalizedAddress = resolveCreateAddressFields(data);
 
     // Prepare data for database
     const createData: Record<string, unknown> = {
@@ -371,14 +529,20 @@ router.post('/', async (req, res, next) => {
       documentVerified: false, // Always false on create, will be updated by e-KYC integration
       phone: data.phone || null,
       email: data.email || null,
-      address: data.address || null,
+      address: normalizedAddress.legacyAddress,
+      addressLine1: normalizedAddress.addressLine1,
+      addressLine2: normalizedAddress.addressLine2,
+      city: normalizedAddress.city,
+      state: normalizedAddress.state,
+      postcode: normalizedAddress.postcode,
+      country: normalizedAddress.country,
     };
 
     if (isCorporate) {
       // Corporate borrower fields
       createData.companyName = data.companyName || null;
       createData.ssmRegistrationNo = data.ssmRegistrationNo || null;
-      createData.businessAddress = data.businessAddress || null;
+      createData.businessAddress = normalizedAddress.legacyAddress;
       createData.authorizedRepName = normalizedDirectors[0]?.name || data.authorizedRepName || null;
       createData.authorizedRepIc = normalizedDirectors[0]?.icNumber || data.authorizedRepIc || null;
       createData.companyPhone = data.companyPhone || null;
@@ -434,6 +598,13 @@ router.post('/', async (req, res, next) => {
       documentType: borrower.documentType,
       phone: borrower.phone,
       email: borrower.email,
+      address: borrower.address,
+      addressLine1: borrower.addressLine1,
+      addressLine2: borrower.addressLine2,
+      city: borrower.city,
+      state: borrower.state,
+      postcode: borrower.postcode,
+      country: borrower.country,
     };
     
     if (isCorporate && borrower.companyName) {
@@ -522,7 +693,29 @@ router.patch('/:borrowerId', async (req, res, next) => {
     if (data.documentType !== undefined) updateData.documentType = data.documentType;
     if (data.phone !== undefined) updateData.phone = data.phone || null;
     if (data.email !== undefined) updateData.email = data.email || null;
-    if (data.address !== undefined) updateData.address = data.address || null;
+    const hasAddressMutation = [
+      data.address,
+      data.businessAddress,
+      data.addressLine1,
+      data.addressLine2,
+      data.city,
+      data.state,
+      data.postcode,
+      data.country,
+    ].some((value) => value !== undefined);
+    if (hasAddressMutation) {
+      const resolvedAddress = resolveUpdatedAddressFields(existing, data);
+      updateData.addressLine1 = resolvedAddress.addressLine1;
+      updateData.addressLine2 = resolvedAddress.addressLine2;
+      updateData.city = resolvedAddress.city;
+      updateData.state = resolvedAddress.state;
+      updateData.postcode = resolvedAddress.postcode;
+      updateData.country = resolvedAddress.country;
+      updateData.address = resolvedAddress.legacyAddress;
+      if (effectiveBorrowerType === 'CORPORATE' || data.businessAddress !== undefined) {
+        updateData.businessAddress = resolvedAddress.legacyAddress;
+      }
+    }
 
     // Individual borrower fields
     if (data.dateOfBirth !== undefined) updateData.dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
@@ -550,7 +743,6 @@ router.patch('/:borrowerId', async (req, res, next) => {
     // Corporate borrower fields
     if (data.companyName !== undefined) updateData.companyName = data.companyName || null;
     if (data.ssmRegistrationNo !== undefined) updateData.ssmRegistrationNo = data.ssmRegistrationNo || null;
-    if (data.businessAddress !== undefined) updateData.businessAddress = data.businessAddress || null;
     if (data.authorizedRepName !== undefined) updateData.authorizedRepName = data.authorizedRepName || null;
     if (data.authorizedRepIc !== undefined) updateData.authorizedRepIc = data.authorizedRepIc || null;
     if (data.companyPhone !== undefined) updateData.companyPhone = data.companyPhone || null;
@@ -613,6 +805,12 @@ router.patch('/:borrowerId', async (req, res, next) => {
         phone: existing.phone,
         email: existing.email,
         address: existing.address,
+        addressLine1: existing.addressLine1,
+        addressLine2: existing.addressLine2,
+        city: existing.city,
+        state: existing.state,
+        postcode: existing.postcode,
+        country: existing.country,
         dateOfBirth: existing.dateOfBirth,
         gender: existing.gender,
         race: existing.race,
@@ -653,6 +851,12 @@ router.patch('/:borrowerId', async (req, res, next) => {
         phone: borrower.phone,
         email: borrower.email,
         address: borrower.address,
+        addressLine1: borrower.addressLine1,
+        addressLine2: borrower.addressLine2,
+        city: borrower.city,
+        state: borrower.state,
+        postcode: borrower.postcode,
+        country: borrower.country,
         dateOfBirth: borrower.dateOfBirth,
         gender: borrower.gender,
         race: borrower.race,

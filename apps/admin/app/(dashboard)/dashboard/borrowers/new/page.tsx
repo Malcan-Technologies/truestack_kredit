@@ -26,7 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { api } from "@/lib/api";
+import { DEFAULT_COUNTRY_CODE, getCountryOptions, getStateOptions } from "@/lib/address-options";
 
 // ============================================
 // Types
@@ -43,7 +45,12 @@ interface IndividualFormData {
   documentType: string;
   phone: string;
   email: string;
-  address: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postcode: string;
+  country: string;
   dateOfBirth: string;
   gender: string;
   race: string;
@@ -64,10 +71,14 @@ interface CorporateFormData {
   icNumber: string; // SSM registration number
   phone: string;
   email: string;
-  address: string;
   companyName: string;
   ssmRegistrationNo: string;
-  businessAddress: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postcode: string;
+  country: string;
   bumiStatus: string;
   authorizedRepName: string;
   authorizedRepIc: string;
@@ -93,7 +104,12 @@ const initialIndividualFormData: IndividualFormData = {
   documentType: "IC",
   phone: "",
   email: "",
-  address: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  postcode: "",
+  country: DEFAULT_COUNTRY_CODE,
   dateOfBirth: "",
   gender: "",
   race: "",
@@ -114,10 +130,14 @@ const initialCorporateFormData: CorporateFormData = {
   icNumber: "",
   phone: "",
   email: "",
-  address: "",
   companyName: "",
   ssmRegistrationNo: "",
-  businessAddress: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  postcode: "",
+  country: DEFAULT_COUNTRY_CODE,
   bumiStatus: "",
   authorizedRepName: "",
   authorizedRepIc: "",
@@ -242,6 +262,9 @@ const RELATIONSHIP_OPTIONS = [
 /** Bank account: digits only, 8-17 digits */
 const BANK_ACCOUNT_REGEX = /^\d{8,17}$/;
 
+/** Postcode: digits only */
+const POSTCODE_REGEX = /^\d+$/;
+
 // ============================================
 // Field Component
 // ============================================
@@ -342,6 +365,9 @@ export default function NewBorrowerPage() {
   const [noMonthlyIncome, setNoMonthlyIncome] = useState(false);
 
   const isIC = individualFormData.documentType === "IC";
+  const countryOptions = getCountryOptions();
+  const individualStateOptions = getStateOptions(individualFormData.country);
+  const corporateStateOptions = getStateOptions(corporateFormData.country);
 
   const handleIcNumberChange = (value: string) => {
     const currentIsIC = individualFormData.documentType === "IC";
@@ -397,7 +423,12 @@ export default function NewBorrowerPage() {
     }
     if (!data.phone.trim()) errors.phone = "Phone number is required";
     if (!data.email.trim()) errors.email = "Email is required";
-    if (!data.address.trim()) errors.address = "Address is required";
+    if (!data.addressLine1.trim()) errors.addressLine1 = "Address line 1 is required";
+    if (!data.city.trim()) errors.city = "City is required";
+    if (!data.postcode.trim()) errors.postcode = "Postcode is required";
+    else if (!POSTCODE_REGEX.test(data.postcode)) errors.postcode = "Postcode must contain numbers only";
+    if (!data.country) errors.country = "Country is required";
+    if (!data.state) errors.state = "State is required";
     if (!data.dateOfBirth) errors.dateOfBirth = "Date of birth is required";
     if (!data.gender) errors.gender = "Gender is required";
     if (!data.race) errors.race = "Race is required";
@@ -430,7 +461,12 @@ export default function NewBorrowerPage() {
     const data = corporateFormData;
     if (!data.companyName.trim()) errors.companyName = "Company name is required";
     if (!data.ssmRegistrationNo.trim()) errors.ssmRegistrationNo = "SSM registration number is required";
-    if (!data.businessAddress.trim()) errors.businessAddress = "Business address is required";
+    if (!data.addressLine1.trim()) errors.addressLine1 = "Address line 1 is required";
+    if (!data.city.trim()) errors.city = "City is required";
+    if (!data.postcode.trim()) errors.postcode = "Postcode is required";
+    else if (!POSTCODE_REGEX.test(data.postcode)) errors.postcode = "Postcode must contain numbers only";
+    if (!data.country) errors.country = "Country is required";
+    if (!data.state) errors.state = "State is required";
     if (!data.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
     if (!data.companyPhone.trim()) errors.companyPhone = "Company phone is required";
     if (!data.companyEmail.trim()) errors.companyEmail = "Company email is required";
@@ -490,7 +526,12 @@ export default function NewBorrowerPage() {
           documentType: data.documentType,
           phone: data.phone || undefined,
           email: data.email || undefined,
-          address: data.address || undefined,
+          addressLine1: data.addressLine1 || undefined,
+          addressLine2: data.addressLine2 || undefined,
+          city: data.city || undefined,
+          state: data.state || undefined,
+          postcode: data.postcode || undefined,
+          country: data.country || undefined,
           dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth).toISOString() : undefined,
           gender: data.gender || undefined,
           race: data.race || undefined,
@@ -515,10 +556,15 @@ export default function NewBorrowerPage() {
           documentType: "IC", // Default for the authorized rep
           phone: data.companyPhone || undefined,
           email: data.companyEmail || undefined,
-          address: data.businessAddress || undefined,
+          addressLine1: data.addressLine1 || undefined,
+          addressLine2: data.addressLine2 || undefined,
+          city: data.city || undefined,
+          state: data.state || undefined,
+          postcode: data.postcode || undefined,
+          country: data.country || undefined,
           companyName: data.companyName || undefined,
           ssmRegistrationNo: data.ssmRegistrationNo || undefined,
-          businessAddress: data.businessAddress || undefined,
+          businessAddress: data.addressLine1 || undefined,
           bumiStatus: data.bumiStatus || undefined,
           authorizedRepName: primaryDirector?.name || data.authorizedRepName || undefined,
           authorizedRepIc: primaryDirector?.icNumber || data.authorizedRepIc || undefined,
@@ -631,7 +677,7 @@ export default function NewBorrowerPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Field
                       label="Name"
                       value={individualFormData.name}
@@ -687,7 +733,7 @@ export default function NewBorrowerPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Field
                       label="Date of Birth"
                       value={individualFormData.dateOfBirth}
@@ -803,16 +849,21 @@ export default function NewBorrowerPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Field
-                      label="Phone"
-                      value={individualFormData.phone}
-                      onChange={(val) => {
-                        setIndividualFormData((prev) => ({ ...prev, phone: val }));
-                        if (validationErrors.phone) setValidationErrors((prev) => ({ ...prev, phone: "" }));
-                      }}
-                      error={validationErrors.phone}
-                      placeholder="+60123456789"
-                    />
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Phone *</Label>
+                      <PhoneInput
+                        value={individualFormData.phone || undefined}
+                        onChange={(val: string | undefined) => {
+                          setIndividualFormData((prev) => ({ ...prev, phone: val ?? "" }));
+                          if (validationErrors.phone) setValidationErrors((prev) => ({ ...prev, phone: "" }));
+                        }}
+                        error={!!validationErrors.phone}
+                        placeholder="16 2487680"
+                      />
+                      {validationErrors.phone && (
+                        <p className="text-xs text-red-500 mt-1">{validationErrors.phone}</p>
+                      )}
+                    </div>
                     <Field
                       label="Email"
                       value={individualFormData.email}
@@ -825,15 +876,74 @@ export default function NewBorrowerPage() {
                       placeholder="email@example.com"
                     />
                     <Field
-                      label="Address"
-                      value={individualFormData.address}
+                      label="Address Line 1"
+                      value={individualFormData.addressLine1}
                       onChange={(val) => {
-                        setIndividualFormData((prev) => ({ ...prev, address: val }));
-                        if (validationErrors.address) setValidationErrors((prev) => ({ ...prev, address: "" }));
+                        setIndividualFormData((prev) => ({ ...prev, addressLine1: val }));
+                        if (validationErrors.addressLine1) setValidationErrors((prev) => ({ ...prev, addressLine1: "" }));
                       }}
-                      error={validationErrors.address}
-                      placeholder="Full address"
+                      error={validationErrors.addressLine1}
+                      placeholder="Street, building, unit"
                       className="md:col-span-2"
+                    />
+                    <Field
+                      label="Address Line 2 (optional)"
+                      value={individualFormData.addressLine2}
+                      onChange={(val) => setIndividualFormData((prev) => ({ ...prev, addressLine2: val }))}
+                      placeholder="Apartment, suite, floor"
+                      required={false}
+                      className="md:col-span-2"
+                    />
+                    <Field
+                      label="City"
+                      value={individualFormData.city}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, city: val }));
+                        if (validationErrors.city) setValidationErrors((prev) => ({ ...prev, city: "" }));
+                      }}
+                      error={validationErrors.city}
+                      placeholder="City"
+                    />
+                    <Field
+                      label="Postcode"
+                      value={individualFormData.postcode}
+                      onChange={(val) => {
+                        const digitsOnly = val.replace(/\D/g, "");
+                        setIndividualFormData((prev) => ({ ...prev, postcode: digitsOnly }));
+                        if (validationErrors.postcode) setValidationErrors((prev) => ({ ...prev, postcode: "" }));
+                      }}
+                      error={validationErrors.postcode}
+                      placeholder="Postal code (numbers only)"
+                    />
+                    <Field
+                      label="Country"
+                      value={individualFormData.country}
+                      onChange={(val) => {
+                        const nextStateOptions = getStateOptions(val);
+                        setIndividualFormData((prev) => ({
+                          ...prev,
+                          country: val,
+                          state: nextStateOptions.some((option) => option.value === prev.state) ? prev.state : "",
+                        }));
+                        if (validationErrors.country || validationErrors.state) {
+                          setValidationErrors((prev) => ({ ...prev, country: "", state: "" }));
+                        }
+                      }}
+                      type="select"
+                      options={countryOptions}
+                      error={validationErrors.country}
+                    />
+                    <Field
+                      label="State"
+                      value={individualFormData.state}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, state: val }));
+                        if (validationErrors.state) setValidationErrors((prev) => ({ ...prev, state: "" }));
+                      }}
+                      type="select"
+                      options={individualStateOptions}
+                      error={validationErrors.state}
+                      disabled={!individualFormData.country || individualStateOptions.length === 0}
                     />
                   </div>
                 </CardContent>
@@ -848,7 +958,7 @@ export default function NewBorrowerPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Field
                       label="Bank"
                       value={individualFormData.bankName}
@@ -901,7 +1011,7 @@ export default function NewBorrowerPage() {
                   <CardDescription>Optional</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label className="text-xs text-muted-foreground">Name</Label>
                       <Input
@@ -912,10 +1022,10 @@ export default function NewBorrowerPage() {
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">Phone</Label>
-                      <Input
-                        value={individualFormData.emergencyContactPhone}
-                        onChange={(e) => setIndividualFormData((prev) => ({ ...prev, emergencyContactPhone: e.target.value }))}
-                        placeholder="+60123456789"
+                      <PhoneInput
+                        value={individualFormData.emergencyContactPhone || undefined}
+                        onChange={(val: string | undefined) => setIndividualFormData((prev) => ({ ...prev, emergencyContactPhone: val ?? "" }))}
+                        placeholder="16 2487680"
                       />
                     </div>
                     <div>
@@ -949,7 +1059,7 @@ export default function NewBorrowerPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Field
                       label="Company Name"
                       value={corporateFormData.companyName}
@@ -996,15 +1106,74 @@ export default function NewBorrowerPage() {
                       required={false}
                     />
                     <Field
-                      label="Business Address"
-                      value={corporateFormData.businessAddress}
+                      label="Address Line 1"
+                      value={corporateFormData.addressLine1}
                       onChange={(val) => {
-                        setCorporateFormData((prev) => ({ ...prev, businessAddress: val, address: val }));
-                        if (validationErrors.businessAddress) setValidationErrors((prev) => ({ ...prev, businessAddress: "" }));
+                        setCorporateFormData((prev) => ({ ...prev, addressLine1: val }));
+                        if (validationErrors.addressLine1) setValidationErrors((prev) => ({ ...prev, addressLine1: "" }));
                       }}
-                      error={validationErrors.businessAddress}
+                      error={validationErrors.addressLine1}
                       placeholder="Registered business address"
                       className="col-span-2"
+                    />
+                    <Field
+                      label="Address Line 2 (optional)"
+                      value={corporateFormData.addressLine2}
+                      onChange={(val) => setCorporateFormData((prev) => ({ ...prev, addressLine2: val }))}
+                      placeholder="Suite, floor, building"
+                      required={false}
+                      className="col-span-2"
+                    />
+                    <Field
+                      label="City"
+                      value={corporateFormData.city}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, city: val }));
+                        if (validationErrors.city) setValidationErrors((prev) => ({ ...prev, city: "" }));
+                      }}
+                      error={validationErrors.city}
+                      placeholder="City"
+                    />
+                    <Field
+                      label="Postcode"
+                      value={corporateFormData.postcode}
+                      onChange={(val) => {
+                        const digitsOnly = val.replace(/\D/g, "");
+                        setCorporateFormData((prev) => ({ ...prev, postcode: digitsOnly }));
+                        if (validationErrors.postcode) setValidationErrors((prev) => ({ ...prev, postcode: "" }));
+                      }}
+                      error={validationErrors.postcode}
+                      placeholder="Postal code (numbers only)"
+                    />
+                    <Field
+                      label="Country"
+                      value={corporateFormData.country}
+                      onChange={(val) => {
+                        const nextStateOptions = getStateOptions(val);
+                        setCorporateFormData((prev) => ({
+                          ...prev,
+                          country: val,
+                          state: nextStateOptions.some((option) => option.value === prev.state) ? prev.state : "",
+                        }));
+                        if (validationErrors.country || validationErrors.state) {
+                          setValidationErrors((prev) => ({ ...prev, country: "", state: "" }));
+                        }
+                      }}
+                      type="select"
+                      options={countryOptions}
+                      error={validationErrors.country}
+                    />
+                    <Field
+                      label="State"
+                      value={corporateFormData.state}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, state: val }));
+                        if (validationErrors.state) setValidationErrors((prev) => ({ ...prev, state: "" }));
+                      }}
+                      type="select"
+                      options={corporateStateOptions}
+                      error={validationErrors.state}
+                      disabled={!corporateFormData.country || corporateStateOptions.length === 0}
                     />
                   </div>
                 </CardContent>
@@ -1021,7 +1190,7 @@ export default function NewBorrowerPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <Field
                         label="Paid-up Capital (RM)"
                         value={corporateFormData.paidUpCapital}
@@ -1052,17 +1221,23 @@ export default function NewBorrowerPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 gap-4">
-                      <Field
-                        label="Company Phone"
-                        value={corporateFormData.companyPhone}
-                        onChange={(val) => {
-                          setCorporateFormData((prev) => ({ ...prev, companyPhone: val, phone: val }));
-                          if (validationErrors.companyPhone) setValidationErrors((prev) => ({ ...prev, companyPhone: "" }));
-                        }}
-                        error={validationErrors.companyPhone}
-                        placeholder="+603-12345678"
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Company Phone *</Label>
+                        <PhoneInput
+                          value={corporateFormData.companyPhone || undefined}
+                          onChange={(val: string | undefined) => {
+                            const v = val ?? "";
+                            setCorporateFormData((prev) => ({ ...prev, companyPhone: v, phone: v }));
+                            if (validationErrors.companyPhone) setValidationErrors((prev) => ({ ...prev, companyPhone: "" }));
+                          }}
+                          error={!!validationErrors.companyPhone}
+                          placeholder="3-12345678"
+                        />
+                        {validationErrors.companyPhone && (
+                          <p className="text-xs text-red-500 mt-1">{validationErrors.companyPhone}</p>
+                        )}
+                      </div>
                       <Field
                         label="Company Email"
                         value={corporateFormData.companyEmail}
@@ -1122,7 +1297,7 @@ export default function NewBorrowerPage() {
                             Remove
                           </Button>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <Field
                             label="Director Name"
                             value={director.name}
@@ -1231,7 +1406,7 @@ export default function NewBorrowerPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Field
                       label="Bank"
                       value={corporateFormData.bankName}

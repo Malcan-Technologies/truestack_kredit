@@ -38,6 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CopyField } from "@/components/ui/copy-field";
+import { PhoneDisplay } from "@/components/ui/phone-display";
 import { api } from "@/lib/api";
 import {
   formatCurrency,
@@ -625,7 +626,7 @@ export default function ApplicationDetailPage() {
                     value={application.borrower.icNumber}
                   />
                   {application.borrower.phone && (
-                    <CopyField label="Phone" value={application.borrower.phone} />
+                    <PhoneDisplay label="Phone" value={application.borrower.phone} />
                   )}
                   {application.borrower.email && (
                     <CopyField label="Email" value={application.borrower.email} />

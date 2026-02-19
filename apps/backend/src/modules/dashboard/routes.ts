@@ -3,7 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
 import { safeRound, safeAdd, safeSubtract, safeMultiply, safeDivide, safePercentage, toSafeNumber } from '../../lib/math.js';
-import { calculateDaysOverdueMalaysia } from '../../lib/malaysiaTime.js';
+import { calculateDaysOverdueMalaysia, getMalaysiaEndOfDay } from '../../lib/malaysiaTime.js';
 
 const router = Router();
 
@@ -286,7 +286,8 @@ router.get('/stats', async (req, res, next) => {
     }
 
     // Collection rate + chart data: run collection-rate queries and chart-data queries in parallel
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    // Use Malaysia time for "today" so production servers in UTC don't misclassify due dates
+    const todayEnd = getMalaysiaEndOfDay(now);
     const [
       repaymentsDueInRange,
       repaymentsDue,
@@ -298,11 +299,16 @@ router.get('/stats', async (req, res, next) => {
     ] = await Promise.all([
       prisma.loanRepayment.findMany({
         where: {
-          dueDate: { gte: fromDate, lte: todayEnd },
           status: { not: 'CANCELLED' },
           scheduleVersion: {
             loan: { tenantId },
           },
+          OR: [
+            // Repayments due in period (due date has passed or is today)
+            { dueDate: { gte: fromDate, lte: todayEnd } },
+            // Prepaid repayments: include future-due repayments that are already paid
+            { status: 'PAID', dueDate: { gte: fromDate } },
+          ],
         },
         select: { id: true, totalDue: true },
       }),

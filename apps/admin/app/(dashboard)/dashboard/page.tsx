@@ -652,7 +652,7 @@ export default function DashboardPage() {
                   ? "text-warning"
                   : "text-destructive"
             }
-            tooltipText="Total payments received in the selected period. Schedulled collection rate: % of repayments due in this period that have been collected (excludes future scheduled payments)."
+            tooltipText="Total payments received in the selected period. Scheduled collection rate: % of repayments due (or prepaid) in this period that have been collected. Includes early payments."
           />
           <KPICard
             title="Overdue"

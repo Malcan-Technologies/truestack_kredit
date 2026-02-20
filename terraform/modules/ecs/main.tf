@@ -245,11 +245,11 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "WEBHOOK_SECRET", valueFrom = "${var.secrets_arn}:webhook_secret::" },
         { name = "RESEND_API_KEY", valueFrom = "${var.secrets_arn}:resend_api_key::" },
         { name = "RESEND_WEBHOOK_SECRET", valueFrom = "${var.secrets_arn}:resend_webhook_secret::" },
-        # TrueIdentity / TrueStack Admin integration (keys must match AWS secret exactly)
-        { name = "TRUEIDENTITY_ADMIN_BASE_URL", valueFrom = "${var.secrets_arn}:TRUEIDENTITY_ADMIN_BASE_URL::" },
-        { name = "KREDIT_WEBHOOK_SECRET", valueFrom = "${var.secrets_arn}:KREDIT_WEBHOOK_SECRET::" },
-        { name = "TRUEIDENTITY_WEBHOOK_SECRET", valueFrom = "${var.secrets_arn}:TRUEIDENTITY_WEBHOOK_SECRET::" },
-        { name = "KREDIT_INTERNAL_SECRET", valueFrom = "${var.secrets_arn}:KREDIT_INTERNAL_SECRET::" },
+        # TrueIdentity / TrueStack Admin (lowercase env names for ECS; valueFrom keys match AWS secret)
+        { name = "trueidentity_admin_base_url", valueFrom = "${var.secrets_arn}:TRUEIDENTITY_ADMIN_BASE_URL::" },
+        { name = "kredit_webhook_secret", valueFrom = "${var.secrets_arn}:KREDIT_WEBHOOK_SECRET::" },
+        { name = "trueidentity_webhook_secret", valueFrom = "${var.secrets_arn}:TRUEIDENTITY_WEBHOOK_SECRET::" },
+        { name = "kredit_internal_secret", valueFrom = "${var.secrets_arn}:KREDIT_INTERNAL_SECRET::" },
       ]
 
       logConfiguration = {

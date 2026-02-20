@@ -50,7 +50,7 @@ This document describes the webhook and API contracts between TrueStack Admin (T
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `tenant_id` | Yes | Kredit tenant identifier (maps to child client) |
+| `tenant_id` | Yes | Kredit’s tenant identifier (ID, e.g. cuid). Admin looks up by this (stored as `tenant_slug`). Short labels (e.g. code) are for display only. |
 | `borrower_id` | No | Borrower identifier in Kredit |
 | `document_name` | Yes | Full name on document |
 | `document_number` | Yes | Document number (IC/Passport) |
@@ -214,8 +214,8 @@ Same as Verification Request: `x-kredit-signature`, `x-kredit-timestamp`, `Conte
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `tenant_id` | Yes | Kredit tenant identifier (used as tenant_slug) |
-| `tenant_name` | No | Display name (default: "Kredit Tenant {tenant_id}") |
+| `tenant_id` | Yes | Kredit’s tenant identifier (ID). Admin stores as `tenant_slug` and uses for lookup; same ID as in verification-request. |
+| `tenant_name` | No | Display name for Admin UI (default: "Kredit Tenant {tenant_id}") |
 | `contact_email` | No | Contact email |
 | `contact_phone` | No | Contact phone |
 | `company_registration` | No | SSM number |

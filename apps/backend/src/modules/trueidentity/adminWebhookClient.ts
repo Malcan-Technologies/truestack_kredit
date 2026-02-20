@@ -9,8 +9,8 @@ import { signRequestBody } from './signature.js';
 const ENDPOINT = '/api/webhooks/kredit/verification-request';
 
 export interface VerificationRequestInput {
-  /** Tenant slug (e.g. "demo-company") as registered in Admin; sent as tenant_id in body */
-  tenantSlug: string;
+  /** Kredit tenant ID (e.g. cuid); sent as tenant_id in body; Admin looks up by this */
+  tenantId: string;
   borrowerId: string;
   name: string;
   icNumber: string;
@@ -40,7 +40,7 @@ export async function requestVerificationSession(
   }
 
   const body = {
-    tenant_id: input.tenantSlug,
+    tenant_id: input.tenantId,
     borrower_id: input.borrowerId,
     document_name: input.name,
     document_number: input.icNumber,

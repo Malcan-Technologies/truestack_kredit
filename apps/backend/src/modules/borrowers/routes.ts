@@ -520,7 +520,6 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
         id: borrowerId,
         tenantId: req.tenantId,
       },
-      include: { tenant: { select: { slug: true } } },
     });
 
     if (!borrower) {
@@ -533,7 +532,7 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
     const documentType = borrower.documentType === 'PASSPORT' ? '2' : '1';
 
     const adminRes = await requestVerificationSession({
-      tenantSlug: borrower.tenant.slug,
+      tenantId: req.tenantId!,
       borrowerId,
       name: borrower.name,
       icNumber: borrower.icNumber,

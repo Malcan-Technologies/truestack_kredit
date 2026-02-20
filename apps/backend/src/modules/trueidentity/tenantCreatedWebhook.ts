@@ -9,8 +9,9 @@ import { signRequestBody } from './signature.js';
 const ENDPOINT = '/api/webhooks/kredit/tenant-created';
 
 export interface TenantCreatedPayload {
-  /** Tenant slug (e.g. "demo-company") as stored in Kredit; Admin uses this as tenant_id */
-  tenantSlug: string;
+  /** Kredit tenant ID (e.g. cuid); Admin stores as tenant_slug and uses for lookup */
+  tenantId: string;
+  /** Display name for Admin UI (optional) */
   tenantName?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -27,8 +28,8 @@ export async function notifyTenantCreated(payload: TenantCreatedPayload): Promis
   if (!secret) return false;
 
   const body = {
-    tenant_id: payload.tenantSlug,
-    tenant_name: payload.tenantName ?? `Kredit Tenant ${payload.tenantSlug}`,
+    tenant_id: payload.tenantId,
+    tenant_name: payload.tenantName ?? `Kredit Tenant ${payload.tenantId}`,
     contact_email: payload.contactEmail ?? null,
     contact_phone: payload.contactPhone ?? null,
     company_registration: payload.companyRegistration ?? null,

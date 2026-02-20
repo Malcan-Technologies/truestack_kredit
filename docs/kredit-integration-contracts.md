@@ -23,7 +23,7 @@ This document describes the webhook and API contracts between TrueStack Admin (T
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `x-kredit-signature` | Yes | HMAC-SHA256 signature (base64) |
+| `x-kredit-signature` | Yes | Raw base64 of HMAC-SHA256 (no algorithm prefix; 44 chars for 32-byte digest) |
 | `x-kredit-timestamp` | Yes | Unix timestamp in milliseconds (replay protection: 5-minute window) |
 | `Content-Type` | Yes | `application/json` |
 
@@ -266,7 +266,7 @@ When Admin returns `401 UNAUTHORIZED` with "Signature verification failed" for `
    Admin must compute the HMAC over the **raw HTTP request body** (as received, before parsing JSON). Do **not** verify using `JSON.stringify(parsedBody)` — key order may differ and the signature will fail.
 
 3. **Payload format**  
-   Signed payload is: `{x-kredit-timestamp}.{rawBody}` (timestamp string + `.` + exact raw body). Algorithm: HMAC-SHA256; encoding: base64. Header value: `HMAC-SHA256 <base64>`.
+   Signed payload is: `{x-kredit-timestamp}.{rawBody}` (timestamp string + `.` + exact raw body). Algorithm: HMAC-SHA256; encoding: base64. Header `x-kredit-signature` must be the **raw base64** string only (no `HMAC-SHA256 ` prefix); length 44 for a 32-byte digest.
 
 4. **Timestamp**  
    `x-kredit-timestamp` is **milliseconds** (e.g. from JavaScript `Date.now()`). Replay window is typically ±5 minutes.

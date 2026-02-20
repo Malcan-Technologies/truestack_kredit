@@ -1,8 +1,8 @@
 /**
  * HMAC-SHA256 signing and verification for TrueIdentity webhook flows.
  * Contract: payload = {timestamp}.{rawBody}; algorithm = HMAC-SHA256; encoding = base64.
- * Kredit -> Admin: signs with KREDIT_WEBHOOK_SECRET
- * Admin -> Kredit: verifies x-trueidentity-signature with TRUEIDENTITY_WEBHOOK_SECRET
+ * Kredit -> Admin: signs with KREDIT_WEBHOOK_SECRET; x-kredit-signature = raw base64 (no prefix).
+ * Admin -> Kredit: verifies x-trueidentity-signature (may include "HMAC-SHA256 " prefix).
  */
 
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -16,7 +16,7 @@ export function signRequestBody(rawBody: string, secret: string): { signature: s
   hmac.update(payload);
   const digest = hmac.digest('base64');
   return {
-    signature: `${SIGNATURE_PREFIX}${digest}`,
+    signature: digest,
     timestamp,
   };
 }
@@ -29,9 +29,9 @@ export function verifyCallbackSignature(
   maxAgeMs: number = 300_000
 ): boolean {
   if (!signatureHeader || !secret) return false;
-  if (!signatureHeader.startsWith(SIGNATURE_PREFIX)) return false;
-
-  const expectedDigest = signatureHeader.slice(SIGNATURE_PREFIX.length).trim();
+  const expectedDigest = signatureHeader.startsWith(SIGNATURE_PREFIX)
+    ? signatureHeader.slice(SIGNATURE_PREFIX.length).trim()
+    : signatureHeader.trim();
   if (!expectedDigest) return false;
 
   if (!timestampHeader) return false;

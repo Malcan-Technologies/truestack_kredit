@@ -8,7 +8,7 @@ describe('signature', () => {
     it('returns signature and timestamp', () => {
       const body = JSON.stringify({ foo: 'bar' });
       const { signature, timestamp } = signRequestBody(body, secret);
-      expect(signature).toMatch(/^HMAC-SHA256 /);
+      expect(signature).toMatch(/^[A-Za-z0-9+/]+=*$/);
       expect(signature.length).toBeGreaterThan(20);
       expect(timestamp).toMatch(/^\d+$/);
     });
@@ -67,7 +67,7 @@ describe('signature', () => {
       expect(valid).toBe(false);
     });
 
-    it('rejects invalid prefix', () => {
+    it('rejects invalid prefix (non-base64)', () => {
       const valid = verifyCallbackSignature('{}', 'Bearer xyz', secret, String(Date.now()));
       expect(valid).toBe(false);
     });

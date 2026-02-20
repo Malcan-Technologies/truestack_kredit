@@ -33,6 +33,8 @@ export async function requestVerificationSession(
     throw new Error('TRUESTACK_ADMIN_URL / TRUEIDENTITY_ADMIN_BASE_URL is not configured');
   }
 
+  console.log("Hello World");
+
   const secret = config.trueIdentity.kreditWebhookSecret;
   if (!secret) {
     throw new Error('KREDIT_WEBHOOK_SECRET / KREDIT_TRUESTACK_WEBHOOK_SECRET is not configured');

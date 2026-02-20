@@ -25,7 +25,7 @@ export default function Image() {
         }}
       >
         <img
-          src={`${baseUrl}/logo-dark.svg`}
+          src={`${baseUrl}/logo-dark.png`}
           alt="TrueStack"
           width={220}
           height={57}

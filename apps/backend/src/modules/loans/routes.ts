@@ -954,6 +954,63 @@ router.post('/applications/:applicationId/reject', requireAdmin, async (req, res
   }
 });
 
+/**
+ * Return application to draft (amendments needed)
+ * POST /api/loans/applications/:applicationId/return-to-draft
+ */
+router.post('/applications/:applicationId/return-to-draft', requireAdmin, async (req, res, next) => {
+  try {
+    const applicationId = req.params.applicationId as string;
+    const { reason } = req.body;
+
+    const application = await prisma.loanApplication.findFirst({
+      where: {
+        id: applicationId,
+        tenantId: req.tenantId,
+      },
+    });
+
+    if (!application) {
+      throw new NotFoundError('Application');
+    }
+
+    if (application.status !== 'SUBMITTED' && application.status !== 'UNDER_REVIEW') {
+      throw new BadRequestError('Can only return submitted or under-review applications to draft');
+    }
+
+    const previousStatus = application.status;
+
+    const updated = await prisma.loanApplication.update({
+      where: { id: applicationId },
+      data: {
+        status: 'DRAFT',
+        notes: reason
+          ? `${application.notes || ''}\n\nReturned for amendments: ${reason}`
+          : application.notes,
+      },
+    });
+
+    // Log to audit trail
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'RETURN_TO_DRAFT',
+      entityType: 'LoanApplication',
+      entityId: application.id,
+      previousData: { status: previousStatus },
+      newData: { status: 'DRAFT', reason: reason || null },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      success: true,
+      data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ============================================
 // Application Timeline
 // ============================================

@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ExternalLink } from "lucide-react";
+import { Check } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { PROMOTIONS, type Promotion } from "@/lib/promotions";
+import { PROMOTIONS, KPKT_PROMOTIONS, type Promotion } from "@/lib/promotions";
 
 export default function PromotionsPage() {
   return (
@@ -17,39 +17,16 @@ export default function PromotionsPage() {
         <p className="text-muted">Special offers, just for you</p>
       </div>
 
-      {/* Promotion Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Promotion Cards - KPKT first (left), then Refer & Earn */}
+      <div className="grid w-full grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {KPKT_PROMOTIONS.map((promo) => (
+          <PromotionCard key={promo.id} promotion={promo} />
+        ))}
         {PROMOTIONS.map((promo) => (
           <PromotionCard key={promo.id} promotion={promo} />
         ))}
       </div>
 
-      {/* Contact CTA */}
-      <Card className="border-dashed border-border">
-        <CardContent className="py-8 text-center">
-          <p className="text-base text-muted-foreground">
-            Interested? Contact your TrueKredit account manager or reach out to us.
-          </p>
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <Button variant="outline" size="sm" asChild>
-              <a href="mailto:support@truekredit.com">
-                Email Support
-                <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
-              </a>
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <a
-                href="https://wa.me/60123456789"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                WhatsApp Us
-                <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
-              </a>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -65,54 +42,34 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
       className={`overflow-hidden bg-gradient-to-br flex flex-col border ${promotion.gradient} ${promotion.borderColor} scroll-mt-24`}
     >
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col items-start gap-3 text-left min-w-0">
-            {/* Icon or illustration on top */}
-            {promotion.illustration ? (
-              <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/60 p-3 flex items-center justify-center">
-                <img
-                  src={promotion.illustration}
-                  alt=""
-                  className="h-16 w-auto max-w-[80px] object-contain object-left"
-                />
-              </div>
-            ) : (
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground/5 dark:bg-white/5">
-                <promotion.icon className="h-5.5 w-5.5 text-foreground/70 dark:text-white/70" />
-              </div>
-            )}
-            <div className="min-w-0 w-full">
-              <div className="flex items-center gap-2 flex-wrap">
-                <CardTitle className="text-xl font-heading text-foreground">
-                  {promotion.title}
-                </CardTitle>
-                <Badge
-                  variant={promotion.badgeVariant}
-                  className="text-xs"
-                >
-                  {promotion.badge}
-                </Badge>
-              </div>
-              <p className="text-base text-muted-foreground mt-1">{promotion.tagline}</p>
+        <div className="flex flex-col items-start gap-3 text-left min-w-0">
+          {/* Icon or illustration on top */}
+          {promotion.illustration ? (
+            <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/60 p-2 flex items-center justify-center aspect-square w-[80px] min-w-[80px] h-[80px] min-h-[80px] shrink-0">
+              <img
+                src={promotion.illustration}
+                alt=""
+                className="h-full w-full max-w-[64px] max-h-[64px] object-contain object-center"
+              />
             </div>
-          </div>
-          {/* CTA button - top right */}
-          <div className="shrink-0">
-            {promotion.href ? (
-              <Button variant="default" size="sm" asChild>
-                <Link href={promotion.href}>{promotion.cta}</Link>
-              </Button>
-            ) : (
-              <Button
-                variant={promotion.badge === "Coming Soon" ? "outline" : "default"}
-                size="sm"
-                disabled={promotion.badge === "Coming Soon"}
+          ) : (
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground/5 dark:bg-white/5">
+              <promotion.icon className="h-5.5 w-5.5 text-foreground/70 dark:text-white/70" />
+            </div>
+          )}
+          <div className="min-w-0 w-full">
+            <div className="flex items-center gap-2 flex-wrap">
+              <CardTitle className="text-xl font-heading text-foreground">
+                {promotion.title}
+              </CardTitle>
+              <Badge
+                variant={promotion.badgeVariant}
+                className="text-xs"
               >
-                {promotion.badge === "Coming Soon"
-                  ? "Coming Soon"
-                  : "Contact Us"}
-              </Button>
-            )}
+                {promotion.badge}
+              </Badge>
+            </div>
+            <p className="text-base text-muted-foreground mt-1">{promotion.tagline}</p>
           </div>
         </div>
         {promotion.pricing && (
@@ -153,13 +110,32 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
 
         <Separator className="opacity-50" />
 
-        <p className="text-sm text-muted-foreground">
-          {promotion.badge === "Coming Soon"
-            ? "Under development. Stay tuned!"
-            : promotion.href
-              ? "Get started and share your referral link."
-              : "Contact your account manager to enable."}
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-muted-foreground min-w-0 flex-1">
+            {promotion.footerText ??
+              (promotion.badge === "Coming Soon"
+                ? "Under development. Stay tuned!"
+                : promotion.href
+                  ? "Get started and share your referral link."
+                  : "Contact your account manager to enable.")}
+          </p>
+          {promotion.href ? (
+            <Button variant="default" size="sm" className="shrink-0" asChild>
+              <Link href={promotion.href}>{promotion.cta}</Link>
+            </Button>
+          ) : (
+            <Button
+              variant={promotion.badge === "Coming Soon" ? "outline" : "default"}
+              size="sm"
+              className="shrink-0"
+              disabled={promotion.badge === "Coming Soon"}
+            >
+              {promotion.badge === "Coming Soon"
+                ? "Coming Soon"
+                : "Contact Us"}
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

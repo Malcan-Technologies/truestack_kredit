@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, usePathname, notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -27,6 +27,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Layers,
+  Phone,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -49,6 +50,7 @@ import {
 } from "@/components/ui/tooltip";
 import { canAccessPage } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
+import { api } from "@/lib/api";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NoTenantPrompt } from "@/components/no-tenant-prompt";
@@ -103,6 +105,7 @@ const navigationSections: NavSection[] = [
     items: [
       { name: "Calculator", href: "/dashboard/calculator", icon: Calculator },
       { name: "Help", href: "/dashboard/help", icon: HelpCircle },
+      { name: "Contact", href: "/dashboard/contact", icon: Phone },
     ],
   },
   {
@@ -165,6 +168,7 @@ export default function DashboardLayout({
   const [membershipCheckComplete, setMembershipCheckComplete] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [applicationsPendingCount, setApplicationsPendingCount] = useState(0);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -193,6 +197,33 @@ export default function DashboardLayout({
       ensureActiveTenantAndFetchMembership();
     }
   }, [session, isPending, router]);
+
+  const fetchApplicationsPendingCount = useCallback(async () => {
+    if (!hasTenants || subscriptionStatus !== "PAID") {
+      setApplicationsPendingCount(0);
+      return;
+    }
+    api
+      .get<{ submitted: number; underReview: number }>("/api/loans/applications/counts")
+      .then((res) => {
+        if (res.success && res.data) {
+          setApplicationsPendingCount(res.data.submitted + res.data.underReview);
+        }
+      })
+      .catch(() => setApplicationsPendingCount(0));
+  }, [hasTenants, subscriptionStatus]);
+
+  // Fetch applications pending count on mount and when count may have changed
+  useEffect(() => {
+    fetchApplicationsPendingCount();
+  }, [fetchApplicationsPendingCount]);
+
+  // Listen for count changes (approve, reject, return-to-draft on application detail)
+  useEffect(() => {
+    const handler = () => fetchApplicationsPendingCount();
+    window.addEventListener("applications-count-changed", handler);
+    return () => window.removeEventListener("applications-count-changed", handler);
+  }, [fetchApplicationsPendingCount]);
 
   const ensureActiveTenantAndFetchMembership = async () => {
     try {
@@ -422,6 +453,7 @@ export default function DashboardLayout({
                           return lockedContent;
                         }
 
+                        const isApplications = item.href === "/dashboard/applications";
                         const linkContent = (
                           <Link
                             key={item.name}
@@ -429,7 +461,7 @@ export default function DashboardLayout({
                             className={cn(
                               "flex items-center rounded-lg text-sm font-medium transition-colors",
                               sidebarCollapsed
-                                ? "justify-center px-0 py-2"
+                                ? "justify-center px-0 py-2 relative"
                                 : "gap-3 px-3 py-2",
                               isActive
                                 ? "bg-secondary text-foreground"
@@ -438,7 +470,21 @@ export default function DashboardLayout({
                             onClick={() => setSidebarOpen(false)}
                           >
                             <item.icon className="h-5 w-5 shrink-0" />
-                            {!sidebarCollapsed && item.name}
+                            {!sidebarCollapsed && (
+                              <>
+                                <span className="flex-1">{item.name}</span>
+                                {isApplications && applicationsPendingCount > 0 && (
+                                  <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-xs">
+                                    {applicationsPendingCount}
+                                  </Badge>
+                                )}
+                              </>
+                            )}
+                            {sidebarCollapsed && isApplications && applicationsPendingCount > 0 && (
+                              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                                {applicationsPendingCount > 99 ? "99+" : applicationsPendingCount}
+                              </span>
+                            )}
                           </Link>
                         );
 
@@ -450,6 +496,11 @@ export default function DashboardLayout({
                               </TooltipTrigger>
                               <TooltipContent side="right">
                                 <p>{item.name}</p>
+                                {isApplications && applicationsPendingCount > 0 && (
+                                  <p className="opacity-70 text-xs mt-1">
+                                    {applicationsPendingCount} pending decision
+                                  </p>
+                                )}
                               </TooltipContent>
                             </Tooltip>
                           );
@@ -578,8 +629,8 @@ export default function DashboardLayout({
                   <Image
                     src={
                       resolvedTheme === "dark"
-                        ? "/logo-dark.svg"
-                        : "/logo-light.svg"
+                        ? "/logo-dark.png"
+                        : "/logo-light.png"
                     }
                     alt="TrueKredit"
                     width={sidebarCollapsed ? 40 : 80}

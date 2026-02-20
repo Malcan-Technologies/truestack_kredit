@@ -46,5 +46,10 @@ apps/backend/prisma/*.db-journal
 # Uploads (local storage)
 uploads/
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
 # Misc
 *.tsbuildinfo

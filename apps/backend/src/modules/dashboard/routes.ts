@@ -178,7 +178,7 @@ router.get('/stats', async (req, res, next) => {
             lte: toDate,
           },
         },
-        select: { paymentDate: true, totalAmount: true },
+        select: { id: true, paymentDate: true, totalAmount: true },
       }),
     ]);
     const paidByRepaymentId = new Map<string, number>();
@@ -191,6 +191,7 @@ router.get('/stats', async (req, res, next) => {
     let totalOutstanding = 0;
     let totalDisbursedAllTime = 0;
     let totalCollected = 0;
+    let totalEarned = 0; // Collected interest + fees only
     let overdueAmount = 0;
     let totalLateFees = 0;
     let totalLateFeesPaid = 0;
@@ -202,6 +203,7 @@ router.get('/stats', async (req, res, next) => {
     let totalActiveOutstanding = 0; // denominator for PAR
 
     // Total collected = sum of payments received in date range
+    const paymentTransactionIds = paymentsInRange.map((p) => p.id);
     for (const payment of paymentsInRange) {
       totalCollected = safeAdd(totalCollected, Number(payment.totalAmount));
     }
@@ -288,6 +290,34 @@ router.get('/stats', async (req, res, next) => {
     // Collection rate + chart data: run collection-rate queries and chart-data queries in parallel
     // Use Malaysia time for "today" so production servers in UTC don't misclassify due dates
     const todayEnd = getMalaysiaEndOfDay(now);
+    const allocationsInPeriodPromise =
+      paymentTransactionIds.length > 0
+        ? prisma.paymentAllocation.findMany({
+            where: {
+              repayment: { scheduleVersion: { loan: { tenantId } } },
+              OR: [
+                { transactionId: { in: paymentTransactionIds } },
+                {
+                  transactionId: null,
+                  allocatedAt: { gte: fromDate, lte: toDate },
+                },
+              ],
+            },
+            include: {
+              repayment: { select: { principal: true, interest: true } },
+            },
+          })
+        : prisma.paymentAllocation.findMany({
+            where: {
+              repayment: { scheduleVersion: { loan: { tenantId } } },
+              transactionId: null,
+              allocatedAt: { gte: fromDate, lte: toDate },
+            },
+            include: {
+              repayment: { select: { principal: true, interest: true } },
+            },
+          });
+
     const [
       repaymentsDueInRange,
       repaymentsDue,
@@ -296,6 +326,7 @@ router.get('/stats', async (req, res, next) => {
       recentLoansRaw,
       recentApplicationsRaw,
       loansReadyToCompleteRaw,
+      allocationsInPeriod,
     ] = await Promise.all([
       prisma.loanRepayment.findMany({
         where: {
@@ -357,7 +388,29 @@ router.get('/stats', async (req, res, next) => {
           },
         },
       }),
+      allocationsInPeriodPromise,
     ]);
+
+    // Total earned = collected interest + fees (late fees from allocations + disbursement fees)
+    let totalEarnedInterest = 0;
+    let totalEarnedFees = 0;
+    for (const alloc of allocationsInPeriod) {
+      const lateFee = toSafeNumber(alloc.lateFee);
+      const principal = toSafeNumber(alloc.repayment.principal);
+      const interest = toSafeNumber(alloc.repayment.interest);
+      const principalPlusInterest = safeAdd(principal, interest);
+      const interestPortion =
+        principalPlusInterest > 0
+          ? safeMultiply(toSafeNumber(alloc.amount), safeDivide(interest, principalPlusInterest), 8)
+          : 0;
+      totalEarnedInterest = safeAdd(totalEarnedInterest, interestPortion);
+      totalEarnedFees = safeAdd(totalEarnedFees, lateFee);
+      totalEarned = safeAdd(totalEarned, lateFee, interestPortion);
+    }
+    // Add disbursement fees (legal + stamping) - same as Total Disbursed "Collected Fees"
+    const disbursementFees = safeSubtract(totalDisbursed, totalNetDisbursed);
+    totalEarnedFees = safeAdd(totalEarnedFees, disbursementFees);
+    totalEarned = safeAdd(totalEarned, disbursementFees);
 
     const allocationSumsForDueRepayments = repaymentsDueInRange.length > 0
       ? await prisma.paymentAllocation.groupBy({
@@ -384,10 +437,14 @@ router.get('/stats', async (req, res, next) => {
     const activeLoansInRange = loansInRange.filter((l) => ['ACTIVE', 'IN_ARREARS'].includes(l.status)).length;
     const loansInArrearsInRange = loansInRange.filter((l) => l.status === 'IN_ARREARS').length;
 
+    const defaultedCount = (statusCountMap['DEFAULTED'] || 0) + (statusCountMap['WRITTEN_OFF'] || 0);
+    const defaultRate = safePercentage(defaultedCount, totalLoans, 2);
+
     const portfolioAtRisk = {
       par30: safePercentage(par30Outstanding, totalActiveOutstanding, 2),
       par60: safePercentage(par60Outstanding, totalActiveOutstanding, 2),
       par90: safePercentage(par90Outstanding, totalActiveOutstanding, 2),
+      defaultRate,
     };
 
     const loansReadyToComplete = loansReadyToCompleteRaw.filter((loan) => {
@@ -522,6 +579,9 @@ router.get('/stats', async (req, res, next) => {
           totalOutstanding: safeRound(totalOutstanding, 2),
           totalDisbursedAllTime: safeRound(totalDisbursedAllTime, 2),
           totalCollected: safeRound(totalCollected, 2),
+          totalEarned: safeRound(totalEarned, 2),
+          totalEarnedInterest: safeRound(totalEarnedInterest, 2),
+          totalEarnedFees: safeRound(totalEarnedFees, 2),
           overdueAmount: safeRound(overdueAmount, 2),
           collectionRate,
           totalLateFees: safeRound(totalLateFees, 2),

@@ -21,6 +21,7 @@ import {
   Rocket,
   ExternalLink,
   Info,
+  TrendingUp,
 } from "lucide-react";
 import {
   Bar,
@@ -56,6 +57,7 @@ import {
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate, safePercentage, safeSubtract } from "@/lib/utils";
 import { PromotionsCarousel } from "@/components/promotions-carousel";
+import { KPKT_PROMOTIONS } from "@/lib/promotions";
 import { useTenantContext } from "@/components/tenant-context";
 import { NoTenantPrompt } from "@/components/no-tenant-prompt";
 
@@ -92,6 +94,9 @@ interface DashboardStats {
     totalOutstanding: number;
     totalDisbursedAllTime: number;
     totalCollected: number;
+    totalEarned: number;
+    totalEarnedInterest: number;
+    totalEarnedFees: number;
     overdueAmount: number;
     collectionRate: number;
     totalLateFees: number;
@@ -131,6 +136,7 @@ interface DashboardStats {
     par30: number;
     par60: number;
     par90: number;
+    defaultRate: number;
   };
   actionNeeded: {
     submittedApplications: number;
@@ -500,9 +506,9 @@ export default function DashboardPage() {
         {/* ============================================ */}
         {/* Row 3: Billing Status + Promotions */}
         {/* ============================================ */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
           {/* Billing Status */}
-          <Card className="lg:col-span-3">
+          <Card className="lg:col-span-2">
             <CardContent className="py-4">
               {(() => {
                 const planName = getPlanName(tenant?.subscription?.plan);
@@ -587,7 +593,9 @@ export default function DashboardPage() {
           </Card>
 
           {/* Promotions Carousel */}
-          <PromotionsCarousel />
+          <PromotionsCarousel className="lg:col-span-2" />
+          {/* KPKT Services & Digital License Carousel */}
+          <PromotionsCarousel promotions={KPKT_PROMOTIONS} className="lg:col-span-2" />
         </div>
 
         <Separator className="my-2" />
@@ -615,7 +623,7 @@ export default function DashboardPage() {
             title="Outstanding"
             value={formatCurrency(stats?.kpiCards.totalOutstanding || 0)}
             icon={Wallet}
-            subtitle={`${stats?.kpiCards.activeLoans ?? 0} active loans`}
+            subtitle={`Collected: ${formatCurrency(stats?.kpiCards.totalCollected || 0)}`}
             titleSuffix="(All-Time)"
             accentColor="text-foreground"
             secondaryLabel="As % of Total Disbursed"
@@ -624,26 +632,20 @@ export default function DashboardPage() {
               (stats?.kpiCards.totalDisbursedAllTime ?? stats?.kpiCards.totalDisbursed) || 0
             )}%`}
             secondaryColor="text-foreground"
-            tooltipText="Total remaining balance owed across all loans (all-time). Your current portfolio exposure. As % of total disbursed since inception."
+            tooltipText="Total remaining balance owed across all loans (all-time). Collected: total payments received in the selected period. As % of total disbursed since inception."
           />
           <KPICard
-            title="Collected"
+            title="Total Earned"
             titleSuffix={`(${dateRangeLabel})`}
-            value={formatCurrency(stats?.kpiCards.totalCollected || 0)}
-            icon={CheckCircle}
-            subtitle="Payments received in period"
+            value={formatCurrency(stats?.kpiCards.totalEarned || 0)}
+            icon={TrendingUp}
+            subtitle={`Interest: ${formatCurrency(stats?.kpiCards.totalEarnedInterest ?? 0)} · Fees: ${formatCurrency(stats?.kpiCards.totalEarnedFees ?? 0)}`}
             accentColor="text-foreground"
-            iconColor="text-success"
-            secondaryLabel="Scheduled Collection Rate"
-            secondaryValue={`${stats?.kpiCards.collectionRate || 0}%`}
-            secondaryColor={
-              (stats?.kpiCards.collectionRate || 0) >= 80
-                ? "text-success"
-                : (stats?.kpiCards.collectionRate || 0) >= 50
-                  ? "text-warning"
-                  : "text-destructive"
-            }
-            tooltipText="Total payments received in the selected period. Scheduled collection rate: % of repayments due (or prepaid) in this period that have been collected. Includes early payments."
+            iconColor="text-foreground"
+            secondaryLabel="Return on Investment"
+            secondaryValue={`${safePercentage(stats?.kpiCards.totalEarned ?? 0, stats?.kpiCards.totalDisbursed ?? 0)}%`}
+            secondaryColor="text-foreground"
+            tooltipText="Interest and fees collected in the selected period. Int: interest from repayments. Fees: late fees + disbursement fees (legal, stamping). ROI: Total Earned as % of Total Disbursed in the period."
           />
           <KPICard
             title="Overdue"
@@ -979,6 +981,11 @@ export default function DashboardPage() {
                 label="PAR 90"
                 value={stats?.portfolioAtRisk.par90 || 0}
                 description="90+ days overdue"
+              />
+              <PARBar
+                label="Default Rate"
+                value={stats?.portfolioAtRisk.defaultRate ?? 0}
+                description="Defaulted / written-off loans"
               />
               <div className="pt-2 border-t border-border space-y-2">
                 <div className="flex items-center justify-between text-base">
@@ -1551,8 +1558,8 @@ function DashboardSkeleton() {
       </div>
 
       {/* Billing Status + Promotions */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <Card className="lg:col-span-3">
+      <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
+        <Card className="lg:col-span-2">
           <CardContent className="py-4">
             <div className="flex items-center gap-4">
               <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
@@ -1561,6 +1568,17 @@ function DashboardSkeleton() {
                 <Skeleton className="h-3 w-48" />
               </div>
               <Skeleton className="h-9 w-24 rounded-md shrink-0" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-2">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-14 w-14 rounded-lg shrink-0" />
+              <div className="flex-1 min-w-0 space-y-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-3 w-full" />
+              </div>
             </div>
           </CardContent>
         </Card>

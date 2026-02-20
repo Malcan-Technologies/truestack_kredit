@@ -27,6 +27,7 @@ import {
   ExternalLink,
   Building2,
   AlertTriangle,
+  RotateCcw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -164,6 +165,8 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: Check, label: "Approved" };
       case "REJECT":
         return { icon: X, label: "Rejected" };
+      case "RETURN_TO_DRAFT":
+        return { icon: RotateCcw, label: "Returned for Amendments" };
       case "DOCUMENT_UPLOAD":
         return { icon: Upload, label: "Document Uploaded" };
       case "DOCUMENT_DELETE":
@@ -235,6 +238,7 @@ export default function ApplicationDetailPage() {
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [showReturnToDraftDialog, setShowReturnToDraftDialog] = useState(false);
 
   // Check for missing required documents (documents come from application.documents)
   const getMissingRequiredDocs = useCallback(() => {
@@ -314,6 +318,7 @@ export default function ApplicationDetailPage() {
       toast.success("Application submitted for review");
       fetchApplication();
       fetchTimeline();
+      window.dispatchEvent(new CustomEvent("applications-count-changed"));
     } else {
       toast.error(res.error || "Failed to submit application");
     }
@@ -332,6 +337,7 @@ export default function ApplicationDetailPage() {
       toast.success("Application approved! Loan created.");
       fetchApplication();
       fetchTimeline();
+      window.dispatchEvent(new CustomEvent("applications-count-changed"));
     } else {
       toast.error(res.error || "Failed to approve application");
     }
@@ -352,8 +358,30 @@ export default function ApplicationDetailPage() {
       toast.success("Application rejected");
       fetchApplication();
       fetchTimeline();
+      window.dispatchEvent(new CustomEvent("applications-count-changed"));
     } else {
       toast.error(res.error || "Failed to reject application");
+    }
+    setActionLoading(null);
+  };
+
+  const handleReturnToDraftClick = () => {
+    setShowReturnToDraftDialog(true);
+  };
+
+  const handleReturnToDraftConfirm = async () => {
+    setShowReturnToDraftDialog(false);
+    setActionLoading("returnToDraft");
+    const res = await api.post(`/api/loans/applications/${applicationId}/return-to-draft`, {
+      reason: "Amendments needed",
+    });
+    if (res.success) {
+      toast.success("Application returned to draft for amendments");
+      fetchApplication();
+      fetchTimeline();
+      window.dispatchEvent(new CustomEvent("applications-count-changed"));
+    } else {
+      toast.error(res.error || "Failed to return application to draft");
     }
     setActionLoading(null);
   };
@@ -521,6 +549,14 @@ export default function ApplicationDetailPage() {
           )}
           {(application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") && canApproveApplications(currentRole) && (
             <>
+              <Button
+                variant="outline"
+                onClick={handleReturnToDraftClick}
+                disabled={actionLoading === "returnToDraft"}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                {actionLoading === "returnToDraft" ? "Returning..." : "Amendments"}
+              </Button>
               <Button
                 variant="destructive"
                 onClick={handleRejectClick}
@@ -1164,6 +1200,48 @@ export default function ApplicationDetailPage() {
             <Button variant="destructive" onClick={handleRejectConfirm}>
               <X className="h-4 w-4 mr-2" />
               Reject Application
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Return for Amendments Confirmation Dialog */}
+      <Dialog open={showReturnToDraftDialog} onOpenChange={setShowReturnToDraftDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Return for Amendments</DialogTitle>
+            <DialogDescription>
+              Return this application to draft so the applicant can make amendments.
+              They can update the application and resubmit when ready.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Borrower</span>
+                <span className="font-medium">
+                  {application.borrower.borrowerType === "CORPORATE" && application.borrower.companyName
+                    ? application.borrower.companyName
+                    : application.borrower.name}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Loan Amount</span>
+                <span className="font-medium">{formatCurrency(toSafeNumber(application.amount))}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Product</span>
+                <span className="font-medium">{application.product.name}</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReturnToDraftDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={handleReturnToDraftConfirm}>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Return to Draft
             </Button>
           </DialogFooter>
         </DialogContent>

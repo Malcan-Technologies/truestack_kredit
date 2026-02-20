@@ -33,12 +33,12 @@ locals {
 data "terraform_remote_state" "admin_truestack" {
   backend = "s3"
   config = {
-    bucket                  = var.shared_state_bucket
-    key                     = var.shared_state_key
-    region                  = var.aws_region
-    dynamodb_table          = var.shared_state_lock_table
-    encrypt                 = true
-    skip_region_validation   = true
+    bucket                 = var.shared_state_bucket
+    key                    = var.shared_state_key
+    region                 = var.aws_region
+    dynamodb_table         = var.shared_state_lock_table
+    encrypt                = true
+    skip_region_validation = true
   }
 }
 

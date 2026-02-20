@@ -180,7 +180,7 @@ export function CreateTenantModal({ open, onClose }: CreateTenantModalProps) {
               <Label htmlFor="contactNumber">Contact Number</Label>
               <PhoneInput
                 value={formData.contactNumber || undefined}
-                onChange={(val) =>
+                onChange={(val: string | undefined) =>
                   setFormData({ ...formData, contactNumber: val ?? "" })
                 }
                 placeholder="16 2487680"

@@ -463,6 +463,13 @@ model Borrower {
   emergencyContactRelationship String?
   monthlyIncome                Decimal? @db.Decimal(12, 2)
 
+  // Optional social media profile links
+  instagram  String?
+  tiktok     String?
+  facebook   String?
+  linkedin   String?
+  xTwitter   String?
+
   // Corporate fields (required when borrowerType is CORPORATE)
   companyName       String? // Trading/business name
   ssmRegistrationNo String? // SSM registration number

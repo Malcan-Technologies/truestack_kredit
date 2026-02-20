@@ -12,6 +12,8 @@ import {
   Briefcase,
   Plus,
   Trash2,
+  Share2,
+  ExternalLink,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PhoneInput } from "@/components/ui/phone-input";
+import {
+  InstagramIcon,
+  TikTokIcon,
+  FacebookIcon,
+  LinkedInIcon,
+  XTwitterIcon,
+} from "@/components/ui/social-media-icons";
 import { api } from "@/lib/api";
 import { DEFAULT_COUNTRY_CODE, getCountryOptions, getStateOptions } from "@/lib/address-options";
 
@@ -64,6 +73,11 @@ interface IndividualFormData {
   emergencyContactPhone: string;
   emergencyContactRelationship: string;
   monthlyIncome: string;
+  instagram: string;
+  tiktok: string;
+  facebook: string;
+  linkedin: string;
+  xTwitter: string;
 }
 
 interface CorporateFormData {
@@ -91,6 +105,11 @@ interface CorporateFormData {
   bankName: string;
   bankNameOther: string;
   bankAccountNo: string;
+  instagram: string;
+  tiktok: string;
+  facebook: string;
+  linkedin: string;
+  xTwitter: string;
   directors: Array<{
     name: string;
     icNumber: string;
@@ -123,6 +142,11 @@ const initialIndividualFormData: IndividualFormData = {
   emergencyContactPhone: "",
   emergencyContactRelationship: "",
   monthlyIncome: "",
+  instagram: "",
+  tiktok: "",
+  facebook: "",
+  linkedin: "",
+  xTwitter: "",
 };
 
 const initialCorporateFormData: CorporateFormData = {
@@ -150,6 +174,11 @@ const initialCorporateFormData: CorporateFormData = {
   bankName: "",
   bankNameOther: "",
   bankAccountNo: "",
+  instagram: "",
+  tiktok: "",
+  facebook: "",
+  linkedin: "",
+  xTwitter: "",
   directors: [{ name: "", icNumber: "", position: "" }],
 };
 
@@ -545,6 +574,11 @@ export default function NewBorrowerPage() {
           emergencyContactPhone: data.emergencyContactPhone || undefined,
           emergencyContactRelationship: data.emergencyContactRelationship || undefined,
           monthlyIncome: noMonthlyIncome ? 0 : (data.monthlyIncome.trim() !== "" ? parseFloat(data.monthlyIncome) : undefined),
+          instagram: data.instagram?.trim() || undefined,
+          tiktok: data.tiktok?.trim() || undefined,
+          facebook: data.facebook?.trim() || undefined,
+          linkedin: data.linkedin?.trim() || undefined,
+          xTwitter: data.xTwitter?.trim() || undefined,
         };
       } else {
         const data = corporateFormData;
@@ -582,6 +616,11 @@ export default function NewBorrowerPage() {
             icNumber: director.icNumber.trim(),
             position: director.position.trim() || undefined,
           })),
+          instagram: data.instagram?.trim() || undefined,
+          tiktok: data.tiktok?.trim() || undefined,
+          facebook: data.facebook?.trim() || undefined,
+          linkedin: data.linkedin?.trim() || undefined,
+          xTwitter: data.xTwitter?.trim() || undefined,
         };
       }
 
@@ -1113,7 +1152,7 @@ export default function NewBorrowerPage() {
                         if (validationErrors.addressLine1) setValidationErrors((prev) => ({ ...prev, addressLine1: "" }));
                       }}
                       error={validationErrors.addressLine1}
-                      placeholder="Registered business address"
+                      placeholder="Business address"
                       className="col-span-2"
                     />
                     <Field
@@ -1451,6 +1490,186 @@ export default function NewBorrowerPage() {
               </Card>
             </>
           )}
+
+          {/* Social Media Profiles - same width as form cards above */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Share2 className="h-5 w-5 text-muted-foreground" />
+                Social Media Profiles
+              </CardTitle>
+              <CardDescription>Optional profile links</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <InstagramIcon className="h-4 w-4" />
+                    Instagram
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.instagram : corporateFormData.instagram}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, instagram: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, instagram: val }));
+                      }}
+                      placeholder="https://instagram.com/username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.instagram : corporateFormData.instagram)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <TikTokIcon className="h-4 w-4" />
+                    TikTok
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.tiktok : corporateFormData.tiktok}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, tiktok: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, tiktok: val }));
+                      }}
+                      placeholder="https://tiktok.com/@username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.tiktok : corporateFormData.tiktok)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <FacebookIcon className="h-4 w-4" />
+                    Facebook
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.facebook : corporateFormData.facebook}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, facebook: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, facebook: val }));
+                      }}
+                      placeholder="https://facebook.com/username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.facebook : corporateFormData.facebook)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <LinkedInIcon className="h-4 w-4" />
+                    LinkedIn
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.linkedin : corporateFormData.linkedin}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, linkedin: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, linkedin: val }));
+                      }}
+                      placeholder="https://linkedin.com/in/username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.linkedin : corporateFormData.linkedin)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <XTwitterIcon className="h-4 w-4" />
+                    X (Twitter)
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.xTwitter : corporateFormData.xTwitter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, xTwitter: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, xTwitter: val }));
+                      }}
+                      placeholder="https://x.com/username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.xTwitter : corporateFormData.xTwitter)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right Column - Tips */}

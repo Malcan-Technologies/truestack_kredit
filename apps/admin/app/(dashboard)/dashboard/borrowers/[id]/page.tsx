@@ -28,6 +28,8 @@ import {
   Briefcase,
   TrendingUp,
   Copy,
+  Share2,
+  ExternalLink,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { api } from "@/lib/api";
 import { formatDate, formatRelativeTime, formatCurrency } from "@/lib/utils";
@@ -67,6 +70,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { TrueIdentityBox } from "@/components/trueidentity-box";
+import {
+  InstagramIcon,
+  TikTokIcon,
+  FacebookIcon,
+  LinkedInIcon,
+  XTwitterIcon,
+} from "@/components/ui/social-media-icons";
 
 // ============================================
 // Types
@@ -113,6 +123,11 @@ interface Borrower {
   emergencyContactPhone: string | null;
   emergencyContactRelationship: string | null;
   monthlyIncome: string | null;
+  instagram: string | null;
+  tiktok: string | null;
+  facebook: string | null;
+  linkedin: string | null;
+  xTwitter: string | null;
   // Corporate fields
   companyName: string | null;
   ssmRegistrationNo: string | null;
@@ -209,6 +224,11 @@ interface FormData {
   emergencyContactPhone: string;
   emergencyContactRelationship: string;
   monthlyIncome: string;
+  instagram: string;
+  tiktok: string;
+  facebook: string;
+  linkedin: string;
+  xTwitter: string;
   // Corporate fields
   companyName: string;
   ssmRegistrationNo: string;
@@ -647,6 +667,11 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
     authorizedRepIc: "Authorized Rep IC",
     companyPhone: "Company Phone",
     companyEmail: "Company Email",
+    instagram: "Instagram",
+    tiktok: "TikTok",
+    facebook: "Facebook",
+    linkedin: "LinkedIn",
+    xTwitter: "X (Twitter)",
   };
 
   const getChanges = () => {
@@ -799,6 +824,11 @@ export default function BorrowerDetailPage() {
     emergencyContactPhone: "",
     emergencyContactRelationship: "",
     monthlyIncome: "",
+    instagram: "",
+    tiktok: "",
+    facebook: "",
+    linkedin: "",
+    xTwitter: "",
     // Corporate fields
     companyName: "",
     ssmRegistrationNo: "",
@@ -907,6 +937,11 @@ export default function BorrowerDetailPage() {
       emergencyContactPhone: data.emergencyContactPhone || "",
       emergencyContactRelationship: data.emergencyContactRelationship || "",
       monthlyIncome: data.monthlyIncome?.toString() || "",
+      instagram: data.instagram || "",
+      tiktok: data.tiktok || "",
+      facebook: data.facebook || "",
+      linkedin: data.linkedin || "",
+      xTwitter: data.xTwitter || "",
       // Corporate fields
       companyName: data.companyName || "",
       ssmRegistrationNo: data.ssmRegistrationNo || "",
@@ -1102,6 +1137,11 @@ export default function BorrowerDetailPage() {
           bankName: formData.bankName || undefined,
           bankNameOther: formData.bankName === "OTHER" ? (formData.bankNameOther || undefined) : undefined,
           bankAccountNo: formData.bankAccountNo || undefined,
+          instagram: formData.instagram?.trim() || undefined,
+          tiktok: formData.tiktok?.trim() || undefined,
+          facebook: formData.facebook?.trim() || undefined,
+          linkedin: formData.linkedin?.trim() || undefined,
+          xTwitter: formData.xTwitter?.trim() || undefined,
         };
       } else {
         // Individual borrower payload
@@ -1130,6 +1170,11 @@ export default function BorrowerDetailPage() {
           emergencyContactPhone: formData.emergencyContactPhone || undefined,
           emergencyContactRelationship: formData.emergencyContactRelationship || undefined,
           monthlyIncome: noMonthlyIncome ? 0 : (formData.monthlyIncome.trim() !== "" ? parseFloat(formData.monthlyIncome) : undefined),
+          instagram: formData.instagram?.trim() || undefined,
+          tiktok: formData.tiktok?.trim() || undefined,
+          facebook: formData.facebook?.trim() || undefined,
+          linkedin: formData.linkedin?.trim() || undefined,
+          xTwitter: formData.xTwitter?.trim() || undefined,
         };
       }
 
@@ -2432,6 +2477,258 @@ export default function BorrowerDetailPage() {
               </div>
             </>
           )}
+
+          {/* Social Media Profiles - Full Width */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Share2 className="h-5 w-5 text-muted-foreground" />
+                Social Media Profiles
+              </CardTitle>
+              <CardDescription>Optional profile links</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {!isEditing ? (
+                  <>
+                    <div>
+                      <p className="text-xs text-muted-foreground flex items-center gap-2 mb-1">
+                        <InstagramIcon className="h-4 w-4" />
+                        Instagram
+                      </p>
+                      <p className="font-medium">
+                        {borrower.instagram ? (
+                          <a
+                            href={borrower.instagram.startsWith("http") ? borrower.instagram : `https://${borrower.instagram}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline break-all cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {borrower.instagram}
+                            <ExternalLink className="h-4 w-4 shrink-0 opacity-70" />
+                          </a>
+                        ) : (
+                          "-"
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground flex items-center gap-2 mb-1">
+                        <TikTokIcon className="h-4 w-4" />
+                        TikTok
+                      </p>
+                      <p className="font-medium">
+                        {borrower.tiktok ? (
+                          <a
+                            href={borrower.tiktok.startsWith("http") ? borrower.tiktok : `https://${borrower.tiktok}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline break-all cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {borrower.tiktok}
+                            <ExternalLink className="h-4 w-4 shrink-0 opacity-70" />
+                          </a>
+                        ) : (
+                          "-"
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground flex items-center gap-2 mb-1">
+                        <FacebookIcon className="h-4 w-4" />
+                        Facebook
+                      </p>
+                      <p className="font-medium">
+                        {borrower.facebook ? (
+                          <a
+                            href={borrower.facebook.startsWith("http") ? borrower.facebook : `https://${borrower.facebook}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline break-all cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {borrower.facebook}
+                            <ExternalLink className="h-4 w-4 shrink-0 opacity-70" />
+                          </a>
+                        ) : (
+                          "-"
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground flex items-center gap-2 mb-1">
+                        <LinkedInIcon className="h-4 w-4" />
+                        LinkedIn
+                      </p>
+                      <p className="font-medium">
+                        {borrower.linkedin ? (
+                          <a
+                            href={borrower.linkedin.startsWith("http") ? borrower.linkedin : `https://${borrower.linkedin}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline break-all cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {borrower.linkedin}
+                            <ExternalLink className="h-4 w-4 shrink-0 opacity-70" />
+                          </a>
+                        ) : (
+                          "-"
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground flex items-center gap-2 mb-1">
+                        <XTwitterIcon className="h-4 w-4" />
+                        X (Twitter)
+                      </p>
+                      <p className="font-medium">
+                        {borrower.xTwitter ? (
+                          <a
+                            href={borrower.xTwitter.startsWith("http") ? borrower.xTwitter : `https://${borrower.xTwitter}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline break-all cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {borrower.xTwitter}
+                            <ExternalLink className="h-4 w-4 shrink-0 opacity-70" />
+                          </a>
+                        ) : (
+                          "-"
+                        )}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                        <InstagramIcon className="h-4 w-4" />
+                        Instagram
+                      </Label>
+                      <div className="mt-1 flex gap-2">
+                        <Input
+                          value={formData.instagram}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, instagram: e.target.value }))}
+                          placeholder="https://instagram.com/username"
+                          className="flex-1"
+                        />
+                        {formData.instagram?.trim() && (
+                          <a
+                            href={formData.instagram.trim().startsWith("http") ? formData.instagram.trim() : `https://${formData.instagram.trim()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                            title="Open link"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                        <TikTokIcon className="h-4 w-4" />
+                        TikTok
+                      </Label>
+                      <div className="mt-1 flex gap-2">
+                        <Input
+                          value={formData.tiktok}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, tiktok: e.target.value }))}
+                          placeholder="https://tiktok.com/@username"
+                          className="flex-1"
+                        />
+                        {formData.tiktok?.trim() && (
+                          <a
+                            href={formData.tiktok.trim().startsWith("http") ? formData.tiktok.trim() : `https://${formData.tiktok.trim()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                            title="Open link"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                        <FacebookIcon className="h-4 w-4" />
+                        Facebook
+                      </Label>
+                      <div className="mt-1 flex gap-2">
+                        <Input
+                          value={formData.facebook}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, facebook: e.target.value }))}
+                          placeholder="https://facebook.com/username"
+                          className="flex-1"
+                        />
+                        {formData.facebook?.trim() && (
+                          <a
+                            href={formData.facebook.trim().startsWith("http") ? formData.facebook.trim() : `https://${formData.facebook.trim()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                            title="Open link"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                        <LinkedInIcon className="h-4 w-4" />
+                        LinkedIn
+                      </Label>
+                      <div className="mt-1 flex gap-2">
+                        <Input
+                          value={formData.linkedin}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, linkedin: e.target.value }))}
+                          placeholder="https://linkedin.com/in/username"
+                          className="flex-1"
+                        />
+                        {formData.linkedin?.trim() && (
+                          <a
+                            href={formData.linkedin.trim().startsWith("http") ? formData.linkedin.trim() : `https://${formData.linkedin.trim()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                            title="Open link"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                        <XTwitterIcon className="h-4 w-4" />
+                        X (Twitter)
+                      </Label>
+                      <div className="mt-1 flex gap-2">
+                        <Input
+                          value={formData.xTwitter}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, xTwitter: e.target.value }))}
+                          placeholder="https://x.com/username"
+                          className="flex-1"
+                        />
+                        {formData.xTwitter?.trim() && (
+                          <a
+                            href={formData.xTwitter.trim().startsWith("http") ? formData.xTwitter.trim() : `https://${formData.xTwitter.trim()}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                            title="Open link"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Bank Information */}
           <Card>

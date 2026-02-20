@@ -259,48 +259,46 @@ export default function SubscriptionPage() {
             </div>
           </Card>
 
-          <div className="border-t border-border/100" aria-hidden />
-
           {/* Add-on modules */}
-          <div className="flex flex-col gap-3">
-              {/* TrueSend */}
-              <AddOnCard
-                icon={Send}
-                name="TrueSend™"
-                badge="Monthly"
-                recommended
-                description={
-                  extraBlocks > 0
-                    ? `Automated email delivery — receipts, reminders, arrears & default notices. Current usage adds +${formatCurrency(truesendExtraBlockCost)}/month for ${extraBlocks} extra block${extraBlocks > 1 ? "s" : ""}.`
-                    : "Automated email delivery — receipts, reminders, arrears & default notices."
-                }
-                highlights={[
-                  "Reduce manual follow-ups and missed reminders",
-                  "Send receipts and notices instantly with audit trail",
-                  "Keep borrower communication consistent and professional",
-                ]}
-                priceLabel={`+${formatCurrency(TRUESEND_PRICE)} /mo`}
-                active={wantsTruesend}
-                onToggle={handleTruesendToggle}
-              />
+          <div className="flex flex-col gap-6">
+            {/* TrueSend */}
+            <AddOnCard
+              icon={Send}
+              name="TrueSend™"
+              badge="Monthly"
+              recommended
+              description={
+                extraBlocks > 0
+                  ? `Automated email delivery — receipts, reminders, arrears & default notices. Current usage adds +${formatCurrency(truesendExtraBlockCost)}/month for ${extraBlocks} extra block${extraBlocks > 1 ? "s" : ""}.`
+                  : "Automated email delivery — receipts, reminders, arrears & default notices."
+              }
+              highlights={[
+                "Reduce manual follow-ups and missed reminders",
+                "Send receipts and notices instantly with audit trail",
+                "Keep borrower communication consistent and professional",
+              ]}
+              priceLabel={`+${formatCurrency(TRUESEND_PRICE)} /mo`}
+              active={wantsTruesend}
+              onToggle={handleTruesendToggle}
+            />
 
-              {/* TrueIdentity */}
-              <AddOnCard
-                icon={Fingerprint}
-                name="TrueIdentity™"
-                badge="Pay per use"
-                recommended
-                description="e-KYC via QR code — IC capture, face liveness, KPKT compliant. RM 4 per verification."
-                highlights={[
-                  "Verify borrowers faster with QR-based self-service",
-                  "Reduce fraud risk using face liveness checks",
-                  "Store verification records for compliance and audits",
-                ]}
-                priceLabel="Free"
-                priceMuted
-                active={wantsTrueIdentity}
-                onToggle={handleTrueIdentityToggle}
-              />
+            {/* TrueIdentity */}
+            <AddOnCard
+              icon={Fingerprint}
+              name="TrueIdentity™"
+              badge="Pay per use"
+              recommended
+              description="e-KYC via QR code — IC capture, face liveness, KPKT compliant. RM 4 per verification."
+              highlights={[
+                "Verify borrowers faster with QR-based self-service",
+                "Reduce fraud risk using face liveness checks",
+                "Store verification records for compliance and audits",
+              ]}
+              priceLabel="Free"
+              priceMuted
+              active={wantsTrueIdentity}
+              onToggle={handleTrueIdentityToggle}
+            />
           </div>
 
           <div className="text-center lg:text-left">
@@ -478,22 +476,24 @@ function AddOnCard({
   return (
     <Card
       className={cn(
-        "relative overflow-hidden p-4 sm:p-5 border transition-all cursor-pointer",
+        "relative overflow-visible p-4 sm:p-5 border transition-all cursor-pointer",
         active
           ? "border-primary/30 bg-emerald-500/5"
           : "border-border bg-background hover:border-primary/20"
       )}
       onClick={() => onToggle(!active)}
     >
-      {recommended && (
+      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+        <Badge variant="outline" className="bg-background">
+          Add on
+        </Badge>
+      </div>
+      {recommended && active && (
         <Badge
           variant="secondary"
-          className={cn(
-            "pointer-events-none absolute right-3 top-3 z-10 text-[10px] font-semibold uppercase tracking-wider",
-            active && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/15 border-0"
-          )}
+          className="pointer-events-none absolute right-3 top-3 z-10 text-[10px] font-semibold uppercase tracking-wider bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/15 border-0"
         >
-          {active ? "Enabled" : "Add-on"}
+          Enabled
         </Badge>
       )}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">

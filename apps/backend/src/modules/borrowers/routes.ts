@@ -211,6 +211,12 @@ const individualFieldsSchema = z.object({
   emergencyContactPhone: z.string().max(20).optional(),
   emergencyContactRelationship: z.string().max(100).optional(),
   monthlyIncome: z.number().min(0).optional().or(z.literal(null)),
+  // Optional social media profile links (URLs or usernames)
+  instagram: z.string().max(500).optional().or(z.literal('')),
+  tiktok: z.string().max(500).optional().or(z.literal('')),
+  facebook: z.string().max(500).optional().or(z.literal('')),
+  linkedin: z.string().max(500).optional().or(z.literal('')),
+  xTwitter: z.string().max(500).optional().or(z.literal('')),
 });
 
 // Corporate borrower fields schema
@@ -715,6 +721,13 @@ router.post('/', async (req, res, next) => {
       createData.monthlyIncome = data.monthlyIncome ?? null;
     }
 
+    // Optional social media (both individual and corporate)
+    createData.instagram = normalizeOptionalText(data.instagram) ?? null;
+    createData.tiktok = normalizeOptionalText(data.tiktok) ?? null;
+    createData.facebook = normalizeOptionalText(data.facebook) ?? null;
+    createData.linkedin = normalizeOptionalText(data.linkedin) ?? null;
+    createData.xTwitter = normalizeOptionalText(data.xTwitter) ?? null;
+
     const borrower = await prisma.borrower.create({
       data: createData as Parameters<typeof prisma.borrower.create>[0]['data'],
       include: {
@@ -875,6 +888,13 @@ router.patch('/:borrowerId', async (req, res, next) => {
     if (data.emergencyContactRelationship !== undefined) updateData.emergencyContactRelationship = data.emergencyContactRelationship || null;
     if (data.monthlyIncome !== undefined) updateData.monthlyIncome = data.monthlyIncome ?? null;
 
+    // Optional social media
+    if (data.instagram !== undefined) updateData.instagram = normalizeOptionalText(data.instagram) ?? null;
+    if (data.tiktok !== undefined) updateData.tiktok = normalizeOptionalText(data.tiktok) ?? null;
+    if (data.facebook !== undefined) updateData.facebook = normalizeOptionalText(data.facebook) ?? null;
+    if (data.linkedin !== undefined) updateData.linkedin = normalizeOptionalText(data.linkedin) ?? null;
+    if (data.xTwitter !== undefined) updateData.xTwitter = normalizeOptionalText(data.xTwitter) ?? null;
+
     // Corporate borrower fields
     if (data.companyName !== undefined) updateData.companyName = data.companyName || null;
     if (data.ssmRegistrationNo !== undefined) updateData.ssmRegistrationNo = data.ssmRegistrationNo || null;
@@ -977,6 +997,11 @@ router.patch('/:borrowerId', async (req, res, next) => {
           position: director.position,
           order: director.order,
         })),
+        instagram: existing.instagram,
+        tiktok: existing.tiktok,
+        facebook: existing.facebook,
+        linkedin: existing.linkedin,
+        xTwitter: existing.xTwitter,
       },
       {
         borrowerType: borrower.borrowerType,
@@ -1023,6 +1048,11 @@ router.patch('/:borrowerId', async (req, res, next) => {
           position: director.position,
           order: director.order,
         })),
+        instagram: borrower.instagram,
+        tiktok: borrower.tiktok,
+        facebook: borrower.facebook,
+        linkedin: borrower.linkedin,
+        xTwitter: borrower.xTwitter,
       },
       req.ip
     );

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Phone, Mail, MessageCircle } from "lucide-react";
+import Link from "next/link";
+import { Phone, Mail, MessageCircle, HelpCircle, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
@@ -42,33 +43,25 @@ export default function ContactPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card className="flex flex-col">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Mail className="h-4 w-4" />
-              Email
-            </CardTitle>
-            <CardDescription>
-              Send us an email for general inquiries or support.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CopyField label="Email" value={EMAIL} toastMessage="Email copied" />
-          </CardContent>
-          <CardFooter className="border-t border-border pt-4 mt-auto">
-            <Button asChild variant="outline" className="w-full">
-              <a
-                href={`mailto:${EMAIL}`}
-                className="inline-flex items-center gap-2"
-              >
-                <Mail className="h-4 w-4" />
-                Send Email
-              </a>
-            </Button>
-          </CardFooter>
-        </Card>
+      <Card className="border-dashed">
+        <CardContent className="flex items-center gap-4 py-4">
+          <HelpCircle className="h-10 w-10 shrink-0 text-muted-foreground" />
+          <div className="flex-1 min-w-0">
+            <p className="font-medium">Looking for help?</p>
+            <p className="text-sm text-muted-foreground">
+              Browse our documentation for guides and answers to common questions.
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link href="/dashboard/help" className="inline-flex items-center gap-2">
+              Help Center
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
 
+      <div className="grid gap-4 sm:grid-cols-2">
         <Card className="flex flex-col">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -92,6 +85,32 @@ export default function ContactPage() {
               >
                 <MessageCircle className="h-4 w-4" />
                 Open WhatsApp
+              </a>
+            </Button>
+          </CardFooter>
+        </Card>
+
+        <Card className="flex flex-col">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Mail className="h-4 w-4" />
+              Email
+            </CardTitle>
+            <CardDescription>
+              Send us an email for general inquiries or support.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CopyField label="Email" value={EMAIL} toastMessage="Email copied" />
+          </CardContent>
+          <CardFooter className="border-t border-border pt-4 mt-auto">
+            <Button asChild variant="outline" className="w-full">
+              <a
+                href={`mailto:${EMAIL}`}
+                className="inline-flex items-center gap-2"
+              >
+                <Mail className="h-4 w-4" />
+                Send Email
               </a>
             </Button>
           </CardFooter>

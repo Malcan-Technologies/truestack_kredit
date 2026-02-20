@@ -13,7 +13,9 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:prod": "tsx prisma/seed.prod.ts",
-    "db:seed-500-loans": "tsx scripts/seed-500-loans.ts"
+    "db:seed-500-loans": "tsx scripts/seed-500-loans.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.982.0",
@@ -44,6 +46,7 @@
     "@types/pdfkit": "^0.17.4",
     "prisma": "^6.19.2",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
   }
 }

@@ -252,3 +252,21 @@ Same as Verification Request: `x-kredit-signature`, `x-kredit-timestamp`, `Conte
 
 - **Inbound (Kredit → Admin):** 5-minute replay window via `x-kredit-timestamp`. Requests with timestamps outside this window are rejected.
 - **Outbound (Admin → Kredit):** Kredit should verify `x-trueidentity-signature` and optionally enforce replay protection using `x-trueidentity-timestamp`.
+
+---
+
+## Troubleshooting: Signature verification failed (Kredit → Admin)
+
+When Admin returns `401 UNAUTHORIZED` with "Signature verification failed" for `POST /api/webhooks/kredit/verification-request`:
+
+1. **Same secret on both sides**  
+   Admin’s secret used to **verify** incoming Kredit requests must be **exactly** the same as Kredit’s secret used to **sign** (e.g. Kredit: `KREDIT_WEBHOOK_SECRET` or `kredit_webhook_secret`; Admin: same variable). No extra spaces, newlines, or different encoding.
+
+2. **Verify with the raw body**  
+   Admin must compute the HMAC over the **raw HTTP request body** (as received, before parsing JSON). Do **not** verify using `JSON.stringify(parsedBody)` — key order may differ and the signature will fail.
+
+3. **Payload format**  
+   Signed payload is: `{x-kredit-timestamp}.{rawBody}` (timestamp string + `.` + exact raw body). Algorithm: HMAC-SHA256; encoding: base64. Header value: `HMAC-SHA256 <base64>`.
+
+4. **Timestamp**  
+   `x-kredit-timestamp` is **milliseconds** (e.g. from JavaScript `Date.now()`). Replay window is typically ±5 minutes.

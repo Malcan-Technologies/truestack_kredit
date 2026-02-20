@@ -21,6 +21,8 @@ const ROUTE_LABELS: Record<string, string> = {
   "add-ons": "Add-ons",
   plan: "Plan",
   profile: "Profile",
+  subscription: "Subscription",
+  payment: "Payment",
 };
 
 interface BreadcrumbItem {
@@ -58,7 +60,16 @@ export function Breadcrumbs({ className, tenantName }: BreadcrumbsProps) {
   });
 
   // Filter out the first "dashboard" segment from display but keep it in links
-  const displayBreadcrumbs = breadcrumbs.slice(1);
+  let displayBreadcrumbs = breadcrumbs.slice(1);
+
+  // Subscription pages: show Plan -> Subscription (and Payment if applicable)
+  if (pathname.startsWith("/dashboard/subscription")) {
+    const planCrumb: BreadcrumbItem = { label: "Plan", href: "/dashboard/plan", isLast: false };
+    displayBreadcrumbs = [planCrumb, ...displayBreadcrumbs];
+    displayBreadcrumbs.forEach((c, i) => {
+      c.isLast = i === displayBreadcrumbs.length - 1;
+    });
+  }
 
   // On dashboard home, just show tenant name
   const isOnDashboardHome = pathname === "/dashboard";

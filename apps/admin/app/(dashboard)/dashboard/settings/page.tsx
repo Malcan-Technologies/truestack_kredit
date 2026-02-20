@@ -514,7 +514,7 @@ export default function SettingsPage() {
                   <label className="text-sm font-medium">Contact Number</label>
                   <PhoneInput
                     value={tenantForm.contactNumber || undefined}
-                    onChange={(val) => setTenantForm({ ...tenantForm, contactNumber: val ?? "" })}
+                    onChange={(val: string | undefined) => setTenantForm({ ...tenantForm, contactNumber: val ?? "" })}
                     placeholder="16 2487680"
                   />
                 </div>

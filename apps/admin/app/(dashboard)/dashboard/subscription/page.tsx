@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Check,
-  Zap,
   ArrowLeft,
   Send,
   Fingerprint,
@@ -172,7 +171,7 @@ export default function SubscriptionPage() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 -ml-1 mt-0.5"
-            onClick={() => router.back()}
+            onClick={() => router.push("/dashboard/plan")}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -196,10 +195,10 @@ export default function SubscriptionPage() {
           {/* Core Plan Card */}
           <Card
             className={cn(
-              "relative p-5 border-2 transition-all",
+              "relative p-5 border transition-all",
               isPaid
-                ? "border-primary bg-primary/5"
-                : "border-primary shadow-lg"
+                ? "border-primary/30 bg-emerald-500/5"
+                : "border-primary/30 shadow-sm"
             )}
           >
             {isPaid && (
@@ -212,8 +211,8 @@ export default function SubscriptionPage() {
 
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                  <Zap className="h-4 w-4 text-primary" />
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
+                  <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold">Core</h3>
@@ -317,7 +316,7 @@ export default function SubscriptionPage() {
         {/* ──── Right column: sticky summary ──── */}
         <div className="lg:col-span-1">
           <div className="lg:sticky lg:top-4">
-            <Card className="p-5 bg-muted/30">
+            <Card className="p-5 bg-muted/10 border-border/80">
               <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                 Summary
               </h3>
@@ -479,10 +478,10 @@ function AddOnCard({
   return (
     <Card
       className={cn(
-        "relative overflow-hidden p-4 sm:p-5 border-2 transition-all cursor-pointer",
+        "relative overflow-hidden p-4 sm:p-5 border transition-all cursor-pointer",
         active
-          ? "border-primary bg-primary/5"
-          : "border-border bg-background hover:border-primary/50"
+          ? "border-primary/30 bg-emerald-500/5"
+          : "border-border bg-background hover:border-primary/20"
       )}
       onClick={() => onToggle(!active)}
     >
@@ -502,11 +501,15 @@ function AddOnCard({
         <div className="flex items-start gap-3 sm:flex-1 min-w-0">
           <div
             className={cn(
-              "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-              active ? "bg-primary/10" : "bg-muted/60 dark:bg-muted"
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+              active ? "bg-emerald-500/20" : "bg-muted"
             )}
           >
-            <Icon className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground")} />
+            {active ? (
+              <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <Icon className="h-4 w-4 text-muted-foreground" />
+            )}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">

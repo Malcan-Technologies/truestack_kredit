@@ -368,7 +368,10 @@ export default function DashboardLayout({
                         const isActive =
                           pathname === item.href ||
                           (item.href !== "/dashboard" &&
-                            pathname.startsWith(item.href));
+                            pathname.startsWith(item.href)) ||
+                          // Plan: also highlight when on subscription or payment pages
+                          (item.href === "/dashboard/plan" &&
+                            pathname.startsWith("/dashboard/subscription"));
                         const memberRole = (membership?.role as TenantRole) || "STAFF";
                         const hasAccess = canAccessPage(memberRole, item.href);
                         const requiresMembership = pathRequiresMembership(item.href);

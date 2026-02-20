@@ -47,15 +47,83 @@ export function PromotionsCarousel() {
       {/* Subtle top-edge highlight */}
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/[0.12] dark:via-white/[0.12] to-transparent" />
       <CardContent className="py-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className={cn(
+          current.illustration ? "grid grid-cols-[auto_1fr] gap-x-3" : "flex flex-col gap-3"
+        )}>
+          {/* Illustration or icon - spans full height when illustration */}
+          <div className={cn(
+            current.illustration
+              ? "row-span-2 self-stretch flex items-start justify-center min-h-[72px] pr-1"
+              : "flex items-start justify-between gap-2"
+          )}>
             <div className={cn(
-              "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-              "bg-foreground/[0.10] dark:bg-black/30 ring-1 ring-foreground/[0.06] dark:ring-white/[0.06]"
+              "flex shrink-0 items-center justify-center rounded-lg overflow-hidden",
+              current.illustration ? "h-full min-w-[64px] bg-neutral-100 dark:bg-neutral-800/60 p-2" : "h-10 w-10",
+              !current.illustration && "bg-foreground/[0.10] dark:bg-black/30 ring-1 ring-foreground/[0.06] dark:ring-white/[0.06]"
             )}>
-              <current.icon className="h-5 w-5 text-foreground/80 dark:text-white/80" />
+              {current.illustration ? (
+                <img
+                  src={current.illustration}
+                  alt=""
+                  className="h-full w-auto max-w-[80px] object-contain object-top"
+                />
+              ) : (
+                <current.icon className="h-5 w-5 text-foreground/80 dark:text-white/80" />
+              )}
             </div>
-            <div className="min-w-0">
+            {!current.illustration && (
+              <>
+                <div className="min-w-0 flex-1 flex flex-col items-start gap-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-heading font-semibold text-base truncate text-foreground">
+                      {current.title}
+                    </p>
+                    <Badge
+                      variant={current.badgeVariant}
+                      className="text-xs shrink-0"
+                    >
+                      {current.badge}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {current.tagline}
+                  </p>
+                  <Link
+                    href={current.href}
+                    className="text-sm text-foreground hover:text-muted-foreground hover:underline flex items-center gap-1 mt-0.5"
+                  >
+                    {current.cta} <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+                {PROMOTIONS.length > 1 && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                      onClick={prevSlide}
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                      onClick={nextSlide}
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className={cn(
+            "flex items-start justify-between gap-2 min-w-0",
+            !current.illustration && "hidden"
+          )}>
+            <div className="min-w-0 flex flex-col items-start gap-1">
               <div className="flex items-center gap-2">
                 <p className="font-heading font-semibold text-base truncate text-foreground">
                   {current.title}
@@ -67,39 +135,43 @@ export function PromotionsCarousel() {
                   {current.badge}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground mt-0.5 truncate">
+              <p className="text-sm text-muted-foreground truncate">
                 {current.tagline}
               </p>
+              <Link
+                href={current.href}
+                className="text-sm text-foreground hover:text-muted-foreground hover:underline flex items-center gap-1 mt-0.5"
+              >
+                {current.cta} <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
             </div>
+
+            {/* Navigation arrows - only when multiple promos */}
+            {PROMOTIONS.length > 1 && (
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  onClick={prevSlide}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  onClick={nextSlide}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
           </div>
 
-          {/* Navigation arrows - only when multiple promos */}
+          {/* Bottom bar: dots - only when multiple promos */}
           {PROMOTIONS.length > 1 && (
-            <div className="flex items-center gap-1 shrink-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                onClick={prevSlide}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                onClick={nextSlide}
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* Bottom bar: dots + CTA */}
-        <div className="mt-3 flex items-center justify-between">
-          {/* Dot indicators - only when multiple promos */}
-          {PROMOTIONS.length > 1 ? (
+          <div className="mt-3 flex items-center justify-start">
             <div className="flex items-center gap-1.5">
               {PROMOTIONS.map((_, idx) => (
                 <button
@@ -114,16 +186,8 @@ export function PromotionsCarousel() {
                 />
               ))}
             </div>
-          ) : (
-            <div />
+          </div>
           )}
-
-          <Link
-            href={current.href}
-            className="text-sm text-foreground hover:text-muted-foreground hover:underline flex items-center gap-1"
-          >
-            {current.cta} <ArrowUpRight className="h-3.5 w-3.5" />
-          </Link>
         </div>
       </CardContent>
     </Card>

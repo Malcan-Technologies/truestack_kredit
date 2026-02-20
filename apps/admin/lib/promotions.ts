@@ -10,6 +10,8 @@ export interface Promotion {
   tagline: string;
   description: string;
   icon: LucideIcon;
+  /** Optional illustration path; when set, used instead of icon */
+  illustration?: string;
   badge: string;
   badgeVariant: "default" | "success" | "warning" | "destructive" | "info" | "secondary";
   gradient: string;
@@ -28,6 +30,7 @@ export const PROMOTIONS: Promotion[] = [
     description:
       "Know someone who could benefit from TrueKredit? Refer them and once they subscribe, you'll receive RM499 cash — no strings attached. They get a powerful loan management system, you get rewarded.",
     icon: Gift,
+    illustration: "/illustrations/undraw_happy-birthday_lmk0.svg",
     badge: "Available",
     badgeVariant: "success",
     gradient: "from-foreground/[0.12] via-card to-foreground/[0.09] dark:from-black/[0.15] dark:via-card dark:to-black/[0.08]",

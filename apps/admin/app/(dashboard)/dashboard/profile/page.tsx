@@ -14,6 +14,7 @@ import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { CopyField } from "@/components/ui/copy-field";
 import { CreateTenantModal } from "@/components/create-tenant-modal";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface CurrentMembership {
   referrer: { id: string; name: string | null; email: string } | null;
@@ -300,11 +301,7 @@ Sign up here: ${referralLink}`
   };
 
   if (sessionLoading || loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-muted">Loading...</div>
-      </div>
-    );
+    return <ProfileSkeleton />;
   }
 
   return (
@@ -571,8 +568,8 @@ Sign up here: ${referralLink}`
           <CardContent>
             {loadingTenants ? (
               <div className="space-y-4">
-                <div className="h-24 bg-surface rounded animate-pulse" />
-                <div className="h-24 bg-surface rounded animate-pulse" />
+                <Skeleton className="h-24 w-full rounded-lg" />
+                <Skeleton className="h-24 w-full rounded-lg" />
               </div>
             ) : tenants.length === 0 ? (
               <p className="text-sm text-muted-foreground">No tenants yet</p>
@@ -666,7 +663,7 @@ Sign up here: ${referralLink}`
           {/* Referral code - copyable field */}
           <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
             {loadingReferralCode ? (
-              <div className="h-14 bg-surface rounded animate-pulse" />
+              <Skeleton className="h-14 w-full rounded" />
             ) : (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <CopyField
@@ -695,12 +692,14 @@ Sign up here: ${referralLink}`
           {loadingReferrals ? (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-3 h-20 bg-surface rounded-lg animate-pulse" />
-                <div className="h-20 bg-surface rounded-lg animate-pulse" />
-                <div className="h-20 bg-surface rounded-lg animate-pulse" />
-                <div className="h-20 bg-surface rounded-lg animate-pulse" />
+                <div className="sm:col-span-3">
+                  <Skeleton className="h-20 w-full rounded-lg" />
+                </div>
+                <Skeleton className="h-20 w-full rounded-lg" />
+                <Skeleton className="h-20 w-full rounded-lg" />
+                <Skeleton className="h-20 w-full rounded-lg" />
               </div>
-              <div className="h-64 bg-surface rounded animate-pulse" />
+              <Skeleton className="h-64 w-full rounded-lg" />
             </div>
           ) : referrals ? (
             <>
@@ -797,6 +796,178 @@ Sign up here: ${referralLink}`
           ) : (
             <p className="text-sm text-muted-foreground text-center py-6">Failed to load referrals</p>
           )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ProfileSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-4 w-80 mt-2" />
+      </div>
+
+      {/* My Profile */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-5 w-5 rounded shrink-0" />
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-24" />
+                <Skeleton className="h-4 w-48" />
+              </div>
+            </div>
+            <Skeleton className="h-9 w-24 rounded-md" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-12" />
+              <Skeleton className="h-5 w-32" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-12" />
+              <Skeleton className="h-5 w-40" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-5 w-28" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Security + Your Tenants */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Security */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-5 w-5 rounded shrink-0" />
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-20" />
+                <Skeleton className="h-4 w-40" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between py-2">
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <Skeleton className="h-9 w-32 rounded-md" />
+            </div>
+            <Separator />
+            <div className="py-2 space-y-3">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-10 w-full rounded" />
+              <Skeleton className="h-10 w-full rounded" />
+              <Skeleton className="h-10 w-full rounded" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Your Tenants */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-5 w-5 rounded shrink-0" />
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-28" />
+                  <Skeleton className="h-4 w-56" />
+                </div>
+              </div>
+              <Skeleton className="h-9 w-28 rounded-md shrink-0" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4 p-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
+                  <div className="space-y-2 min-w-0">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                </div>
+                <Skeleton className="h-9 w-16 rounded-md shrink-0" />
+              </div>
+              <div className="flex items-center justify-between gap-4 p-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
+                  <div className="space-y-2 min-w-0">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                </div>
+                <Skeleton className="h-9 w-16 rounded-md shrink-0" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Referrals */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-5 w-5 rounded shrink-0" />
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-20" />
+              <Skeleton className="h-4 w-56" />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+            <Skeleton className="h-14 w-full rounded" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-3 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+              <Skeleton className="h-3 w-24 mb-2" />
+              <Skeleton className="h-8 w-28" />
+            </div>
+            <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+              <Skeleton className="h-3 w-12 mb-2" />
+              <Skeleton className="h-6 w-8" />
+            </div>
+            <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+              <Skeleton className="h-3 w-16 mb-2" />
+              <Skeleton className="h-6 w-8" />
+            </div>
+            <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+              <Skeleton className="h-3 w-12 mb-2" />
+              <Skeleton className="h-6 w-8" />
+            </div>
+          </div>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <div className="p-4 border-b border-border flex gap-4">
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-4 w-12" />
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-4 w-14" />
+              <Skeleton className="h-4 w-12" />
+            </div>
+            <div className="divide-y divide-border">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="p-4 flex gap-4 items-center">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-5 w-16 rounded" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+              ))}
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

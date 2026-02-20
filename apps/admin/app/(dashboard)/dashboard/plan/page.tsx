@@ -16,6 +16,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
 import { RoleGate } from "@/components/role-gate";
 import { formatCurrency, formatNumber } from "@/lib/utils";
@@ -46,6 +47,9 @@ const MINS_PER_VERIFICATION = 10;
 const LOANS_INCLUDED = 500;
 const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
+const CORE_PRICE = 499;
+const CORE_ORIGINAL_PRICE = 899;
+const CORE_DISCOUNT_PCT = Math.round(((CORE_ORIGINAL_PRICE - CORE_PRICE) / CORE_ORIGINAL_PRICE) * 100);
 
 function formatTimeSaved(totalCount: number, minsPerUnit: number): string {
   const totalMins = totalCount * minsPerUnit;
@@ -56,7 +60,16 @@ function formatTimeSaved(totalCount: number, minsPerUnit: number): string {
   return `${hours}h ${mins}m`;
 }
 
-type DetailSelection = "TRUESEND" | "TRUEIDENTITY" | null;
+type DetailSelection = "CORE" | "TRUESEND" | "TRUEIDENTITY" | null;
+
+const CORE_FEATURES = [
+  "Borrower management",
+  "Loan products & applications",
+  "Payment tracking & schedules",
+  "Jadual J and K generation",
+  "KPKT iDeaL export, Lampiran A",
+  "Full audit logs",
+];
 
 function LoanUsageBar({ used, limit, truesendActive = false }: { used: number; limit: number; truesendActive?: boolean }) {
   // Always show at least 1 block (included block is active even at 0 loans)
@@ -138,7 +151,7 @@ export default function PlanPage() {
   const [emailStats, setEmailStats] = useState<EmailStats | null>(null);
   const [verificationStats, setVerificationStats] = useState<VerificationStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedDetail, setSelectedDetail] = useState<DetailSelection>("TRUESEND");
+  const [selectedDetail, setSelectedDetail] = useState<DetailSelection>("CORE");
   const [loanCount, setLoanCount] = useState<number>(0);
 
   const fetchData = useCallback(async () => {
@@ -209,8 +222,8 @@ export default function PlanPage() {
             <h1 className="text-2xl font-heading font-bold text-gradient">Plan</h1>
             <p className="text-muted-foreground mt-1">
               {planName === "Free"
-                ? "Subscribe to unlock the full platform."
-                : "Your plan features and optional add-ons."}
+                ? "Subscribe to unlock the full platform. Click on the cards to find out more."
+                : "Your plan features and optional add-ons. Click on the cards to find out more."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -221,7 +234,7 @@ export default function PlanPage() {
             <Button
               variant="default"
               asChild
-              className="bg-black text-white hover:bg-black/90"
+              className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
             >
               <Link href="/dashboard/subscription" className="inline-flex items-center">
                 <Sparkles className="h-4 w-4 mr-2" />
@@ -286,31 +299,46 @@ export default function PlanPage() {
           {/* Left: main content */}
           <div className="lg:col-span-2 space-y-8">
             {/* Your plan */}
-            <Card>
+            <Card
+              className={`cursor-pointer transition-colors ${
+                selectedDetail === "CORE" ? "ring-2 ring-primary/20" : ""
+              }`}
+              onClick={() => setSelectedDetail("CORE")}
+            >
               <CardContent className="pt-6 pb-6">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                  Your plan
-                </h2>
-                <p className="text-xl font-heading font-bold text-foreground flex items-center gap-2">
-                  {planName === "Core" ? (
-                    <Zap className="h-5 w-5 text-primary" />
-                  ) : null}
-                  {planName} Plan
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {planName === "Core"
-                    ? "Full loan management, compliance, and schedules. Add TrueSend™ as an add-on for automated emails."
-                    : "Subscribe to Core to unlock the full platform."}
-                </p>
-                {planName === "Core" && (
-                  <LoanUsageBar used={loanCount} limit={LOANS_INCLUDED} truesendActive={isTrueSendActive} />
-                )}
-                <Button variant="outline" size="sm" asChild className="mt-4">
-                  <Link href="/dashboard/billing">
-                    Manage billing
-                    <ExternalLink className="h-3 w-3 ml-1.5" />
-                  </Link>
-                </Button>
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                      Your plan
+                    </h2>
+                    <p className="text-xl font-heading font-bold text-foreground flex items-center gap-2">
+                      {planName === "Core" ? (
+                        <Zap className="h-5 w-5 text-primary" />
+                      ) : null}
+                      {planName} Plan
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {planName === "Core"
+                        ? "Full loan management, compliance, and schedules. Add TrueSend™ as an add-on for automated emails."
+                        : "Subscribe to Core to unlock the full platform."}
+                    </p>
+                    {planName === "Core" && (
+                      <LoanUsageBar used={loanCount} limit={LOANS_INCLUDED} truesendActive={isTrueSendActive} />
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    className="shrink-0 sm:mt-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Link href="/dashboard/billing">
+                      Manage billing
+                      <ExternalLink className="h-3 w-3 ml-1.5" />
+                    </Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
@@ -328,8 +356,8 @@ export default function PlanPage() {
                 {planName === "Core" && (
                   <Card
                     className={`cursor-pointer transition-colors ${
-                      isTrueSendActive ? "border-l-4 border-l-emerald-500" : ""
-                    } ${selectedDetail === "TRUESEND" ? "ring-2 ring-primary/20" : ""}`}
+                      selectedDetail === "TRUESEND" ? "ring-2 ring-primary/20" : ""
+                    }`}
                     onClick={() => setSelectedDetail("TRUESEND")}
                   >
                     <CardContent className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -385,8 +413,8 @@ export default function PlanPage() {
                 )}
                 <Card
                   className={`cursor-pointer transition-colors ${
-                    isTrueIdentityActive ? "border-l-4 border-l-emerald-500" : ""
-                  } ${selectedDetail === "TRUEIDENTITY" ? "ring-2 ring-primary/20" : ""}`}
+                    selectedDetail === "TRUEIDENTITY" ? "ring-2 ring-primary/20" : ""
+                  }`}
                   onClick={() => setSelectedDetail("TRUEIDENTITY")}
                 >
                   <CardContent className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -455,13 +483,56 @@ export default function PlanPage() {
           <div className="lg:col-span-1">
             <Card className="sticky top-4">
               <CardContent className="pt-6 pb-6">
-                {selectedDetail === "TRUESEND" ? (
+                {selectedDetail === "CORE" ? (
+                  <>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Zap className="h-5 w-5 text-muted-foreground" />
+                      <h3 className="font-heading font-semibold text-foreground">
+                        Core Plan
+                      </h3>
+                    </div>
+                    <div className="flex justify-start items-center py-5 mb-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/60 p-4">
+                      <img
+                        src="/illustrations/undraw_device-sync_d9ei.svg"
+                        alt="Works on desktop, laptop, tablet, and mobile"
+                        className="h-20 max-w-[200px] object-contain object-left"
+                      />
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Full loan management platform with compliance tools, schedules,
+                      and optional add-ons like TrueSend™ for automated emails.
+                    </p>
+                    <ul className="text-sm text-muted-foreground space-y-2 mb-4">
+                      {CORE_FEATURES.map((feature) => (
+                        <li key={feature} className="flex gap-2">
+                          <Check className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                          {feature}
+                        </li>
+                      ))}
+                    </ul>
+                    <Separator className="my-4" />
+                    <p className="text-sm font-medium text-foreground">
+                      {formatCurrency(CORE_PRICE)}/month{" "}
+                      <span className="text-muted-foreground line-through font-normal">
+                        {formatCurrency(CORE_ORIGINAL_PRICE)}/mo
+                      </span>{" "}
+                      · Save {CORE_DISCOUNT_PCT}%. First {LOANS_INCLUDED} loans included. Extra blocks: +{formatCurrency(EXTRA_BLOCK_PRICE)}/month each.
+                    </p>
+                  </>
+                ) : selectedDetail === "TRUESEND" ? (
                   <>
                     <div className="flex items-center gap-2 mb-4">
                       <Send className="h-5 w-5 text-muted-foreground" />
                       <h3 className="font-heading font-semibold text-foreground">
                         TrueSend™
                       </h3>
+                    </div>
+                    <div className="flex justify-start items-center py-5 mb-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/60 p-4">
+                      <img
+                        src="/illustrations/undraw_email_b5yu.svg"
+                        alt="Automated email delivery"
+                        className="h-20 max-w-[200px] object-contain object-left"
+                      />
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
                       TrueKredit generates all loan documents. TrueSend™ sends them
@@ -486,6 +557,7 @@ export default function PlanPage() {
                         Real-time delivery tracking & audit trail
                       </li>
                     </ul>
+                    <Separator className="my-4" />
                     <p className="text-sm font-medium text-foreground">
                       RM 50/month — billed with your Core plan cycle. +RM 50/month per extra block of 500 loans.
                     </p>
@@ -503,6 +575,13 @@ export default function PlanPage() {
                       <h3 className="font-heading font-semibold text-foreground">
                         TrueIdentity™
                       </h3>
+                    </div>
+                    <div className="flex justify-start items-center py-5 mb-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/60 p-4">
+                      <img
+                        src="/illustrations/undraw_qr-code-scan_bewe.svg"
+                        alt="e-KYC identity verification"
+                        className="h-20 max-w-[200px] object-contain object-left"
+                      />
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
                       Integrated e-KYC verification. Generate a QR code, let
@@ -528,6 +607,7 @@ export default function PlanPage() {
                         Results saved for KPKT compliance
                       </li>
                     </ul>
+                    <Separator className="my-4" />
                     <p className="text-sm font-medium text-foreground">
                       RM 4 per verification · No monthly fee
                     </p>

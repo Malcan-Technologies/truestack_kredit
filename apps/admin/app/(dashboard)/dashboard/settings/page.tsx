@@ -7,6 +7,8 @@ import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertT
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { PhoneDisplay } from "@/components/ui/phone-display";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -510,10 +512,10 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Contact Number</label>
-                  <Input
-                    value={tenantForm.contactNumber}
-                    onChange={(e) => setTenantForm({ ...tenantForm, contactNumber: e.target.value })}
-                    placeholder="+60 12-345 6789"
+                  <PhoneInput
+                    value={tenantForm.contactNumber || undefined}
+                    onChange={(val: string | undefined) => setTenantForm({ ...tenantForm, contactNumber: val ?? "" })}
+                    placeholder="16 2487680"
                   />
                 </div>
                 <div className="space-y-2">
@@ -604,10 +606,7 @@ export default function SettingsPage() {
                   <p className="text-sm text-muted">Company Email</p>
                   <p className="font-medium">{tenant?.email || "—"}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-muted">Contact Number</p>
-                  <p className="font-medium">{tenant?.contactNumber || "—"}</p>
-                </div>
+                <PhoneDisplay label="Contact Number" value={tenant?.contactNumber} />
                 <div className="md:col-span-3">
                   <p className="text-sm text-muted">Business Address</p>
                   <p className="font-medium">{tenant?.businessAddress || "—"}</p>

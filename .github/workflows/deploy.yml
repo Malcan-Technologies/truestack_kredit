@@ -121,8 +121,7 @@ jobs:
         github.event.inputs.action == 'backend-only' ||
         github.event.inputs.action == 'full' ||
         github.event.inputs.action == 'deploy-only' ||
-        needs.detect-changes.outputs.backend_changed == 'true' ||
-        github.event_name == 'push'
+        needs.detect-changes.outputs.backend_changed == 'true'
       )
 
     permissions:
@@ -414,8 +413,7 @@ jobs:
         github.event.inputs.action == 'frontend-only' ||
         github.event.inputs.action == 'full' ||
         github.event.inputs.action == 'deploy-only' ||
-        needs.detect-changes.outputs.frontend_changed == 'true' ||
-        github.event_name == 'push'
+        needs.detect-changes.outputs.frontend_changed == 'true'
       )
 
     permissions:

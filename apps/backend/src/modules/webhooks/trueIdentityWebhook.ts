@@ -28,14 +28,16 @@ const STATUS_MAP: Record<string, string> = {
 function deriveIdempotencyKey(payload: {
   event?: string;
   session_id?: string;
-  ref_id?: string;
+  borrower_id?: string;
+  tenant_id?: string;
   timestamp?: string;
 }): string {
   const event = payload.event ?? '';
   const sessionId = payload.session_id ?? '';
-  const refId = payload.ref_id ?? '';
+  const borrowerId = payload.borrower_id ?? '';
+  const tenantId = payload.tenant_id ?? '';
   const ts = payload.timestamp ?? '';
-  return `${event}:${sessionId}:${refId}:${ts}`;
+  return `${event}:${sessionId}:${borrowerId}:${tenantId}:${ts}`;
 }
 
 /**
@@ -72,7 +74,8 @@ router.post('/', async (req, res) => {
     const payload = JSON.parse(rawBody) as {
       event?: string;
       session_id?: string;
-      ref_id?: string;
+      tenant_id?: string;
+      borrower_id?: string;
       timestamp?: string;
       status?: string;
       result?: string;
@@ -103,17 +106,18 @@ router.post('/', async (req, res) => {
     const result = payload.result ?? null;
     const rejectMessage = payload.reject_message ?? null;
     const sessionId = payload.session_id ?? '';
-    const refId = payload.ref_id ?? '';
+    const payloadBorrowerId = payload.borrower_id ?? '';
+    const payloadTenantId = payload.tenant_id ?? null;
 
     const session = await prisma.trueIdentitySession.findUnique({
       where: { adminSessionId: sessionId },
       include: { borrower: true },
     });
 
-    const borrowerId = session?.borrowerId ?? refId;
-    const tenantId = session?.tenantId ?? null;
+    const borrowerId = session?.borrowerId ?? payloadBorrowerId;
+    const tenantId = session?.tenantId ?? payloadTenantId;
 
-    if (session && borrowerId) {
+    if (borrowerId && tenantId) {
       const updateData: Record<string, unknown> = {
         trueIdentityStatus: status,
         trueIdentityLastWebhookAt: new Date(),
@@ -126,19 +130,26 @@ router.post('/', async (req, res) => {
         updateData.verifiedBy = 'TrueIdentity';
       }
 
-      await prisma.borrower.update({
-        where: { id: borrowerId },
-        data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
+      const borrower = await prisma.borrower.findFirst({
+        where: { id: borrowerId, tenantId },
       });
+      if (borrower) {
+        await prisma.borrower.update({
+          where: { id: borrowerId },
+          data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
+        });
+      }
 
-      await prisma.trueIdentitySession.update({
-        where: { adminSessionId: sessionId },
-        data: {
-          status: status ?? undefined,
-          result: result ?? undefined,
-          rejectMessage: rejectMessage ?? undefined,
-        },
-      });
+      if (session) {
+        await prisma.trueIdentitySession.update({
+          where: { adminSessionId: sessionId },
+          data: {
+            status: status ?? undefined,
+            result: result ?? undefined,
+            rejectMessage: rejectMessage ?? undefined,
+          },
+        });
+      }
 
       if (tenantId) {
         await AuditService.log({

@@ -56,10 +56,23 @@ export const config = {
 
   // TrueIdentity / TrueStack Admin integration
   trueIdentity: {
-    adminBaseUrl: process.env.TRUEIDENTITY_ADMIN_BASE_URL || '',
+    adminBaseUrl:
+      process.env.TRUESTACK_ADMIN_URL ||
+      process.env.TRUEIDENTITY_ADMIN_BASE_URL ||
+      '',
     kreditBaseUrl: process.env.APP_BASE_URL || process.env.BACKEND_URL || 'http://localhost:4000',
-    kreditWebhookSecret: process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET || '',
-    callbackWebhookSecret: process.env.TRUEIDENTITY_WEBHOOK_SHARED_SECRET || process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET || '',
+    kreditWebhookSecret:
+      process.env.KREDIT_WEBHOOK_SECRET ||
+      process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET ||
+      '',
+    callbackWebhookSecret:
+      process.env.TRUEIDENTITY_WEBHOOK_SECRET ||
+      process.env.TRUEIDENTITY_WEBHOOK_SHARED_SECRET ||
+      process.env.KREDIT_WEBHOOK_SECRET ||
+      process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET ||
+      '',
+    kreditInternalSecret:
+      process.env.KREDIT_INTERNAL_SECRET || process.env.INTERNAL_API_KEY || '',
     timestampMaxAgeMs: parseInt(process.env.TRUEIDENTITY_TIMESTAMP_MAX_AGE_MS || '300000', 10),
   },
 };

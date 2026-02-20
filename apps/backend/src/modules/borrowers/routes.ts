@@ -521,18 +521,18 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
     }
 
     const baseUrl = config.trueIdentity.kreditBaseUrl?.replace(/\/$/, '') || '';
-    const callbackUrl = `${baseUrl}/api/webhooks/trueidentity`;
+    const webhookUrl = `${baseUrl}/api/webhooks/trueidentity`;
 
-    const payload = {
+    const documentType = borrower.documentType === 'PASSPORT' ? '2' : '1';
+
+    const adminRes = await requestVerificationSession({
       tenantId: req.tenantId!,
       borrowerId,
-      refId: borrowerId,
       name: borrower.name,
       icNumber: borrower.icNumber,
-      callbackUrl,
-    };
-
-    const adminRes = await requestVerificationSession(payload);
+      documentType,
+      webhookUrl,
+    });
 
     const expiresAt = adminRes.expires_at ? new Date(adminRes.expires_at) : new Date(Date.now() + 15 * 60 * 1000);
 
@@ -548,7 +548,13 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
           onboardingUrl: adminRes.onboarding_url,
           status: adminRes.status || 'pending',
           expiresAt,
-          requestPayload: payload,
+          requestPayload: {
+            tenantId: req.tenantId!,
+            borrowerId,
+            name: borrower.name,
+            icNumber: borrower.icNumber,
+            webhookUrl,
+          },
         },
         update: {
           onboardingUrl: adminRes.onboarding_url,

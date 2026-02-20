@@ -326,6 +326,32 @@ router.post('/subscribe', async (req, res, next) => {
         : []),
     ]);
 
+    if (isNewSubscription) {
+      const tenantRecord = await prisma.tenant.findUnique({
+        where: { id: req.tenantId },
+        select: { trueIdentityTenantSyncedAt: true, name: true, email: true, contactNumber: true, registrationNumber: true },
+      });
+      if (tenantRecord && !tenantRecord.trueIdentityTenantSyncedAt) {
+        const baseUrl = config.trueIdentity.kreditBaseUrl?.replace(/\/$/, '') || '';
+        const webhookUrl = baseUrl ? `${baseUrl}/api/webhooks/trueidentity` : undefined;
+        const { notifyTenantCreated } = await import('../trueidentity/tenantCreatedWebhook.js');
+        const sent = await notifyTenantCreated({
+          tenantId: req.tenantId!,
+          tenantName: tenantRecord.name,
+          contactEmail: tenantRecord.email ?? undefined,
+          contactPhone: tenantRecord.contactNumber ?? undefined,
+          companyRegistration: tenantRecord.registrationNumber ?? undefined,
+          webhookUrl,
+        });
+        if (sent) {
+          await prisma.tenant.update({
+            where: { id: req.tenantId },
+            data: { trueIdentityTenantSyncedAt: new Date() },
+          });
+        }
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -454,6 +480,8 @@ router.get('/add-ons', async (req, res, next) => {
 /**
  * Get TrueIdentity usage for billing
  * GET /api/billing/trueidentity-usage
+ *
+ * Tries Admin usage API first; falls back to local aggregation if Admin is unavailable.
  */
 router.get('/trueidentity-usage', async (req, res, next) => {
   try {
@@ -462,11 +490,43 @@ router.get('/trueidentity-usage', async (req, res, next) => {
     const to = req.query.to ? new Date(req.query.to as string) : undefined;
 
     const { getUsageForTenant } = await import('../trueidentity/usageService.js');
+    const { fetchAdminUsage } = await import('../trueidentity/adminUsageClient.js');
+
+    const fromDate = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const toDate = to ?? new Date();
+
+    let adminUsage: Awaited<ReturnType<typeof fetchAdminUsage>> = null;
+    try {
+      adminUsage = await fetchAdminUsage(tenantId, fromDate, toDate);
+    } catch {
+      // Admin API unavailable; fall through to local
+    }
+
+    if (adminUsage) {
+      return res.json({
+        success: true,
+        data: {
+          source: 'admin',
+          verificationCount: adminUsage.verification_count,
+          usageCredits: adminUsage.usage_credits,
+          usageAmountMyr: adminUsage.usage_amount_myr,
+          periodStart: adminUsage.period_start,
+          periodEnd: adminUsage.period_end,
+          clientId: adminUsage.client_id,
+        },
+      });
+    }
+
     const usage = await getUsageForTenant(tenantId, from, to);
+    const verificationCount = usage.reduce((sum, r) => sum + r.count, 0);
 
     res.json({
       success: true,
-      data: { usage },
+      data: {
+        source: 'local',
+        usage,
+        verificationCount,
+      },
     });
   } catch (error) {
     next(error);

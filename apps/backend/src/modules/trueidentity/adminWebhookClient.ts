@@ -1,6 +1,6 @@
 /**
  * Client to call TrueStack Admin verification-request webhook.
- * Sends signed payload; Admin creates session and returns onboarding_url in response.
+ * Sends signed payload (Admin contract schema); Admin creates session and returns onboarding_url in response.
  */
 
 import { config } from '../../lib/config.js';
@@ -8,13 +8,14 @@ import { signRequestBody } from './signature.js';
 
 const ENDPOINT = '/api/webhooks/kredit/verification-request';
 
-export interface VerificationRequestPayload {
+export interface VerificationRequestInput {
   tenantId: string;
   borrowerId: string;
-  refId: string;
   name: string;
   icNumber: string;
-  callbackUrl: string;
+  documentType?: string;
+  webhookUrl: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface VerificationRequestResponse {
@@ -25,19 +26,29 @@ export interface VerificationRequestResponse {
 }
 
 export async function requestVerificationSession(
-  payload: VerificationRequestPayload
+  input: VerificationRequestInput
 ): Promise<VerificationRequestResponse> {
   const baseUrl = config.trueIdentity.adminBaseUrl?.replace(/\/$/, '') || '';
   if (!baseUrl) {
-    throw new Error('TRUEIDENTITY_ADMIN_BASE_URL is not configured');
+    throw new Error('TRUESTACK_ADMIN_URL / TRUEIDENTITY_ADMIN_BASE_URL is not configured');
   }
 
   const secret = config.trueIdentity.kreditWebhookSecret;
   if (!secret) {
-    throw new Error('KREDIT_TRUESTACK_WEBHOOK_SECRET is not configured');
+    throw new Error('KREDIT_WEBHOOK_SECRET / KREDIT_TRUESTACK_WEBHOOK_SECRET is not configured');
   }
 
-  const rawBody = JSON.stringify(payload);
+  const body = {
+    tenant_id: input.tenantId,
+    borrower_id: input.borrowerId,
+    document_name: input.name,
+    document_number: input.icNumber,
+    document_type: input.documentType ?? '1',
+    webhook_url: input.webhookUrl,
+    metadata: input.metadata ?? {},
+  };
+
+  const rawBody = JSON.stringify(body);
   const { signature, timestamp } = signRequestBody(rawBody, secret);
 
   const url = `${baseUrl}${ENDPOINT}`;

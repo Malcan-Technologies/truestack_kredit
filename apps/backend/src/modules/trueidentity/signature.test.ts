@@ -25,43 +25,57 @@ describe('signature', () => {
       const { signature: s2 } = signRequestBody(body, secret);
       expect(s1).toBe(s2);
     });
+
+    it('uses timestamp.rawBody format for HMAC', () => {
+      const body = '{"same":"body"}';
+      const { signature, timestamp } = signRequestBody(body, secret);
+      const valid = verifyCallbackSignature(body, signature, secret, timestamp);
+      expect(valid).toBe(true);
+    });
   });
 
   describe('verifyCallbackSignature', () => {
-    it('accepts valid signature', () => {
+    it('accepts valid signature with timestamp', () => {
       const body = '{"event":"kyc.session.completed"}';
-      const { signature } = signRequestBody(body, secret);
-      const valid = verifyCallbackSignature(body, signature, secret);
+      const { signature, timestamp } = signRequestBody(body, secret);
+      const valid = verifyCallbackSignature(body, signature, secret, timestamp);
       expect(valid).toBe(true);
     });
 
     it('rejects invalid signature', () => {
       const body = '{"event":"kyc.session.completed"}';
-      const valid = verifyCallbackSignature(body, 'HMAC-SHA256 invalid', secret);
+      const valid = verifyCallbackSignature(body, 'HMAC-SHA256 invalid', secret, String(Date.now()));
       expect(valid).toBe(false);
     });
 
     it('rejects tampered body', () => {
       const body = '{"event":"kyc.session.completed"}';
-      const { signature } = signRequestBody(body, secret);
-      const valid = verifyCallbackSignature('{"event":"kyc.session.started"}', signature, secret);
+      const { signature, timestamp } = signRequestBody(body, secret);
+      const valid = verifyCallbackSignature('{"event":"kyc.session.started"}', signature, secret, timestamp);
       expect(valid).toBe(false);
     });
 
     it('rejects wrong secret', () => {
       const body = '{"event":"kyc.session.completed"}';
-      const { signature } = signRequestBody(body, secret);
-      const valid = verifyCallbackSignature(body, signature, 'wrong-secret');
+      const { signature, timestamp } = signRequestBody(body, secret);
+      const valid = verifyCallbackSignature(body, signature, 'wrong-secret', timestamp);
       expect(valid).toBe(false);
     });
 
     it('rejects missing signature header', () => {
-      const valid = verifyCallbackSignature('{}', undefined, secret);
+      const valid = verifyCallbackSignature('{}', undefined, secret, String(Date.now()));
       expect(valid).toBe(false);
     });
 
     it('rejects invalid prefix', () => {
-      const valid = verifyCallbackSignature('{}', 'Bearer xyz', secret);
+      const valid = verifyCallbackSignature('{}', 'Bearer xyz', secret, String(Date.now()));
+      expect(valid).toBe(false);
+    });
+
+    it('rejects missing timestamp', () => {
+      const body = '{"event":"kyc.session.completed"}';
+      const { signature } = signRequestBody(body, secret);
+      const valid = verifyCallbackSignature(body, signature, secret, undefined);
       expect(valid).toBe(false);
     });
   });

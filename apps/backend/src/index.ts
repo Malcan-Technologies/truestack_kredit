@@ -24,6 +24,7 @@ import referralsRoutes from './modules/referrals/routes.js';
 import dashboardRoutes from './modules/dashboard/routes.js';
 import resendWebhookRoutes from './modules/webhooks/resendWebhook.js';
 import trueIdentityWebhookRoutes from './modules/webhooks/trueIdentityWebhook.js';
+import trueIdentityPaymentWebhookRoutes from './modules/webhooks/trueIdentityPaymentWebhook.js';
 
 validateConfig();
 
@@ -40,6 +41,7 @@ app.use(cors({
 
 // Webhook routes MUST be registered before express.json() to preserve raw body for signature verification
 app.use('/api/webhooks/resend', express.raw({ type: 'application/json' }), resendWebhookRoutes);
+app.use('/api/webhooks/trueidentity/payment', express.raw({ type: 'application/json' }), trueIdentityPaymentWebhookRoutes);
 app.use('/api/webhooks/trueidentity', express.raw({ type: 'application/json' }), trueIdentityWebhookRoutes);
 
 app.use(express.json());

@@ -91,23 +91,34 @@ Contact your TrueKredit account manager or visit the billing section in your adm
 
 ### Environment Variables
 
+See [docs/kredit-integration-contracts.md](../../../kredit-integration-contracts.md) for the full contract.
+
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `TRUEIDENTITY_ADMIN_BASE_URL` | Base URL of TrueStack Admin | `https://admin.truestack.my` |
-| `KREDIT_TRUESTACK_WEBHOOK_SECRET` | Shared secret for signing Kredit→Admin requests | 32+ character secret |
-| `TRUEIDENTITY_WEBHOOK_SHARED_SECRET` | Shared secret for Admin→Kredit callback verification | Same or separate 32+ char secret |
+| `TRUESTACK_ADMIN_URL` | Base URL of TrueStack Admin | `https://admin-api.truestack.my` |
+| `KREDIT_WEBHOOK_SECRET` | Shared secret for signing Kredit→Admin requests | 32+ character secret |
+| `TRUEIDENTITY_WEBHOOK_SECRET` | Shared secret for Admin→Kredit callback verification | Same or separate 32+ char secret |
+| `KREDIT_INTERNAL_SECRET` | Bearer token for Admin usage API | 32+ character secret |
 | `APP_BASE_URL` or `BACKEND_URL` | Kredit backend URL (for callback URL) | `https://kredit.example.com` |
-| `TRUEIDENTITY_TIMESTAMP_MAX_AGE_MS` | Max age for timestamp in callback (replay protection) | `300000` (5 min) |
+| `TRUEIDENTITY_TIMESTAMP_MAX_AGE_MS` | Max age for timestamp (replay protection) | `300000` (5 min) |
+
+Legacy aliases: `TRUEIDENTITY_ADMIN_BASE_URL`, `KREDIT_TRUESTACK_WEBHOOK_SECRET`, `TRUEIDENTITY_WEBHOOK_SHARED_SECRET`.
 
 ### API Contract
 
-**Kredit → Admin** (`POST {ADMIN_BASE_URL}/api/webhooks/kredit/verification-request`):
+**Kredit → Admin** (`POST {ADMIN_URL}/api/webhooks/kredit/verification-request`):
 
-- Headers: `x-kredit-signature`, `x-kredit-timestamp`
-- Body: `{ tenantId, borrowerId, refId, name, icNumber, callbackUrl }`
+- Headers: `x-kredit-signature`, `x-kredit-timestamp` (HMAC of `{timestamp}.{rawBody}`)
+- Body: `{ tenant_id, borrower_id, document_name, document_number, document_type, webhook_url, metadata }`
 - Response: `{ session_id, onboarding_url, status, expires_at }`
 
 **Admin → Kredit** (`POST {KREDIT_URL}/api/webhooks/trueidentity`):
 
-- Headers: `x-trueidentity-signature`, `x-trueidentity-timestamp` (optional)
+- Headers: `x-trueidentity-signature`, `x-trueidentity-timestamp` (required)
 - Events: `kyc.session.started`, `kyc.session.processing`, `kyc.session.completed`, `kyc.session.expired`
+- Payload: `{ event, session_id, tenant_id, borrower_id, status, result, reject_message, timestamp }`
+
+**Admin → Kredit Payment** (`POST {KREDIT_URL}/api/webhooks/trueidentity/payment`):
+
+- Event: `payment.recorded`
+- Payload: `{ tenant_id, client_id, period_start, period_end, paid_at, paid_amount_myr, timestamp }`

@@ -80,21 +80,23 @@ router.post('/', async (req, res) => {
     const existing = await prisma.trueIdentityWebhookEvent.findUnique({
       where: { idempotencyKey },
     });
-    if (existing) {
+    if (existing?.status === 'PROCESSED') {
       res.status(200).json({ ok: true, processed: 'idempotent' });
       return;
     }
 
-    await prisma.trueIdentityWebhookEvent.create({
-      data: {
-        idempotencyKey,
-        tenantId: payload.tenant_id ?? null,
-        rawPayload: payload as object,
-        signatureHeader: signatureHeader ?? null,
-        timestampHeader: timestampHeader ?? null,
-        status: 'PENDING',
-      },
-    });
+    if (!existing) {
+      await prisma.trueIdentityWebhookEvent.create({
+        data: {
+          idempotencyKey,
+          tenantId: payload.tenant_id ?? null,
+          rawPayload: payload as object,
+          signatureHeader: signatureHeader ?? null,
+          timestampHeader: timestampHeader ?? null,
+          status: 'PENDING',
+        },
+      });
+    }
 
     const tenantId = payload.tenant_id;
     const periodStart = payload.period_start;
@@ -103,14 +105,23 @@ router.post('/', async (req, res) => {
     const paidAmountMyr = payload.paid_amount_myr ?? 0;
 
     if (tenantId && periodStart && periodEnd) {
-      const periodStartDate = new Date(periodStart);
-      const periodEndDate = new Date(periodEnd);
+      // Contract sends date-only (e.g. "2025-02-01"); invoices store DateTime.
+      // Match by date range to avoid exact timestamp equality mismatch.
+      const toDateRange = (dateStr: string) => {
+        const d = new Date(dateStr);
+        const gte = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        const lt = new Date(gte);
+        lt.setUTCDate(lt.getUTCDate() + 1);
+        return { gte, lt };
+      };
+      const startRange = toDateRange(periodStart);
+      const endRange = toDateRange(periodEnd);
 
       const invoice = await prisma.invoice.findFirst({
         where: {
           tenantId,
-          periodStart: periodStartDate,
-          periodEnd: periodEndDate,
+          periodStart: { gte: startRange.gte, lt: startRange.lt },
+          periodEnd: { gte: endRange.gte, lt: endRange.lt },
           status: { in: ['DRAFT', 'ISSUED', 'OVERDUE'] },
         },
       });

@@ -44,8 +44,16 @@ export function verifyCallbackSignature(
   hmac.update(payload);
   const computedDigest = hmac.digest('base64');
 
-  if (expectedDigest.length !== computedDigest.length) return false;
-  if (!timingSafeEqual(Buffer.from(expectedDigest, 'base64'), Buffer.from(computedDigest, 'base64'))) return false;
+  let expectedBuf: Buffer;
+  let computedBuf: Buffer;
+  try {
+    expectedBuf = Buffer.from(expectedDigest, 'base64');
+    computedBuf = Buffer.from(computedDigest, 'base64');
+  } catch {
+    return false;
+  }
+  if (expectedBuf.length !== computedBuf.length) return false;
+  if (!timingSafeEqual(expectedBuf, computedBuf)) return false;
 
   return true;
 }

@@ -86,20 +86,22 @@ router.post('/', async (req, res) => {
     const existing = await prisma.trueIdentityWebhookEvent.findUnique({
       where: { idempotencyKey },
     });
-    if (existing) {
+    if (existing?.status === 'PROCESSED') {
       res.status(200).json({ ok: true, processed: 'idempotent' });
       return;
     }
 
-    await prisma.trueIdentityWebhookEvent.create({
-      data: {
-        idempotencyKey,
-        rawPayload: payload as object,
-        signatureHeader: signatureHeader ?? null,
-        timestampHeader: timestampHeader ?? null,
-        status: 'PENDING',
-      },
-    });
+    if (!existing) {
+      await prisma.trueIdentityWebhookEvent.create({
+        data: {
+          idempotencyKey,
+          rawPayload: payload as object,
+          signatureHeader: signatureHeader ?? null,
+          timestampHeader: timestampHeader ?? null,
+          status: 'PENDING',
+        },
+      });
+    }
 
     const event = payload.event ?? '';
     const status = STATUS_MAP[event] ?? payload.status ?? null;

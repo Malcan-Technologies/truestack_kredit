@@ -251,13 +251,6 @@ function ApplicationsPageContent() {
           Draft
         </Button>
         <Button
-          variant={filter === "UNDER_REVIEW" ? "default" : "outline"}
-          size="sm"
-          onClick={() => { setFilter("UNDER_REVIEW"); setCurrentPage(1); }}
-        >
-          Under Review
-        </Button>
-        <Button
           variant={filter === "APPROVED" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("APPROVED"); setCurrentPage(1); }}

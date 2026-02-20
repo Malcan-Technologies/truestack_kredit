@@ -115,13 +115,15 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
             {promotion.footerText ??
               (promotion.badge === "Coming Soon"
                 ? "Under development. Stay tuned!"
-                : promotion.href
+                : promotion.contactHref ?? promotion.href
                   ? "Get started and share your referral link."
                   : "Contact your account manager to enable.")}
           </p>
-          {promotion.href ? (
+          {(promotion.contactHref ?? promotion.href) ? (
             <Button variant="default" size="sm" className="shrink-0" asChild>
-              <Link href={promotion.href}>{promotion.cta}</Link>
+              <Link href={promotion.contactHref ?? promotion.href}>
+                {promotion.contactHref ? "Contact" : promotion.cta}
+              </Link>
             </Button>
           ) : (
             <Button

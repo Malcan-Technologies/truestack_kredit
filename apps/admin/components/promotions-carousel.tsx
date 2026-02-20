@@ -84,7 +84,7 @@ export function PromotionsCarousel({ promotions = PROMOTIONS, className }: Promo
               <>
                 <div className="min-w-0 flex-1 flex flex-col items-start gap-1 overflow-hidden">
                   <div className="flex items-center gap-2 min-w-0 w-full">
-                    <p className="font-heading font-semibold text-xl text-foreground break-words">
+                    <p className="font-heading font-semibold text-base text-foreground break-words">
                       {current.title}
                     </p>
                     <Badge
@@ -134,8 +134,8 @@ export function PromotionsCarousel({ promotions = PROMOTIONS, className }: Promo
           )}>
             <div className="min-w-0 flex flex-col items-start gap-1 overflow-hidden">
               <div className="flex items-center gap-2 min-w-0 w-full flex-wrap">
-                <p className="font-heading font-semibold text-xl text-foreground break-words">
-                  {current.title}
+<p className="font-heading font-semibold text-base text-foreground break-words">
+                {current.title}
                 </p>
                 <Badge
                   variant={current.badgeVariant}

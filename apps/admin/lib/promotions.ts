@@ -22,6 +22,8 @@ export interface Promotion {
   cta: string;
   /** Optional custom footer text; when omitted, a default is derived from badge/href */
   footerText?: string;
+  /** When set, promotions page uses this for CTA (link + "Contact" label) instead of href/cta */
+  contactHref?: string;
 }
 
 export const PROMOTIONS: Promotion[] = [
@@ -57,7 +59,7 @@ export const KPKT_PROMOTIONS: Promotion[] = [
   {
     id: "kpkt-services",
     title: "KPKT Services",
-    tagline: "Administrative and compliance services to handle your regulatory and company needs.",
+    tagline: "Administrative and compliance services to handle your regulatory needs.",
     description:
       "We handle administrative and compliance items on your behalf so you can focus on your lending business. From company updates and license renewals to annual submissions and PDPA licensing — we process everything on time, every time.",
     icon: FileText,
@@ -66,7 +68,8 @@ export const KPKT_PROMOTIONS: Promotion[] = [
     badgeVariant: "success",
     gradient: "from-foreground/[0.12] via-card to-foreground/[0.09] dark:from-black/[0.15] dark:via-card dark:to-black/[0.08]",
     borderColor: "border-foreground/[0.08] dark:border-white/[0.08]",
-    href: "/dashboard/contact",
+    href: "/dashboard/promotions#kpkt-services",
+    contactHref: "/dashboard/contact",
     features: [
       "Company Updates — Director changes, shareholder updates, and essential company modifications",
       "License Renewals — KPKT license and advertisement permit renewals processed on time",
@@ -75,13 +78,13 @@ export const KPKT_PROMOTIONS: Promotion[] = [
       "Enterprise Upgrade — Smooth transition to Sdn. Bhd. status with complete documentation and regulatory coordination",
       "Express Handling — Urgent requests prioritized and expedited when you need fast turnaround",
     ],
-    cta: "Contact",
+    cta: "Learn More",
     footerText: "Contact us to learn more about our admin and compliance services.",
   },
   {
     id: "kpkt-digital-license",
     title: "KPKT Digital License Application",
-    tagline: "Go from traditional branch-based operations to a fully digital, KPKT-licensed platform.",
+    tagline: "Go from offline operations to a fully digital, KPKT-licensed platform.",
     description:
       "Transform your lending business with our proven process. Operate nationwide, serve customers across all of Malaysia. Web and mobile apps let customers apply and manage loans from anywhere, anytime. Get operational in ~3 months. Built to meet all KPKT digital licensing requirements from day one.",
     icon: ShieldCheck,
@@ -90,14 +93,15 @@ export const KPKT_PROMOTIONS: Promotion[] = [
     badgeVariant: "success",
     gradient: "from-foreground/[0.12] via-card to-foreground/[0.09] dark:from-black/[0.15] dark:via-card dark:to-black/[0.08]",
     borderColor: "border-foreground/[0.08] dark:border-white/[0.08]",
-    href: "/dashboard/contact",
+    href: "/dashboard/promotions#kpkt-digital-license",
+    contactHref: "/dashboard/contact",
     features: [
       "Operate nationwide across Malaysia",
       "Web + mobile apps for customers",
       "~3 months to launch",
       "Fully compliant with KPKT digital licensing requirements",
     ],
-    cta: "Contact",
+    cta: "Learn More",
     footerText: "Contact us to learn more about digital licensing.",
   },
 ];

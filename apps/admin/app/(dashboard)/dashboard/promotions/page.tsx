@@ -65,27 +65,58 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
       className={`overflow-hidden bg-gradient-to-br flex flex-col border ${promotion.gradient} ${promotion.borderColor} scroll-mt-24`}
     >
       <CardHeader className="pb-3">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground/5 dark:bg-white/5">
-            <promotion.icon className="h-5.5 w-5.5 text-foreground/70 dark:text-white/70" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <CardTitle className="text-xl font-heading text-foreground">
-                {promotion.title}
-              </CardTitle>
-              <Badge
-                variant={promotion.badgeVariant}
-                className="text-xs"
-              >
-                {promotion.badge}
-              </Badge>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col items-start gap-3 text-left min-w-0">
+            {/* Icon or illustration on top */}
+            {promotion.illustration ? (
+              <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/60 p-3 flex items-center justify-center">
+                <img
+                  src={promotion.illustration}
+                  alt=""
+                  className="h-16 w-auto max-w-[80px] object-contain object-left"
+                />
+              </div>
+            ) : (
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground/5 dark:bg-white/5">
+                <promotion.icon className="h-5.5 w-5.5 text-foreground/70 dark:text-white/70" />
+              </div>
+            )}
+            <div className="min-w-0 w-full">
+              <div className="flex items-center gap-2 flex-wrap">
+                <CardTitle className="text-xl font-heading text-foreground">
+                  {promotion.title}
+                </CardTitle>
+                <Badge
+                  variant={promotion.badgeVariant}
+                  className="text-xs"
+                >
+                  {promotion.badge}
+                </Badge>
+              </div>
+              <p className="text-base text-muted-foreground mt-1">{promotion.tagline}</p>
             </div>
-            <p className="text-base text-muted-foreground mt-1">{promotion.tagline}</p>
+          </div>
+          {/* CTA button - top right */}
+          <div className="shrink-0">
+            {promotion.href ? (
+              <Button variant="default" size="sm" asChild>
+                <Link href={promotion.href}>{promotion.cta}</Link>
+              </Button>
+            ) : (
+              <Button
+                variant={promotion.badge === "Coming Soon" ? "outline" : "default"}
+                size="sm"
+                disabled={promotion.badge === "Coming Soon"}
+              >
+                {promotion.badge === "Coming Soon"
+                  ? "Coming Soon"
+                  : "Contact Us"}
+              </Button>
+            )}
           </div>
         </div>
         {promotion.pricing && (
-          <div className="mt-3 flex items-center justify-between rounded-lg bg-foreground/[0.03] dark:bg-white/[0.03] border border-foreground/[0.06] dark:border-white/[0.06] px-3 py-2">
+          <div className="mt-3 flex items-center justify-start gap-4 rounded-lg bg-foreground/[0.03] dark:bg-white/[0.03] border border-foreground/[0.06] dark:border-white/[0.06] px-3 py-2">
             <p className="text-sm text-muted-foreground uppercase tracking-wide font-medium">
               Pricing
             </p>
@@ -96,7 +127,7 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
         )}
       </CardHeader>
 
-      <CardContent className="space-y-4 flex-1 flex flex-col">
+      <CardContent className="space-y-4 flex-1 flex flex-col text-left">
         <p className="text-base text-muted-foreground leading-relaxed">
           {promotion.description}
         </p>
@@ -122,32 +153,13 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
 
         <Separator className="opacity-50" />
 
-        {/* CTA */}
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
-            {promotion.badge === "Coming Soon"
-              ? "Under development. Stay tuned!"
-              : promotion.href
-                ? "Get started and share your referral link."
-                : "Contact your account manager to enable."}
-          </p>
-          {promotion.href ? (
-            <Button variant="default" size="sm" className="shrink-0" asChild>
-              <Link href={promotion.href}>{promotion.cta}</Link>
-            </Button>
-          ) : (
-            <Button
-              variant={promotion.badge === "Coming Soon" ? "outline" : "default"}
-              size="sm"
-              className="shrink-0"
-              disabled={promotion.badge === "Coming Soon"}
-            >
-              {promotion.badge === "Coming Soon"
-                ? "Coming Soon"
-                : "Contact Us"}
-            </Button>
-          )}
-        </div>
+        <p className="text-sm text-muted-foreground">
+          {promotion.badge === "Coming Soon"
+            ? "Under development. Stay tuned!"
+            : promotion.href
+              ? "Get started and share your referral link."
+              : "Contact your account manager to enable."}
+        </p>
       </CardContent>
     </Card>
   );

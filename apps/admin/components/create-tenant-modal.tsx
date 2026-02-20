@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -177,15 +178,12 @@ export function CreateTenantModal({ open, onClose }: CreateTenantModalProps) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="contactNumber">Contact Number</Label>
-              <Input
-                id="contactNumber"
-                type="tel"
-                placeholder="+60123456789"
-                value={formData.contactNumber}
-                onChange={(e) =>
-                  setFormData({ ...formData, contactNumber: e.target.value })
+              <PhoneInput
+                value={formData.contactNumber || undefined}
+                onChange={(val) =>
+                  setFormData({ ...formData, contactNumber: val ?? "" })
                 }
-                required
+                placeholder="16 2487680"
               />
             </div>
             <div className="space-y-2">

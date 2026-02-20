@@ -2,10 +2,18 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Book, ChevronRight, FileText, Search, Menu, X } from "lucide-react";
+import { Book, ChevronRight, FileText, List, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -38,7 +46,7 @@ function HelpPageContent() {
   const [loading, setLoading] = useState(true);
   const [docLoading, setDocLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const docSlug = searchParams.get("doc");
@@ -84,7 +92,7 @@ function HelpPageContent() {
         setCurrentDoc(null);
       }
       setDocLoading(false);
-      setSidebarOpen(false);
+      setDropdownOpen(false);
     };
     fetchDoc();
   }, [docSlug]);
@@ -123,29 +131,78 @@ function HelpPageContent() {
 
   return (
     <div className="flex h-[calc(100vh-8rem)]">
-      {/* Mobile sidebar toggle */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="fixed bottom-4 right-4 z-50 lg:hidden shadow-lg bg-surface border border-border"
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-      >
-        {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </Button>
+      {/* Mobile/tablet: floating dropdown for navigation */}
+      <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="default"
+            size="icon"
+            className="fixed bottom-6 right-6 z-50 lg:hidden h-12 w-12 rounded-full shadow-lg"
+            aria-label="Open help navigation"
+          >
+            <List className="h-5 w-5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          side="top"
+          sideOffset={8}
+          className="w-[min(calc(100vw-2rem),20rem)] max-h-[70vh] overflow-y-auto"
+        >
+          <DropdownMenuLabel className="flex items-center gap-2">
+            <Book className="h-4 w-4 text-muted-foreground" />
+            Help Center
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <div className="p-2">
+            <div className="relative mb-2">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search docs..."
+                className="pl-8 h-9 text-sm"
+              />
+            </div>
+          </div>
+          <DropdownMenuSeparator />
+          {loading ? (
+            <div className="px-2 py-4 text-sm text-muted">Loading...</div>
+          ) : filteredCategories.length === 0 ? (
+            <div className="px-2 py-4 text-sm text-muted">No docs found</div>
+          ) : (
+            <div className="max-h-[50vh] overflow-y-auto">
+              {filteredCategories.map((category) => (
+                <div key={category.slug || "general"} className="py-1">
+                  {category.name !== "General" && (
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      {category.name}
+                    </DropdownMenuLabel>
+                  )}
+                  {category.docs.map((doc) => (
+                    <DropdownMenuItem
+                      key={doc.slug}
+                      onClick={() => navigateToDoc(doc.slug)}
+                      className={cn(
+                        "cursor-pointer",
+                        docSlug === doc.slug && "bg-secondary font-medium"
+                      )}
+                    >
+                      <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
+                      <span className="truncate">{doc.title}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-      {/* Sidebar overlay for mobile */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
+      {/* Sidebar - desktop only */}
       <aside
         className={cn(
-          "fixed lg:relative top-0 left-0 z-50 lg:z-0 h-full w-72 bg-surface border-r border-border flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          "hidden lg:flex lg:relative top-0 left-0 z-0 h-full w-72 flex-shrink-0 bg-surface border-r border-border flex-col"
         )}
       >
         <div className="p-4 border-b border-border">
@@ -281,7 +338,7 @@ function HelpPageContent() {
             </h2>
             <p className="text-muted max-w-md mb-6">
               Browse our documentation to learn how to use TrueKredit
-              effectively. Select a topic from the sidebar to get started.
+              effectively. Use the menu button or select a topic below to get started.
             </p>
 
             {/* Quick links */}

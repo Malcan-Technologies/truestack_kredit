@@ -4,7 +4,7 @@ import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../../lib/auth.js';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnauthorizedError } from '../../lib/errors.js';
-import { authenticateToken } from '../../middleware/authenticate.js';
+import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
 import { getOrCreateReferralCode } from '../../lib/referral.js';
 // @ts-ignore - better-auth crypto module
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
@@ -202,7 +202,7 @@ router.post('/switch-tenant', async (req, res, next) => {
  * Get current user info with current membership
  * GET /api/auth/me
  */
-router.get('/me', authenticateToken, async (req, res, next) => {
+router.get('/me', requireSession, async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.userId },
@@ -249,8 +249,24 @@ router.get('/me', authenticateToken, async (req, res, next) => {
       },
     });
 
-    if (!membership) {
-      throw new NotFoundError('Membership');
+    // Fallback: session has activeTenantId but membership missing/inactive (e.g. removed from tenant)
+    if (!membership || !membership.isActive) {
+      return res.json({
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: null,
+            createdAt: user.createdAt.toISOString(),
+            referrer: user.referrer
+              ? { id: user.referrer.id, name: user.referrer.name, email: user.referrer.email }
+              : null,
+          },
+          tenant: null,
+        },
+      });
     }
 
     res.json({
@@ -292,7 +308,7 @@ const changePasswordSchema = z.object({
  * Change password
  * POST /api/auth/change-password
  */
-router.post('/change-password', authenticateToken, async (req, res, next) => {
+router.post('/change-password', requireSession, async (req, res, next) => {
   try {
     const data = changePasswordSchema.parse(req.body);
 
@@ -362,7 +378,7 @@ router.post('/change-password', authenticateToken, async (req, res, next) => {
  * Uses Account table from Better Auth - the updatedAt field
  * is updated when password is changed for credential provider
  */
-router.get('/password-info', authenticateToken, async (req, res, next) => {
+router.get('/password-info', requireSession, async (req, res, next) => {
   try {
     // Get the credential account for this user
     const account = await prisma.account.findFirst({
@@ -412,7 +428,7 @@ router.get('/password-info', authenticateToken, async (req, res, next) => {
  * Uses Session table from Better Auth which stores login sessions
  * with IP address and user agent info
  */
-router.get('/login-history', authenticateToken, async (req, res, next) => {
+router.get('/login-history', requireSession, async (req, res, next) => {
   try {
     // Get recent sessions for this user (each session represents a login)
     const sessions = await prisma.session.findMany({
@@ -453,7 +469,7 @@ const updateProfileSchema = z.object({
  * Update current user's profile
  * PATCH /api/auth/profile
  */
-router.patch('/profile', authenticateToken, async (req, res, next) => {
+router.patch('/profile', requireSession, async (req, res, next) => {
   try {
     const data = updateProfileSchema.parse(req.body);
 
@@ -473,7 +489,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
       success: true,
       data: {
         ...user,
-        role: req.user!.role, // Add role from membership
+        role: req.user?.role ?? null, // Role from membership (null when no tenant)
       },
     });
   } catch (error) {
@@ -485,7 +501,7 @@ router.patch('/profile', authenticateToken, async (req, res, next) => {
  * Get or generate referral code for current user
  * GET /api/auth/referral-code
  */
-router.get('/referral-code', authenticateToken, async (req, res, next) => {
+router.get('/referral-code', requireSession, async (req, res, next) => {
   try {
     const referralCode = await getOrCreateReferralCode(req.user!.userId);
 

@@ -20,6 +20,7 @@ const ROUTE_LABELS: Record<string, string> = {
   "admin-logs": "Admin Logs",
   "add-ons": "Add-ons",
   plan: "Plan",
+  profile: "Profile",
 };
 
 interface BreadcrumbItem {

@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../../lib/errors.js';
-import { authenticateToken } from '../../middleware/authenticate.js';
+import { requireSession } from '../../middleware/authenticate.js';
 
 const router = Router();
 
-// All routes require authentication
-router.use(authenticateToken);
+// Profile-level: works without active tenant (user may have no tenants yet)
+router.use(requireSession);
 
 /**
  * GET /api/referrals

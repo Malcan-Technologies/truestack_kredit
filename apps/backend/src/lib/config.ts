@@ -57,7 +57,6 @@ export const config = {
   // TrueIdentity / TrueStack Admin integration
   trueIdentity: {
     adminBaseUrl:
-      process.env.TRUESTACK_ADMIN_URL ||
       process.env.TRUEIDENTITY_ADMIN_BASE_URL ||
       '',
     kreditBaseUrl: process.env.APP_BASE_URL || process.env.BACKEND_URL || 'http://localhost:4000',

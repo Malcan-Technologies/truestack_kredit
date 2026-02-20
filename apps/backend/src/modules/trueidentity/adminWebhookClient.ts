@@ -30,7 +30,7 @@ export async function requestVerificationSession(
 ): Promise<VerificationRequestResponse> {
   const baseUrl = config.trueIdentity.adminBaseUrl?.replace(/\/$/, '') || '';
   if (!baseUrl) {
-    throw new Error('TRUESTACK_ADMIN_URL / TRUEIDENTITY_ADMIN_BASE_URL is not configured');
+    throw new Error('TRUEIDENTITY_ADMIN_BASE_URL is not configured');
   }
 
   const secret = config.trueIdentity.kreditWebhookSecret;

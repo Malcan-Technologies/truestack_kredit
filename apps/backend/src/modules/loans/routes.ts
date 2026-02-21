@@ -3230,7 +3230,7 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
 
       agreementDate = parsedDate;
       firstRepaymentDate = calculateFirstRepaymentDate(parsedDate);
-      monthlyRepaymentDay = firstRepaymentDate.getDate();
+      monthlyRepaymentDay = firstRepaymentDate.getUTCDate();
 
       // Save the agreement date to the loan
       await prisma.loan.update({
@@ -3243,7 +3243,7 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
     if (!agreementDate && loan.agreementDate) {
       agreementDate = loan.agreementDate;
       firstRepaymentDate = calculateFirstRepaymentDate(loan.agreementDate);
-      monthlyRepaymentDay = firstRepaymentDate.getDate();
+      monthlyRepaymentDay = firstRepaymentDate.getUTCDate();
     }
 
     // Prepare loan data for PDF generation

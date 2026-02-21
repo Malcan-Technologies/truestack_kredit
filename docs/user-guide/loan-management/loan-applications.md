@@ -52,7 +52,7 @@ Products are automatically filtered based on the selected borrower's type:
 
 **Product Information Displayed:**
 - Product name and description
-- Interest model (Flat Rate, Declining Balance, Effective Rate)
+- Interest model (Flat Rate, Rule 78)
 - Loan schedule type badge (Jadual J or Jadual K)
 - Interest rate
 - Amount and term ranges

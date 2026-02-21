@@ -88,14 +88,15 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
       });
     } else {
       balance = safeSubtract(balance, monthlyPrincipal);
+      const principalPortion = round(monthlyPrincipal);
       const interestPortion = round(Math.max(0, Math.min(round(monthlyInterest), remainingInterest)));
       remainingInterest = round(Math.max(0, safeSubtract(remainingInterest, interestPortion)));
 
       repayments.push({
         dueDate,
-        principal: round(monthlyPrincipal),
+        principal: principalPortion,
         interest: interestPortion,
-        totalDue: round(monthlyPayment),
+        totalDue: round(safeAdd(principalPortion, interestPortion)),
         balance: round(balance),
       });
     }

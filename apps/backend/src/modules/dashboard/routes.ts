@@ -203,7 +203,6 @@ router.get('/stats', async (req, res, next) => {
     let totalActiveOutstanding = 0; // denominator for PAR
 
     // Total collected = sum of payments received in date range
-    const paymentTransactionIds = paymentsInRange.map((p) => p.id);
     for (const payment of paymentsInRange) {
       totalCollected = safeAdd(totalCollected, Number(payment.totalAmount));
     }
@@ -290,34 +289,6 @@ router.get('/stats', async (req, res, next) => {
     // Collection rate + chart data: run collection-rate queries and chart-data queries in parallel
     // Use Malaysia time for "today" so production servers in UTC don't misclassify due dates
     const todayEnd = getMalaysiaEndOfDay(now);
-    const allocationsInPeriodPromise =
-      paymentTransactionIds.length > 0
-        ? prisma.paymentAllocation.findMany({
-            where: {
-              repayment: { scheduleVersion: { loan: { tenantId } } },
-              OR: [
-                { transactionId: { in: paymentTransactionIds } },
-                {
-                  transactionId: null,
-                  allocatedAt: { gte: fromDate, lte: toDate },
-                },
-              ],
-            },
-            include: {
-              repayment: { select: { principal: true, interest: true } },
-            },
-          })
-        : prisma.paymentAllocation.findMany({
-            where: {
-              repayment: { scheduleVersion: { loan: { tenantId } } },
-              transactionId: null,
-              allocatedAt: { gte: fromDate, lte: toDate },
-            },
-            include: {
-              repayment: { select: { principal: true, interest: true } },
-            },
-          });
-
     const [
       repaymentsDueInRange,
       repaymentsDue,
@@ -388,21 +359,65 @@ router.get('/stats', async (req, res, next) => {
           },
         },
       }),
-      allocationsInPeriodPromise,
+      prisma.paymentAllocation.findMany({
+        where: {
+          repayment: { scheduleVersion: { loan: { tenantId } } },
+          allocatedAt: { gte: fromDate, lte: toDate },
+        },
+        include: {
+          repayment: { select: { principal: true, interest: true } },
+          transaction: { select: { paymentType: true } },
+        },
+        orderBy: [{ allocatedAt: 'asc' }, { id: 'asc' }],
+      }),
     ]);
 
-    // Total earned = collected interest + fees (late fees from allocations + disbursement fees)
+    const repaymentIdsInPeriod = [...new Set(allocationsInPeriod.map((alloc) => alloc.repaymentId))];
+    const paidBeforePeriodRows = repaymentIdsInPeriod.length > 0
+      ? await prisma.paymentAllocation.groupBy({
+          by: ['repaymentId'],
+          _sum: { amount: true },
+          where: {
+            repaymentId: { in: repaymentIdsInPeriod },
+            allocatedAt: { lt: fromDate },
+          },
+        })
+      : [];
+    const paidThroughByRepaymentId = new Map<string, number>();
+    for (const row of paidBeforePeriodRows) {
+      paidThroughByRepaymentId.set(row.repaymentId, toSafeNumber(row._sum.amount));
+    }
+
+    // Total earned = collected interest + fees (late fees from allocations + disbursement fees).
+    // For normal payments, interest attribution must follow repayment allocation order:
+    // late fee -> interest -> principal.
+    // Early settlement allocations are distributed proportionally by design.
     let totalEarnedInterest = 0;
     let totalEarnedFees = 0;
     for (const alloc of allocationsInPeriod) {
       const lateFee = toSafeNumber(alloc.lateFee);
-      const principal = toSafeNumber(alloc.repayment.principal);
-      const interest = toSafeNumber(alloc.repayment.interest);
-      const principalPlusInterest = safeAdd(principal, interest);
-      const interestPortion =
-        principalPlusInterest > 0
-          ? safeMultiply(toSafeNumber(alloc.amount), safeDivide(interest, principalPlusInterest), 8)
+      const allocationAmount = toSafeNumber(alloc.amount);
+      const interestDue = toSafeNumber(alloc.repayment.interest);
+      const paidBeforeAllocation = paidThroughByRepaymentId.get(alloc.repaymentId) ?? 0;
+
+      let interestPortion = 0;
+      if (alloc.transaction?.paymentType === 'EARLY_SETTLEMENT') {
+        const principalDue = toSafeNumber(alloc.repayment.principal);
+        const principalPlusInterest = safeAdd(principalDue, interestDue);
+        interestPortion = principalPlusInterest > 0
+          ? safeMultiply(allocationAmount, safeDivide(interestDue, principalPlusInterest), 8)
           : 0;
+      } else {
+        const interestAlreadyCovered = Math.min(interestDue, paidBeforeAllocation);
+        const interestRemaining = Math.max(0, safeSubtract(interestDue, interestAlreadyCovered));
+        interestPortion = Math.min(allocationAmount, interestRemaining);
+      }
+
+      paidThroughByRepaymentId.set(
+        alloc.repaymentId,
+        safeAdd(paidBeforeAllocation, allocationAmount)
+      );
+
       totalEarnedInterest = safeAdd(totalEarnedInterest, interestPortion);
       totalEarnedFees = safeAdd(totalEarnedFees, lateFee);
       totalEarned = safeAdd(totalEarned, lateFee, interestPortion);

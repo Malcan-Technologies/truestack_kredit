@@ -31,7 +31,7 @@ const previewScheduleSchema = z.object({
   interestRate: z.number().min(0).max(100),
   term: z.number().int().positive(),
   disbursementDate: z.string().datetime().optional(),
-  interestModel: z.enum(['FLAT', 'DECLINING_BALANCE', 'EFFECTIVE_RATE']),
+  interestModel: z.enum(['FLAT', 'RULE_78', 'DECLINING_BALANCE', 'EFFECTIVE_RATE']),
 });
 
 const recordPaymentSchema = z.object({

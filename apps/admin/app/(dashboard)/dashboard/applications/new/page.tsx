@@ -229,7 +229,7 @@ export default function NewApplicationPage() {
       let totalInterest: number;
       let totalPayable: number;
 
-      if (selectedProduct.interestModel === "FLAT") {
+      if (selectedProduct.interestModel === "FLAT" || selectedProduct.interestModel === "RULE_78") {
         // Flat interest: Principal × Rate × Term / 12
         const annualRate = safeDivide(interestRate, 100);
         totalInterest = safeMultiply(
@@ -581,7 +581,7 @@ export default function NewApplicationPage() {
                             <p className="font-medium">{product.name}</p>
                             <div className="flex flex-wrap gap-1 mt-1">
                               <Badge variant="outline" className="text-xs">
-                                {product.interestModel.replace("_", " ")}
+                                {product.interestModel === "RULE_78" ? "Rule 78" : product.interestModel.replace("_", " ")}
                               </Badge>
                               <Badge
                                 variant={product.loanScheduleType === "JADUAL_K" ? "default" : "outline"}
@@ -917,7 +917,7 @@ export default function NewApplicationPage() {
                     <div>
                       <p className="font-medium text-lg">{selectedProduct.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {selectedProduct.interestModel.replace("_", " ")}
+                        {selectedProduct.interestModel === "RULE_78" ? "Rule 78" : selectedProduct.interestModel.replace("_", " ")}
                       </p>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-sm">

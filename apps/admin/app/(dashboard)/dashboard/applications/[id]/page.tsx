@@ -455,7 +455,7 @@ export default function ApplicationDetailPage() {
     let totalInterest: number;
     let totalPayable: number;
 
-    if (application.product.interestModel === "FLAT") {
+    if (application.product.interestModel === "FLAT" || application.product.interestModel === "RULE_78") {
       const annualRate = safeDivide(interestRate, 100);
       totalInterest = safeMultiply(safeMultiply(loanAmount, annualRate), safeDivide(term, 12));
       totalPayable = safeAdd(loanAmount, totalInterest);
@@ -609,11 +609,11 @@ export default function ApplicationDetailPage() {
           <div className="grid md:grid-cols-2 gap-6">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
+                <CardTitle className="text-lg flex items-center gap-2">
                   {application.borrower.borrowerType === "CORPORATE" ? (
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
                   ) : (
-                    <User className="h-4 w-4 text-muted-foreground" />
+                    <User className="h-5 w-5 text-muted-foreground" />
                   )}
                   Borrower
                 </CardTitle>
@@ -676,8 +676,8 @@ export default function ApplicationDetailPage() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Package className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Package className="h-5 w-5 text-muted-foreground" />
                   Product
                 </CardTitle>
               </CardHeader>
@@ -686,7 +686,7 @@ export default function ApplicationDetailPage() {
                   <p className="font-medium text-lg">{application.product.name}</p>
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     <Badge variant="outline" className="text-xs">
-                      {application.product.interestModel.replace("_", " ")}
+                      {application.product.interestModel === "RULE_78" ? "Rule 78" : application.product.interestModel.replace("_", " ")}
                     </Badge>
                     <Badge
                       variant={application.product.loanScheduleType === "JADUAL_K" ? "default" : "outline"}
@@ -728,9 +728,9 @@ export default function ApplicationDetailPage() {
             <div className="relative overflow-hidden rounded-xl border border-border bg-secondary p-5 space-y-3">
               {/* Subtle accent glow */}
               <div className="absolute -top-12 -right-12 w-32 h-32 bg-foreground/5 rounded-full blur-3xl" />
-              <h3 className="relative font-semibold flex items-center gap-2 text-foreground">
+              <h3 className="relative text-lg font-semibold flex items-center gap-2 text-foreground">
                 <div className="p-1.5 rounded-md bg-foreground/10">
-                  <Calculator className="h-4 w-4 text-muted-foreground" />
+                  <Calculator className="h-5 w-5 text-muted-foreground" />
                 </div>
                 Loan Summary
               </h3>
@@ -800,8 +800,8 @@ export default function ApplicationDetailPage() {
           {/* Documents */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <FileText className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FileText className="h-5 w-5 text-muted-foreground" />
                 Documents
               </CardTitle>
               <CardDescription>
@@ -932,7 +932,7 @@ export default function ApplicationDetailPage() {
           {/* Quick Info Card */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Quick Info</CardTitle>
+              <CardTitle className="text-lg">Quick Info</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
@@ -959,7 +959,7 @@ export default function ApplicationDetailPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Interest Model</span>
-                <span>{application.product.interestModel.replace("_", " ")}</span>
+                <span>{application.product.interestModel === "RULE_78" ? "Rule 78" : application.product.interestModel.replace("_", " ")}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Schedule Type</span>

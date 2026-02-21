@@ -94,6 +94,7 @@ interface TimelineEvent {
 
 const interestModelLabels: Record<string, string> = {
   FLAT: "Flat Rate",
+  RULE_78: "Rule 78",
   DECLINING_BALANCE: "Declining Balance",
   EFFECTIVE_RATE: "Effective Rate",
 };

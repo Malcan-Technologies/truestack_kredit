@@ -77,7 +77,7 @@ When creating a product, you must choose an **Interest Model**. This determines 
 
 **Best for:** Simple, easy-to-understand loans
 
-Interest is calculated on the **original principal** for the entire loan term, regardless of how much has been repaid.
+Interest is calculated on the **original principal** for the entire loan term, regardless of how much has been repaid. The same amount of interest is allocated to each month.
 
 **Formula:**
 ```
@@ -96,68 +96,51 @@ Monthly Payment = (10,000 + 800) ÷ 12 = RM 900
 Total Repayment = RM 10,800
 ```
 
-**Note:** Flat rate results in higher total interest compared to declining balance, but offers predictable fixed monthly payments.
+**Note:** Flat rate offers predictable fixed monthly payments with interest spread evenly across the term.
 
 ---
 
-### 2. Declining Balance (Reducing Balance)
+### 2. Rule 78
 
-**Best for:** Fair interest calculation where borrowers pay less interest over time
+**Best for:** Front-loaded interest where more interest is collected earlier in the loan term
 
-Interest is calculated on the **outstanding balance** each month. As the principal is repaid, the interest portion decreases.
+Rule 78 (also known as the sum-of-digits method) uses the same **total interest** as Flat Rate, but allocates it differently across installments. A larger portion of interest is charged in the early months and a smaller portion in the later months.
 
-**Formula:**
-```
-EMI = P × r × (1 + r)^n ÷ [(1 + r)^n - 1]
+**How it works:**
+- Total interest is calculated the same way as Flat Rate: Principal × Rate × Term
+- The monthly payment amount is the same as Flat Rate: (Principal + Total Interest) ÷ Term
+- The split between principal and interest in each payment varies: early payments have more interest, later payments have more principal
 
-Where:
-- P = Principal amount
-- r = Monthly interest rate (annual rate ÷ 12)
-- n = Number of months
-```
+**Example (RM 10,000 at 8% for 12 months):**
 
-**Example:**
-- Loan: RM 10,000
-- Rate: 8% per annum
-- Term: 12 months
+| Aspect | Flat Rate | Rule 78 |
+|--------|-----------|----------|
+| Total Interest | RM 800 | RM 800 |
+| Monthly Payment | RM 900 | RM 900 |
+| Total Repayment | RM 10,800 | RM 10,800 |
+| First payment (interest portion) | RM 66.67 | Higher |
+| Last payment (interest portion) | RM 66.67 | Lower |
 
-```
-Monthly Rate = 8% ÷ 12 = 0.667%
-EMI ≈ RM 869.88
-Total Repayment ≈ RM 10,438.56
-Total Interest ≈ RM 438.56
-```
-
-**Note:** The monthly payment (EMI) stays the same, but the proportion going to interest vs. principal changes over time. Early payments have more interest; later payments have more principal.
-
----
-
-### 3. Effective Rate
-
-**Best for:** Regulatory compliance and transparent interest disclosure
-
-Uses the same calculation as Declining Balance but is often used when you need to quote an "effective" or "true" interest rate for compliance purposes.
-
-The effective rate shows the real cost of borrowing when interest is compounded, making it easier for borrowers to compare loan products.
+**Note:** Rule 78 is useful when you want to collect more interest upfront. Early settlement discounts can still be applied based on your product's discount settings (percentage or fixed on remaining future interest).
 
 ---
 
 ## Interest Model Comparison
 
-| Aspect | Flat Rate | Declining Balance |
-|--------|-----------|-------------------|
-| Calculation Basis | Original principal | Outstanding balance |
-| Total Interest Paid | Higher | Lower |
-| Monthly Payment | Fixed | Fixed (EMI) |
+| Aspect | Flat Rate | Rule 78 |
+|--------|-----------|---------|
+| Total Interest | Same formula | Same formula |
+| Monthly Payment | Fixed | Fixed |
+| Interest Allocation | Even across months | Front-loaded (more early, less late) |
 | Complexity | Simple | Moderate |
-| Best For | Short-term, small loans | Standard consumer loans |
+| Best For | Predictable, even repayments | When more interest is needed upfront |
 
 **Example Comparison (RM 10,000 at 8% for 12 months):**
 
 | Model | Monthly Payment | Total Interest | Total Repayment |
 |-------|-----------------|----------------|-----------------|
 | Flat Rate | RM 900.00 | RM 800.00 | RM 10,800.00 |
-| Declining Balance | RM 869.88 | RM 438.56 | RM 10,438.56 |
+| Rule 78 | RM 900.00 | RM 800.00 | RM 10,800.00 |
 
 ---
 

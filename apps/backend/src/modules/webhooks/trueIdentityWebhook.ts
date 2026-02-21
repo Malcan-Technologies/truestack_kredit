@@ -118,6 +118,8 @@ router.post('/', async (req, res) => {
 
     const borrowerId = session?.borrowerId ?? payloadBorrowerId;
     const tenantId = session?.tenantId ?? payloadTenantId;
+    const reqPayload = session?.requestPayload as { directorId?: string } | null;
+    const directorId = reqPayload?.directorId ?? null;
 
     if (borrowerId && tenantId) {
       const updateData: Record<string, unknown> = {
@@ -126,20 +128,34 @@ router.post('/', async (req, res) => {
       };
       if (result) updateData.trueIdentityResult = result;
       if (rejectMessage) updateData.trueIdentityRejectMessage = rejectMessage;
-      if (status === 'completed' && result === 'approved') {
-        updateData.documentVerified = true;
-        updateData.verifiedAt = new Date();
-        updateData.verifiedBy = 'TrueIdentity';
-      }
 
-      const borrower = await prisma.borrower.findFirst({
-        where: { id: borrowerId, tenantId },
-      });
-      if (borrower) {
-        await prisma.borrower.update({
-          where: { id: borrowerId },
-          data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
+      if (directorId) {
+        // Corporate: update director's KYC status
+        const director = await prisma.borrowerDirector.findFirst({
+          where: { id: directorId, borrowerId },
         });
+        if (director) {
+          await prisma.borrowerDirector.update({
+            where: { id: directorId },
+            data: updateData as Parameters<typeof prisma.borrowerDirector.update>[0]['data'],
+          });
+        }
+      } else {
+        // Individual: update borrower
+        if (status === 'completed' && result === 'approved') {
+          (updateData as Record<string, unknown>).documentVerified = true;
+          (updateData as Record<string, unknown>).verifiedAt = new Date();
+          (updateData as Record<string, unknown>).verifiedBy = 'TrueIdentity';
+        }
+        const borrower = await prisma.borrower.findFirst({
+          where: { id: borrowerId, tenantId },
+        });
+        if (borrower) {
+          await prisma.borrower.update({
+            where: { id: borrowerId },
+            data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
+          });
+        }
       }
 
       if (session) {
@@ -157,13 +173,14 @@ router.post('/', async (req, res) => {
         await AuditService.log({
           tenantId,
           action: 'TRUEIDENTITY_WEBHOOK',
-          entityType: 'Borrower',
-          entityId: borrowerId,
+          entityType: directorId ? 'BorrowerDirector' : 'Borrower',
+          entityId: directorId ?? borrowerId,
           newData: {
             event,
             status,
             result,
             sessionId,
+            ...(directorId && { directorId, borrowerId }),
           },
           ipAddress: req.ip,
         });

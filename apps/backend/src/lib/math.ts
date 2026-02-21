@@ -104,11 +104,11 @@ export function monthlyInterestRate(annualRate: number): number {
  */
 export function addMonthsClamped(date: Date, months: number): Date {
   const source = new Date(date);
-  const dayOfMonth = source.getDate();
-  source.setMonth(source.getMonth() + months);
+  const dayOfMonth = source.getUTCDate();
+  source.setUTCMonth(source.getUTCMonth() + months);
 
-  if (source.getDate() !== dayOfMonth) {
-    source.setDate(0);
+  if (source.getUTCDate() !== dayOfMonth) {
+    source.setUTCDate(0);
   }
 
   return source;

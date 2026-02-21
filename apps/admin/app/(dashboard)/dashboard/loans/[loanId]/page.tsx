@@ -92,6 +92,7 @@ import {
   safeSubtract,
   safePercentage,
   formatSmartDateTime,
+  formatDateForInput,
 } from "@/lib/utils";
 import { TrueSendEmailLog } from "@/components/truesend-email-log";
 import { TrueSendBadge } from "@/components/truesend-badge";
@@ -2841,6 +2842,7 @@ export default function LoanDetailPage() {
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="h-11 shrink-0"
                     onClick={async () => {
                       const refToCopy = disbursementReference || generateDisbursementReference();
                       await navigator.clipboard.writeText(refToCopy);
@@ -3586,8 +3588,8 @@ export default function LoanDetailPage() {
         setAgreementDate(
           open
             ? (loan.agreementDate
-              ? new Date(loan.agreementDate).toISOString().split("T")[0]
-              : new Date().toISOString().split("T")[0])
+              ? formatDateForInput(loan.agreementDate)
+              : formatDateForInput(new Date()))
             : ""
         );
       }}>
@@ -3614,7 +3616,7 @@ export default function LoanDetailPage() {
                   variant="outline"
                   size="sm"
                   className="h-11 shrink-0"
-                  onClick={() => setAgreementDate(new Date().toISOString().split("T")[0])}
+                  onClick={() => setAgreementDate(formatDateForInput(new Date()))}
                 >
                   Today
                 </Button>

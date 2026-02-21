@@ -59,7 +59,7 @@ export function generateSchedule(params: ScheduleParams): ScheduleOutput {
 function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
   const { principal, interestRate, term, disbursementDate } = params;
   
-  const totalInterest = calculateFlatInterestAmount(principal, interestRate, term);
+  const totalInterest = round(calculateFlatInterestAmount(principal, interestRate, term));
   const totalPayable = safeAdd(principal, totalInterest);
   const monthlyPayment = safeDivide(totalPayable, term);
   const monthlyPrincipal = safeDivide(principal, term);
@@ -67,6 +67,7 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
 
   const repayments: RepaymentScheduleItem[] = [];
   let balance = principal;
+  let remainingInterest = totalInterest;
 
   for (let i = 1; i <= term; i++) {
     const dueDate = addMonthsClamped(disbursementDate, i);
@@ -75,7 +76,7 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
     if (isLast) {
       // Last payment absorbs any rounding remainder
       const lastPrincipal = balance;
-      const lastInterest = safeSubtract(totalInterest, safeMultiply(round(monthlyInterest), term - 1));
+      const lastInterest = round(Math.max(0, remainingInterest));
       const lastTotal = safeAdd(lastPrincipal, lastInterest);
 
       repayments.push({
@@ -87,11 +88,13 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
       });
     } else {
       balance = safeSubtract(balance, monthlyPrincipal);
+      const interestPortion = round(Math.max(0, Math.min(round(monthlyInterest), remainingInterest)));
+      remainingInterest = round(Math.max(0, safeSubtract(remainingInterest, interestPortion)));
 
       repayments.push({
         dueDate,
         principal: round(monthlyPrincipal),
-        interest: round(monthlyInterest),
+        interest: interestPortion,
         totalDue: round(monthlyPayment),
         balance: round(balance),
       });
@@ -112,14 +115,14 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
 function calculateRule78(params: ScheduleParams): ScheduleOutput {
   const { principal, interestRate, term, disbursementDate } = params;
 
-  const totalInterest = calculateFlatInterestAmount(principal, interestRate, term);
+  const totalInterest = round(calculateFlatInterestAmount(principal, interestRate, term));
   const totalPayable = safeAdd(principal, totalInterest);
   const monthlyPayment = safeDivide(totalPayable, term);
   const sumOfDigits = safeDivide(safeMultiply(term, term + 1, 8), 2, 8);
 
   const repayments: RepaymentScheduleItem[] = [];
   let balance = principal;
-  let allocatedInterest = 0;
+  let remainingInterest = totalInterest;
 
   for (let i = 1; i <= term; i++) {
     const dueDate = addMonthsClamped(disbursementDate, i);
@@ -127,7 +130,7 @@ function calculateRule78(params: ScheduleParams): ScheduleOutput {
 
     if (isLast) {
       const lastPrincipal = balance;
-      const lastInterest = safeSubtract(totalInterest, allocatedInterest);
+      const lastInterest = round(Math.max(0, remainingInterest));
       const lastTotal = safeAdd(lastPrincipal, lastInterest);
 
       repayments.push({
@@ -146,18 +149,19 @@ function calculateRule78(params: ScheduleParams): ScheduleOutput {
       safeDivide(periodWeight, sumOfDigits, 8),
       8
     );
-    const interestPortion = round(weightedInterest);
-    allocatedInterest = safeAdd(allocatedInterest, interestPortion);
+    const interestPortion = round(Math.max(0, Math.min(round(weightedInterest), remainingInterest)));
+    remainingInterest = round(safeSubtract(remainingInterest, interestPortion));
 
-    const principalPortion = round(safeSubtract(monthlyPayment, interestPortion));
-    balance = safeSubtract(balance, principalPortion);
+    const principalPortion = round(Math.max(0, safeSubtract(monthlyPayment, interestPortion)));
+    const appliedPrincipal = round(Math.min(principalPortion, balance));
+    balance = round(Math.max(0, safeSubtract(balance, appliedPrincipal)));
 
     repayments.push({
       dueDate,
-      principal: principalPortion,
+      principal: appliedPrincipal,
       interest: interestPortion,
-      totalDue: round(safeAdd(principalPortion, interestPortion)),
-      balance: round(Math.max(0, balance)),
+      totalDue: round(safeAdd(appliedPrincipal, interestPortion)),
+      balance,
     });
   }
 

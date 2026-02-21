@@ -3207,19 +3207,36 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
     let monthlyRepaymentDay: number | null = null;
     
     // Use query parameter if provided
-    if (agreementDateParam && typeof agreementDateParam === 'string') {
-      const parsedDate = new Date(agreementDateParam);
-      if (!isNaN(parsedDate.getTime())) {
-        agreementDate = parsedDate;
-        firstRepaymentDate = calculateFirstRepaymentDate(parsedDate);
-        monthlyRepaymentDay = firstRepaymentDate.getDate();
-        
-        // Save the agreement date to the loan
-        await prisma.loan.update({
-          where: { id: loan.id },
-          data: { agreementDate: parsedDate },
-        });
+    if (agreementDateParam !== undefined) {
+      if (typeof agreementDateParam !== 'string') {
+        throw new BadRequestError('Invalid agreementDate. Expected YYYY-MM-DD.');
       }
+
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(agreementDateParam);
+      if (!match) {
+        throw new BadRequestError('Invalid agreementDate. Expected YYYY-MM-DD.');
+      }
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      const parsedDate = new Date(Date.UTC(year, month - 1, day));
+      const isValidDate =
+        parsedDate.getUTCFullYear() === year &&
+        parsedDate.getUTCMonth() === month - 1 &&
+        parsedDate.getUTCDate() === day;
+      if (!isValidDate) {
+        throw new BadRequestError('Invalid agreementDate. Expected YYYY-MM-DD.');
+      }
+
+      agreementDate = parsedDate;
+      firstRepaymentDate = calculateFirstRepaymentDate(parsedDate);
+      monthlyRepaymentDay = firstRepaymentDate.getDate();
+
+      // Save the agreement date to the loan
+      await prisma.loan.update({
+        where: { id: loan.id },
+        data: { agreementDate: parsedDate },
+      });
     }
     
     // If no query param, try to use existing agreement date

@@ -323,7 +323,8 @@ function calculateValues(loan: LoanForAgreement): AgreementComputedValues {
   const flatInterest = calculateFlatInterest(principal, interestRate, loan.term);
   const monthlyPaymentFlat = safeDivide(safeAdd(principal, flatInterest), loan.term);
   const monthlyPaymentEmi = calculateEMI(principal, interestRate, loan.term);
-  const isFlat = loan.product.interestModel === 'FLAT';
+  const interestModel = String(loan.product.interestModel);
+  const isFlat = interestModel === 'FLAT' || interestModel === 'RULE_78';
   const monthlyPayment = isFlat ? monthlyPaymentFlat : monthlyPaymentEmi;
 
   // Calculate totalPayable by simulating the actual schedule (including last-payment

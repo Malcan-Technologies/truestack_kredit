@@ -16,7 +16,7 @@ export interface ScheduleParams {
   interestRate: number; // Annual rate as percentage (e.g., 12.5 for 12.5%)
   term: number; // In months
   disbursementDate: Date;
-  interestModel: InterestModel;
+  interestModel: InterestModel | 'RULE_78';
 }
 
 export interface RepaymentScheduleItem {
@@ -40,6 +40,8 @@ export function generateSchedule(params: ScheduleParams): ScheduleOutput {
   switch (params.interestModel) {
     case 'FLAT':
       return calculateFlatInterest(params);
+    case 'RULE_78':
+      return calculateRule78(params);
     case 'DECLINING_BALANCE':
       return calculateDecliningBalance(params);
     case 'EFFECTIVE_RATE':
@@ -94,6 +96,69 @@ function calculateFlatInterest(params: ScheduleParams): ScheduleOutput {
         balance: round(balance),
       });
     }
+  }
+
+  return {
+    repayments,
+    totalInterest: round(totalInterest),
+    totalPayable: round(totalPayable),
+  };
+}
+
+/**
+ * Rule 78 (sum-of-digits) calculation
+ * Total interest follows flat formula but is front-loaded across installments.
+ */
+function calculateRule78(params: ScheduleParams): ScheduleOutput {
+  const { principal, interestRate, term, disbursementDate } = params;
+
+  const totalInterest = calculateFlatInterestAmount(principal, interestRate, term);
+  const totalPayable = safeAdd(principal, totalInterest);
+  const monthlyPayment = safeDivide(totalPayable, term);
+  const sumOfDigits = safeDivide(safeMultiply(term, term + 1, 8), 2, 8);
+
+  const repayments: RepaymentScheduleItem[] = [];
+  let balance = principal;
+  let allocatedInterest = 0;
+
+  for (let i = 1; i <= term; i++) {
+    const dueDate = addMonthsClamped(disbursementDate, i);
+    const isLast = i === term;
+
+    if (isLast) {
+      const lastPrincipal = balance;
+      const lastInterest = safeSubtract(totalInterest, allocatedInterest);
+      const lastTotal = safeAdd(lastPrincipal, lastInterest);
+
+      repayments.push({
+        dueDate,
+        principal: round(lastPrincipal),
+        interest: round(lastInterest),
+        totalDue: round(lastTotal),
+        balance: 0,
+      });
+      continue;
+    }
+
+    const periodWeight = term - i + 1;
+    const weightedInterest = safeMultiply(
+      totalInterest,
+      safeDivide(periodWeight, sumOfDigits, 8),
+      8
+    );
+    const interestPortion = round(weightedInterest);
+    allocatedInterest = safeAdd(allocatedInterest, interestPortion);
+
+    const principalPortion = round(safeSubtract(monthlyPayment, interestPortion));
+    balance = safeSubtract(balance, principalPortion);
+
+    repayments.push({
+      dueDate,
+      principal: principalPortion,
+      interest: interestPortion,
+      totalDue: round(safeAdd(principalPortion, interestPortion)),
+      balance: round(Math.max(0, balance)),
+    });
   }
 
   return {

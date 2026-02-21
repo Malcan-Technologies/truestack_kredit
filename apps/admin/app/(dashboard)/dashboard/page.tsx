@@ -1392,7 +1392,7 @@ function AddOnIndicators({ addOns }: { addOns: AddOnStatus[] }) {
   ];
 
   return (
-    <div className="flex items-center gap-2 pt-2 border-t border-border/50">
+    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50">
       <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium mr-1">Add-ons</span>
       {items.map((item) => (
         <Link

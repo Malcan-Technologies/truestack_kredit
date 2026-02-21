@@ -77,6 +77,7 @@ const HIDE_INACTIVE_STORAGE_KEY = "products_hide_inactive";
 
 const interestModelLabels: Record<string, string> = {
   FLAT: "Flat Rate",
+  RULE_78: "Rule 78",
   DECLINING_BALANCE: "Reducing Balance",
   EFFECTIVE_RATE: "Effective Rate",
 };

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { InterestModel, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, UnauthorizedError } from '../../lib/errors.js';
@@ -53,7 +54,7 @@ const DEFAULT_REQUIRED_DOCUMENTS = [
 const createProductSchema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().min(5).max(500),
-  interestModel: z.enum(['FLAT', 'DECLINING_BALANCE', 'EFFECTIVE_RATE']),
+  interestModel: z.enum(['FLAT', 'RULE_78', 'DECLINING_BALANCE', 'EFFECTIVE_RATE']),
   interestRate: z.number().min(0).max(100).default(18),
   latePaymentRate: z.number().min(0).max(100).default(8),
   arrearsPeriod: z.number().int().min(1).max(365).default(14),
@@ -100,7 +101,7 @@ const createProductSchema = z.object({
 const updateProductSchema = z.object({
   name: z.string().min(2).max(100).optional(),
   description: z.string().min(5).max(500).optional(),
-  interestModel: z.enum(['FLAT', 'DECLINING_BALANCE', 'EFFECTIVE_RATE']).optional(),
+  interestModel: z.enum(['FLAT', 'RULE_78', 'DECLINING_BALANCE', 'EFFECTIVE_RATE']).optional(),
   interestRate: z.number().min(0).max(100).optional(),
   latePaymentRate: z.number().min(0).max(100).optional(),
   arrearsPeriod: z.number().int().min(1).max(365).optional(),
@@ -277,12 +278,17 @@ router.post('/', requireAdmin, async (req, res, next) => {
 
     // Use default required documents if none provided
     const requiredDocuments = data.requiredDocuments ?? DEFAULT_REQUIRED_DOCUMENTS;
+    const createData = {
+      ...data,
+      // Keep compile compatibility until Prisma client is regenerated with RULE_78.
+      interestModel: data.interestModel as unknown as InterestModel,
+      requiredDocuments,
+    };
 
     const product = await prisma.product.create({
       data: {
         tenantId,
-        ...data,
-        requiredDocuments,
+        ...createData,
       },
     });
 
@@ -335,9 +341,17 @@ router.patch('/:productId', requireAdmin, async (req, res, next) => {
       throw new NotFoundError('Product');
     }
 
+    const updateData = (data.interestModel
+      ? {
+          ...data,
+          // Keep compile compatibility until Prisma client is regenerated with RULE_78.
+          interestModel: data.interestModel as unknown as InterestModel,
+        }
+      : data) as unknown as Prisma.ProductUpdateInput;
+
     const product = await prisma.product.update({
       where: { id: productId },
-      data,
+      data: updateData,
     });
 
     // Log audit event for product update

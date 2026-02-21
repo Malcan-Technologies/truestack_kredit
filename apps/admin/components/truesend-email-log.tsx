@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Send, RefreshCw, Mail, Clock, ChevronDown, Sparkles, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { formatSmartDateTime } from "@/lib/utils";
-import { TrueSendBadge, TrueSendStatusBadge } from "@/components/truesend-badge";
+import { TrueSendStatusBadge } from "@/components/truesend-badge";
 
 // ============================================
 // Types
@@ -176,13 +176,10 @@ export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) 
       <Card className={isInactive ? "opacity-50 border-dashed border-muted-foreground/30" : "bg-purple-500/[0.04] border-purple-500/15"}>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-base font-heading flex items-center gap-2">
-                <Send className={`h-4 w-4 ${isInactive ? "text-muted-foreground" : "text-purple-500"}`} />
-                Automated Emails
-              </CardTitle>
-              <TrueSendBadge />
-            </div>
+            <CardTitle className="text-lg font-heading flex items-center gap-2">
+              <Send className={`h-5 w-5 ${isInactive ? "text-muted-foreground" : "text-purple-500"}`} />
+              TrueSend™
+            </CardTitle>
             {!isInactive && (
               <Button
                 variant="ghost"
@@ -194,6 +191,9 @@ export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) 
               </Button>
             )}
           </div>
+          <CardDescription className="mt-0.5">
+            Automatically delivers receipts, reminders, and notices to borrowers by email.
+          </CardDescription>
         </CardHeader>
 
         <CardContent>

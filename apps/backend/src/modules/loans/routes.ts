@@ -487,12 +487,14 @@ router.post('/applications/preview', async (req, res, next) => {
     const totalFees = safeAdd(legalFee, stampingFee);
     const netDisbursement = safeSubtract(loanAmount, totalFees);
 
+    const interestModel = String(product.interestModel);
+
     // Calculate monthly payment based on interest model
     let monthlyPayment: number;
     let totalInterest: number;
     let totalPayable: number;
 
-    if (product.interestModel === 'FLAT') {
+    if (interestModel === 'FLAT' || interestModel === 'RULE_78') {
       // Flat interest: Principal × Rate × Term / 12
       totalInterest = calculateFlatInterest(loanAmount, interestRate, term);
       totalPayable = safeAdd(loanAmount, totalInterest);
@@ -2872,19 +2874,10 @@ router.post('/:loanId/disburse', async (req, res, next) => {
       throw new BadRequestError('Loan is not pending disbursement');
     }
 
-    // Check if signed agreement has been uploaded
-    if (!loan.agreementPath) {
-      throw new BadRequestError('A signed loan agreement must be uploaded before disbursement');
-    }
-
-    // Check if agreement date has been set (required for schedule generation)
+    // Agreement date must be fixed before disbursement so schedule generation
+    // follows the downloaded agreement date.
     if (!loan.agreementDate) {
       throw new BadRequestError('Agreement date is not set. Please regenerate the loan agreement first.');
-    }
-
-    // Check if stamp certificate has been uploaded
-    if (!loan.stampCertPath) {
-      throw new BadRequestError('A stamp certificate must be uploaded before disbursement');
     }
 
     // Generate disbursement reference if not provided

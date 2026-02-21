@@ -387,7 +387,8 @@ function ProgressDonut({
 // ============================================
 
 function TimelineItem({ event }: { event: TimelineEvent }) {
-  const getActionInfo = (action: string) => {
+  const getActionInfo = (action: string, ev?: TimelineEvent) => {
+    const isReplacement = ev?.previousData != null;
     switch (action) {
       case "DISBURSE":
         return { icon: Banknote, label: "Disbursed" };
@@ -408,11 +409,11 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
       case "MARK_DEFAULT":
         return { icon: XCircle, label: "Marked Default" };
       case "UPLOAD_DISBURSEMENT_PROOF":
-        return { icon: Upload, label: "Disbursement Proof Uploaded" };
+        return { icon: Upload, label: isReplacement ? "Disbursement Proof Replaced" : "Disbursement Proof Uploaded" };
       case "UPLOAD_AGREEMENT":
-        return { icon: FileText, label: "Agreement Uploaded" };
+        return { icon: FileText, label: isReplacement ? "Agreement Replaced" : "Agreement Uploaded" };
       case "UPLOAD_STAMP_CERTIFICATE":
-        return { icon: Shield, label: "Stamp Certificate Uploaded" };
+        return { icon: Shield, label: isReplacement ? "Stamp Certificate Replaced" : "Stamp Certificate Uploaded" };
       case "CREATE":
         return { icon: Plus, label: "Loan Created" };
       case "LATE_FEE_ACCRUAL":
@@ -436,7 +437,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
     }
   };
 
-  const actionInfo = getActionInfo(event.action);
+  const actionInfo = getActionInfo(event.action, event);
   const Icon = actionInfo.icon;
 
   return (
@@ -1225,6 +1226,7 @@ export default function LoanDetailPage() {
       window.URL.revokeObjectURL(url);
       
       toast.success("Agreement PDF downloaded successfully");
+      await fetchLoan();
       setShowGenerateAgreementDialog(false);
     } catch {
       toast.error("Failed to generate agreement PDF");
@@ -1375,6 +1377,10 @@ export default function LoanDetailPage() {
     : !loan.product.earlySettlementEnabled
       ? "Early settlement is not enabled for this product. Enable it in the product configuration."
       : null;
+  const canDisburseLoan = Boolean(loan.agreementDate);
+  const disbursementDisabledReason = !loan.agreementDate
+    ? "Generate the agreement PDF first to fix the agreement date before disbursement"
+    : undefined;
 
   // ============================================
   // Main Render
@@ -1412,14 +1418,8 @@ export default function LoanDetailPage() {
                 setDisbursementReference(generateDisbursementReference());
                 setShowDisburseDialog(true);
               }}
-              disabled={!loan.agreementPath || !loan.stampCertPath}
-              title={
-                !loan.agreementPath 
-                  ? "Upload a signed loan agreement before disbursement" 
-                  : !loan.stampCertPath 
-                    ? "Upload a stamp certificate before disbursement"
-                    : undefined
-              }
+              disabled={!canDisburseLoan}
+              title={disbursementDisabledReason}
             >
               <Banknote className="h-4 w-4 mr-2" />
               Disburse Loan
@@ -1555,11 +1555,11 @@ export default function LoanDetailPage() {
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm flex items-center gap-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
                     {isCorporate ? (
-                      <Building2 className="h-4 w-4 text-muted-foreground" />
+                      <Building2 className="h-5 w-5 text-muted-foreground" />
                     ) : (
-                      <User className="h-4 w-4 text-muted-foreground" />
+                      <User className="h-5 w-5 text-muted-foreground" />
                     )}
                     Borrower
                   </CardTitle>
@@ -1637,8 +1637,8 @@ export default function LoanDetailPage() {
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Banknote className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Banknote className="h-5 w-5 text-muted-foreground" />
                     Loan Details
                   </CardTitle>
                   {loan.product.loanScheduleType === "JADUAL_K" ? (
@@ -1748,26 +1748,68 @@ export default function LoanDetailPage() {
                       <div className="border-t pt-3 mt-3">
                         <p className="text-xs text-muted-foreground mb-2">Loan Documents</p>
                         <div className="flex flex-wrap gap-2">
-                          {loan.agreementPath && (
+                          {loan.agreementPath ? (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
+                              >
+                                <FileText className="h-3 w-3 mr-1" />
+                                Agreement
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() => setShowUploadAgreementDialog(true)}
+                              >
+                                <Upload className="h-3 w-3 mr-1" />
+                                Replace
+                              </Button>
+                            </>
+                          ) : (
                             <Button
                               variant="outline"
                               size="sm"
-                              className="text-xs h-7"
-                              onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
+                              className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
+                              onClick={() => setShowUploadAgreementDialog(true)}
                             >
-                              <FileText className="h-3 w-3 mr-1" />
-                              Agreement
+                              <Upload className="h-3 w-3 mr-1" />
+                              Upload Agreement
                             </Button>
                           )}
-                          {loan.stampCertPath && (
+                          {loan.stampCertPath ? (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() => window.open(`/api/proxy/loans/${loan.id}/stamp-certificate`, "_blank")}
+                              >
+                                <Shield className="h-3 w-3 mr-1" />
+                                Stamp Cert
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() => setShowUploadStampCertDialog(true)}
+                              >
+                                <Upload className="h-3 w-3 mr-1" />
+                                Replace
+                              </Button>
+                            </>
+                          ) : (
                             <Button
                               variant="outline"
                               size="sm"
-                              className="text-xs h-7"
-                              onClick={() => window.open(`/api/proxy/loans/${loan.id}/stamp-certificate`, "_blank")}
+                              className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
+                              onClick={() => setShowUploadStampCertDialog(true)}
                             >
-                              <Shield className="h-3 w-3 mr-1" />
-                              Stamp Cert
+                              <Upload className="h-3 w-3 mr-1" />
+                              Upload Stamp Cert
                             </Button>
                           )}
                           {loan.status !== "PENDING_DISBURSEMENT" && (
@@ -1800,15 +1842,54 @@ export default function LoanDetailPage() {
             </Card>
           </div>
 
-          {/* Loan Agreement Required (before disbursement) */}
+          {/* Agreement Date (required before disbursement) */}
           {loan.status === "PENDING_DISBURSEMENT" && (
-            <Card className={loan.agreementPath ? "border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"}>
+            <Card className={loan.agreementDate ? "border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"}>
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
-                  <FileText className={`h-8 w-8 ${loan.agreementPath ? "text-emerald-600" : "text-amber-600"}`} />
+                  <Calendar className={`h-8 w-8 ${loan.agreementDate ? "text-emerald-600" : "text-amber-600"}`} />
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-semibold">Loan Agreement</h3>
+                      <h3 className="font-semibold">Agreement Date</h3>
+                      {loan.agreementDate ? (
+                        <Badge variant="verified" className="text-xs">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Fixed
+                        </Badge>
+                      ) : (
+                        <Badge variant="warning" className="text-xs">
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Required
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {loan.agreementDate
+                        ? `Agreement date is fixed to ${formatDate(loan.agreementDate)}. The repayment schedule will follow this date during disbursement.`
+                        : "Set this first by generating the agreement PDF. Disbursement is blocked until the agreement date is fixed."
+                      }
+                    </p>
+                    <div className="flex gap-2 mt-3">
+                      <Button variant="outline" size="sm" onClick={() => setShowGenerateAgreementDialog(true)}>
+                        <Download className="h-4 w-4 mr-2" />
+                        {loan.agreementDate ? "Regenerate Agreement PDF" : "Generate Agreement PDF"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Signed Loan Agreement (optional upload before/after disbursement) */}
+          {loan.status === "PENDING_DISBURSEMENT" && (
+            <Card className={loan.agreementPath ? "border-emerald-200 dark:border-emerald-800" : undefined}>
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <FileText className={`h-8 w-8 ${loan.agreementPath ? "text-emerald-600" : "text-muted-foreground"}`} />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">Signed Loan Agreement</h3>
                       {loan.product.loanScheduleType === "JADUAL_K" ? (
                         <Badge variant="default" className="text-xs">
                           <ShieldCheck className="h-3 w-3 mr-1" />
@@ -1826,23 +1907,18 @@ export default function LoanDetailPage() {
                           Uploaded (v{loan.agreementVersion})
                         </Badge>
                       ) : (
-                        <Badge variant="warning" className="text-xs">
-                          <AlertTriangle className="h-3 w-3 mr-1" />
-                          Required
+                        <Badge variant="outline" className="text-xs">
+                          Optional
                         </Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
                       {loan.agreementPath
-                        ? `Signed agreement uploaded on ${formatDate(loan.agreementUploadedAt || "")}${loan.agreementDate ? `. Agreement date: ${formatDate(loan.agreementDate)}` : ""}`
-                        : "Generate and upload a signed loan agreement before disbursement."
+                        ? `Signed agreement uploaded on ${formatDate(loan.agreementUploadedAt || "")}`
+                        : "Signed agreement can be uploaded before or after disbursement."
                       }
                     </p>
                     <div className="flex gap-2 mt-3">
-                      <Button variant="outline" size="sm" onClick={() => setShowGenerateAgreementDialog(true)}>
-                        <Download className="h-4 w-4 mr-2" />
-                        Generate Agreement PDF
-                      </Button>
                       {loan.agreementPath ? (
                         <>
                           <Button
@@ -1875,12 +1951,12 @@ export default function LoanDetailPage() {
             </Card>
           )}
 
-          {/* Stamp Certificate Required (before disbursement) */}
+          {/* Stamp Certificate (optional upload before/after disbursement) */}
           {loan.status === "PENDING_DISBURSEMENT" && (
-            <Card className={loan.stampCertPath ? "border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"}>
+            <Card className={loan.stampCertPath ? "border-emerald-200 dark:border-emerald-800" : undefined}>
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
-                  <Shield className={`h-8 w-8 ${loan.stampCertPath ? "text-emerald-600" : "text-amber-600"}`} />
+                  <Shield className={`h-8 w-8 ${loan.stampCertPath ? "text-emerald-600" : "text-muted-foreground"}`} />
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold">Stamp Certificate</h3>
@@ -1890,16 +1966,15 @@ export default function LoanDetailPage() {
                           Uploaded (v{loan.stampCertVersion})
                         </Badge>
                       ) : (
-                        <Badge variant="warning" className="text-xs">
-                          <AlertTriangle className="h-3 w-3 mr-1" />
-                          Required
+                        <Badge variant="outline" className="text-xs">
+                          Optional
                         </Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
                       {loan.stampCertPath
                         ? `Stamp certificate uploaded on ${formatDate(loan.stampCertUploadedAt || "")}`
-                        : "Upload the stamp certificate from LHDN before disbursement."
+                        : "Stamp certificate can be uploaded before or after disbursement."
                       }
                     </p>
                     <div className="flex flex-wrap gap-2 mt-3">
@@ -2178,7 +2253,7 @@ export default function LoanDetailPage() {
                       Repayment Schedule
                     </CardTitle>
                     <CardDescription className="mt-2">
-                      Version {currentSchedule.version} • {currentSchedule.interestModel.replace(/_/g, " ")}
+                      Version {currentSchedule.version} • {currentSchedule.interestModel === "RULE_78" ? "Rule 78" : currentSchedule.interestModel.replace(/_/g, " ")}
                       {loan.disbursementDate && ` • Disbursed ${formatDate(loan.disbursementDate)}`}
                     </CardDescription>
                   </div>
@@ -2249,6 +2324,13 @@ export default function LoanDetailPage() {
                     {currentSchedule.repayments.map((repayment, idx) => {
                       const paid = repayment.allocations.reduce((s, a) => s + toSafeNumber(a.amount), 0);
                       const totalDue = toSafeNumber(repayment.totalDue);
+                      const interestDue = toSafeNumber(repayment.interest);
+                      const principalDue = toSafeNumber(repayment.principal);
+                      const interestPaid = Math.min(interestDue, paid);
+                      const principalPaid = Math.min(
+                        principalDue,
+                        Math.max(0, safeSubtract(paid, interestPaid))
+                      );
                       const remaining = safeSubtract(totalDue, paid);
                       const isCancelled = repayment.status === "CANCELLED";
                       const isOverdue = new Date(repayment.dueDate) < new Date() && repayment.status !== "PAID" && !isCancelled;
@@ -2265,8 +2347,26 @@ export default function LoanDetailPage() {
                               {isOverdue && <AlertTriangle className="h-4 w-4 text-destructive" />}
                             </div>
                           </TableCell>
-                          <TableCell className="text-right">{formatCurrency(toSafeNumber(repayment.principal))}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(toSafeNumber(repayment.interest))}</TableCell>
+                          <TableCell className="text-right">
+                            <div>
+                              <span>{formatCurrency(toSafeNumber(repayment.principal))}</span>
+                              {principalPaid > 0 && (
+                                <span className="text-xs text-muted-foreground block">
+                                  {formatCurrency(principalPaid)} paid
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div>
+                              <span>{formatCurrency(toSafeNumber(repayment.interest))}</span>
+                              {interestPaid > 0 && (
+                                <span className="text-xs text-muted-foreground block">
+                                  {formatCurrency(interestPaid)} paid
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(totalDue)}</TableCell>
                           <TableCell className="text-right">
                             {hasLateFees ? (
@@ -2283,22 +2383,24 @@ export default function LoanDetailPage() {
                             )}
                           </TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <span className={paid > 0 ? "text-success" : ""}>
-                                {formatCurrency(paid)}
-                              </span>
-                              {repayment.allocations.length > 0 && (
-                                <>
-                                  <span title="Has payment receipt">
-                                    <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
-                                  </span>
-                                  {repayment.allocations.some((a) => (a as { transaction?: { proofPath?: string } }).transaction?.proofPath) && (
-                                    <span title="Has proof of payment">
-                                      <FileCheck className="h-3.5 w-3.5 text-muted-foreground" />
+                            <div>
+                              <div className="flex items-center justify-end gap-1">
+                                <span className={paid > 0 ? "text-success" : ""}>
+                                  {formatCurrency(paid)}
+                                </span>
+                                {repayment.allocations.length > 0 && (
+                                  <>
+                                    <span title="Has payment receipt">
+                                      <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
                                     </span>
-                                  )}
-                                </>
-                              )}
+                                    {repayment.allocations.some((a) => (a as { transaction?: { proofPath?: string } }).transaction?.proofPath) && (
+                                      <span title="Has proof of payment">
+                                        <FileCheck className="h-3.5 w-3.5 text-muted-foreground" />
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -2374,12 +2476,15 @@ export default function LoanDetailPage() {
           )}
         </div>
 
-        {/* Right Column - Quick Info & Timeline */}
+        {/* Right Column - TrueSend, Quick Info & Timeline */}
         <div className="space-y-6">
+          {/* TrueSend Email Log */}
+          <TrueSendEmailLog loanId={loan.id} refreshKey={emailLogRefreshKey} />
+
           {/* Quick Info Card */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Quick Info</CardTitle>
+              <CardTitle className="text-lg">Quick Info</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
@@ -2549,9 +2654,6 @@ export default function LoanDetailPage() {
               </div>
             </CardContent>
           </Card>
-
-          {/* TrueSend Email Log */}
-          <TrueSendEmailLog loanId={loan.id} refreshKey={emailLogRefreshKey} />
 
           {/* Activity Timeline */}
           <Card>
@@ -3425,7 +3527,7 @@ export default function LoanDetailPage() {
           <DialogHeader>
             <DialogTitle>Upload Signed Loan Agreement</DialogTitle>
             <DialogDescription>
-              Upload the signed loan agreement PDF. This is required before disbursement.
+              Upload the signed loan agreement PDF. You can upload it before or after disbursement.
               {loan.agreementPath && (
                 <span className="block mt-1 text-amber-600 dark:text-amber-400">
                   Note: This will replace the existing agreement (v{loan.agreementVersion}).
@@ -3481,15 +3583,19 @@ export default function LoanDetailPage() {
       {/* Generate Agreement PDF Dialog */}
       <Dialog open={showGenerateAgreementDialog} onOpenChange={(open) => {
         setShowGenerateAgreementDialog(open);
-        if (!open) {
-          setAgreementDate("");
-        }
+        setAgreementDate(
+          open
+            ? (loan.agreementDate
+              ? new Date(loan.agreementDate).toISOString().split("T")[0]
+              : new Date().toISOString().split("T")[0])
+            : ""
+        );
       }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Generate Loan Agreement PDF</DialogTitle>
             <DialogDescription>
-              Enter the agreement date to generate the pre-filled loan agreement. This date will be used to calculate the repayment schedule.
+              Enter the agreement date to generate the pre-filled loan agreement. This fixed date will be used to calculate the repayment schedule during disbursement.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
@@ -3507,6 +3613,7 @@ export default function LoanDetailPage() {
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="h-11 shrink-0"
                   onClick={() => setAgreementDate(new Date().toISOString().split("T")[0])}
                 >
                   Today
@@ -3548,7 +3655,7 @@ export default function LoanDetailPage() {
           <DialogHeader>
             <DialogTitle>Upload Stamp Certificate</DialogTitle>
             <DialogDescription>
-              Upload the stamp certificate PDF from LHDN. This is required before disbursement.
+              Upload the stamp certificate PDF from LHDN. You can upload it before or after disbursement.
               {loan.stampCertPath && (
                 <span className="block mt-1 text-amber-600 dark:text-amber-400">
                   Note: This will replace the existing stamp certificate (v{loan.stampCertVersion}).

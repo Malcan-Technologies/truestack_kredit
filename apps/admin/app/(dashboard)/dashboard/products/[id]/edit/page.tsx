@@ -145,9 +145,12 @@ const LOAN_SCHEDULE_TYPE_OPTIONS = [
 
 const interestModelDescriptions: Record<string, string> = {
   FLAT: "Interest is calculated on the original principal for the entire loan term.",
-  DECLINING_BALANCE: "Interest is calculated on the outstanding balance each month.",
-  EFFECTIVE_RATE: "Same calculation as Declining Balance. Used for regulatory compliance.",
+  RULE_78: "Interest is front-loaded using the Rule 78 (sum-of-digits) method.",
+  DECLINING_BALANCE: "Legacy model currently hidden for new selections.",
+  EFFECTIVE_RATE: "Legacy model currently hidden for new selections.",
 };
+
+const LEGACY_INTEREST_MODELS = new Set(["DECLINING_BALANCE", "EFFECTIVE_RATE"]);
 
 // ============================================
 // Step Components
@@ -474,8 +477,12 @@ export default function EditProductPage() {
                     className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
                   >
                     <option value="FLAT">Flat Rate</option>
-                    <option value="DECLINING_BALANCE">Declining Balance</option>
-                    <option value="EFFECTIVE_RATE">Effective Rate</option>
+                    <option value="RULE_78">Rule 78</option>
+                    {LEGACY_INTEREST_MODELS.has(formData.interestModel) && (
+                      <option value={formData.interestModel}>
+                        {formData.interestModel === "DECLINING_BALANCE" ? "Declining Balance (Legacy)" : "Effective Rate (Legacy)"}
+                      </option>
+                    )}
                   </select>
                   <p className="text-xs text-muted-foreground">{interestModelDescriptions[formData.interestModel]}</p>
                 </div>
@@ -1094,7 +1101,7 @@ export default function EditProductPage() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Interest Model</span>
-                        <span className="font-medium">{formData.interestModel.replace("_", " ")}</span>
+                        <span className="font-medium">{formData.interestModel === "RULE_78" ? "Rule 78" : formData.interestModel.replace("_", " ")}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Eligibility</span>

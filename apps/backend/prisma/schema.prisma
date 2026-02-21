@@ -84,6 +84,7 @@ enum RepaymentStatus {
 
 enum InterestModel {
   FLAT
+  RULE_78
   DECLINING_BALANCE
   EFFECTIVE_RATE
 }
@@ -540,6 +541,15 @@ model BorrowerDirector {
   order      Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  // TrueIdentity verification (per-director KYC)
+  trueIdentityStatus        String?   // pending, processing, completed, expired, failed
+  trueIdentityResult        String?   // approved, rejected (when status=completed)
+  trueIdentitySessionId    String?   // Admin/Innovatif session id
+  trueIdentityOnboardingUrl String?  // URL for QR / copy-link
+  trueIdentityExpiresAt     DateTime? // Session expiry
+  trueIdentityLastWebhookAt DateTime? // Last callback processed
+  trueIdentityRejectMessage String?   // Rejection reason when result=rejected
 
   borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
 
@@ -1072,6 +1082,7 @@ model TrueIdentitySession {
   id             String    @id @default(cuid())
   tenantId       String
   borrowerId     String
+  directorId     String?   // When set, verification is for this director (corporate KYC)
   adminSessionId String    @unique
   onboardingUrl  String
   status         String    @default("pending")
@@ -1087,6 +1098,7 @@ model TrueIdentitySession {
 
   @@index([tenantId])
   @@index([borrowerId])
+  @@index([directorId])
 }
 
 model TrueIdentityWebhookEvent {

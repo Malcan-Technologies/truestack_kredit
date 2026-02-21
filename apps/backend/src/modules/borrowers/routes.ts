@@ -498,13 +498,20 @@ router.get('/:borrowerId/timeline', async (req, res, next) => {
   }
 });
 
+const verifyStartSchema = z.object({
+  directorId: z.string().cuid().optional(),
+});
+
 /**
  * Start TrueIdentity verification
  * POST /api/borrowers/:borrowerId/verify/start
+ * Body: { directorId?: string } - Required for CORPORATE borrowers (KYC is per director)
  */
 router.post('/:borrowerId/verify/start', async (req, res, next) => {
   try {
     const borrowerId = req.params.borrowerId;
+    const body = verifyStartSchema.safeParse(req.body ?? {});
+    const directorId = body.success ? body.data.directorId : undefined;
 
     const hasAddOn = await AddOnService.hasActiveAddOn(req.tenantId!, 'TRUEIDENTITY');
     if (!hasAddOn) {
@@ -520,10 +527,46 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
         id: borrowerId,
         tenantId: req.tenantId,
       },
+      include: { directors: { orderBy: { order: 'asc' } } },
     });
 
     if (!borrower) {
       throw new NotFoundError('Borrower');
+    }
+
+    let name: string;
+    let icNumber: string;
+    let targetDirectorId: string | undefined;
+
+    if (borrower.borrowerType === 'CORPORATE') {
+      if (!directorId) {
+        res.status(400).json({
+          success: false,
+          error: 'directorId is required for corporate borrowers. KYC is per director.',
+        });
+        return;
+      }
+      const director = borrower.directors.find((d) => d.id === directorId);
+      if (!director) {
+        res.status(404).json({
+          success: false,
+          error: 'Director not found for this borrower',
+        });
+        return;
+      }
+      name = director.name;
+      icNumber = director.icNumber;
+      targetDirectorId = directorId;
+    } else {
+      if (directorId) {
+        res.status(400).json({
+          success: false,
+          error: 'directorId should not be provided for individual borrowers',
+        });
+        return;
+      }
+      name = borrower.name;
+      icNumber = borrower.icNumber;
     }
 
     const baseUrl = config.trueIdentity.kreditBaseUrl?.replace(/\/$/, '') || '';
@@ -534,8 +577,8 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
     const adminRes = await requestVerificationSession({
       tenantId: req.tenantId!,
       borrowerId,
-      name: borrower.name,
-      icNumber: borrower.icNumber,
+      name,
+      icNumber,
       documentType,
       webhookUrl,
     });
@@ -544,41 +587,77 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
 
     await recordVerificationStart(req.tenantId!);
 
-    await prisma.$transaction([
-      prisma.trueIdentitySession.upsert({
-        where: { adminSessionId: adminRes.session_id },
-        create: {
-          tenantId: req.tenantId!,
-          borrowerId,
-          adminSessionId: adminRes.session_id,
-          onboardingUrl: adminRes.onboarding_url,
-          status: adminRes.status || 'pending',
-          expiresAt,
-          requestPayload: {
+    const sessionPayload = {
+      tenantId: req.tenantId!,
+      borrowerId,
+      name,
+      icNumber,
+      webhookUrl,
+      ...(targetDirectorId && { directorId: targetDirectorId }),
+    };
+
+    if (targetDirectorId) {
+      await prisma.$transaction([
+        prisma.trueIdentitySession.upsert({
+          where: { adminSessionId: adminRes.session_id },
+          create: {
             tenantId: req.tenantId!,
             borrowerId,
-            name: borrower.name,
-            icNumber: borrower.icNumber,
-            webhookUrl,
+            directorId: targetDirectorId,
+            adminSessionId: adminRes.session_id,
+            onboardingUrl: adminRes.onboarding_url,
+            status: adminRes.status || 'pending',
+            expiresAt,
+            requestPayload: sessionPayload,
           },
-        },
-        update: {
-          onboardingUrl: adminRes.onboarding_url,
-          status: adminRes.status || 'pending',
-          expiresAt,
-          updatedAt: new Date(),
-        },
-      }),
-      prisma.borrower.update({
-        where: { id: borrowerId },
-        data: {
-          trueIdentityStatus: adminRes.status || 'pending',
-          trueIdentitySessionId: adminRes.session_id,
-          trueIdentityOnboardingUrl: adminRes.onboarding_url,
-          trueIdentityExpiresAt: expiresAt,
-        },
-      }),
-    ]);
+          update: {
+            onboardingUrl: adminRes.onboarding_url,
+            status: adminRes.status || 'pending',
+            expiresAt,
+            updatedAt: new Date(),
+          },
+        }),
+        prisma.borrowerDirector.update({
+          where: { id: targetDirectorId },
+          data: {
+            trueIdentityStatus: adminRes.status || 'pending',
+            trueIdentitySessionId: adminRes.session_id,
+            trueIdentityOnboardingUrl: adminRes.onboarding_url,
+            trueIdentityExpiresAt: expiresAt,
+          },
+        }),
+      ]);
+    } else {
+      await prisma.$transaction([
+        prisma.trueIdentitySession.upsert({
+          where: { adminSessionId: adminRes.session_id },
+          create: {
+            tenantId: req.tenantId!,
+            borrowerId,
+            adminSessionId: adminRes.session_id,
+            onboardingUrl: adminRes.onboarding_url,
+            status: adminRes.status || 'pending',
+            expiresAt,
+            requestPayload: sessionPayload,
+          },
+          update: {
+            onboardingUrl: adminRes.onboarding_url,
+            status: adminRes.status || 'pending',
+            expiresAt,
+            updatedAt: new Date(),
+          },
+        }),
+        prisma.borrower.update({
+          where: { id: borrowerId },
+          data: {
+            trueIdentityStatus: adminRes.status || 'pending',
+            trueIdentitySessionId: adminRes.session_id,
+            trueIdentityOnboardingUrl: adminRes.onboarding_url,
+            trueIdentityExpiresAt: expiresAt,
+          },
+        }),
+      ]);
+    }
 
     res.status(200).json({
       success: true,
@@ -587,6 +666,7 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
         onboardingUrl: adminRes.onboarding_url,
         status: adminRes.status || 'pending',
         expiresAt: expiresAt.toISOString(),
+        directorId: targetDirectorId ?? undefined,
       },
     });
   } catch (error) {
@@ -597,6 +677,8 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
 /**
  * Get TrueIdentity verification status
  * GET /api/borrowers/:borrowerId/verify/status
+ * For INDIVIDUAL: returns single status
+ * For CORPORATE: returns directors array with per-director status
  */
 router.get('/:borrowerId/verify/status', async (req, res, next) => {
   try {
@@ -607,15 +689,37 @@ router.get('/:borrowerId/verify/status', async (req, res, next) => {
         id: borrowerId,
         tenantId: req.tenantId,
       },
+      include: { directors: { orderBy: { order: 'asc' } } },
     });
 
     if (!borrower) {
       throw new NotFoundError('Borrower');
     }
 
+    if (borrower.borrowerType === 'CORPORATE') {
+      const directors = borrower.directors.map((d) => ({
+        id: d.id,
+        name: d.name,
+        icNumber: d.icNumber,
+        position: d.position,
+        status: d.trueIdentityStatus ?? null,
+        result: d.trueIdentityResult ?? null,
+        rejectMessage: d.trueIdentityRejectMessage ?? null,
+        onboardingUrl: d.trueIdentityOnboardingUrl ?? null,
+        expiresAt: d.trueIdentityExpiresAt?.toISOString() ?? null,
+        lastWebhookAt: d.trueIdentityLastWebhookAt?.toISOString() ?? null,
+      }));
+      res.json({
+        success: true,
+        data: { borrowerType: 'CORPORATE' as const, directors },
+      });
+      return;
+    }
+
     res.json({
       success: true,
       data: {
+        borrowerType: 'INDIVIDUAL' as const,
         status: borrower.trueIdentityStatus ?? null,
         result: borrower.trueIdentityResult ?? null,
         rejectMessage: borrower.trueIdentityRejectMessage ?? null,

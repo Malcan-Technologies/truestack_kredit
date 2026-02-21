@@ -2823,17 +2823,23 @@ export default function BorrowerDetailPage() {
         {/* Right Column - Documents & Activity Timeline */}
         <div className="space-y-6">
           {/* TrueIdentity e-KYC */}
-          <TrueIdentityBox borrowerId={borrower.id} />
+          <TrueIdentityBox
+              borrowerId={borrower.id}
+              borrowerType={borrower.borrowerType}
+              borrowerName={borrower.name}
+              borrowerIcNumber={borrower.icNumber}
+              directors={borrower.directors}
+            />
 
           {/* Identity Documents */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5 text-muted-foreground" />
-                Identity Documents
+                Borrower Documents
               </CardTitle>
               <CardDescription>
-                Upload and manage identity documents for this borrower
+                Upload and manage documents for this borrower
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

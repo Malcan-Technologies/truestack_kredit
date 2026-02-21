@@ -1,20 +1,25 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Fingerprint, Sparkles, ShieldCheck, Copy, Loader2 } from "lucide-react";
+import { Fingerprint, Sparkles, Copy, Loader2, RefreshCw, Check, Circle } from "lucide-react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { formatSmartDateTime } from "@/lib/utils";
 
 // ============================================
-// Component
+// Types
 // ============================================
 
-interface VerifyStatus {
+interface DirectorVerifyStatus {
+  id: string;
+  name: string;
+  icNumber: string;
+  position: string | null;
   status: string | null;
   result: string | null;
   rejectMessage: string | null;
@@ -23,20 +28,307 @@ interface VerifyStatus {
   lastWebhookAt: string | null;
 }
 
-interface TrueIdentityBoxProps {
-  borrowerId: string;
+type VerifyStatusResponse =
+  | {
+      borrowerType: "INDIVIDUAL";
+      status: string | null;
+      result: string | null;
+      rejectMessage: string | null;
+      onboardingUrl: string | null;
+      expiresAt: string | null;
+      lastWebhookAt: string | null;
+    }
+  | {
+      borrowerType: "CORPORATE";
+      directors: DirectorVerifyStatus[];
+    };
+
+interface Director {
+  id: string;
+  name: string;
+  icNumber: string;
+  position: string | null;
+  order: number;
 }
 
-export function TrueIdentityBox({ borrowerId }: TrueIdentityBoxProps) {
-  const [isActive, setIsActive] = useState<boolean | null>(null);
-  const [status, setStatus] = useState<VerifyStatus | null>(null);
-  const [loading, setLoading] = useState(false);
+interface TrueIdentityBoxProps {
+  borrowerId: string;
+  borrowerType: string;
+  borrowerName: string;
+  borrowerIcNumber: string;
+  directors?: Director[];
+}
+
+// ============================================
+// Director subcard (for corporate)
+// ============================================
+
+function DirectorVerificationCard({
+  director,
+  onSendVerification,
+  onCopyLink,
+  onStatusRefetch,
+}: {
+  director: DirectorVerifyStatus;
+  onSendVerification: (directorId: string) => Promise<void>;
+  onCopyLink: (url: string) => void;
+  onStatusRefetch: () => void;
+}) {
   const [sending, setSending] = useState(false);
+  const d = director;
+  const hasUrl = Boolean(d.onboardingUrl);
+  const isCompleted = d.status === "completed";
+  const isExpired = d.status === "expired";
+  const isProcessing = d.status === "processing";
+  const isPending = d.status === "pending";
+  const isRejected = isCompleted && d.result === "rejected";
+  const canStart = !hasUrl || isExpired || isRejected;
+  const isVerified = isCompleted && d.result === "approved";
+
+  const handleSend = async () => {
+    setSending(true);
+    try {
+      await onSendVerification(director.id);
+      onStatusRefetch();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Card
+      className={
+        isVerified
+          ? "border-emerald-500/20 bg-emerald-500/5"
+          : "border-muted-foreground/15 bg-neutral-50 dark:bg-neutral-800/30"
+      }
+    >
+      <CardContent className="pt-4">
+        <div className="flex items-start gap-3 mb-3">
+          <div
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+              isVerified ? "bg-emerald-500/20" : "bg-muted"
+            }`}
+          >
+            {isVerified ? (
+              <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <Circle className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">{d.name}</p>
+            <p className="text-xs text-muted-foreground font-mono">{d.icNumber}</p>
+            {d.position && (
+              <p className="text-xs text-muted-foreground/70 mt-0.5">{d.position}</p>
+            )}
+          </div>
+        </div>
+        {hasUrl && !isCompleted && (
+          <div className="space-y-2 mb-3">
+            <p className="text-xs text-muted-foreground">
+              Share the QR code or link with this director to complete verification.
+            </p>
+            <div className="flex flex-col items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <QRCodeSVG value={d.onboardingUrl!} size={120} level="M" />
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={() => onCopyLink(d.onboardingUrl!)}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy link
+              </Button>
+            </div>
+          </div>
+        )}
+        {isVerified ? (
+          <div className="space-y-2">
+            {d.lastWebhookAt && (
+              <p className="text-xs text-muted-foreground">
+                Last verified: {formatSmartDateTime(d.lastWebhookAt)}
+              </p>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              onClick={handleSend}
+              disabled={sending}
+            >
+              {sending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {sending ? "Creating..." : "Redo verification"}
+            </Button>
+          </div>
+        ) : canStart ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-1.5"
+            onClick={handleSend}
+            disabled={sending}
+          >
+            {sending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Fingerprint className="h-3.5 w-3.5" />
+            )}
+            {sending ? "Creating..." : "Send Verification"}
+          </Button>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {isProcessing || isPending
+              ? "Verification in progress. Share the QR code above with this director."
+              : "Verification link created. Share the QR code above with this director."}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================
+// Individual subcard
+// ============================================
+
+function IndividualVerificationCard({
+  borrowerName,
+  borrowerIcNumber,
+  status,
+  onSendVerification,
+  onCopyLink,
+}: {
+  borrowerName: string;
+  borrowerIcNumber: string;
+  status: NonNullable<VerifyStatusResponse & { borrowerType: "INDIVIDUAL" }>;
+  onSendVerification: () => Promise<void>;
+  onCopyLink: (url: string) => void;
+}) {
+  const [sending, setSending] = useState(false);
+  const hasUrl = Boolean(status.onboardingUrl);
+  const isCompleted = status.status === "completed";
+  const isExpired = status.status === "expired";
+  const isProcessing = status.status === "processing";
+  const isPending = status.status === "pending";
+  const isRejected = isCompleted && status.result === "rejected";
+  const canStart = !hasUrl || isExpired || isRejected;
+  const isVerified = isCompleted && status.result === "approved";
+
+  return (
+    <Card
+      className={
+        isVerified
+          ? "border-emerald-500/20 bg-emerald-500/5"
+          : "border-muted-foreground/15 bg-neutral-50 dark:bg-neutral-800/30"
+      }
+    >
+      <CardContent className="pt-4">
+        <div className="flex items-start gap-3 mb-3">
+          <div
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+              isVerified ? "bg-emerald-500/20" : "bg-muted"
+            }`}
+          >
+            {isVerified ? (
+              <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <Circle className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">{borrowerName}</p>
+            <p className="text-xs text-muted-foreground font-mono">{borrowerIcNumber}</p>
+          </div>
+        </div>
+        {isVerified ? (
+          <div className="space-y-2">
+            {status.lastWebhookAt && (
+              <p className="text-xs text-muted-foreground">
+                Last verified: {formatSmartDateTime(status.lastWebhookAt)}
+              </p>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              onClick={async () => {
+                setSending(true);
+                try {
+                  await onSendVerification();
+                } finally {
+                  setSending(false);
+                }
+              }}
+              disabled={sending}
+            >
+              {sending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {sending ? "Creating..." : "Redo verification"}
+            </Button>
+          </div>
+        ) : canStart ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-1.5"
+            onClick={async () => {
+              setSending(true);
+              try {
+                await onSendVerification();
+              } finally {
+                setSending(false);
+              }
+            }}
+            disabled={sending}
+          >
+            {sending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Fingerprint className="h-3.5 w-3.5" />
+            )}
+            {sending ? "Creating..." : "Send Verification"}
+          </Button>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {isProcessing || isPending
+              ? "Verification in progress. Share the QR code above with the borrower."
+              : "Verification link created. Share the QR code above with the borrower."}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================
+// Main component
+// ============================================
+
+export function TrueIdentityBox({
+  borrowerId,
+  borrowerType,
+  borrowerName,
+  borrowerIcNumber,
+  directors = [],
+}: TrueIdentityBoxProps) {
+  const [isActive, setIsActive] = useState<boolean | null>(null);
+  const [status, setStatus] = useState<VerifyStatusResponse | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await api.get<VerifyStatus>(`/api/borrowers/${borrowerId}/verify/status`);
+      const res = await api.get<VerifyStatusResponse>(
+        `/api/borrowers/${borrowerId}/verify/status`
+      );
       if (res.success && res.data) {
         setStatus(res.data);
       } else {
@@ -76,71 +368,107 @@ export function TrueIdentityBox({ borrowerId }: TrueIdentityBoxProps) {
     }
   }, [isActive, fetchStatus]);
 
-  const handleSendVerification = async () => {
-    try {
-      setSending(true);
-      const res = await api.post<{
-        sessionId: string;
-        onboardingUrl: string;
-        status: string;
-        expiresAt: string;
-      }>(`/api/borrowers/${borrowerId}/verify/start`, {});
-      if (res.success && res.data) {
-        setStatus({
-          status: res.data.status,
-          result: null,
-          rejectMessage: null,
-          onboardingUrl: res.data.onboardingUrl,
-          expiresAt: res.data.expiresAt,
-          lastWebhookAt: null,
-        });
-        toast.success("Verification link created. Share the QR code or link with the borrower.");
-      } else {
-        toast.error(res.error ?? "Failed to start verification");
-      }
-    } catch {
-      toast.error("Failed to start verification");
-    } finally {
-      setSending(false);
+  const handleSendVerificationIndividual = async () => {
+    const res = await api.post<{
+      sessionId: string;
+      onboardingUrl: string;
+      status: string;
+      expiresAt: string;
+    }>(`/api/borrowers/${borrowerId}/verify/start`, {});
+    if (res.success && res.data) {
+      setStatus({
+        borrowerType: "INDIVIDUAL",
+        status: res.data.status,
+        result: null,
+        rejectMessage: null,
+        onboardingUrl: res.data.onboardingUrl,
+        expiresAt: res.data.expiresAt,
+        lastWebhookAt: null,
+      });
+      toast.success("Verification link created. Share the QR code or link with the borrower.");
+    } else {
+      toast.error(res.error ?? "Failed to start verification");
     }
   };
 
-  const handleCopyLink = () => {
-    const url = status?.onboardingUrl;
-    if (!url) return;
+  const handleSendVerificationDirector = async (directorId: string) => {
+    const res = await api.post<{
+      sessionId: string;
+      onboardingUrl: string;
+      status: string;
+      expiresAt: string;
+    }>(`/api/borrowers/${borrowerId}/verify/start`, { directorId });
+    if (res.success && res.data) {
+      await fetchStatus();
+      toast.success("Verification link created. Share the QR code or link with this director.");
+    } else {
+      toast.error(res.error ?? "Failed to start verification");
+    }
+  };
+
+  const handleCopyLink = (url: string) => {
     navigator.clipboard.writeText(url);
     toast.success("Link copied to clipboard");
   };
 
   const inactive = isActive === false;
-  const hasUrl = Boolean(status?.onboardingUrl);
-  const isCompleted = status?.status === "completed";
-  const isExpired = status?.status === "expired";
-  const isProcessing = status?.status === "processing";
-  const isPending = status?.status === "pending";
-  const canStart = !hasUrl || isExpired;
+  const isCorporate = borrowerType === "CORPORATE";
 
+  // Header status badge: for individual show single status; for corporate show aggregate
   const statusBadge = () => {
-    if (!status?.status) return null;
-    const variant =
-      status.status === "completed"
-        ? status.result === "approved"
-          ? "default"
-          : "destructive"
-        : status.status === "expired" || status.status === "failed"
-          ? "secondary"
-          : "outline";
-    const label =
-      status.status === "completed"
-        ? status.result === "approved"
-          ? "Verified"
-          : "Rejected"
-        : status.status.charAt(0).toUpperCase() + status.status.slice(1);
-    return (
-      <Badge variant={variant} className="text-[10px]">
-        {label}
-      </Badge>
-    );
+    if (isCorporate && status?.borrowerType === "CORPORATE") {
+      const directors = status.directors;
+      const allVerified = directors.length > 0 && directors.every(
+        (d) => d?.status === "completed" && d?.result === "approved"
+      );
+      const anyVerified = directors.some(
+        (d) => d?.status === "completed" && d?.result === "approved"
+      );
+      if (allVerified) {
+        return (
+          <Badge variant="default" className="text-[10px] bg-emerald-600">
+            All verified
+          </Badge>
+        );
+      }
+      if (anyVerified) {
+        return (
+          <Badge variant="outline" className="text-[10px]">
+            Partially verified
+          </Badge>
+        );
+      }
+      return (
+        <Badge variant="secondary" className="text-[10px] bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30">
+          Unverified
+        </Badge>
+      );
+    }
+    if (status?.borrowerType === "INDIVIDUAL") {
+      const s = status;
+      const isVerified = s.status === "completed" && s.result === "approved";
+      const isRejected = s.status === "completed" && s.result === "rejected";
+      if (isVerified) {
+        return (
+          <Badge variant="default" className="text-[10px] bg-emerald-600">
+            Verified
+          </Badge>
+        );
+      }
+      if (isRejected) {
+        return (
+          <Badge variant="destructive" className="text-[10px]">
+            Rejected
+          </Badge>
+        );
+      }
+      return (
+        <Badge variant="secondary" className="text-[10px] bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30">
+          Unverified
+        </Badge>
+      );
+    }
+    return null;
   };
 
   return (
@@ -153,23 +481,19 @@ export function TrueIdentityBox({ borrowerId }: TrueIdentityBoxProps) {
     >
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-heading flex items-center gap-2">
+          <CardTitle className="text-lg font-heading flex items-center gap-2">
             <Fingerprint
-              className={`h-4 w-4 ${inactive ? "text-muted-foreground" : "text-emerald-700 dark:text-emerald-500"}`}
+              className={`h-5 w-5 ${inactive ? "text-muted-foreground" : "text-emerald-700 dark:text-emerald-500"}`}
             />
-            Identity Verification
+            TrueIdentity™
           </CardTitle>
-          <div className="flex items-center gap-2">
-            {statusBadge()}
-            <Badge
-              variant={inactive ? "outline" : "default"}
-              className={`text-[10px] ${inactive ? "text-muted-foreground" : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/15"}`}
-            >
-              <Fingerprint className="h-3 w-3 mr-1" />
-              TrueIdentity
-            </Badge>
-          </div>
+          {statusBadge()}
         </div>
+        <CardDescription className="mt-0.5">
+          {isCorporate
+            ? "Verify each director's identity via IC capture and facial recognition"
+            : "Verify borrower identity via IC capture and facial recognition"}
+        </CardDescription>
       </CardHeader>
 
       <CardContent>
@@ -197,39 +521,60 @@ export function TrueIdentityBox({ borrowerId }: TrueIdentityBoxProps) {
             <Loader2 className="h-4 w-4 animate-spin mr-2" />
             Loading...
           </div>
-        ) : (
+        ) : isCorporate ? (
           <div className="space-y-3">
-            {isCompleted && status?.result === "approved" && (
-              <div className="flex items-center gap-3 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">
-                <ShieldCheck className="h-5 w-5 text-emerald-700 dark:text-emerald-500 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium">Identity verified</p>
-                  <p className="text-xs text-muted-foreground">
-                    Borrower completed e-KYC verification successfully.
-                  </p>
-                </div>
-              </div>
+            {directors.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No directors added. Add directors to this corporate borrower to verify their identity.
+              </p>
+            ) : (
+              <>
+                {(status?.borrowerType === "CORPORATE"
+                  ? status.directors
+                  : directors.map((d) => ({
+                      id: d.id,
+                      name: d.name,
+                      icNumber: d.icNumber,
+                      position: d.position,
+                      status: null,
+                      result: null,
+                      rejectMessage: null,
+                      onboardingUrl: null,
+                      expiresAt: null,
+                      lastWebhookAt: null,
+                    }))
+                ).map((director) => (
+                  <DirectorVerificationCard
+                    key={director.id}
+                    director={director}
+                    onSendVerification={handleSendVerificationDirector}
+                    onCopyLink={handleCopyLink}
+                    onStatusRefetch={fetchStatus}
+                  />
+                ))}
+              </>
             )}
-            {isCompleted && status?.result === "rejected" && (
+          </div>
+        ) : status?.borrowerType === "INDIVIDUAL" ? (
+          <div className="space-y-3">
+            {status.result === "rejected" && status.rejectMessage && (
               <div className="flex flex-col gap-1 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5">
                 <p className="text-sm font-medium">Verification rejected</p>
-                {status.rejectMessage && (
-                  <p className="text-xs text-muted-foreground">{status.rejectMessage}</p>
-                )}
+                <p className="text-xs text-muted-foreground">{status.rejectMessage}</p>
               </div>
             )}
-            {hasUrl && !isCompleted && (
+            {status.onboardingUrl && status.status !== "completed" && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
                   Share the QR code or link with the borrower to complete verification.
                 </p>
                 <div className="flex flex-col items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 p-4">
-                  <QRCodeSVG value={status!.onboardingUrl!} size={140} level="M" />
+                  <QRCodeSVG value={status.onboardingUrl} size={140} level="M" />
                   <Button
                     variant="outline"
                     size="sm"
                     className="w-full gap-1.5"
-                    onClick={handleCopyLink}
+                    onClick={() => handleCopyLink(status.onboardingUrl!)}
                   >
                     <Copy className="h-3.5 w-3.5" />
                     Copy link
@@ -237,29 +582,20 @@ export function TrueIdentityBox({ borrowerId }: TrueIdentityBoxProps) {
                 </div>
               </div>
             )}
-            {canStart && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full gap-1.5"
-                onClick={handleSendVerification}
-                disabled={sending}
-              >
-                {sending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Fingerprint className="h-3.5 w-3.5" />
-                )}
-                {sending ? "Creating..." : "Send Verification"}
-              </Button>
-            )}
-            {isProcessing && (
+            <IndividualVerificationCard
+              borrowerName={borrowerName}
+              borrowerIcNumber={borrowerIcNumber}
+              status={status}
+              onSendVerification={handleSendVerificationIndividual}
+              onCopyLink={handleCopyLink}
+            />
+            {(status.status === "processing" || status.status === "pending") && (
               <p className="text-xs text-muted-foreground">
                 Borrower is completing verification. Status will update when done.
               </p>
             )}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

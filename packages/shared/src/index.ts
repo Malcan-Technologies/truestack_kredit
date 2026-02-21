@@ -65,6 +65,7 @@ export enum RepaymentStatus {
 
 export enum InterestModel {
   FLAT = 'FLAT',
+  RULE_78 = 'RULE_78',
   DECLINING_BALANCE = 'DECLINING_BALANCE',
   EFFECTIVE_RATE = 'EFFECTIVE_RATE',
 }

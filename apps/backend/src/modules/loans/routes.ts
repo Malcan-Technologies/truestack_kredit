@@ -321,6 +321,52 @@ function evaluateOverdueStatus(
   return { oldestOverdueDays, hasUnpaidOverdue };
 }
 
+type SettlementEvaluationRepayment = {
+  dueDate: Date;
+  principal: unknown;
+  interest: unknown;
+  lateFeeAccrued: unknown;
+  lateFeesPaid: unknown;
+  allocations: Array<{ amount: unknown; lateFee?: unknown | null }>;
+};
+
+function evaluateSettlementOutstanding(
+  repayment: SettlementEvaluationRepayment
+): { remainingPrincipal: number; remainingInterest: number; outstandingLateFees: number } {
+  const principalDue = toSafeNumber(repayment.principal);
+  const interestDue = toSafeNumber(repayment.interest);
+  const principalInterestDue = safeAdd(principalDue, interestDue);
+
+  // Allocation amount stores principal+interest. Late fees are tracked separately on allocation.lateFee.
+  const principalInterestPaid = Math.min(
+    principalInterestDue,
+    Math.max(
+      0,
+      repayment.allocations.reduce((sum, allocation) => safeAdd(sum, toSafeNumber(allocation.amount)), 0)
+    )
+  );
+
+  // Payment allocation order: late fee -> interest -> principal.
+  const interestPaid = Math.min(interestDue, principalInterestPaid);
+  const principalPaid = Math.min(
+    principalDue,
+    Math.max(0, safeSubtract(principalInterestPaid, interestPaid))
+  );
+
+  const remainingInterest = Math.max(0, safeSubtract(interestDue, interestPaid));
+  const remainingPrincipal = Math.max(0, safeSubtract(principalDue, principalPaid));
+  const outstandingLateFees = Math.max(
+    0,
+    safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid))
+  );
+
+  return {
+    remainingPrincipal,
+    remainingInterest,
+    outstandingLateFees,
+  };
+}
+
 // All routes require authentication and active subscription
 router.use(authenticateToken);
 router.use(requirePaidSubscription);
@@ -3702,43 +3748,21 @@ router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
     );
 
     for (const repayment of unpaidRepayments) {
-      const totalPaidOnRepayment = repayment.allocations.reduce(
-        (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
-        0
-      );
-      const lateFeesPaidOnRepayment = repayment.allocations.reduce(
-        (sum, a) => safeAdd(sum, toSafeNumber(a.lateFee || 0)),
-        0
-      );
+      const {
+        remainingPrincipal: repaymentRemainingPrincipal,
+        remainingInterest: repaymentRemainingInterest,
+        outstandingLateFees: repaymentOutstandingLateFees,
+      } = evaluateSettlementOutstanding(repayment);
 
-      // Principal + interest remaining (excluding late fees from allocation amounts)
-      const principalAndInterestPaid = safeSubtract(totalPaidOnRepayment, lateFeesPaidOnRepayment);
+      remainingPrincipal = safeAdd(remainingPrincipal, repaymentRemainingPrincipal);
+      remainingInterest = safeAdd(remainingInterest, repaymentRemainingInterest);
+      outstandingLateFees = safeAdd(outstandingLateFees, repaymentOutstandingLateFees);
 
-      // For each repayment, determine how much principal and interest remain
-      const repaymentPrincipal = toSafeNumber(repayment.principal);
-      const repaymentInterest = toSafeNumber(repayment.interest);
-      const repaymentTotal = safeAdd(repaymentPrincipal, repaymentInterest);
-
-      // Remaining after payments (late fees -> interest -> principal allocation order)
-      const remaining = Math.max(0, safeSubtract(repaymentTotal, principalAndInterestPaid));
-
-      // Proportionally split remaining into principal and interest
-      if (repaymentTotal > 0 && remaining > 0) {
-        const principalRatio = safeDivide(repaymentPrincipal, repaymentTotal);
-        const interestRatio = safeDivide(repaymentInterest, repaymentTotal);
-        remainingPrincipal = safeAdd(remainingPrincipal, safeMultiply(remaining, principalRatio));
-        remainingInterest = safeAdd(remainingInterest, safeMultiply(remaining, interestRatio));
-
-        // Track future interest separately (for discount calculation)
-        const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
-        if (dueDate >= today) {
-          remainingFutureInterest = safeAdd(remainingFutureInterest, safeMultiply(remaining, interestRatio));
-        }
+      // Track future interest separately (for discount calculation)
+      const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
+      if (dueDate >= today) {
+        remainingFutureInterest = safeAdd(remainingFutureInterest, repaymentRemainingInterest);
       }
-
-      // Outstanding late fees
-      const lateFeesOwed = safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid));
-      outstandingLateFees = safeAdd(outstandingLateFees, Math.max(0, lateFeesOwed));
     }
 
     // Round to 2 decimal places
@@ -3905,36 +3929,20 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
     }
 
     for (const repayment of unpaidRepayments) {
-      const totalPaidOnRepayment = repayment.allocations.reduce(
-        (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
-        0
-      );
-      const lateFeesPaidOnRepayment = repayment.allocations.reduce(
-        (sum, a) => safeAdd(sum, toSafeNumber(a.lateFee || 0)),
-        0
-      );
+      const {
+        remainingPrincipal: repaymentRemainingPrincipal,
+        remainingInterest: repaymentRemainingInterest,
+        outstandingLateFees: repaymentOutstandingLateFees,
+      } = evaluateSettlementOutstanding(repayment);
 
-      const principalAndInterestPaid = safeSubtract(totalPaidOnRepayment, lateFeesPaidOnRepayment);
-      const repaymentPrincipal = toSafeNumber(repayment.principal);
-      const repaymentInterest = toSafeNumber(repayment.interest);
-      const repaymentTotal = safeAdd(repaymentPrincipal, repaymentInterest);
+      remainingPrincipal = safeAdd(remainingPrincipal, repaymentRemainingPrincipal);
+      remainingInterest = safeAdd(remainingInterest, repaymentRemainingInterest);
+      outstandingLateFees = safeAdd(outstandingLateFees, repaymentOutstandingLateFees);
 
-      const remaining = Math.max(0, safeSubtract(repaymentTotal, principalAndInterestPaid));
-
-      if (repaymentTotal > 0 && remaining > 0) {
-        const principalRatio = safeDivide(repaymentPrincipal, repaymentTotal);
-        const interestRatio = safeDivide(repaymentInterest, repaymentTotal);
-        remainingPrincipal = safeAdd(remainingPrincipal, safeMultiply(remaining, principalRatio));
-        remainingInterest = safeAdd(remainingInterest, safeMultiply(remaining, interestRatio));
-
-        const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
-        if (dueDate >= today) {
-          remainingFutureInterest = safeAdd(remainingFutureInterest, safeMultiply(remaining, interestRatio));
-        }
+      const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
+      if (dueDate >= today) {
+        remainingFutureInterest = safeAdd(remainingFutureInterest, repaymentRemainingInterest);
       }
-
-      const lateFeesOwed = safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid));
-      outstandingLateFees = safeAdd(outstandingLateFees, Math.max(0, lateFeesOwed));
     }
 
     remainingPrincipal = safeRound(remainingPrincipal);
@@ -4011,35 +4019,20 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
       let outstandingLateFeesTx = 0;
 
       for (const repayment of freshUnpaidRepayments) {
-        const totalPaidOnRepayment = repayment.allocations.reduce(
-          (sum, a) => safeAdd(sum, toSafeNumber(a.amount)),
-          0
-        );
-        const lateFeesPaidOnRepayment = repayment.allocations.reduce(
-          (sum, a) => safeAdd(sum, toSafeNumber(a.lateFee || 0)),
-          0
-        );
+        const {
+          remainingPrincipal: repaymentRemainingPrincipal,
+          remainingInterest: repaymentRemainingInterest,
+          outstandingLateFees: repaymentOutstandingLateFees,
+        } = evaluateSettlementOutstanding(repayment);
 
-        const principalAndInterestPaid = safeSubtract(totalPaidOnRepayment, lateFeesPaidOnRepayment);
-        const repaymentPrincipal = toSafeNumber(repayment.principal);
-        const repaymentInterest = toSafeNumber(repayment.interest);
-        const repaymentTotal = safeAdd(repaymentPrincipal, repaymentInterest);
-        const remaining = Math.max(0, safeSubtract(repaymentTotal, principalAndInterestPaid));
+        remainingPrincipalTx = safeAdd(remainingPrincipalTx, repaymentRemainingPrincipal);
+        remainingInterestTx = safeAdd(remainingInterestTx, repaymentRemainingInterest);
+        outstandingLateFeesTx = safeAdd(outstandingLateFeesTx, repaymentOutstandingLateFees);
 
-        if (repaymentTotal > 0 && remaining > 0) {
-          const principalRatio = safeDivide(repaymentPrincipal, repaymentTotal);
-          const interestRatio = safeDivide(repaymentInterest, repaymentTotal);
-          remainingPrincipalTx = safeAdd(remainingPrincipalTx, safeMultiply(remaining, principalRatio));
-          remainingInterestTx = safeAdd(remainingInterestTx, safeMultiply(remaining, interestRatio));
-
-          const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
-          if (dueDate >= todayTx) {
-            remainingFutureInterestTx = safeAdd(remainingFutureInterestTx, safeMultiply(remaining, interestRatio));
-          }
+        const dueDate = getMalaysiaStartOfDay(repayment.dueDate);
+        if (dueDate >= todayTx) {
+          remainingFutureInterestTx = safeAdd(remainingFutureInterestTx, repaymentRemainingInterest);
         }
-
-        const lateFeesOwed = safeSubtract(toSafeNumber(repayment.lateFeeAccrued), toSafeNumber(repayment.lateFeesPaid));
-        outstandingLateFeesTx = safeAdd(outstandingLateFeesTx, Math.max(0, lateFeesOwed));
       }
 
       remainingPrincipalTx = safeRound(remainingPrincipalTx);

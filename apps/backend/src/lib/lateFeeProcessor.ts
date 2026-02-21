@@ -19,6 +19,7 @@
  * - Full audit trail integration
  */
 
+import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { toSafeNumber, safeRound, safeAdd, safeSubtract, dailyLateFeeRate, calculateDailyLateFee } from './math.js';
 import { generateArrearsLetter } from './letterService.js';
@@ -310,18 +311,44 @@ export class LateFeeProcessor {
                       (entry) => !existingDateKeys.has(getMalaysiaStartOfDay(entry.accrualDate).toISOString())
                     );
 
-                    repaymentFeeTotal = entriesToInsert.reduce(
-                      (sum, entry) => safeAdd(sum, entry.feeAmount),
-                      0
-                    );
-                    repaymentFeesCount = entriesToInsert.length;
-                    repaymentDaysBackfilled = entriesToInsert.length;
-
                     if (entriesToInsert.length > 0) {
-                      await tx.lateFeeEntry.createMany({
-                        data: entriesToInsert,
-                        skipDuplicates: true,
-                      });
+                      try {
+                        await tx.lateFeeEntry.createMany({
+                          data: entriesToInsert,
+                        });
+                        repaymentFeeTotal = entriesToInsert.reduce(
+                          (sum, entry) => safeAdd(sum, entry.feeAmount),
+                          0
+                        );
+                        repaymentFeesCount = entriesToInsert.length;
+                        repaymentDaysBackfilled = entriesToInsert.length;
+                      } catch (error) {
+                        // Rare race fallback: insert entries one-by-one and count only successful writes.
+                        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+                          throw error;
+                        }
+
+                        repaymentFeeTotal = 0;
+                        repaymentFeesCount = 0;
+                        repaymentDaysBackfilled = 0;
+
+                        for (const entry of entriesToInsert) {
+                          try {
+                            await tx.lateFeeEntry.create({ data: entry });
+                            repaymentFeeTotal = safeAdd(repaymentFeeTotal, entry.feeAmount);
+                            repaymentFeesCount++;
+                            repaymentDaysBackfilled++;
+                          } catch (entryError) {
+                            if (
+                              entryError instanceof Prisma.PrismaClientKnownRequestError &&
+                              entryError.code === 'P2002'
+                            ) {
+                              continue;
+                            }
+                            throw entryError;
+                          }
+                        }
+                      }
                     }
                   }
 
@@ -330,6 +357,13 @@ export class LateFeeProcessor {
                       where: { id: lockedRepayment.id },
                       data: {
                         lateFeeAccrued: { increment: repaymentFeeTotal },
+                      },
+                    });
+
+                    await tx.loan.update({
+                      where: { id: loan.id },
+                      data: {
+                        totalLateFees: { increment: repaymentFeeTotal },
                       },
                     });
                   }
@@ -349,20 +383,20 @@ export class LateFeeProcessor {
               }
             }
 
-            if (loanTotalFee > 0) {
-              await prisma.loan.update({
-                where: { id: loanId },
-                data: {
-                  totalLateFees: { increment: loanTotalFee },
-                },
-              });
-            }
-
             feesCalculated += loanFeesCount;
             totalFeeAmount = safeAdd(totalFeeAmount, loanTotalFee);
 
-            // 5d. Check arrears period
-            const oldestOverdueDays = repayments.reduce(
+            // 5d. Check arrears/default periods using fresh repayment state.
+            // This avoids stale decisions if payments were recorded during processing.
+            const freshOverdueRepayments = await prisma.loanRepayment.findMany({
+              where: {
+                scheduleVersion: { loanId },
+                status: { in: ['PENDING', 'PARTIAL'] },
+                dueDate: { lt: todayStart },
+              },
+              select: { dueDate: true },
+            });
+            const oldestOverdueDays = freshOverdueRepayments.reduce(
               (max, r) => Math.max(max, calculateDaysOverdueMalaysia(r.dueDate)),
               0
             );
@@ -421,8 +455,14 @@ export class LateFeeProcessor {
                 const totalLateFees = overdueDetails.reduce((s, r) => safeAdd(s, r.lateFeeAccrued), 0);
 
                 const borrower = loan.borrower;
-                // Use the updated total (original + newly accrued from this run)
-                const updatedLoanTotalLateFees = safeAdd(toSafeNumber(loan.totalLateFees), loanTotalFee);
+                // Use a fresh aggregate in case other flows updated totals during this run.
+                const latestLoanTotals = await prisma.loan.findUnique({
+                  where: { id: loanId },
+                  select: { totalLateFees: true },
+                });
+                const updatedLoanTotalLateFees = toSafeNumber(
+                  latestLoanTotals?.totalLateFees ?? safeAdd(toSafeNumber(loan.totalLateFees), loanTotalFee)
+                );
                 const letterPath = await generateArrearsLetter({
                   loan: {
                     id: loan.id,

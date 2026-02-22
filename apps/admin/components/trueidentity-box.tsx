@@ -82,8 +82,10 @@ function DirectorVerificationCard({
   const isProcessing = d.status === "processing";
   const isPending = d.status === "pending";
   const isRejected = isCompleted && d.result === "rejected";
-  const canStart = !hasUrl || isExpired || isRejected;
+  const isFailed = d.status === "failed";
+  const canStart = !hasUrl || isExpired || isRejected || isFailed;
   const isVerified = isCompleted && d.result === "approved";
+  const isRetry = isExpired || isRejected || isFailed;
 
   const handleSend = async () => {
     setSending(true);
@@ -175,10 +177,12 @@ function DirectorVerificationCard({
           >
             {sending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isRetry ? (
+              <RefreshCw className="h-3.5 w-3.5" />
             ) : (
               <Fingerprint className="h-3.5 w-3.5" />
             )}
-            {sending ? "Creating..." : "Send Verification"}
+            {sending ? "Creating..." : isRetry ? "Retry KYC" : "Send Verification"}
           </Button>
         ) : (
           <p className="text-xs text-muted-foreground">
@@ -216,8 +220,10 @@ function IndividualVerificationCard({
   const isProcessing = status.status === "processing";
   const isPending = status.status === "pending";
   const isRejected = isCompleted && status.result === "rejected";
-  const canStart = !hasUrl || isExpired || isRejected;
+  const isFailed = status.status === "failed";
+  const canStart = !hasUrl || isExpired || isRejected || isFailed;
   const isVerified = isCompleted && status.result === "approved";
+  const isRetry = isExpired || isRejected || isFailed;
 
   return (
     <Card
@@ -291,10 +297,12 @@ function IndividualVerificationCard({
           >
             {sending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isRetry ? (
+              <RefreshCw className="h-3.5 w-3.5" />
             ) : (
               <Fingerprint className="h-3.5 w-3.5" />
             )}
-            {sending ? "Creating..." : "Send Verification"}
+            {sending ? "Creating..." : isRetry ? "Retry KYC" : "Send Verification"}
           </Button>
         ) : (
           <p className="text-xs text-muted-foreground">

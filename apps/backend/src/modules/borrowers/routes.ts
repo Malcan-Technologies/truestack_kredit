@@ -590,6 +590,16 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
 
     const documentType = borrower.documentType === 'PASSPORT' ? '2' : '1';
 
+    // Mark any existing non-completed KYC sessions as expired before creating a new one (retry/restart flow)
+    await prisma.trueIdentitySession.updateMany({
+      where: {
+        borrowerId,
+        ...(targetDirectorId ? { directorId: targetDirectorId } : { directorId: null }),
+        status: { not: 'completed' },
+      },
+      data: { status: 'expired', updatedAt: new Date() },
+    });
+
     const adminRes = await requestVerificationSession({
       tenantId: req.tenantId!,
       tenantSlug: borrower.tenant.slug,

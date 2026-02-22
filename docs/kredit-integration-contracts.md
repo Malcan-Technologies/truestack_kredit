@@ -85,6 +85,14 @@ This document describes the webhook and API contracts between TrueStack Admin (T
 | 502 | GATEWAY_ERROR | Innovatif API error |
 | 503 | CONFIG_ERROR | Kredit parent client not configured |
 
+### Retry / Restart KYC
+
+When a session fails or expires, Kredit can retry by:
+
+1. Marking the existing KYC session as expired in Kredit (internal state)
+2. Calling `POST /api/webhooks/kredit/verification-request` with the same payload format and HMAC signing (`x-kredit-signature`, `x-kredit-timestamp`)
+3. Using the new `session_id` and `onboarding_url` from the response
+
 ---
 
 ## 2. Status Callback Webhook (Admin → Kredit)

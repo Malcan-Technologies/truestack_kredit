@@ -185,11 +185,29 @@ function DirectorVerificationCard({
             {sending ? "Creating..." : isRetry ? "Retry KYC" : "Send Verification"}
           </Button>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            {isProcessing || isPending
-              ? "Verification in progress. Share the QR code above with this director."
-              : "Verification link created. Share the QR code above with this director."}
-          </p>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              {isProcessing || isPending
+                ? "Verification in progress. Share the QR code above with this director."
+                : "Verification link created. Share the QR code above with this director."}
+            </p>
+            {(isPending || isProcessing) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={handleSend}
+                disabled={sending}
+              >
+                {sending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                {sending ? "Creating..." : "Retry KYC"}
+              </Button>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -305,11 +323,36 @@ function IndividualVerificationCard({
             {sending ? "Creating..." : isRetry ? "Retry KYC" : "Send Verification"}
           </Button>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            {isProcessing || isPending
-              ? "Verification in progress. Share the QR code above with the borrower."
-              : "Verification link created. Share the QR code above with the borrower."}
-          </p>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              {isProcessing || isPending
+                ? "Verification in progress. Share the QR code above with the borrower."
+                : "Verification link created. Share the QR code above with the borrower."}
+            </p>
+            {(isPending || isProcessing) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={async () => {
+                  setSending(true);
+                  try {
+                    await onSendVerification();
+                  } finally {
+                    setSending(false);
+                  }
+                }}
+                disabled={sending}
+              >
+                {sending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                {sending ? "Creating..." : "Retry KYC"}
+              </Button>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

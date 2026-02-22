@@ -1090,6 +1090,7 @@ model TrueIdentitySession {
   rejectMessage  String?
   expiresAt      DateTime
   requestPayload Json?
+  verificationDocumentUrls Json? // { icFrontUrl?, icBackUrl?, selfieUrl?, verificationDetailUrl? } from Admin
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

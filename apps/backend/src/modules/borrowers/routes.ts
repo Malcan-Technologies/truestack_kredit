@@ -378,6 +378,12 @@ router.get('/:borrowerId', async (req, res, next) => {
             orderBy: { order: 'asc' },
           },
           performanceProjection: true,
+          trueIdentitySessions: {
+            where: { status: 'completed', result: 'approved' },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+            select: { verificationDocumentUrls: true },
+          },
         },
       }),
       prisma.loan.aggregate({
@@ -527,7 +533,10 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
         id: borrowerId,
         tenantId: req.tenantId,
       },
-      include: { directors: { orderBy: { order: 'asc' } } },
+      include: {
+        directors: { orderBy: { order: 'asc' } },
+        tenant: { select: { slug: true, name: true } },
+      },
     });
 
     if (!borrower) {
@@ -570,12 +579,21 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
     }
 
     const baseUrl = config.trueIdentity.kreditBaseUrl?.replace(/\/$/, '') || '';
+    if (config.nodeEnv === 'production' && (!baseUrl || baseUrl.includes('localhost'))) {
+      res.status(503).json({
+        success: false,
+        error: 'Webhook URL not configured for production. Set APP_BASE_URL or BACKEND_URL to the production backend URL.',
+      });
+      return;
+    }
     const webhookUrl = `${baseUrl}/api/webhooks/trueidentity`;
 
     const documentType = borrower.documentType === 'PASSPORT' ? '2' : '1';
 
     const adminRes = await requestVerificationSession({
       tenantId: req.tenantId!,
+      tenantSlug: borrower.tenant.slug,
+      tenantName: borrower.tenant.name,
       borrowerId,
       name,
       icNumber,

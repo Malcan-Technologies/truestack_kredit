@@ -9,10 +9,12 @@ import { signRequestBody } from './signature.js';
 const ENDPOINT = '/api/webhooks/kredit/tenant-created';
 
 export interface TenantCreatedPayload {
-  /** Kredit tenant ID (e.g. cuid); Admin stores as tenant_slug and uses for lookup */
+  /** Kredit tenant ID (e.g. cuid); Admin stores and uses for lookup */
   tenantId: string;
-  /** Display name for Admin UI (optional) */
-  tenantName?: string;
+  /** Tenant slug (e.g. demo-company) for display in Admin */
+  tenantSlug: string;
+  /** Tenant name for display in Admin */
+  tenantName: string;
   contactEmail?: string;
   contactPhone?: string;
   companyRegistration?: string;
@@ -27,13 +29,20 @@ export async function notifyTenantCreated(payload: TenantCreatedPayload): Promis
   const secret = config.trueIdentity.kreditWebhookSecret;
   if (!secret) return false;
 
+  const webhookUrl =
+    config.nodeEnv === 'production' &&
+    (!payload.webhookUrl || payload.webhookUrl.includes('localhost'))
+      ? null
+      : payload.webhookUrl ?? null;
+
   const body = {
     tenant_id: payload.tenantId,
-    tenant_name: payload.tenantName ?? `Kredit Tenant ${payload.tenantId}`,
+    tenant_slug: payload.tenantSlug,
+    tenant_name: payload.tenantName,
     contact_email: payload.contactEmail ?? null,
     contact_phone: payload.contactPhone ?? null,
     company_registration: payload.companyRegistration ?? null,
-    webhook_url: payload.webhookUrl ?? null,
+    webhook_url: webhookUrl,
     metadata: payload.metadata ?? {},
   };
 

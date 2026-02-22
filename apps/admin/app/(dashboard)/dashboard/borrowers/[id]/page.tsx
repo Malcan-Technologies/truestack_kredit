@@ -179,6 +179,14 @@ interface Borrower {
     totalPaid: number;
   };
   documents: BorrowerDocument[];
+  trueIdentitySessions?: Array<{
+    verificationDocumentUrls: {
+      icFrontUrl?: string | null;
+      icBackUrl?: string | null;
+      selfieUrl?: string | null;
+      verificationDetailUrl?: string | null;
+    } | null;
+  }>;
 }
 
 interface TimelineEvent {
@@ -2928,6 +2936,53 @@ export default function BorrowerDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* TrueIdentity IC Documents (from Admin) */}
+          {borrower.trueIdentitySessions?.[0]?.verificationDocumentUrls && (() => {
+            const urls = borrower.trueIdentitySessions[0].verificationDocumentUrls as {
+              icFrontUrl?: string | null;
+              icBackUrl?: string | null;
+              selfieUrl?: string | null;
+              verificationDetailUrl?: string | null;
+            } | null;
+            if (!urls) return null;
+            const links = [
+              urls.icFrontUrl && { label: "IC Front", url: urls.icFrontUrl },
+              urls.icBackUrl && { label: "IC Back", url: urls.icBackUrl },
+              urls.selfieUrl && { label: "Selfie", url: urls.selfieUrl },
+              urls.verificationDetailUrl && { label: "View in Admin", url: urls.verificationDetailUrl },
+            ].filter(Boolean) as { label: string; url: string }[];
+            if (links.length === 0) return null;
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Fingerprint className="h-5 w-5 text-muted-foreground" />
+                    IC Documents (from TrueIdentity)
+                  </CardTitle>
+                  <CardDescription>
+                    Document images from e-KYC verification, stored in Admin
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {links.map(({ label, url }) => (
+                      <a
+                        key={label}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        {label}
+                      </a>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* Activity Timeline */}
           <Card>

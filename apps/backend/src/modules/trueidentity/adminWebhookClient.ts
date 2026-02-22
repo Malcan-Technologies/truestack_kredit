@@ -11,6 +11,10 @@ const ENDPOINT = '/api/webhooks/kredit/verification-request';
 export interface VerificationRequestInput {
   /** Kredit tenant ID (e.g. cuid); sent as tenant_id in body; Admin looks up by this */
   tenantId: string;
+  /** Tenant slug (e.g. demo-company) for display in Admin */
+  tenantSlug: string;
+  /** Tenant name for display in Admin */
+  tenantName: string;
   borrowerId: string;
   name: string;
   icNumber: string;
@@ -41,6 +45,8 @@ export async function requestVerificationSession(
 
   const body = {
     tenant_id: input.tenantId,
+    tenant_slug: input.tenantSlug,
+    tenant_name: input.tenantName,
     borrower_id: input.borrowerId,
     document_name: input.name,
     document_number: input.icNumber,

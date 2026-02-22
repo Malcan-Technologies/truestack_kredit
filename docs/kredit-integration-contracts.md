@@ -39,6 +39,8 @@ This document describes the webhook and API contracts between TrueStack Admin (T
 ```json
 {
   "tenant_id": "string",
+  "tenant_slug": "string",
+  "tenant_name": "string",
   "borrower_id": "string",
   "document_name": "string",
   "document_number": "string",
@@ -50,7 +52,9 @@ This document describes the webhook and API contracts between TrueStack Admin (T
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `tenant_id` | Yes | Kredit’s tenant identifier (ID, e.g. cuid). Admin looks up by this (stored as `tenant_slug`). Short labels (e.g. code) are for display only. |
+| `tenant_id` | Yes | Kredit’s tenant identifier (ID, e.g. cuid). Admin looks up by this. |
+| `tenant_slug` | Yes | Tenant slug (e.g. demo-company) for display in Admin. |
+| `tenant_name` | Yes | Tenant name for display in Admin. |
 | `borrower_id` | No | Borrower identifier in Kredit |
 | `document_name` | Yes | Full name on document |
 | `document_number` | Yes | Document number (IC/Passport) |
@@ -109,9 +113,28 @@ This document describes the webhook and API contracts between TrueStack Admin (T
   "status": "completed",
   "result": "approved",
   "reject_message": null,
-  "timestamp": "2025-02-18T12:00:00.000Z"
+  "timestamp": "2025-02-18T12:00:00.000Z",
+  "ic_front_url": "https://...",
+  "ic_back_url": "https://...",
+  "selfie_url": "https://...",
+  "verification_detail_url": "https://..."
 }
 ```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `event` | Yes | Event type (e.g. `kyc.session.completed`) |
+| `session_id` | Yes | Admin/Innovatif session ID |
+| `tenant_id` | Yes | Kredit tenant ID |
+| `borrower_id` | Yes | Kredit borrower ID |
+| `status` | Yes | `pending`, `processing`, `completed`, `expired`, `failed` |
+| `result` | No | `approved` or `rejected` (when status=completed) |
+| `reject_message` | No | Rejection reason when result=rejected |
+| `timestamp` | Yes | ISO 8601 timestamp |
+| `ic_front_url` | No | URL to IC front image in Admin storage |
+| `ic_back_url` | No | URL to IC back image in Admin storage |
+| `selfie_url` | No | URL to selfie image in Admin storage |
+| `verification_detail_url` | No | URL to view full verification details in Admin |
 
 ---
 
@@ -203,6 +226,7 @@ Same as Verification Request: `x-kredit-signature`, `x-kredit-timestamp`, `Conte
 ```json
 {
   "tenant_id": "string",
+  "tenant_slug": "string",
   "tenant_name": "string",
   "contact_email": "string",
   "contact_phone": "string",
@@ -214,8 +238,9 @@ Same as Verification Request: `x-kredit-signature`, `x-kredit-timestamp`, `Conte
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `tenant_id` | Yes | Kredit’s tenant identifier (ID). Admin stores as `tenant_slug` and uses for lookup; same ID as in verification-request. |
-| `tenant_name` | No | Display name for Admin UI (default: "Kredit Tenant {tenant_id}") |
+| `tenant_id` | Yes | Kredit’s tenant identifier (ID). Admin stores and uses for lookup; same ID as in verification-request. |
+| `tenant_slug` | Yes | Tenant slug (e.g. demo-company) for display in Admin. |
+| `tenant_name` | Yes | Tenant name for display in Admin. |
 | `contact_email` | No | Contact email |
 | `contact_phone` | No | Contact phone |
 | `company_registration` | No | SSM number |

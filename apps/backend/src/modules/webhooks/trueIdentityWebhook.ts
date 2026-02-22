@@ -80,6 +80,11 @@ router.post('/', async (req, res) => {
       status?: string;
       result?: string;
       reject_message?: string;
+      ic_front_url?: string;
+      ic_back_url?: string;
+      selfie_url?: string;
+      verification_detail_url?: string;
+      metadata?: { ic_front_url?: string; ic_back_url?: string; selfie_url?: string; verification_detail_url?: string };
     };
 
     const idempotencyKey = deriveIdempotencyKey(payload);
@@ -139,6 +144,16 @@ router.post('/', async (req, res) => {
             where: { id: directorId },
             data: updateData as Parameters<typeof prisma.borrowerDirector.update>[0]['data'],
           });
+          if (status === 'completed' && result === 'approved') {
+            await prisma.borrower.update({
+              where: { id: borrowerId },
+              data: {
+                documentVerified: true,
+                verifiedAt: new Date(),
+                verifiedBy: 'TrueIdentity',
+              },
+            });
+          }
         }
       } else {
         // Individual: update borrower
@@ -159,20 +174,42 @@ router.post('/', async (req, res) => {
       }
 
       if (session) {
+        const icFront = payload.ic_front_url ?? payload.metadata?.ic_front_url;
+        const icBack = payload.ic_back_url ?? payload.metadata?.ic_back_url;
+        const selfie = payload.selfie_url ?? payload.metadata?.selfie_url;
+        const detailUrl = payload.verification_detail_url ?? payload.metadata?.verification_detail_url;
+        const hasDocUrls = icFront ?? icBack ?? selfie ?? detailUrl;
+        const docUrls = hasDocUrls
+          ? {
+              icFrontUrl: icFront ?? null,
+              icBackUrl: icBack ?? null,
+              selfieUrl: selfie ?? null,
+              verificationDetailUrl: detailUrl ?? null,
+            }
+          : undefined;
         await prisma.trueIdentitySession.update({
           where: { adminSessionId: sessionId },
           data: {
             status: status ?? undefined,
             result: result ?? undefined,
             rejectMessage: rejectMessage ?? undefined,
+            ...(docUrls && { verificationDocumentUrls: docUrls }),
           },
         });
       }
 
       if (tenantId) {
+        const auditAction =
+          status === 'completed' && result === 'approved'
+            ? 'TRUEIDENTITY_VERIFICATION_COMPLETED'
+            : status === 'completed' && result === 'rejected'
+              ? 'TRUEIDENTITY_VERIFICATION_FAILED'
+              : event
+                ? `TRUEIDENTITY_VERIFICATION_${event.replace('kyc.session.', '').toUpperCase()}`
+                : 'TRUEIDENTITY_WEBHOOK';
         await AuditService.log({
           tenantId,
-          action: 'TRUEIDENTITY_WEBHOOK',
+          action: auditAction,
           entityType: directorId ? 'BorrowerDirector' : 'Borrower',
           entityId: directorId ?? borrowerId,
           newData: {
@@ -180,6 +217,7 @@ router.post('/', async (req, res) => {
             status,
             result,
             sessionId,
+            ...(rejectMessage && { rejectMessage }),
             ...(directorId && { directorId, borrowerId }),
           },
           ipAddress: req.ip,

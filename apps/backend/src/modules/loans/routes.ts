@@ -1355,7 +1355,7 @@ router.get('/', async (req, res, next) => {
         take,
         orderBy: { createdAt: 'desc' },
         include: {
-          borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
+          borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true, documentVerified: true } },
           product: { select: { id: true, name: true, loanScheduleType: true } },
           scheduleVersions: {
             orderBy: { version: 'desc' },

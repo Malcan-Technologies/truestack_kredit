@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck } from "lucide-react";
+import { FileText, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, Fingerprint } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -55,6 +55,7 @@ interface Loan {
     icNumber: string;
     borrowerType: string;
     companyName: string | null;
+    documentVerified?: boolean;
   };
   product: {
     id: string;
@@ -572,6 +573,7 @@ function LoansPageContent() {
                     </button>
                   </TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="w-20">Verification</TableHead>
                   <TableHead>
                     <button onClick={() => toggleSort("disbursed")} className="flex items-center gap-1 hover:text-foreground transition-colors">
                       Disbursed
@@ -727,6 +729,33 @@ function LoansPageContent() {
                           </Tooltip>
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {loan.borrower.documentVerified ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge variant="verified" className="text-xs">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Verified
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Borrower verified via TrueIdentity e-KYC</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge variant="outline" className="text-xs text-muted-foreground">
+                              <Fingerprint className="h-3 w-3 mr-1" />
+                              Manual
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Borrower verified manually</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </TableCell>
                     <TableCell>
                       {loan.disbursementDate ? formatDate(loan.disbursementDate) : "-"}

@@ -329,25 +329,30 @@ router.post('/subscribe', async (req, res, next) => {
     if (isNewSubscription) {
       const tenantRecord = await prisma.tenant.findUnique({
         where: { id: req.tenantId },
-        select: { trueIdentityTenantSyncedAt: true, name: true, email: true, contactNumber: true, registrationNumber: true },
+        select: { trueIdentityTenantSyncedAt: true, slug: true, name: true, email: true, contactNumber: true, registrationNumber: true },
       });
       if (tenantRecord && !tenantRecord.trueIdentityTenantSyncedAt) {
         const baseUrl = config.trueIdentity.kreditBaseUrl?.replace(/\/$/, '') || '';
-        const webhookUrl = baseUrl ? `${baseUrl}/api/webhooks/trueidentity` : undefined;
-        const { notifyTenantCreated } = await import('../trueidentity/tenantCreatedWebhook.js');
-        const sent = await notifyTenantCreated({
-          tenantId: req.tenantId!,
-          tenantName: tenantRecord.name,
-          contactEmail: tenantRecord.email ?? undefined,
-          contactPhone: tenantRecord.contactNumber ?? undefined,
-          companyRegistration: tenantRecord.registrationNumber ?? undefined,
-          webhookUrl,
-        });
-        if (sent) {
-          await prisma.tenant.update({
-            where: { id: req.tenantId },
-            data: { trueIdentityTenantSyncedAt: new Date() },
+        if (config.nodeEnv === 'production' && (!baseUrl || baseUrl.includes('localhost'))) {
+          console.error('[Billing] Cannot notify tenant-created: webhook URL not configured for production');
+        } else {
+          const webhookUrl = baseUrl ? `${baseUrl}/api/webhooks/trueidentity` : undefined;
+          const { notifyTenantCreated } = await import('../trueidentity/tenantCreatedWebhook.js');
+          const sent = await notifyTenantCreated({
+            tenantId: req.tenantId!,
+            tenantSlug: tenantRecord.slug,
+            tenantName: tenantRecord.name,
+            contactEmail: tenantRecord.email ?? undefined,
+            contactPhone: tenantRecord.contactNumber ?? undefined,
+            companyRegistration: tenantRecord.registrationNumber ?? undefined,
+            webhookUrl,
           });
+          if (sent) {
+            await prisma.tenant.update({
+              where: { id: req.tenantId },
+              data: { trueIdentityTenantSyncedAt: new Date() },
+            });
+          }
         }
       }
     }

@@ -57,16 +57,27 @@ export const config = {
   // TrueIdentity / TrueStack Admin integration (supports both upper and lowercase env names)
   trueIdentity: {
     adminBaseUrl:
+      process.env.TRUESTACK_ADMIN_URL ||
+      process.env.TRUEIDENTITY_ADMIN_BASE_URL ||
       process.env.trueidentity_admin_base_url ||
+      process.env.truestack_admin_url ||
       '',
     kreditBaseUrl: process.env.APP_BASE_URL || process.env.BACKEND_URL || 'http://localhost:4000',
     kreditWebhookSecret:
+      process.env.KREDIT_WEBHOOK_SECRET ||
+      process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET ||
       process.env.kredit_webhook_secret ||
       '',
     callbackWebhookSecret:
+      process.env.TRUEIDENTITY_WEBHOOK_SECRET ||
+      process.env.TRUEIDENTITY_WEBHOOK_SHARED_SECRET ||
+      process.env.KREDIT_WEBHOOK_SECRET ||
+      process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET ||
       process.env.trueidentity_webhook_secret ||
       '',
     kreditInternalSecret:
+      process.env.KREDIT_INTERNAL_SECRET ||
+      process.env.INTERNAL_API_KEY ||
       process.env.kredit_internal_secret ||
       '',
     timestampMaxAgeMs: parseInt(process.env.TRUEIDENTITY_TIMESTAMP_MAX_AGE_MS || '300000', 10),

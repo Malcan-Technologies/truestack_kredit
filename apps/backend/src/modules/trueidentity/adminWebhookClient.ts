@@ -1,6 +1,7 @@
 /**
  * Client to call TrueStack Admin verification-request webhook.
  * Sends signed payload (Admin contract schema); Admin creates session and returns onboarding_url in response.
+ * Kredit sends path-only webhook_url (e.g. /api/webhooks/trueidentity); Admin uses KREDIT_BACKEND_URL to resolve delivery.
  */
 
 import { config } from '../../lib/config.js';
@@ -19,6 +20,7 @@ export interface VerificationRequestInput {
   name: string;
   icNumber: string;
   documentType?: string;
+  /** Path-only (e.g. /api/webhooks/trueidentity). Admin prepends KREDIT_BACKEND_URL for delivery. */
   webhookUrl: string;
   metadata?: Record<string, unknown>;
 }

@@ -5,7 +5,6 @@ import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireAdmin } from '../../middleware/requireRole.js';
 import { nanoid } from 'nanoid';
-import { config } from '../../lib/config.js';
 import { AddOnService } from '../../lib/addOnService.js';
 import { derivePlanName, CORE_AMOUNT_CENTS, CORE_PLUS_AMOUNT_CENTS } from '../../lib/subscription.js';
 
@@ -332,27 +331,22 @@ router.post('/subscribe', async (req, res, next) => {
         select: { trueIdentityTenantSyncedAt: true, slug: true, name: true, email: true, contactNumber: true, registrationNumber: true },
       });
       if (tenantRecord && !tenantRecord.trueIdentityTenantSyncedAt) {
-        const baseUrl = config.trueIdentity.kreditBaseUrl?.replace(/\/$/, '') || '';
-        if (config.nodeEnv === 'production' && (!baseUrl || baseUrl.includes('localhost'))) {
-          console.error('[Billing] Cannot notify tenant-created: webhook URL not configured for production');
-        } else {
-          const webhookUrl = baseUrl ? `${baseUrl}/api/webhooks/trueidentity` : undefined;
-          const { notifyTenantCreated } = await import('../trueidentity/tenantCreatedWebhook.js');
-          const sent = await notifyTenantCreated({
-            tenantId: req.tenantId!,
-            tenantSlug: tenantRecord.slug,
-            tenantName: tenantRecord.name,
-            contactEmail: tenantRecord.email ?? undefined,
-            contactPhone: tenantRecord.contactNumber ?? undefined,
-            companyRegistration: tenantRecord.registrationNumber ?? undefined,
-            webhookUrl,
+        // Admin uses KREDIT_BACKEND_URL to resolve webhook delivery. Kredit sends path-only.
+        const { notifyTenantCreated } = await import('../trueidentity/tenantCreatedWebhook.js');
+        const sent = await notifyTenantCreated({
+          tenantId: req.tenantId!,
+          tenantSlug: tenantRecord.slug,
+          tenantName: tenantRecord.name,
+          contactEmail: tenantRecord.email ?? undefined,
+          contactPhone: tenantRecord.contactNumber ?? undefined,
+          companyRegistration: tenantRecord.registrationNumber ?? undefined,
+          webhookUrl: '/api/webhooks/trueidentity',
+        });
+        if (sent) {
+          await prisma.tenant.update({
+            where: { id: req.tenantId },
+            data: { trueIdentityTenantSyncedAt: new Date() },
           });
-          if (sent) {
-            await prisma.tenant.update({
-              where: { id: req.tenantId },
-              data: { trueIdentityTenantSyncedAt: new Date() },
-            });
-          }
         }
       }
     }

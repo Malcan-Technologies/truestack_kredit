@@ -1,6 +1,7 @@
 /**
  * Calls Admin's tenant-created webhook when a tenant first pays.
  * Admin creates the tenant client with idempotency.
+ * Kredit sends path-only webhook_url; Admin uses KREDIT_BACKEND_URL to resolve delivery.
  */
 
 import { config } from '../../lib/config.js';
@@ -29,12 +30,6 @@ export async function notifyTenantCreated(payload: TenantCreatedPayload): Promis
   const secret = config.trueIdentity.kreditWebhookSecret;
   if (!secret) return false;
 
-  const webhookUrl =
-    config.nodeEnv === 'production' &&
-    (!payload.webhookUrl || payload.webhookUrl.includes('localhost'))
-      ? null
-      : payload.webhookUrl ?? null;
-
   const body = {
     tenant_id: payload.tenantId,
     tenant_slug: payload.tenantSlug,
@@ -42,7 +37,7 @@ export async function notifyTenantCreated(payload: TenantCreatedPayload): Promis
     contact_email: payload.contactEmail ?? null,
     contact_phone: payload.contactPhone ?? null,
     company_registration: payload.companyRegistration ?? null,
-    webhook_url: webhookUrl,
+    webhook_url: payload.webhookUrl ?? null,
     metadata: payload.metadata ?? {},
   };
 

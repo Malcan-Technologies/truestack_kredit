@@ -12,7 +12,6 @@ import { ensureBorrowerPerformanceProjections } from './performanceProjectionSer
 import { AddOnService } from '../../lib/addOnService.js';
 import { requestVerificationSession } from '../trueidentity/adminWebhookClient.js';
 import { recordVerificationStart } from '../trueidentity/usageService.js';
-import { config } from '../../lib/config.js';
 
 const router = Router();
 
@@ -578,15 +577,8 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
       icNumber = borrower.icNumber;
     }
 
-    const baseUrl = config.trueIdentity.kreditBaseUrl?.replace(/\/$/, '') || '';
-    if (config.nodeEnv === 'production' && (!baseUrl || baseUrl.includes('localhost'))) {
-      res.status(503).json({
-        success: false,
-        error: 'Webhook URL not configured for production. Set APP_BASE_URL or BACKEND_URL to the production backend URL.',
-      });
-      return;
-    }
-    const webhookUrl = `${baseUrl}/api/webhooks/trueidentity`;
+    // Admin uses KREDIT_BACKEND_URL to resolve webhook delivery. Kredit sends path-only.
+    const WEBHOOK_PATH = '/api/webhooks/trueidentity';
 
     const documentType = borrower.documentType === 'PASSPORT' ? '2' : '1';
 
@@ -608,7 +600,7 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
       name,
       icNumber,
       documentType,
-      webhookUrl,
+      webhookUrl: WEBHOOK_PATH,
     });
 
     const expiresAt = adminRes.expires_at ? new Date(adminRes.expires_at) : new Date(Date.now() + 15 * 60 * 1000);
@@ -620,7 +612,7 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
       borrowerId,
       name,
       icNumber,
-      webhookUrl,
+      webhookUrl: WEBHOOK_PATH,
       ...(targetDirectorId && { directorId: targetDirectorId }),
     };
 

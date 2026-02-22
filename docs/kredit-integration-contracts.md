@@ -8,7 +8,7 @@ This document describes the webhook and API contracts between TrueStack Admin (T
 |----------|---------|
 | `KREDIT_WEBHOOK_SECRET` | Shared secret for verifying inbound Kredit → Admin webhooks |
 | `TRUEIDENTITY_WEBHOOK_SECRET` or `KREDIT_WEBHOOK_SECRET` | Shared secret for signing outbound Admin → Kredit webhooks |
-| `KREDIT_BACKEND_URL` | Base URL for Kredit payment webhook (optional; can use `webhook_url` in client config) |
+| `KREDIT_BACKEND_URL` | **Admin only.** Base URL for Kredit backend. Admin uses this to resolve `webhook_url` when Kredit sends a path (e.g. `/api/webhooks/trueidentity`). Kredit does not send its own URL. |
 | `KREDIT_INTERNAL_SECRET` | Optional auth for usage API (falls back to `INTERNAL_API_KEY`) |
 
 ---
@@ -45,7 +45,7 @@ This document describes the webhook and API contracts between TrueStack Admin (T
   "document_name": "string",
   "document_number": "string",
   "document_type": "1",
-  "webhook_url": "https://kredit.example.com/webhooks/status",
+  "webhook_url": "/api/webhooks/trueidentity",
   "metadata": {}
 }
 ```
@@ -59,7 +59,7 @@ This document describes the webhook and API contracts between TrueStack Admin (T
 | `document_name` | Yes | Full name on document |
 | `document_number` | Yes | Document number (IC/Passport) |
 | `document_type` | No | Default `"1"` (IC) |
-| `webhook_url` | Yes | URL for status callbacks |
+| `webhook_url` | Yes | Path-only (e.g. `/api/webhooks/trueidentity`). Admin prepends `KREDIT_BACKEND_URL` (set in Admin's env) to resolve the full delivery URL. Kredit does not send its own backend URL. |
 | `metadata` | No | Additional context |
 
 ### Response (200 OK)
@@ -239,7 +239,7 @@ Same as Verification Request: `x-kredit-signature`, `x-kredit-timestamp`, `Conte
   "contact_email": "string",
   "contact_phone": "string",
   "company_registration": "string",
-  "webhook_url": "https://...",
+  "webhook_url": "/api/webhooks/trueidentity",
   "metadata": {}
 }
 ```
@@ -252,7 +252,7 @@ Same as Verification Request: `x-kredit-signature`, `x-kredit-timestamp`, `Conte
 | `contact_email` | No | Contact email |
 | `contact_phone` | No | Contact phone |
 | `company_registration` | No | SSM number |
-| `webhook_url` | No | Default webhook URL for status callbacks |
+| `webhook_url` | No | Path-only (e.g. `/api/webhooks/trueidentity`). Admin prepends `KREDIT_BACKEND_URL` for delivery. |
 | `metadata` | No | Additional context |
 
 ### Response (200 OK)

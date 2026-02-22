@@ -62,7 +62,6 @@ export const config = {
       process.env.trueidentity_admin_base_url ||
       process.env.truestack_admin_url ||
       '',
-    kreditBaseUrl: process.env.APP_BASE_URL || process.env.BACKEND_URL || 'http://localhost:4000',
     kreditWebhookSecret:
       process.env.KREDIT_WEBHOOK_SECRET ||
       process.env.KREDIT_TRUESTACK_WEBHOOK_SECRET ||

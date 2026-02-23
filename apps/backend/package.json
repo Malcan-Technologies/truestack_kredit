@@ -14,6 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:prod": "tsx prisma/seed.prod.ts",
     "db:seed-500-loans": "tsx scripts/seed-500-loans.ts",
+    "db:reset-payment-status": "tsx scripts/reset-subscription-payment-status.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

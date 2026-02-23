@@ -497,13 +497,11 @@ router.get('/loans', async (req, res, next) => {
     const where = search
       ? {
           OR: [
-            { disbursementReference: { contains: search, mode: 'insensitive' as const } },
             { borrower: { name: { contains: search, mode: 'insensitive' as const } } },
             { borrower: { icNumber: { contains: search, mode: 'insensitive' as const } } },
             { borrower: { email: { contains: search, mode: 'insensitive' as const } } },
             { tenant: { name: { contains: search, mode: 'insensitive' as const } } },
             { tenant: { slug: { contains: search, mode: 'insensitive' as const } } },
-            { product: { name: { contains: search, mode: 'insensitive' as const } } },
           ],
         }
       : {};
@@ -527,12 +525,6 @@ router.get('/loans', async (req, res, next) => {
               email: true,
             },
           },
-          product: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -550,14 +542,11 @@ router.get('/loans', async (req, res, next) => {
           tenant: loan.tenant,
           borrowerId: loan.borrowerId,
           borrower: loan.borrower,
-          productId: loan.productId,
-          product: loan.product,
           principalAmount: toSafeNumber(loan.principalAmount),
           interestRate: toSafeNumber(loan.interestRate),
           term: loan.term,
           status: loan.status,
           disbursementDate: loan.disbursementDate,
-          disbursementReference: loan.disbursementReference,
           createdAt: loan.createdAt,
         })),
         pagination: {
@@ -611,7 +600,17 @@ router.get('/borrowers', async (req, res, next) => {
           _count: {
             select: {
               loans: true,
-              applications: true,
+            },
+          },
+          performanceProjection: {
+            select: {
+              riskLevel: true,
+              onTimeRate: true,
+              tags: true,
+              defaultedLoans: true,
+              inArrearsLoans: true,
+              readyForDefaultLoans: true,
+              totalLoans: true,
             },
           },
         },
@@ -630,13 +629,146 @@ router.get('/borrowers', async (req, res, next) => {
           name: borrower.name,
           borrowerType: borrower.borrowerType,
           icNumber: borrower.icNumber,
+          documentType: borrower.documentType,
+          documentVerified: borrower.documentVerified,
           email: borrower.email,
           phone: borrower.phone,
           tenant: borrower.tenant,
           loanCount: borrower._count.loans,
-          applicationCount: borrower._count.applications,
           createdAt: borrower.createdAt,
+          performanceProjection: borrower.performanceProjection
+            ? {
+                riskLevel: borrower.performanceProjection.riskLevel,
+                onTimeRate: borrower.performanceProjection.onTimeRate != null
+                  ? String(borrower.performanceProjection.onTimeRate)
+                  : null,
+                tags: borrower.performanceProjection.tags,
+                defaultedLoans: borrower.performanceProjection.defaultedLoans,
+                inArrearsLoans: borrower.performanceProjection.inArrearsLoans,
+                readyForDefaultLoans: borrower.performanceProjection.readyForDefaultLoans,
+                totalLoans: borrower.performanceProjection.totalLoans,
+              }
+            : null,
         })),
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/internal/kredit/admin/referrals
+ * Internal all-referrals list for admin (Bearer protected).
+ */
+router.get('/referrals', async (req, res, next) => {
+  try {
+    const page = parsePositiveInt(req.query.page, 1, 100000);
+    const pageSize = parsePositiveInt(req.query.pageSize, 20, 100);
+    const skip = (page - 1) * pageSize;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const statusFilter = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : '';
+
+    // Build where clause
+    const where: Record<string, unknown> = {};
+    
+    if (statusFilter === 'eligible') {
+      where.isEligible = true;
+      where.isPaid = false;
+    } else if (statusFilter === 'paid') {
+      where.isPaid = true;
+    } else if (statusFilter === 'pending') {
+      where.isEligible = false;
+    }
+
+    if (search) {
+      (where as { OR: unknown[] }).OR = [
+        { referralCode: { contains: search, mode: 'insensitive' as const } },
+        { referrer: { email: { contains: search, mode: 'insensitive' as const } } },
+        { referrer: { name: { contains: search, mode: 'insensitive' as const } } },
+        { referredUser: { email: { contains: search, mode: 'insensitive' as const } } },
+        { referredUser: { name: { contains: search, mode: 'insensitive' as const } } },
+      ];
+    }
+
+    const [referrals, total] = await Promise.all([
+      prisma.referral.findMany({
+        where,
+        include: {
+          referrer: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+          referredUser: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.referral.count({ where }),
+    ]);
+
+    // Calculate summary stats
+    const [totalCount, eligibleCount, paidCount] = await Promise.all([
+      prisma.referral.count(),
+      prisma.referral.count({ where: { isEligible: true, isPaid: false } }),
+      prisma.referral.count({ where: { isPaid: true } }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        referrals: referrals.map((referral) => ({
+          id: referral.id,
+          referralCode: referral.referralCode,
+          rewardAmount: referral.rewardAmount,
+          rewardAmountMyr: safeDivide(referral.rewardAmount, 100),
+          isEligible: referral.isEligible,
+          isPaid: referral.isPaid,
+          eligibleAt: referral.eligibleAt.toISOString(),
+          paidAt: referral.paidAt?.toISOString() ?? null,
+          createdAt: referral.createdAt.toISOString(),
+          updatedAt: referral.updatedAt.toISOString(),
+          referrer: {
+            id: referral.referrer.id,
+            email: referral.referrer.email,
+            name: referral.referrer.name,
+          },
+          referredUser: {
+            id: referral.referredUser.id,
+            email: referral.referredUser.email,
+            name: referral.referredUser.name,
+          },
+        })),
+        summary: {
+          total: totalCount,
+          eligible: eligibleCount,
+          paid: paidCount,
+          unpaidEligible: eligibleCount,
+          totalRewards: safeDivide(
+            referrals.reduce((sum, r) => safeAdd(sum, r.rewardAmount), 0),
+            100
+          ),
+          paidRewards: safeDivide(
+            referrals.filter((r) => r.isPaid).reduce((sum, r) => safeAdd(sum, r.rewardAmount), 0),
+            100
+          ),
+        },
         pagination: {
           page,
           pageSize,

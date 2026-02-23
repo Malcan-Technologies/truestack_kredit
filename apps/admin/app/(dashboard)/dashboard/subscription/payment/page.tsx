@@ -115,14 +115,24 @@ function PaymentPageContent() {
   const [loanCount, setLoanCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [latestPaymentRequest, setLatestPaymentRequest] = useState<{
+    requestId: string;
+    status: "PENDING" | "APPROVED" | "REJECTED";
+    rejectionReason?: string | null;
+  } | null>(null);
 
   // Fetch tenant name, subscription status, and loan usage
   useEffect(() => {
     const fetchTenant = async () => {
       try {
-        const [authRes, tenantRes] = await Promise.all([
+        const [authRes, tenantRes, requestRes] = await Promise.all([
           fetch("/api/proxy/auth/me", { credentials: "include" }).then((r) => r.json()),
           api.get<{ counts: { loans: number } }>("/api/tenants/current"),
+          api.get<{
+            requestId: string;
+            status: "PENDING" | "APPROVED" | "REJECTED";
+            rejectionReason?: string | null;
+          } | null>("/api/billing/subscription-payment-request/latest"),
         ]);
         if (authRes.success && authRes.data?.tenant) {
           const t = authRes.data.tenant;
@@ -133,6 +143,9 @@ function PaymentPageContent() {
           setLoanCount(tenantRes.data.counts.loans ?? 0);
         } else {
           setLoanCount(0);
+        }
+        if (requestRes.success) {
+          setLatestPaymentRequest(requestRes.data ?? null);
         }
       } catch {
         console.error("Failed to fetch tenant info");
@@ -150,23 +163,40 @@ function PaymentPageContent() {
       if (subscriptionStatus === "FREE") {
         // Subscribe with plan; CORE_TRUESEND enables TrueSend
         const plan = hasTruesend ? "CORE_TRUESEND" : "CORE";
+        const requestAddOns = [
+          ...(hasTruesend ? ["TRUESEND"] : []),
+          ...(hasTrueIdentity ? ["TRUEIDENTITY"] : []),
+        ];
         const res = await fetch("/api/proxy/billing/subscribe", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plan }),
+          body: JSON.stringify({
+            plan,
+            paymentReference: reference,
+            requestAddOns,
+          }),
         });
         const data = await res.json();
         if (!data.success) {
           toast.error(data.error || "Failed to subscribe");
           return;
         }
-        // Activate TrueIdentity if selected
-        if (hasTrueIdentity) {
-          await api.post("/api/billing/add-ons/toggle", { addOnType: "TRUEIDENTITY" });
+
+        const createdRequest = data.data?.request ?? null;
+        if (createdRequest) {
+          setLatestPaymentRequest({
+            requestId: createdRequest.requestId,
+            status: createdRequest.status,
+            rejectionReason: createdRequest.rejectionReason,
+          });
         }
-        toast.success("Subscription activated! Reloading…");
-        setTimeout(() => window.location.reload(), 1000);
+
+        if (data.data?.existing) {
+          toast.info("Payment request is already pending verification.");
+        } else {
+          toast.success("Payment submitted. Awaiting admin verification.");
+        }
       } else {
         // PAID: activate add-ons that are selected but not yet active (testing only)
         const addOnsRes = await api.get<{ addOns: { addOnType: string; status: string }[] }>(
@@ -205,6 +235,7 @@ function PaymentPageContent() {
     if (!tenantName) return "TK-...";
     return buildReference(tenantName);
   }, [tenantName]);
+  const hasPendingApproval = latestPaymentRequest?.status === "PENDING";
 
   const totalBlocks = Math.max(1, Math.ceil(loanCount / LOANS_PER_BLOCK));
   const extraBlocks = Math.max(0, totalBlocks - 1);
@@ -383,6 +414,15 @@ function PaymentPageContent() {
                     </p>
                   </div>
 
+                  {hasPendingApproval && (
+                    <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3">
+                      <p className="text-sm text-blue-700 dark:text-blue-200">
+                        Payment request <strong>{latestPaymentRequest?.requestId}</strong> is pending
+                        admin approval. We&apos;ll activate your subscription once verified.
+                      </p>
+                    </div>
+                  )}
+
                   <Button
                     className="w-full"
                     size="lg"
@@ -390,14 +430,16 @@ function PaymentPageContent() {
                       e.stopPropagation();
                       handleMadeTransfer();
                     }}
-                    disabled={submitting}
+                    disabled={submitting || hasPendingApproval}
                   >
                     {submitting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : hasPendingApproval ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <Check className="mr-2 h-4 w-4" />
                     )}
-                    I&apos;ve Made the Transfer
+                    {hasPendingApproval ? "Awaiting Admin Verification" : "I&apos;ve Made the Transfer"}
                   </Button>
                 </div>
               )}

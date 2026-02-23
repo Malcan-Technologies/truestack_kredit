@@ -10,6 +10,7 @@ This document describes the webhook and API contracts between TrueStack Admin (T
 | `TRUEIDENTITY_WEBHOOK_SECRET` or `KREDIT_WEBHOOK_SECRET` | Shared secret for signing outbound Admin → Kredit webhooks |
 | `KREDIT_BACKEND_URL` | **Admin only.** Base URL for Kredit backend. Admin uses this to resolve `webhook_url` when Kredit sends a path (e.g. `/api/webhooks/trueidentity`). Kredit does not send its own URL. |
 | `KREDIT_INTERNAL_SECRET` | Optional auth for usage API (falls back to `INTERNAL_API_KEY`) |
+| _(No extra secret required)_ | Subscription payment request + decision webhooks reuse the same HMAC secrets above |
 
 ---
 
@@ -217,9 +218,104 @@ When a session fails or expires, Kredit can retry by:
 
 ---
 
+## 5. Subscription Payment Request Webhook (Kredit → Admin)
+
+**Endpoint:** `POST /api/webhooks/kredit/subscription-payment-request`
+
+**Purpose:** Triggered when tenant clicks “I’ve Made the Transfer” in Kredit subscription payment page. Admin stores request as `pending` for approve/reject workflow.
+
+### Headers
+
+Same as Verification Request: `x-kredit-signature`, `x-kredit-timestamp`, `Content-Type: application/json`
+
+### Request Body
+
+```json
+{
+  "event": "subscription.payment.requested",
+  "request_id": "SPR-ABCDEFG123",
+  "tenant_id": "string",
+  "tenant_slug": "string",
+  "tenant_name": "string",
+  "plan": "CORE",
+  "amount_cents": 49900,
+  "amount_myr": 499.0,
+  "payment_reference": "TKCLIENT240223",
+  "period_start": "2026-02-23",
+  "period_end": "2026-03-23",
+  "requested_at": "2026-02-23T01:00:00.000Z",
+  "requested_add_ons": ["TRUEIDENTITY"],
+  "decision_webhook_url": "/api/webhooks/kredit/subscription-payment-decision"
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `event` | Yes | `subscription.payment.requested` |
+| `request_id` | Yes | Idempotency key for this payment request |
+| `tenant_id` | Yes | Kredit tenant ID |
+| `tenant_slug` | No | Tenant slug for display |
+| `tenant_name` | No | Tenant name for display |
+| `plan` | Yes | `CORE` or `CORE_TRUESEND` |
+| `amount_cents` | Yes | Amount in cents |
+| `amount_myr` | Yes | Amount in MYR |
+| `payment_reference` | Yes | Tenant-entered transfer reference |
+| `period_start` | Yes | Requested subscription period start date (YYYY-MM-DD) |
+| `period_end` | Yes | Requested subscription period end date (YYYY-MM-DD) |
+| `requested_at` | Yes | ISO timestamp for request creation |
+| `requested_add_ons` | No | Optional requested add-ons |
+| `decision_webhook_url` | No | Path/full URL for Admin decision callback (default path recommended) |
+
 ---
 
-## 5. Tenant Created Webhook (Kredit → Admin) – Phase 2
+## 6. Subscription Payment Decision Callback (Admin → Kredit)
+
+**Endpoint:** `POST /api/webhooks/kredit/subscription-payment-decision`
+
+**Purpose:** Admin sends approve/reject result for a pending subscription payment request. Kredit updates tenant subscription and validity only on approved.
+
+### Headers
+
+| Header | Description |
+|--------|-------------|
+| `x-trueidentity-signature` | HMAC-SHA256 (base64) |
+| `x-trueidentity-timestamp` | Unix timestamp (ms) |
+| `Content-Type` | `application/json` |
+| `X-TrueStack-Event` | `subscription.payment.decision` |
+
+### Payload
+
+```json
+{
+  "event": "subscription.payment.decision",
+  "request_id": "SPR-ABCDEFG123",
+  "tenant_id": "string",
+  "status": "approved",
+  "plan": "CORE",
+  "amount_cents": 49900,
+  "amount_myr": 499.0,
+  "payment_reference": "TKCLIENT240223",
+  "period_start": "2026-02-23",
+  "period_end": "2026-03-23",
+  "rejection_reason": null,
+  "decided_at": "2026-02-23T02:00:00.000Z",
+  "decided_by": "admin_user_id"
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `event` | Yes | `subscription.payment.decision` |
+| `request_id` | Yes | Must match pending request ID |
+| `tenant_id` | Yes | Kredit tenant ID |
+| `status` | Yes | `approved` or `rejected` |
+| `rejection_reason` | No | Required when status is rejected |
+| `decided_at` | Yes | ISO decision timestamp |
+| `decided_by` | No | Admin user id or identifier |
+
+---
+
+## 7. Tenant Created Webhook (Kredit → Admin) – Phase 2
 
 **Endpoint:** `POST /api/webhooks/kredit/tenant-created`
 

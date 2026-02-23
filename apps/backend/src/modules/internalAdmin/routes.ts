@@ -1,0 +1,653 @@
+import { Router } from 'express';
+import { prisma } from '../../lib/prisma.js';
+import { config } from '../../lib/config.js';
+import { safeAdd, safeDivide, safeMultiply, safeRound, safeSubtract, toSafeNumber } from '../../lib/math.js';
+
+const router = Router();
+
+const LOAN_STATUSES_FOR_FINANCIALS: Array<'ACTIVE' | 'IN_ARREARS' | 'COMPLETED' | 'DEFAULTED' | 'WRITTEN_OFF'> = [
+  'ACTIVE',
+  'IN_ARREARS',
+  'COMPLETED',
+  'DEFAULTED',
+  'WRITTEN_OFF',
+];
+
+function parsePositiveInt(value: unknown, fallback: number, max: number): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
+
+function verifyInternalAuth(authHeader: string | undefined): boolean {
+  if (!authHeader?.startsWith('Bearer ')) return false;
+  const token = authHeader.slice(7).trim();
+  const expected = config.trueIdentity.kreditInternalSecret;
+  return !!expected && token === expected;
+}
+
+router.use((req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!verifyInternalAuth(authHeader)) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  next();
+});
+
+type TenantFinancialMetrics = {
+  totalDisbursed: number;
+  totalProfit: number;
+};
+
+async function computeTenantFinancials(tenantIds: string[]): Promise<Map<string, TenantFinancialMetrics>> {
+  const metricsByTenant = new Map<string, TenantFinancialMetrics>();
+  if (tenantIds.length === 0) return metricsByTenant;
+
+  const disbursedLoans = await prisma.loan.findMany({
+    where: {
+      tenantId: { in: tenantIds },
+      status: { in: LOAN_STATUSES_FOR_FINANCIALS },
+      disbursementDate: { not: null },
+    },
+    select: {
+      tenantId: true,
+      principalAmount: true,
+      product: {
+        select: {
+          legalFeeType: true,
+          legalFeeValue: true,
+          stampingFeeType: true,
+          stampingFeeValue: true,
+        },
+      },
+    },
+  });
+
+  const disbursedByTenant = new Map<string, number>();
+  const disbursementFeesByTenant = new Map<string, number>();
+
+  for (const loan of disbursedLoans) {
+    const tenantId = loan.tenantId;
+    const principal = toSafeNumber(loan.principalAmount);
+    const legalFeeVal = toSafeNumber(loan.product.legalFeeValue);
+    const stampingFeeVal = toSafeNumber(loan.product.stampingFeeValue);
+
+    const legalFee = loan.product.legalFeeType === 'PERCENTAGE'
+      ? safeMultiply(principal, safeDivide(legalFeeVal, 100))
+      : legalFeeVal;
+
+    const stampingFee = loan.product.stampingFeeType === 'PERCENTAGE'
+      ? safeMultiply(principal, safeDivide(stampingFeeVal, 100))
+      : stampingFeeVal;
+
+    disbursedByTenant.set(tenantId, safeAdd(disbursedByTenant.get(tenantId) ?? 0, principal));
+    disbursementFeesByTenant.set(tenantId, safeAdd(disbursementFeesByTenant.get(tenantId) ?? 0, legalFee, stampingFee));
+  }
+
+  const allocations = await prisma.paymentAllocation.findMany({
+    where: {
+      repayment: {
+        scheduleVersion: {
+          loan: {
+            tenantId: { in: tenantIds },
+          },
+        },
+      },
+    },
+    include: {
+      repayment: {
+        select: {
+          id: true,
+          principal: true,
+          interest: true,
+          scheduleVersion: {
+            select: {
+              loan: {
+                select: {
+                  tenantId: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      transaction: {
+        select: {
+          paymentType: true,
+        },
+      },
+    },
+    orderBy: [{ allocatedAt: 'asc' }, { id: 'asc' }],
+  });
+
+  const paidThroughByRepaymentId = new Map<string, number>();
+  const earnedInterestByTenant = new Map<string, number>();
+  const earnedFeesByTenant = new Map<string, number>();
+
+  for (const alloc of allocations) {
+    const tenantId = alloc.repayment.scheduleVersion.loan.tenantId;
+    const repaymentId = alloc.repayment.id;
+    const allocationAmount = toSafeNumber(alloc.amount);
+    const interestDue = toSafeNumber(alloc.repayment.interest);
+    const paidBeforeAllocation = paidThroughByRepaymentId.get(repaymentId) ?? 0;
+
+    let interestPortion = 0;
+    if (alloc.transaction?.paymentType === 'EARLY_SETTLEMENT') {
+      const principalDue = toSafeNumber(alloc.repayment.principal);
+      const principalPlusInterest = safeAdd(principalDue, interestDue);
+      interestPortion = principalPlusInterest > 0
+        ? safeMultiply(allocationAmount, safeDivide(interestDue, principalPlusInterest), 8)
+        : 0;
+    } else {
+      const interestAlreadyCovered = Math.min(interestDue, paidBeforeAllocation);
+      const interestRemaining = Math.max(0, safeSubtract(interestDue, interestAlreadyCovered));
+      interestPortion = Math.min(allocationAmount, interestRemaining);
+    }
+
+    paidThroughByRepaymentId.set(
+      repaymentId,
+      safeAdd(paidBeforeAllocation, allocationAmount)
+    );
+
+    const lateFee = toSafeNumber(alloc.lateFee);
+    earnedInterestByTenant.set(
+      tenantId,
+      safeAdd(earnedInterestByTenant.get(tenantId) ?? 0, interestPortion)
+    );
+    earnedFeesByTenant.set(
+      tenantId,
+      safeAdd(earnedFeesByTenant.get(tenantId) ?? 0, lateFee)
+    );
+  }
+
+  for (const tenantId of tenantIds) {
+    const totalDisbursed = disbursedByTenant.get(tenantId) ?? 0;
+    const totalEarnedInterest = earnedInterestByTenant.get(tenantId) ?? 0;
+    const totalEarnedFees = safeAdd(
+      earnedFeesByTenant.get(tenantId) ?? 0,
+      disbursementFeesByTenant.get(tenantId) ?? 0
+    );
+    const totalProfit = safeAdd(totalEarnedInterest, totalEarnedFees);
+
+    metricsByTenant.set(tenantId, {
+      totalDisbursed: safeRound(totalDisbursed, 2),
+      totalProfit: safeRound(totalProfit, 2),
+    });
+  }
+
+  return metricsByTenant;
+}
+
+async function computeTotalOutstanding(): Promise<number> {
+  const loans = await prisma.loan.findMany({
+    where: {
+      status: { in: ['ACTIVE', 'IN_ARREARS', 'COMPLETED', 'DEFAULTED', 'WRITTEN_OFF'] },
+    },
+    include: {
+      scheduleVersions: {
+        orderBy: { version: 'desc' },
+        take: 1,
+        include: { repayments: true },
+      },
+    },
+  });
+
+  const repaymentIds = loans.flatMap(
+    (l) => (l.scheduleVersions[0]?.repayments ?? []).map((r) => r.id)
+  );
+  if (repaymentIds.length === 0) return 0;
+
+  const allocationSums = await prisma.paymentAllocation.groupBy({
+    by: ['repaymentId'],
+    _sum: { amount: true },
+    where: { repaymentId: { in: repaymentIds } },
+  });
+  const paidByRepaymentId = new Map<string, number>();
+  for (const row of allocationSums) {
+    paidByRepaymentId.set(row.repaymentId, toSafeNumber(row._sum.amount));
+  }
+
+  let totalOutstanding = 0;
+  for (const loan of loans) {
+    const schedule = loan.scheduleVersions[0];
+    if (!schedule) continue;
+    for (const rep of schedule.repayments) {
+      if (rep.status === 'CANCELLED') continue;
+      const due = toSafeNumber(rep.totalDue);
+      const paid = paidByRepaymentId.get(rep.id) ?? 0;
+      if (rep.status !== 'PAID') {
+        totalOutstanding = safeAdd(totalOutstanding, Math.max(0, safeSubtract(due, paid)));
+      }
+    }
+  }
+  return safeRound(totalOutstanding, 2);
+}
+
+async function computeMonthlyGrowthChart(months: number = 12): Promise<Array<{ label: string; tenants: number; loanVolume: number }>> {
+  const now = new Date();
+  const buckets: Array<{ year: number; month: number; label: string; endDate: Date }> = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    buckets.push({
+      year,
+      month,
+      label: `${monthNames[month]} ${year}`,
+      endDate: new Date(Date.UTC(year, month + 1, 0, 23, 59, 59, 999)),
+    });
+  }
+
+  const [tenants, loans] = await Promise.all([
+    prisma.tenant.findMany({ select: { createdAt: true } }),
+    prisma.loan.findMany({
+      where: { disbursementDate: { not: null } },
+      select: { principalAmount: true, disbursementDate: true },
+    }),
+  ]);
+
+  return buckets.map((bucket) => {
+    const bucketEnd = bucket.endDate.getTime();
+    let cumTenants = 0;
+    let cumLoanVolume = 0;
+    for (const t of tenants) {
+      if (new Date(t.createdAt).getTime() <= bucketEnd) cumTenants++;
+    }
+    for (const l of loans) {
+      const disbDate = l.disbursementDate;
+      if (disbDate && new Date(disbDate).getTime() <= bucketEnd) {
+        cumLoanVolume = safeAdd(cumLoanVolume, toSafeNumber(l.principalAmount));
+      }
+    }
+    return {
+      label: bucket.label,
+      tenants: cumTenants,
+      loanVolume: safeRound(cumLoanVolume, 2),
+    };
+  });
+}
+
+/**
+ * GET /api/internal/kredit/admin/overview
+ * Internal admin overview for all tenants (Bearer protected).
+ */
+router.get('/overview', async (req, res, next) => {
+  try {
+    const page = parsePositiveInt(req.query.page, 1, 100000);
+    const pageSize = parsePositiveInt(req.query.pageSize, 20, 100);
+    const skip = (page - 1) * pageSize;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    const tenantWhere = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' as const } },
+            { slug: { contains: search, mode: 'insensitive' as const } },
+            { email: { contains: search, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+
+    const [allTenantIdsRaw, tenants, totalTenants, totalBorrowers, totalApplications, totalLoans] = await Promise.all([
+      prisma.tenant.findMany({ select: { id: true } }),
+      prisma.tenant.findMany({
+        where: tenantWhere,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          email: true,
+          subscriptionStatus: true,
+          createdAt: true,
+          _count: {
+            select: {
+              borrowers: true,
+              applications: true,
+              loans: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.tenant.count({ where: tenantWhere }),
+      prisma.borrower.count(),
+      prisma.loanApplication.count(),
+      prisma.loan.count(),
+    ]);
+
+    const allTenantIds = allTenantIdsRaw.map((t) => t.id);
+    const [financialsByTenant, totalOutstanding, monthlyGrowthChart] = await Promise.all([
+      computeTenantFinancials(allTenantIds),
+      computeTotalOutstanding(),
+      computeMonthlyGrowthChart(12),
+    ]);
+
+    let totalDisbursedFacilitated = 0;
+    let totalProfit = 0;
+    for (const tenantId of allTenantIds) {
+      const financials = financialsByTenant.get(tenantId);
+      totalDisbursedFacilitated = safeAdd(totalDisbursedFacilitated, financials?.totalDisbursed ?? 0);
+      totalProfit = safeAdd(totalProfit, financials?.totalProfit ?? 0);
+    }
+
+    const rows = tenants.map((tenant) => {
+      const financials = financialsByTenant.get(tenant.id) ?? { totalDisbursed: 0, totalProfit: 0 };
+      return {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        tenantSlug: tenant.slug,
+        email: tenant.email,
+        subscriptionStatus: tenant.subscriptionStatus,
+        borrowerCount: tenant._count.borrowers,
+        applicationCount: tenant._count.applications,
+        loanCount: tenant._count.loans,
+        totalDisbursed: financials.totalDisbursed,
+        totalProfit: financials.totalProfit,
+        createdAt: tenant.createdAt,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          tenantCount: allTenantIds.length,
+          totalBorrowers,
+          totalApplications,
+          totalLoans,
+          totalDisbursedFacilitated: safeRound(totalDisbursedFacilitated, 2),
+          totalOutstanding,
+          totalProfit: safeRound(totalProfit, 2),
+        },
+        tenants: rows,
+        monthlyGrowthChart,
+        pagination: {
+          page,
+          pageSize,
+          total: totalTenants,
+          totalPages: Math.max(1, Math.ceil(totalTenants / pageSize)),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/internal/kredit/admin/tenants
+ * Internal admin tenants table with full tenant info (Bearer protected).
+ */
+router.get('/tenants', async (req, res, next) => {
+  try {
+    const page = parsePositiveInt(req.query.page, 1, 100000);
+    const pageSize = parsePositiveInt(req.query.pageSize, 20, 100);
+    const skip = (page - 1) * pageSize;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    const tenantWhere = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' as const } },
+            { slug: { contains: search, mode: 'insensitive' as const } },
+            { email: { contains: search, mode: 'insensitive' as const } },
+            { registrationNumber: { contains: search, mode: 'insensitive' as const } },
+            { licenseNumber: { contains: search, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+
+    const [tenants, total] = await Promise.all([
+      prisma.tenant.findMany({
+        where: tenantWhere,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          type: true,
+          licenseNumber: true,
+          registrationNumber: true,
+          email: true,
+          contactNumber: true,
+          businessAddress: true,
+          status: true,
+          subscriptionStatus: true,
+          subscriptionAmount: true,
+          subscribedAt: true,
+          trueIdentityTenantSyncedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          _count: {
+            select: {
+              borrowers: true,
+              applications: true,
+              loans: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.tenant.count({ where: tenantWhere }),
+    ]);
+
+    const tenantIds = tenants.map((t) => t.id);
+    const financialsByTenant = await computeTenantFinancials(tenantIds);
+
+    const rows = tenants.map((tenant) => {
+      const financials = financialsByTenant.get(tenant.id) ?? { totalDisbursed: 0, totalProfit: 0 };
+      return {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        tenantSlug: tenant.slug,
+        type: tenant.type,
+        licenseNumber: tenant.licenseNumber,
+        registrationNumber: tenant.registrationNumber,
+        email: tenant.email,
+        contactNumber: tenant.contactNumber,
+        businessAddress: tenant.businessAddress,
+        status: tenant.status,
+        subscriptionStatus: tenant.subscriptionStatus,
+        subscriptionAmount: tenant.subscriptionAmount,
+        subscribedAt: tenant.subscribedAt,
+        trueIdentityTenantSyncedAt: tenant.trueIdentityTenantSyncedAt,
+        borrowerCount: tenant._count.borrowers,
+        applicationCount: tenant._count.applications,
+        loanCount: tenant._count.loans,
+        totalDisbursed: financials.totalDisbursed,
+        totalProfit: financials.totalProfit,
+        createdAt: tenant.createdAt,
+        updatedAt: tenant.updatedAt,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        tenants: rows,
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/internal/kredit/admin/loans
+ * Internal all-tenant loans table (Bearer protected).
+ */
+router.get('/loans', async (req, res, next) => {
+  try {
+    const page = parsePositiveInt(req.query.page, 1, 100000);
+    const pageSize = parsePositiveInt(req.query.pageSize, 20, 100);
+    const skip = (page - 1) * pageSize;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    const where = search
+      ? {
+          OR: [
+            { disbursementReference: { contains: search, mode: 'insensitive' as const } },
+            { borrower: { name: { contains: search, mode: 'insensitive' as const } } },
+            { borrower: { icNumber: { contains: search, mode: 'insensitive' as const } } },
+            { borrower: { email: { contains: search, mode: 'insensitive' as const } } },
+            { tenant: { name: { contains: search, mode: 'insensitive' as const } } },
+            { tenant: { slug: { contains: search, mode: 'insensitive' as const } } },
+            { product: { name: { contains: search, mode: 'insensitive' as const } } },
+          ],
+        }
+      : {};
+
+    const [loans, total] = await Promise.all([
+      prisma.loan.findMany({
+        where,
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
+          borrower: {
+            select: {
+              id: true,
+              name: true,
+              icNumber: true,
+              email: true,
+            },
+          },
+          product: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.loan.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        loans: loans.map((loan) => ({
+          id: loan.id,
+          tenantId: loan.tenantId,
+          tenant: loan.tenant,
+          borrowerId: loan.borrowerId,
+          borrower: loan.borrower,
+          productId: loan.productId,
+          product: loan.product,
+          principalAmount: toSafeNumber(loan.principalAmount),
+          interestRate: toSafeNumber(loan.interestRate),
+          term: loan.term,
+          status: loan.status,
+          disbursementDate: loan.disbursementDate,
+          disbursementReference: loan.disbursementReference,
+          createdAt: loan.createdAt,
+        })),
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/internal/kredit/admin/borrowers
+ * Internal all-tenant borrowers table (Bearer protected).
+ */
+router.get('/borrowers', async (req, res, next) => {
+  try {
+    const page = parsePositiveInt(req.query.page, 1, 100000);
+    const pageSize = parsePositiveInt(req.query.pageSize, 20, 100);
+    const skip = (page - 1) * pageSize;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+    const where = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' as const } },
+            { icNumber: { contains: search, mode: 'insensitive' as const } },
+            { phone: { contains: search, mode: 'insensitive' as const } },
+            { email: { contains: search, mode: 'insensitive' as const } },
+            { tenant: { name: { contains: search, mode: 'insensitive' as const } } },
+            { tenant: { slug: { contains: search, mode: 'insensitive' as const } } },
+          ],
+        }
+      : {};
+
+    const [borrowers, total] = await Promise.all([
+      prisma.borrower.findMany({
+        where,
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
+          _count: {
+            select: {
+              loans: true,
+              applications: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.borrower.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        borrowers: borrowers.map((borrower) => ({
+          id: borrower.id,
+          name: borrower.name,
+          borrowerType: borrower.borrowerType,
+          icNumber: borrower.icNumber,
+          email: borrower.email,
+          phone: borrower.phone,
+          tenant: borrower.tenant,
+          loanCount: borrower._count.loans,
+          applicationCount: borrower._count.applications,
+          createdAt: borrower.createdAt,
+        })),
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+export default router;

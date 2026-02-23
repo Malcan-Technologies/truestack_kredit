@@ -56,6 +56,12 @@ enum BillingEventType {
   ACCESS_RESTORED
 }
 
+enum SubscriptionPaymentRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum ApplicationStatus {
   DRAFT
   SUBMITTED
@@ -146,6 +152,7 @@ model Tenant {
   trueIdentitySessions TrueIdentitySession[]
   trueIdentityWebhookEvents TrueIdentityWebhookEvent[]
   trueIdentityUsageDaily TrueIdentityUsageDaily[]
+  subscriptionPaymentRequests SubscriptionPaymentRequest[]
 }
 
 // ============================================
@@ -373,11 +380,44 @@ model Invoice {
   paidAt        DateTime?
 
   // Relations
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  receipts Receipt[]
+  tenant                     Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receipts                   Receipt[]
+  subscriptionPaymentRequests SubscriptionPaymentRequest[]
 
   @@index([tenantId])
   @@index([status])
+}
+
+model SubscriptionPaymentRequest {
+  id               String                           @id @default(cuid())
+  tenantId         String
+  invoiceId        String?
+  requestId        String                           @unique
+  plan             String
+  amountCents      Int
+  amountMyr        Decimal                          @db.Decimal(12, 2)
+  paymentReference String
+  periodStart      DateTime
+  periodEnd        DateTime
+  status           SubscriptionPaymentRequestStatus @default(PENDING)
+  requestedAddOns  Json?
+  requestPayload   Json?
+  requestedAt      DateTime                         @default(now())
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  rejectionReason  String?
+  decisionMetadata Json?
+  decisionReceivedAt DateTime?
+  webhookDispatchedAt DateTime?
+  webhookDelivered Boolean                          @default(false)
+  webhookError     String?
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, requestedAt])
+  @@index([invoiceId])
 }
 
 model Receipt {

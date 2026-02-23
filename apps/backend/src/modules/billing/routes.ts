@@ -20,6 +20,12 @@ const recordPaymentSchema = z.object({
   reference: z.string().optional(),
 });
 
+const subscribeRequestSchema = z.object({
+  plan: z.enum(['CORE', 'CORE_TRUESEND']).optional(),
+  paymentReference: z.string().trim().min(3).max(120),
+  requestAddOns: z.array(z.enum(['TRUESEND', 'TRUEIDENTITY'])).optional().default([]),
+});
+
 /**
  * Get subscription status
  * GET /api/billing/subscription
@@ -264,10 +270,86 @@ router.get('/events', async (req, res, next) => {
 
 const CORE_TRUESEND_AMOUNT_CENTS = CORE_PLUS_AMOUNT_CENTS;
 
+function toDateOnly(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function serializeSubscriptionPaymentRequest(
+  request: {
+    requestId: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    plan: string;
+    amountCents: number;
+    amountMyr: unknown;
+    paymentReference: string;
+    periodStart: Date;
+    periodEnd: Date;
+    requestedAt: Date;
+    approvedAt: Date | null;
+    rejectedAt: Date | null;
+    rejectionReason: string | null;
+    webhookDelivered: boolean;
+    webhookError: string | null;
+  }
+) {
+  return {
+    requestId: request.requestId,
+    status: request.status,
+    plan: request.plan,
+    amountCents: request.amountCents,
+    amountMyr: Number(request.amountMyr),
+    paymentReference: request.paymentReference,
+    periodStart: request.periodStart,
+    periodEnd: request.periodEnd,
+    requestedAt: request.requestedAt,
+    approvedAt: request.approvedAt,
+    rejectedAt: request.rejectedAt,
+    rejectionReason: request.rejectionReason,
+    webhookDelivered: request.webhookDelivered,
+    webhookError: request.webhookError,
+  };
+}
+
 /**
- * Subscribe tenant (upgrade from FREE to PAID)
+ * Get latest subscription payment request for current tenant
+ * GET /api/billing/subscription-payment-request/latest
+ */
+router.get('/subscription-payment-request/latest', async (req, res, next) => {
+  try {
+    const latest = await prisma.subscriptionPaymentRequest.findFirst({
+      where: { tenantId: req.tenantId },
+      orderBy: { requestedAt: 'desc' },
+      select: {
+        requestId: true,
+        status: true,
+        plan: true,
+        amountCents: true,
+        amountMyr: true,
+        paymentReference: true,
+        periodStart: true,
+        periodEnd: true,
+        requestedAt: true,
+        approvedAt: true,
+        rejectedAt: true,
+        rejectionReason: true,
+        webhookDelivered: true,
+        webhookError: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: latest ? serializeSubscriptionPaymentRequest(latest) : null,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Subscribe tenant (create pending payment request for admin approval)
  * POST /api/billing/subscribe
- * Body: { plan?: 'CORE' | 'CORE_TRUESEND' } — defaults to CORE
+ * Body: { plan?: 'CORE' | 'CORE_TRUESEND', paymentReference: string, requestAddOns?: ('TRUESEND'|'TRUEIDENTITY')[] }
  */
 router.post('/subscribe', async (req, res, next) => {
   try {
@@ -275,18 +357,27 @@ router.post('/subscribe', async (req, res, next) => {
       throw new BadRequestError('No active tenant');
     }
 
+    const parsed = subscribeRequestSchema.parse(req.body);
+    const plan = parsed.plan === 'CORE_TRUESEND' ? 'CORE_TRUESEND' : 'CORE';
+    const requestedAddOns = parsed.requestAddOns;
+    const paymentReference = parsed.paymentReference;
+
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.tenantId },
-      select: { subscriptionStatus: true, subscriptionAmount: true },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        subscriptionStatus: true,
+        subscriptionAmount: true,
+      },
     });
 
     if (!tenant) {
       throw new NotFoundError('Tenant');
     }
 
-    const plan = (req.body as { plan?: string })?.plan === 'CORE_TRUESEND' ? 'CORE_TRUESEND' : 'CORE';
     const subscriptionAmount = plan === 'CORE_TRUESEND' ? CORE_TRUESEND_AMOUNT_CENTS : CORE_AMOUNT_CENTS;
-
     const currentAmount = tenant.subscriptionAmount ?? CORE_AMOUNT_CENTS;
     const isUpgradeToCorePlus = plan === 'CORE_TRUESEND' && subscriptionAmount !== currentAmount;
 
@@ -297,67 +388,142 @@ router.post('/subscribe', async (req, res, next) => {
       throw new BadRequestError('To downgrade from Core+, please contact support');
     }
 
-    // Update tenant subscription status and optionally enable TrueSend
-    const isNewSubscription = tenant.subscriptionStatus === 'FREE';
-    const [updated] = await prisma.$transaction([
-      prisma.tenant.update({
-        where: { id: req.tenantId },
-        data: {
-          subscriptionStatus: 'PAID',
-          subscriptionAmount,
-          ...(isNewSubscription ? { subscribedAt: new Date() } : {}),
-        },
-      }),
-      ...(plan === 'CORE_TRUESEND'
-        ? [
-            prisma.tenantAddOn.upsert({
-              where: {
-                tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' },
-              },
-              create: {
-                tenantId: req.tenantId!,
-                addOnType: 'TRUESEND',
-                status: 'ACTIVE',
-              },
-              update: { status: 'ACTIVE', enabledAt: new Date(), cancelledAt: null },
-            }),
-          ]
-        : []),
-    ]);
+    const existingPending = await prisma.subscriptionPaymentRequest.findFirst({
+      where: {
+        tenantId: req.tenantId,
+        status: 'PENDING',
+      },
+      orderBy: { requestedAt: 'desc' },
+      select: {
+        requestId: true,
+        status: true,
+        plan: true,
+        amountCents: true,
+        amountMyr: true,
+        paymentReference: true,
+        periodStart: true,
+        periodEnd: true,
+        requestedAt: true,
+        approvedAt: true,
+        rejectedAt: true,
+        rejectionReason: true,
+        webhookDelivered: true,
+        webhookError: true,
+      },
+    });
 
-    if (isNewSubscription) {
-      const tenantRecord = await prisma.tenant.findUnique({
-        where: { id: req.tenantId },
-        select: { trueIdentityTenantSyncedAt: true, slug: true, name: true, email: true, contactNumber: true, registrationNumber: true },
+    if (existingPending) {
+      res.json({
+        success: true,
+        data: {
+          pending: true,
+          existing: true,
+          request: serializeSubscriptionPaymentRequest(existingPending),
+        },
       });
-      if (tenantRecord && !tenantRecord.trueIdentityTenantSyncedAt) {
-        // Admin uses KREDIT_BACKEND_URL to resolve webhook delivery. Kredit sends path-only.
-        const { notifyTenantCreated } = await import('../trueidentity/tenantCreatedWebhook.js');
-        const sent = await notifyTenantCreated({
-          tenantId: req.tenantId!,
-          tenantSlug: tenantRecord.slug,
-          tenantName: tenantRecord.name,
-          contactEmail: tenantRecord.email ?? undefined,
-          contactPhone: tenantRecord.contactNumber ?? undefined,
-          companyRegistration: tenantRecord.registrationNumber ?? undefined,
-          webhookUrl: '/api/webhooks/trueidentity',
-        });
-        if (sent) {
-          await prisma.tenant.update({
-            where: { id: req.tenantId },
-            data: { trueIdentityTenantSyncedAt: new Date() },
-          });
-        }
-      }
+      return;
     }
+
+    const requestedAt = new Date();
+    const periodStart = new Date(Date.UTC(
+      requestedAt.getUTCFullYear(),
+      requestedAt.getUTCMonth(),
+      requestedAt.getUTCDate()
+    ));
+    const periodEnd = new Date(periodStart);
+    periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
+
+    const requestId = `SPR-${nanoid(10).toUpperCase()}`;
+    const amountMyr = Number((subscriptionAmount / 100).toFixed(2));
+    const normalizedAddOns = [...new Set(requestedAddOns)].sort();
+
+    const created = await prisma.subscriptionPaymentRequest.create({
+      data: {
+        tenantId: tenant.id,
+        requestId,
+        plan,
+        amountCents: subscriptionAmount,
+        amountMyr,
+        paymentReference,
+        periodStart,
+        periodEnd,
+        requestedAddOns: normalizedAddOns,
+        requestPayload: {
+          source: 'kredit_subscription_payment_page',
+          tenantSubscriptionStatus: tenant.subscriptionStatus,
+          requestAddOns: normalizedAddOns,
+        },
+      },
+      select: {
+        requestId: true,
+        status: true,
+        plan: true,
+        amountCents: true,
+        amountMyr: true,
+        paymentReference: true,
+        periodStart: true,
+        periodEnd: true,
+        requestedAt: true,
+        approvedAt: true,
+        rejectedAt: true,
+        rejectionReason: true,
+        webhookDelivered: true,
+        webhookError: true,
+      },
+    });
+
+    const { notifySubscriptionPaymentRequested } = await import(
+      '../trueidentity/subscriptionPaymentRequestWebhook.js'
+    );
+    const webhookResult = await notifySubscriptionPaymentRequested({
+      requestId,
+      tenantId: tenant.id,
+      tenantSlug: tenant.slug,
+      tenantName: tenant.name,
+      plan,
+      amountCents: subscriptionAmount,
+      amountMyr,
+      paymentReference,
+      periodStart: toDateOnly(periodStart),
+      periodEnd: toDateOnly(periodEnd),
+      requestedAt: requestedAt.toISOString(),
+      requestedAddOns: normalizedAddOns,
+      decisionWebhookUrl: '/api/webhooks/kredit/subscription-payment-decision',
+    });
+
+    const updated = await prisma.subscriptionPaymentRequest.update({
+      where: { requestId },
+      data: {
+        webhookDispatchedAt: new Date(),
+        webhookDelivered: webhookResult.delivered,
+        webhookError: webhookResult.delivered
+          ? null
+          : webhookResult.error ?? (webhookResult.statusCode ? `HTTP ${webhookResult.statusCode}` : 'Dispatch failed'),
+      },
+      select: {
+        requestId: true,
+        status: true,
+        plan: true,
+        amountCents: true,
+        amountMyr: true,
+        paymentReference: true,
+        periodStart: true,
+        periodEnd: true,
+        requestedAt: true,
+        approvedAt: true,
+        rejectedAt: true,
+        rejectionReason: true,
+        webhookDelivered: true,
+        webhookError: true,
+      },
+    });
 
     res.json({
       success: true,
       data: {
-        subscriptionStatus: updated.subscriptionStatus,
-        subscriptionAmount: updated.subscriptionAmount,
-        subscribedAt: updated.subscribedAt,
-        plan,
+        pending: true,
+        existing: false,
+        request: serializeSubscriptionPaymentRequest(updated),
       },
     });
   } catch (error) {

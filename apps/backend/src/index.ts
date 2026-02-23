@@ -25,6 +25,8 @@ import dashboardRoutes from './modules/dashboard/routes.js';
 import resendWebhookRoutes from './modules/webhooks/resendWebhook.js';
 import trueIdentityWebhookRoutes from './modules/webhooks/trueIdentityWebhook.js';
 import trueIdentityPaymentWebhookRoutes from './modules/webhooks/trueIdentityPaymentWebhook.js';
+import kreditSubscriptionPaymentDecisionWebhookRoutes from './modules/webhooks/kreditSubscriptionPaymentDecisionWebhook.js';
+import internalAdminRoutes from './modules/internalAdmin/routes.js';
 
 validateConfig();
 
@@ -41,6 +43,7 @@ app.use(cors({
 
 // Webhook routes MUST be registered before express.json() to preserve raw body for signature verification
 app.use('/api/webhooks/resend', express.raw({ type: 'application/json' }), resendWebhookRoutes);
+app.use('/api/webhooks/kredit/subscription-payment-decision', express.raw({ type: 'application/json' }), kreditSubscriptionPaymentDecisionWebhookRoutes);
 app.use('/api/webhooks/trueidentity/payment', express.raw({ type: 'application/json' }), trueIdentityPaymentWebhookRoutes);
 app.use('/api/webhooks/trueidentity', express.raw({ type: 'application/json' }), trueIdentityWebhookRoutes);
 
@@ -102,6 +105,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/docs', docsRoutes);
 app.use('/api/referrals', referralsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/internal/kredit/admin', internalAdminRoutes);
 
 // Error handling
 app.use(errorHandler);

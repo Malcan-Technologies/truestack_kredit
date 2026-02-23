@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Fingerprint, Sparkles, Copy, Loader2, RefreshCw, Check, Circle } from "lucide-react";
+import { Fingerprint, Sparkles, Copy, Loader2, RefreshCw, Check, Circle, XCircle } from "lucide-react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -109,11 +109,13 @@ function DirectorVerificationCard({
         <div className="flex items-start gap-3 mb-3">
           <div
             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-              isVerified ? "bg-emerald-500/20" : "bg-muted"
+              isVerified ? "bg-emerald-500/20" : isFailed || isRejected ? "bg-destructive/20" : "bg-muted"
             }`}
           >
             {isVerified ? (
               <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            ) : isFailed || isRejected ? (
+              <XCircle className="h-4 w-4 text-destructive" />
             ) : (
               <Circle className="h-4 w-4 text-muted-foreground" />
             )}
@@ -124,9 +126,15 @@ function DirectorVerificationCard({
             {d.position && (
               <p className="text-xs text-muted-foreground/70 mt-0.5">{d.position}</p>
             )}
+            {isFailed && (
+              <p className="text-xs text-destructive font-medium mt-1">Verification failed</p>
+            )}
+            {isRejected && (
+              <p className="text-xs text-destructive font-medium mt-1">Verification rejected</p>
+            )}
           </div>
         </div>
-        {hasUrl && !isCompleted && (
+        {hasUrl && !isCompleted && !isExpired && (
           <div className="space-y-2 mb-3">
             <p className="text-xs text-muted-foreground">
               Share the QR code or link with this director to complete verification.
@@ -143,6 +151,30 @@ function DirectorVerificationCard({
                 Copy link
               </Button>
             </div>
+          </div>
+        )}
+        {isExpired && (
+          <div className="space-y-2 mb-3 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 p-3 opacity-60">
+            <p className="text-xs text-muted-foreground line-through">
+              Verification link has expired
+            </p>
+            <p className="text-xs text-muted-foreground">
+              The QR code and link are no longer valid. Please retry to generate a new verification link.
+            </p>
+          </div>
+        )}
+        {isFailed && (
+          <div className="flex flex-col gap-1 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 mb-3">
+            <p className="text-sm font-medium">Verification failed</p>
+            <p className="text-xs text-muted-foreground">
+              The verification could not be completed. Please retry to generate a new verification link.
+            </p>
+          </div>
+        )}
+        {isRejected && d.rejectMessage && (
+          <div className="flex flex-col gap-1 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 mb-3">
+            <p className="text-sm font-medium">Verification rejected</p>
+            <p className="text-xs text-muted-foreground">{d.rejectMessage}</p>
           </div>
         )}
         {isVerified ? (
@@ -255,11 +287,13 @@ function IndividualVerificationCard({
         <div className="flex items-start gap-3 mb-3">
           <div
             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-              isVerified ? "bg-emerald-500/20" : "bg-muted"
+              isVerified ? "bg-emerald-500/20" : isFailed || isRejected ? "bg-destructive/20" : "bg-muted"
             }`}
           >
             {isVerified ? (
               <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            ) : isFailed || isRejected ? (
+              <XCircle className="h-4 w-4 text-destructive" />
             ) : (
               <Circle className="h-4 w-4 text-muted-foreground" />
             )}
@@ -267,6 +301,12 @@ function IndividualVerificationCard({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{borrowerName}</p>
             <p className="text-xs text-muted-foreground font-mono">{borrowerIcNumber}</p>
+            {isFailed && (
+              <p className="text-xs text-destructive font-medium mt-1">Verification failed</p>
+            )}
+            {isRejected && (
+              <p className="text-xs text-destructive font-medium mt-1">Verification rejected</p>
+            )}
           </div>
         </div>
         {isVerified ? (
@@ -475,10 +515,28 @@ export function TrueIdentityBox({
       const anyVerified = directors.some(
         (d) => d?.status === "completed" && d?.result === "approved"
       );
+      const anyFailed = directors.some((d) => d?.status === "failed");
+      const anyRejected = directors.some(
+        (d) => d?.status === "completed" && d?.result === "rejected"
+      );
       if (allVerified) {
         return (
           <Badge variant="default" className="text-[10px] bg-emerald-600">
             All verified
+          </Badge>
+        );
+      }
+      if (anyFailed) {
+        return (
+          <Badge variant="destructive" className="text-[10px]">
+            Failed
+          </Badge>
+        );
+      }
+      if (anyRejected) {
+        return (
+          <Badge variant="destructive" className="text-[10px]">
+            Rejected
           </Badge>
         );
       }
@@ -499,6 +557,7 @@ export function TrueIdentityBox({
       const s = status;
       const isVerified = s.status === "completed" && s.result === "approved";
       const isRejected = s.status === "completed" && s.result === "rejected";
+      const isFailed = s.status === "failed";
       if (isVerified) {
         return (
           <Badge variant="default" className="text-[10px] bg-emerald-600">
@@ -510,6 +569,13 @@ export function TrueIdentityBox({
         return (
           <Badge variant="destructive" className="text-[10px]">
             Rejected
+          </Badge>
+        );
+      }
+      if (isFailed) {
+        return (
+          <Badge variant="destructive" className="text-[10px]">
+            Failed
           </Badge>
         );
       }
@@ -614,7 +680,15 @@ export function TrueIdentityBox({
                 <p className="text-xs text-muted-foreground">{status.rejectMessage}</p>
               </div>
             )}
-            {status.onboardingUrl && status.status !== "completed" && (
+            {status.status === "failed" && (
+              <div className="flex flex-col gap-1 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5">
+                <p className="text-sm font-medium">Verification failed</p>
+                <p className="text-xs text-muted-foreground">
+                  The verification could not be completed. Please retry to generate a new verification link.
+                </p>
+              </div>
+            )}
+            {status.onboardingUrl && status.status !== "completed" && status.status !== "expired" && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
                   Share the QR code or link with the borrower to complete verification.
@@ -631,6 +705,16 @@ export function TrueIdentityBox({
                     Copy link
                   </Button>
                 </div>
+              </div>
+            )}
+            {status.status === "expired" && (
+              <div className="space-y-2 mb-3 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 p-3 opacity-60">
+                <p className="text-xs text-muted-foreground line-through">
+                  Verification link has expired
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  The QR code and link are no longer valid. Please retry to generate a new verification link.
+                </p>
               </div>
             )}
             <IndividualVerificationCard

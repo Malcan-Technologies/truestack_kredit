@@ -393,6 +393,7 @@ const INDIVIDUAL_DOCUMENT_OPTIONS = [
   { value: "IC_BACK", label: "IC Back" },
   { value: "PASSPORT", label: "Passport" },
   { value: "WORK_PERMIT", label: "Work Permit" },
+  { value: "SELFIE_LIVENESS", label: "Selfie (Liveness)" },
 ];
 
 const CORPORATE_DOCUMENT_OPTIONS = [
@@ -405,6 +406,7 @@ const CORPORATE_DOCUMENT_OPTIONS = [
   { value: "DIRECTOR_IC_FRONT", label: "Director IC Front" },
   { value: "DIRECTOR_IC_BACK", label: "Director IC Back" },
   { value: "DIRECTOR_PASSPORT", label: "Director Passport" },
+  { value: "SELFIE_LIVENESS", label: "Selfie (Liveness)" },
 ];
 
 function getDocumentLabel(category: string, borrowerType: string): string {
@@ -620,7 +622,45 @@ function Field({
 // Timeline Component
 // ============================================
 
-function TimelineItem({ event }: { event: TimelineEvent }) {
+function getKycDisplayName(
+  event: TimelineEvent,
+  borrower: Borrower | null
+): string {
+  if (!borrower) return "—";
+  const newData = event.newData as { directorId?: string } | null;
+  if (newData?.directorId && borrower.directors?.length) {
+    const director = borrower.directors.find((d) => d.id === newData.directorId);
+    return director?.name ?? borrower.companyName ?? borrower.name ?? "—";
+  }
+  return borrower.borrowerType === "CORPORATE"
+    ? (borrower.companyName ?? borrower.name) ?? "—"
+    : borrower.name ?? "—";
+}
+
+function getKycMessage(action: string, displayName: string): string {
+  switch (action) {
+    case "TRUEIDENTITY_VERIFICATION_STARTED":
+      return `Trueidentity started to register KYC: ${displayName}`;
+    case "TRUEIDENTITY_VERIFICATION_PROCESSING":
+      return `Trueidentity is processing KYC for: ${displayName}`;
+    case "TRUEIDENTITY_VERIFICATION_COMPLETED":
+      return `Trueidentity completed KYC verification for: ${displayName}`;
+    case "TRUEIDENTITY_VERIFICATION_EXPIRED":
+      return `Trueidentity KYC session expired for: ${displayName}`;
+    case "TRUEIDENTITY_VERIFICATION_FAILED":
+      return `Trueidentity KYC verification failed for: ${displayName}`;
+    default:
+      return `Trueidentity KYC update for: ${displayName}`;
+  }
+}
+
+function TimelineItem({
+  event,
+  borrower,
+}: {
+  event: TimelineEvent;
+  borrower: Borrower | null;
+}) {
   const getActionInfo = (action: string) => {
     switch (action) {
       case "CREATE":
@@ -633,6 +673,13 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: Upload, label: "Document Uploaded" };
       case "DOCUMENT_DELETE":
         return { icon: Trash2, label: "Document Deleted" };
+      case "TRUEIDENTITY_VERIFICATION_STARTED":
+      case "TRUEIDENTITY_VERIFICATION_PROCESSING":
+      case "TRUEIDENTITY_VERIFICATION_COMPLETED":
+      case "TRUEIDENTITY_VERIFICATION_EXPIRED":
+      case "TRUEIDENTITY_VERIFICATION_FAILED":
+      case "TRUEIDENTITY_WEBHOOK":
+        return { icon: ShieldCheck, label: "True Identity" };
       default:
         return { icon: Clock, label: action };
     }
@@ -780,6 +827,22 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
             </p>
           </div>
         )}
+        {event.action.startsWith("TRUEIDENTITY_") && (() => {
+          const displayName = getKycDisplayName(event, borrower);
+          const msg = getKycMessage(event.action, displayName);
+          const parts = msg.split(": ");
+          const prefix = parts.slice(0, -1).join(": ");
+          const namePart = parts[parts.length - 1] ?? displayName;
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3 min-w-0">
+              <p className="text-xs text-muted-foreground break-words">
+                {prefix}
+                {": "}
+                <span className="font-medium text-foreground">{namePart}</span>
+              </p>
+            </div>
+          );
+        })()}
         <p className="text-xs text-muted-foreground mt-2">
           {formatDate(event.createdAt)}
         </p>
@@ -2899,42 +2962,64 @@ export default function BorrowerDetailPage() {
 
               {/* Documents List */}
               {borrower.documents && borrower.documents.length > 0 ? (
-                <div className="space-y-2">
-                  {borrower.documents.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between p-3 border rounded-lg"
-                    >
-                      <div className="flex items-center gap-3">
-                        <FileText className="h-5 w-5 text-muted-foreground" />
-                        <div>
+                <div className="space-y-4">
+                  {borrower.documents.map((doc) => {
+                    const isImage = /^image\/(jpeg|jpg|png|webp)$/i.test(doc.mimeType);
+                    const docUrl = doc.path.startsWith("/") ? `/api/proxy${doc.path}` : doc.path;
+                    return (
+                      <div
+                        key={doc.id}
+                        className="flex items-start gap-4 p-3 border rounded-lg"
+                      >
+                        {isImage ? (
+                          <div className="shrink-0 w-20 h-20 rounded-md overflow-hidden bg-muted border">
+                            <img
+                              src={docUrl}
+                              alt={getDocumentLabel(doc.category, borrower.borrowerType)}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="shrink-0 w-10 h-10 rounded-md bg-muted border flex items-center justify-center">
+                            <FileText className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium">
                             {getDocumentLabel(doc.category, borrower.borrowerType)}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {doc.originalName} • {formatFileSize(doc.size)}
                           </p>
+                          <a
+                            href={docUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline mt-1 inline-block"
+                          >
+                            Open Full Size
+                          </a>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <a
+                            href={docUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteDocId(doc.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={doc.path}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <Download className="h-4 w-4" />
-                        </a>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteDocId(doc.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-6 text-muted-foreground">
@@ -3032,7 +3117,7 @@ export default function BorrowerDetailPage() {
                 ) : (
                   <div className="space-y-0 min-w-0">
                     {timeline.map((event) => (
-                      <TimelineItem key={event.id} event={event} />
+                      <TimelineItem key={event.id} event={event} borrower={borrower} />
                     ))}
                     {hasMoreTimeline && (
                       <div className="pt-4 text-center">

@@ -14,6 +14,7 @@ import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
 import { AuditService } from '../compliance/auditService.js';
+import { processDocumentImagesFromWebhook } from '../trueidentity/documentImagesFromWebhook.js';
 
 const router = Router();
 
@@ -80,11 +81,14 @@ router.post('/', async (req, res) => {
       status?: string;
       result?: string;
       reject_message?: string;
+      document_name?: string;
+      document_number?: string;
       ic_front_url?: string;
       ic_back_url?: string;
       selfie_url?: string;
       verification_detail_url?: string;
       metadata?: { ic_front_url?: string; ic_back_url?: string; selfie_url?: string; verification_detail_url?: string };
+      document_images?: Record<string, { url?: string }>;
     };
 
     const idempotencyKey = deriveIdempotencyKey(payload);
@@ -135,14 +139,22 @@ router.post('/', async (req, res) => {
       if (rejectMessage) updateData.trueIdentityRejectMessage = rejectMessage;
 
       if (directorId) {
-        // Corporate: update director's KYC status
+        // Corporate: update director's KYC status and verified details
         const director = await prisma.borrowerDirector.findFirst({
           where: { id: directorId, borrowerId },
         });
         if (director) {
+          const directorUpdateData = { ...updateData } as Record<string, unknown>;
+          // Update director details from verified KYC data (document_name, document_number)
+          if (event === 'kyc.session.completed') {
+            const docName = payload.document_name?.trim();
+            const docNumber = payload.document_number?.trim();
+            if (docName) directorUpdateData.name = docName;
+            if (docNumber) directorUpdateData.icNumber = docNumber;
+          }
           await prisma.borrowerDirector.update({
             where: { id: directorId },
-            data: updateData as Parameters<typeof prisma.borrowerDirector.update>[0]['data'],
+            data: directorUpdateData as Parameters<typeof prisma.borrowerDirector.update>[0]['data'],
           });
           if (status === 'completed' && result === 'approved') {
             await prisma.borrower.update({
@@ -156,11 +168,18 @@ router.post('/', async (req, res) => {
           }
         }
       } else {
-        // Individual: update borrower
+        // Individual: update borrower and verified details
         if (status === 'completed' && result === 'approved') {
           (updateData as Record<string, unknown>).documentVerified = true;
           (updateData as Record<string, unknown>).verifiedAt = new Date();
           (updateData as Record<string, unknown>).verifiedBy = 'TrueIdentity';
+        }
+        // Update borrower details from verified KYC data (document_name, document_number)
+        if (event === 'kyc.session.completed') {
+          const docName = payload.document_name?.trim();
+          const docNumber = payload.document_number?.trim();
+          if (docName) (updateData as Record<string, unknown>).name = docName;
+          if (docNumber) (updateData as Record<string, unknown>).icNumber = docNumber;
         }
         const borrower = await prisma.borrower.findFirst({
           where: { id: borrowerId, tenantId },
@@ -169,6 +188,25 @@ router.post('/', async (req, res) => {
           await prisma.borrower.update({
             where: { id: borrowerId },
             data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
+          });
+        }
+      }
+
+      // Process document_images on kyc.session.completed: fetch and store in Borrower Documents
+      if (
+        event === 'kyc.session.completed' &&
+        payload.document_images &&
+        Object.keys(payload.document_images).length > 0
+      ) {
+        const borrower = await prisma.borrower.findFirst({
+          where: { id: borrowerId, tenantId },
+        });
+        if (borrower) {
+          await processDocumentImagesFromWebhook({
+            borrowerId,
+            tenantId,
+            borrowerType: borrower.borrowerType as 'INDIVIDUAL' | 'CORPORATE',
+            documentImages: payload.document_images,
           });
         }
       }

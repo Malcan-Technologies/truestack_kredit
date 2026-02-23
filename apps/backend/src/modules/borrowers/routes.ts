@@ -43,13 +43,13 @@ const POSTCODE_MAX_LENGTH = 20;
 
 // Document categories for individual borrowers
 const INDIVIDUAL_DOCUMENT_CATEGORIES = [
-  'IC_FRONT', 'IC_BACK', 'PASSPORT', 'WORK_PERMIT'
+  'IC_FRONT', 'IC_BACK', 'PASSPORT', 'WORK_PERMIT', 'SELFIE_LIVENESS'
 ] as const;
 
 // Document categories for corporate borrowers
 const CORPORATE_DOCUMENT_CATEGORIES = [
   'SSM_CERT', 'FORM_9', 'FORM_13', 'FORM_24', 'FORM_49', 
-  'COMPANY_PROFILE', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT'
+  'COMPANY_PROFILE', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT', 'SELFIE_LIVENESS'
 ] as const;
 
 // All valid document categories

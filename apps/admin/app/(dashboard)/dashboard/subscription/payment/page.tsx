@@ -439,7 +439,7 @@ function PaymentPageContent() {
                     ) : (
                       <Check className="mr-2 h-4 w-4" />
                     )}
-                    {hasPendingApproval ? "Awaiting Admin Verification" : "I&apos;ve Made the Transfer"}
+                    {hasPendingApproval ? "Awaiting Admin Verification" : "I've Made the Transfer"}
                   </Button>
                 </div>
               )}

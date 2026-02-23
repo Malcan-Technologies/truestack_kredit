@@ -821,6 +821,7 @@ router.get('/applications/:applicationId', async (req, res, next) => {
                 companyName: true,
                 icNumber: true,
                 documentType: true,
+                documentVerified: true,
                 phone: true,
                 email: true,
                 address: true,
@@ -3493,11 +3494,31 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
       firstRepaymentDate = calculateFirstRepaymentDate(parsedDate);
       monthlyRepaymentDay = firstRepaymentDate.getUTCDate();
 
-      // Save the agreement date to the loan
-      await prisma.loan.update({
-        where: { id: loan.id },
-        data: { agreementDate: parsedDate },
-      });
+      // Save the agreement date to the loan. If the date changes, invalidate
+      // guarantor generation markers so fresh PDFs must be regenerated.
+      const agreementDateChanged =
+        (loan.agreementDate?.getTime() ?? null) !== parsedDate.getTime();
+
+      if (agreementDateChanged) {
+        await prisma.$transaction([
+          prisma.loan.update({
+            where: { id: loan.id },
+            data: { agreementDate: parsedDate },
+          }),
+          prisma.loanGuarantor.updateMany({
+            where: {
+              tenantId: req.tenantId!,
+              loanId: loan.id,
+            },
+            data: { agreementGeneratedAt: null },
+          }),
+        ]);
+      } else {
+        await prisma.loan.update({
+          where: { id: loan.id },
+          data: { agreementDate: parsedDate },
+        });
+      }
     }
     
     // If no query param, try to use existing agreement date

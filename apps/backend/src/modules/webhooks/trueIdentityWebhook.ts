@@ -10,6 +10,7 @@
  */
 
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
@@ -192,9 +193,11 @@ router.post('/', async (req, res) => {
         }
       }
 
-      // Process document_images on kyc.session.completed: fetch and store in Borrower Documents
+      // Process document_images on kyc.session.completed only when approved.
+      // When verification is rejected, do not store or display document images.
       if (
         event === 'kyc.session.completed' &&
+        result === 'approved' &&
         payload.document_images &&
         Object.keys(payload.document_images).length > 0
       ) {
@@ -225,13 +228,19 @@ router.post('/', async (req, res) => {
               verificationDetailUrl: detailUrl ?? null,
             }
           : undefined;
+        // When rejected, do not store document URLs and clear any existing ones
+        const shouldStoreDocUrls = hasDocUrls && result === 'approved';
         await prisma.trueIdentitySession.update({
           where: { adminSessionId: sessionId },
           data: {
             status: status ?? undefined,
             result: result ?? undefined,
             rejectMessage: rejectMessage ?? undefined,
-            ...(docUrls && { verificationDocumentUrls: docUrls }),
+            ...(shouldStoreDocUrls
+              ? { verificationDocumentUrls: docUrls }
+              : result === 'rejected'
+                ? { verificationDocumentUrls: Prisma.JsonNull }
+                : {}),
           },
         });
       }

@@ -48,6 +48,8 @@ When Admin sends `kyc.session.completed` to Kredit's status webhook, the payload
 
 5. **Only update if key exists** – If `document_images.DIRECTOR_IC_FRONT` exists, update that section. If it doesn't exist in the payload, leave the existing borrower document unchanged for that category.
 
+6. **Rejected verification** – When `result === "rejected"`, do **not** process or store `document_images`. Do not store `verificationDocumentUrls` in the session. Documents from rejected verifications are never displayed.
+
 ## Implementation Status
 
 - **Backend**: `apps/backend/src/modules/trueidentity/documentImagesFromWebhook.ts` – Fetches images from presigned URLs and stores them in Kredit's storage (Option B) for permanent access.

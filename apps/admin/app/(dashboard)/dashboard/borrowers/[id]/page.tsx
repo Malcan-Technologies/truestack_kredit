@@ -933,7 +933,7 @@ export default function BorrowerDetailPage() {
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [noMonthlyIncome, setNoMonthlyIncome] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
-  const [selectedDocCategory, setSelectedDocCategory] = useState("");
+  const [selectedDocCategory, setSelectedDocCategory] = useState("ALL");
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [deletingDoc, setDeletingDoc] = useState(false);
 
@@ -1290,7 +1290,7 @@ export default function BorrowerDetailPage() {
 
   const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !selectedDocCategory) {
+    if (!file || !selectedDocCategory || selectedDocCategory === "ALL") {
       toast.error("Please select a document category first");
       return;
     }
@@ -1310,7 +1310,7 @@ export default function BorrowerDetailPage() {
       const result = await response.json();
       if (result.success) {
         toast.success("Document uploaded successfully");
-        setSelectedDocCategory("");
+        setSelectedDocCategory("ALL");
         // Reset file input
         e.target.value = "";
         // Refresh borrower data to get updated documents and timeline
@@ -2946,6 +2946,7 @@ export default function BorrowerDetailPage() {
                       <SelectValue placeholder="Select document type" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="ALL">All categories</SelectItem>
                       {(borrower.borrowerType === "CORPORATE" 
                         ? CORPORATE_DOCUMENT_OPTIONS
                         : INDIVIDUAL_DOCUMENT_OPTIONS
@@ -2962,11 +2963,11 @@ export default function BorrowerDetailPage() {
                     className="hidden"
                     accept=".jpg,.jpeg,.png,.pdf,.webp"
                     onChange={handleDocumentUpload}
-                    disabled={uploadingDoc || !selectedDocCategory}
+                    disabled={uploadingDoc || selectedDocCategory === "ALL"}
                   />
                   <Button
                     variant="outline"
-                    disabled={uploadingDoc || !selectedDocCategory}
+                    disabled={uploadingDoc || selectedDocCategory === "ALL"}
                     onClick={() => document.getElementById("doc-upload")?.click()}
                   >
                     <Upload className="h-4 w-4 mr-2" />
@@ -2978,7 +2979,25 @@ export default function BorrowerDetailPage() {
               {/* Documents List */}
               {borrower.documents && borrower.documents.length > 0 ? (
                 <div className="space-y-4">
-                  {sortDocumentsByCategory(borrower.documents, borrower.borrowerType).map((doc) => {
+                  {(() => {
+                    const filtered =
+                      selectedDocCategory === "ALL"
+                        ? borrower.documents
+                        : borrower.documents.filter((d) => {
+                            if (d.category === selectedDocCategory) return true;
+                            const filename = (d.originalName || d.filename || "").toUpperCase();
+                            const categoryInFilename = selectedDocCategory.replace(/-/g, "_");
+                            return filename.includes(categoryInFilename) || filename.includes(`KYC-${categoryInFilename}`);
+                          });
+                    const sorted = sortDocumentsByCategory(filtered, borrower.borrowerType);
+                    if (sorted.length === 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground py-4 text-center">
+                          No documents in this category
+                        </p>
+                      );
+                    }
+                    return sorted.map((doc) => {
                     const isImage = /^image\/(jpeg|jpg|png|webp)$/i.test(doc.mimeType);
                     const docUrl = doc.path.startsWith("/") ? `/api/proxy${doc.path}` : doc.path;
                     return (
@@ -3034,7 +3053,8 @@ export default function BorrowerDetailPage() {
                         </div>
                       </div>
                     );
-                  })}
+                  });
+                  })()}
                 </div>
               ) : (
                 <div className="text-center py-6 text-muted-foreground">

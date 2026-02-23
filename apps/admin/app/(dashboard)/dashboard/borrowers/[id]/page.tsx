@@ -416,6 +416,21 @@ function getDocumentLabel(category: string, borrowerType: string): string {
   return options.find(o => o.value === category)?.label || category;
 }
 
+function sortDocumentsByCategory<T extends { category: string }>(
+  documents: T[],
+  borrowerType: string
+): T[] {
+  const options = borrowerType === "CORPORATE" 
+    ? CORPORATE_DOCUMENT_OPTIONS
+    : INDIVIDUAL_DOCUMENT_OPTIONS;
+  const orderMap = new Map(options.map((o, i) => [o.value, i]));
+  return [...documents].sort((a, b) => {
+    const idxA = orderMap.get(a.category) ?? 999;
+    const idxB = orderMap.get(b.category) ?? 999;
+    return idxA - idxB;
+  });
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -2963,7 +2978,7 @@ export default function BorrowerDetailPage() {
               {/* Documents List */}
               {borrower.documents && borrower.documents.length > 0 ? (
                 <div className="space-y-4">
-                  {borrower.documents.map((doc) => {
+                  {sortDocumentsByCategory(borrower.documents, borrower.borrowerType).map((doc) => {
                     const isImage = /^image\/(jpeg|jpg|png|webp)$/i.test(doc.mimeType);
                     const docUrl = doc.path.startsWith("/") ? `/api/proxy${doc.path}` : doc.path;
                     return (

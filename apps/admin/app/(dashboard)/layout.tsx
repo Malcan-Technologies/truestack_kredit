@@ -28,6 +28,7 @@ import {
   ChevronsRight,
   Layers,
   Phone,
+  Store,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -95,9 +96,8 @@ const navigationSections: NavSection[] = [
     title: "Business",
     items: [
       { name: "Compliance", href: "/dashboard/compliance", icon: Shield },
-      { name: "Billing", href: "/dashboard/billing", icon: Wallet },
-      { name: "Plan", href: "/dashboard/plan", icon: Layers },
       { name: "Promotions", href: "/dashboard/promotions", icon: Megaphone },
+      { name: "Debt Marketplace", href: "/dashboard/debt-marketplace", icon: Store },
     ],
   },
   {
@@ -111,6 +111,8 @@ const navigationSections: NavSection[] = [
   {
     title: "Administration",
     items: [
+      { name: "Billing", href: "/dashboard/billing", icon: Wallet },
+      { name: "Plan", href: "/dashboard/plan", icon: Layers },
       { name: "Admin Logs", href: "/dashboard/admin-logs", icon: ScrollText },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
     ],
@@ -127,6 +129,7 @@ const PATHS_REQUIRING_MEMBERSHIP = [
   "/dashboard/billing",
   "/dashboard/plan",
   "/dashboard/promotions",
+  "/dashboard/debt-marketplace",
   "/dashboard/calculator",
   "/dashboard/admin-logs",
   "/dashboard/subscription",

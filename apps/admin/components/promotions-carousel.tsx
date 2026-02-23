@@ -179,7 +179,7 @@ export function PromotionsCarousel({ promotions = PROMOTIONS, className }: Promo
           </div>
 
           {/* Bottom bar: dots - only when multiple promos */}
-          {PROMOTIONS.length > 1 && (
+          {promotions.length > 1 && (
           <div className="mt-3 flex items-center justify-start">
             <div className="flex items-center gap-1.5">
               {promotions.map((_, idx) => (

@@ -380,6 +380,7 @@ const createApplicationSchema = z.object({
   notes: z.string().max(1000).optional(),
   collateralType: z.string().max(200).optional(),
   collateralValue: z.number().positive().optional(),
+  guarantorIds: z.array(z.string()).max(5).optional(),
 });
 
 const updateApplicationSchema = z.object({
@@ -400,6 +401,79 @@ const previewSchema = z.object({
   amount: z.number().positive(),
   term: z.number().int().positive(),
 });
+
+const MAX_GUARANTORS_PER_APPLICATION = 5;
+
+type GuarantorBorrowerSnapshot = {
+  id: string;
+  name: string;
+  borrowerType: string;
+  companyName: string | null;
+  documentType: string;
+  icNumber: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+};
+
+async function resolveValidGuarantors(
+  tenantId: string,
+  borrowerId: string,
+  guarantorIds: string[] | undefined
+): Promise<GuarantorBorrowerSnapshot[]> {
+  if (!guarantorIds || guarantorIds.length === 0) {
+    return [];
+  }
+
+  if (guarantorIds.length > MAX_GUARANTORS_PER_APPLICATION) {
+    throw new BadRequestError(`Maximum ${MAX_GUARANTORS_PER_APPLICATION} guarantors are allowed`);
+  }
+
+  const uniqueGuarantorIds = [...new Set(guarantorIds)];
+  if (uniqueGuarantorIds.length !== guarantorIds.length) {
+    throw new BadRequestError('Duplicate guarantors are not allowed');
+  }
+
+  if (uniqueGuarantorIds.includes(borrowerId)) {
+    throw new BadRequestError('Borrower cannot be selected as a guarantor');
+  }
+
+  const guarantors = await prisma.borrower.findMany({
+    where: {
+      tenantId,
+      id: { in: uniqueGuarantorIds },
+    },
+    select: {
+      id: true,
+      name: true,
+      borrowerType: true,
+      companyName: true,
+      documentType: true,
+      icNumber: true,
+      phone: true,
+      email: true,
+      address: true,
+    },
+  });
+
+  if (guarantors.length !== uniqueGuarantorIds.length) {
+    throw new BadRequestError('One or more selected guarantors are invalid');
+  }
+
+  const nonPersonalGuarantors = guarantors.filter((guarantor) => guarantor.borrowerType !== 'INDIVIDUAL');
+  if (nonPersonalGuarantors.length > 0) {
+    throw new BadRequestError('Guarantors must be personal borrowers only');
+  }
+
+  const guarantorMap = new Map(guarantors.map((guarantor) => [guarantor.id, guarantor]));
+  return uniqueGuarantorIds.map((id) => {
+    const guarantor = guarantorMap.get(id);
+    if (!guarantor) {
+      throw new BadRequestError('One or more selected guarantors are invalid');
+    }
+    return guarantor;
+  });
+}
 
 // Note: Letter generation (discharge, arrears, default) is consolidated in letterService.ts
 
@@ -584,6 +658,7 @@ router.post('/applications/preview', async (req, res, next) => {
 router.post('/applications', async (req, res, next) => {
   try {
     const data = createApplicationSchema.parse(req.body);
+    const tenantId = req.tenantId!;
 
     // Verify borrower exists and belongs to tenant
     const borrower = await prisma.borrower.findFirst({
@@ -596,6 +671,8 @@ router.post('/applications', async (req, res, next) => {
     if (!borrower) {
       throw new NotFoundError('Borrower');
     }
+
+    const guarantors = await resolveValidGuarantors(tenantId, data.borrowerId, data.guarantorIds);
 
     // Verify product exists and belongs to tenant
     const product = await prisma.product.findFirst({
@@ -625,7 +702,7 @@ router.post('/applications', async (req, res, next) => {
 
     const application = await prisma.loanApplication.create({
       data: {
-        tenantId: req.tenantId!,
+        tenantId,
         borrowerId: data.borrowerId,
         productId: data.productId,
         amount: data.amount,
@@ -634,10 +711,40 @@ router.post('/applications', async (req, res, next) => {
         status: 'DRAFT',
         collateralType: data.collateralType,
         collateralValue: data.collateralValue,
+        guarantors: guarantors.length > 0
+          ? {
+              create: guarantors.map((guarantor, index) => ({
+                tenantId,
+                borrowerId: guarantor.id,
+                order: index,
+              })),
+            }
+          : undefined,
       },
       include: {
         borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
         product: { select: { id: true, name: true, interestModel: true, interestRate: true, loanScheduleType: true } },
+        guarantors: {
+          orderBy: { order: 'asc' },
+          select: {
+            id: true,
+            order: true,
+            borrower: {
+              select: {
+                id: true,
+                name: true,
+                borrowerType: true,
+                companyName: true,
+                icNumber: true,
+                documentType: true,
+                phone: true,
+                email: true,
+                address: true,
+                documentVerified: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -657,6 +764,7 @@ router.post('/applications', async (req, res, next) => {
         borrowerName: borrowerDisplayName,
         productId: data.productId,
         productName: product.name,
+        guarantorIds: guarantors.map((guarantor) => guarantor.id),
         amount: data.amount,
         term: data.term,
         status: 'DRAFT',
@@ -700,6 +808,26 @@ router.get('/applications/:applicationId', async (req, res, next) => {
           },
         },
         product: true,
+        guarantors: {
+          orderBy: { order: 'asc' },
+          select: {
+            id: true,
+            order: true,
+            borrower: {
+              select: {
+                id: true,
+                name: true,
+                borrowerType: true,
+                companyName: true,
+                icNumber: true,
+                documentType: true,
+                phone: true,
+                email: true,
+                address: true,
+              },
+            },
+          },
+        },
         documents: {
           orderBy: { uploadedAt: 'desc' },
         },
@@ -860,7 +988,27 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
         id: applicationId,
         tenantId: req.tenantId,
       },
-      include: { product: true },
+      include: {
+        product: true,
+        guarantors: {
+          orderBy: { order: 'asc' },
+          include: {
+            borrower: {
+              select: {
+                id: true,
+                name: true,
+                borrowerType: true,
+                companyName: true,
+                documentType: true,
+                icNumber: true,
+                phone: true,
+                email: true,
+                address: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!application) {
@@ -894,6 +1042,23 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
           status: 'PENDING_DISBURSEMENT',
           collateralType: application.collateralType,
           collateralValue: application.collateralValue,
+          guarantors: application.guarantors.length > 0
+            ? {
+                create: application.guarantors.map((guarantor, index) => ({
+                  tenantId: req.tenantId!,
+                  borrowerId: guarantor.borrowerId,
+                  order: guarantor.order ?? index,
+                  name: guarantor.borrower.name,
+                  borrowerType: guarantor.borrower.borrowerType,
+                  companyName: guarantor.borrower.companyName,
+                  documentType: guarantor.borrower.documentType,
+                  icNumber: guarantor.borrower.icNumber,
+                  phone: guarantor.borrower.phone,
+                  email: guarantor.borrower.email,
+                  address: guarantor.borrower.address,
+                })),
+              }
+            : undefined,
         },
       });
 
@@ -1519,6 +1684,16 @@ router.get('/:loanId', async (req, res, next) => {
         borrower: true,
         product: true,
         application: true,
+        guarantors: {
+          orderBy: { order: 'asc' },
+          include: {
+            borrower: {
+              select: {
+                documentVerified: true,
+              },
+            },
+          },
+        },
         scheduleVersions: {
           orderBy: { version: 'desc' },
           include: {
@@ -1842,19 +2017,30 @@ router.get('/:loanId/timeline', async (req, res, next) => {
         id: loanId,
         tenantId: req.tenantId,
       },
+      include: {
+        guarantors: {
+          select: { id: true },
+        },
+      },
     });
 
     if (!loan) {
       throw new NotFoundError('Loan');
     }
 
+    const loanGuarantorIds = (loan.guarantors || []).map((guarantor) => guarantor.id);
+
     // Fetch audit logs for this loan with cursor-based pagination
     // Exclude TrueSend email entries — they have their own dedicated section
     const auditLogs = await prisma.auditLog.findMany({
       where: {
         tenantId: req.tenantId,
-        entityType: 'Loan',
-        entityId: loanId,
+        OR: [
+          { entityType: 'Loan', entityId: loanId },
+          ...(loanGuarantorIds.length > 0
+            ? [{ entityType: 'LoanGuarantor', entityId: { in: loanGuarantorIds } }]
+            : []),
+        ],
         action: { notIn: ['TRUESEND_EMAIL_SENT', 'TRUESEND_EMAIL_RESENT'] },
         ...(cursor && { createdAt: { lt: new Date(cursor as string) } }),
       },
@@ -2909,7 +3095,17 @@ router.post('/:loanId/disburse', async (req, res, next) => {
         id: req.params.loanId,
         tenantId: req.tenantId,
       },
-      include: { product: true },
+      include: {
+        product: true,
+        guarantors: {
+          select: {
+            id: true,
+            name: true,
+            agreementGeneratedAt: true,
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
     });
 
     if (!loan) {
@@ -2924,6 +3120,14 @@ router.post('/:loanId/disburse', async (req, res, next) => {
     // follows the downloaded agreement date.
     if (!loan.agreementDate) {
       throw new BadRequestError('Agreement date is not set. Please regenerate the loan agreement first.');
+    }
+
+    const pendingGuarantorAgreements = loan.guarantors.filter((guarantor) => !guarantor.agreementGeneratedAt);
+    if (pendingGuarantorAgreements.length > 0) {
+      const guarantorNames = pendingGuarantorAgreements.map((guarantor) => guarantor.name).join(', ');
+      throw new BadRequestError(
+        `Generate guarantor agreement(s) first before disbursement: ${guarantorNames}`
+      );
     }
 
     // Generate disbursement reference if not provided
@@ -3204,8 +3408,19 @@ router.get('/:loanId/disbursement-proof', async (req, res, next) => {
 // Loan Agreement Endpoints
 // ============================================
 
-import { generateLoanAgreement, LoanForAgreement } from '../../lib/pdfService.js';
-import { saveAgreementFile, getAgreementFile, deleteAgreementFile, getLocalPath, saveFile, getFile, deleteFile } from '../../lib/storage.js';
+import { generateLoanAgreement, generateGuarantorAgreement, LoanForAgreement } from '../../lib/pdfService.js';
+import {
+  saveAgreementFile,
+  getAgreementFile,
+  deleteAgreementFile,
+  saveGuarantorAgreementFile,
+  getGuarantorAgreementFile,
+  deleteGuarantorAgreementFile,
+  getLocalPath,
+  saveFile,
+  getFile,
+  deleteFile,
+} from '../../lib/storage.js';
 
 /**
  * Generate pre-filled loan agreement PDF (Jadual J)
@@ -3490,6 +3705,245 @@ router.get('/:loanId/agreement', async (req, res, next) => {
       res.setHeader('Content-Length', fileBuffer.length);
       res.send(fileBuffer);
     }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Generate pre-filled guarantor agreement PDF
+ * GET /api/loans/:loanId/guarantors/:guarantorId/generate-agreement
+ */
+router.get('/:loanId/guarantors/:guarantorId/generate-agreement', async (req, res, next) => {
+  try {
+    const { loanId, guarantorId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: loanId,
+        tenantId: req.tenantId,
+      },
+      include: {
+        borrower: true,
+        tenant: true,
+        guarantors: {
+          where: { id: guarantorId },
+          take: 1,
+        },
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    const guarantor = loan.guarantors[0];
+    if (!guarantor) {
+      throw new NotFoundError('Guarantor');
+    }
+
+    if (!loan.agreementDate) {
+      throw new BadRequestError('Agreement date is not set. Please generate the loan agreement first.');
+    }
+
+    const pdfBuffer = await generateGuarantorAgreement({
+      agreementDate: loan.agreementDate,
+      guarantor: {
+        name: guarantor.name,
+        borrowerType: guarantor.borrowerType,
+        companyName: guarantor.companyName,
+        documentType: guarantor.documentType,
+        icNumber: guarantor.icNumber,
+        address: guarantor.address,
+      },
+      principalDebtor: {
+        name: loan.borrower.name,
+        borrowerType: loan.borrower.borrowerType,
+        companyName: loan.borrower.companyName,
+        icNumber: loan.borrower.icNumber,
+        documentType: loan.borrower.documentType,
+        ssmRegistrationNo: loan.borrower.ssmRegistrationNo,
+        address: loan.borrower.address,
+      },
+      creditor: {
+        name: loan.tenant.name,
+        registrationNumber: loan.tenant.registrationNumber,
+        businessAddress: loan.tenant.businessAddress,
+      },
+    });
+
+    await prisma.loanGuarantor.update({
+      where: { id: guarantor.id },
+      data: { agreementGeneratedAt: new Date() },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'GENERATE_GUARANTOR_AGREEMENT',
+      entityType: 'LoanGuarantor',
+      entityId: guarantor.id,
+      newData: {
+        loanId,
+        guarantorId: guarantor.id,
+        guarantorName: guarantor.name,
+        agreementDate: loan.agreementDate.toISOString(),
+      },
+      ipAddress: req.ip,
+    });
+
+    const displayName = guarantor.companyName || guarantor.name;
+    const sanitizedName = displayName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+    const filename = `Guarantor_Agreement_${sanitizedName}_${loanId.substring(0, 8)}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Upload signed guarantor agreement
+ * POST /api/loans/:loanId/guarantors/:guarantorId/agreement
+ */
+router.post('/:loanId/guarantors/:guarantorId/agreement', async (req, res, next) => {
+  try {
+    const { loanId, guarantorId } = req.params;
+
+    const guarantor = await prisma.loanGuarantor.findFirst({
+      where: {
+        id: guarantorId,
+        loanId,
+        tenantId: req.tenantId,
+      },
+    });
+
+    if (!guarantor) {
+      throw new NotFoundError('Guarantor');
+    }
+
+    const { buffer, originalName, mimeType } = await parseFileUpload(req);
+
+    if (mimeType !== 'application/pdf' && !originalName.toLowerCase().endsWith('.pdf')) {
+      throw new BadRequestError('Only PDF files are allowed for guarantor agreements');
+    }
+
+    if (guarantor.agreementPath) {
+      try {
+        await deleteGuarantorAgreementFile(guarantor.agreementPath);
+      } catch (error) {
+        console.error('Failed to delete old guarantor agreement file:', error);
+      }
+    }
+
+    const { path: agreementPath, filename } = await saveGuarantorAgreementFile(
+      buffer,
+      loanId,
+      guarantor.id,
+      originalName
+    );
+
+    const newVersion = guarantor.agreementVersion + 1;
+    const updatedGuarantor = await prisma.loanGuarantor.update({
+      where: { id: guarantor.id },
+      data: {
+        agreementPath,
+        agreementFilename: filename,
+        agreementOriginalName: originalName,
+        agreementMimeType: mimeType,
+        agreementSize: buffer.length,
+        agreementUploadedAt: new Date(),
+        agreementVersion: newVersion,
+      },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'UPLOAD_GUARANTOR_AGREEMENT',
+      entityType: 'LoanGuarantor',
+      entityId: guarantor.id,
+      previousData: guarantor.agreementPath
+        ? {
+            version: guarantor.agreementVersion,
+            path: guarantor.agreementPath,
+            filename: guarantor.agreementOriginalName,
+            uploadedAt: guarantor.agreementUploadedAt,
+          }
+        : null,
+      newData: {
+        loanId,
+        guarantorId: guarantor.id,
+        guarantorName: guarantor.name,
+        version: newVersion,
+        path: agreementPath,
+        filename: originalName,
+        size: buffer.length,
+        uploadedAt: updatedGuarantor.agreementUploadedAt,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        agreementPath: updatedGuarantor.agreementPath,
+        agreementOriginalName: updatedGuarantor.agreementOriginalName,
+        agreementVersion: updatedGuarantor.agreementVersion,
+        agreementUploadedAt: updatedGuarantor.agreementUploadedAt,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * View/download signed guarantor agreement
+ * GET /api/loans/:loanId/guarantors/:guarantorId/agreement
+ */
+router.get('/:loanId/guarantors/:guarantorId/agreement', async (req, res, next) => {
+  try {
+    const { loanId, guarantorId } = req.params;
+
+    const guarantor = await prisma.loanGuarantor.findFirst({
+      where: {
+        id: guarantorId,
+        loanId,
+        tenantId: req.tenantId,
+      },
+    });
+
+    if (!guarantor) {
+      throw new NotFoundError('Guarantor');
+    }
+
+    if (!guarantor.agreementPath || !guarantor.agreementOriginalName) {
+      throw new NotFoundError('Guarantor agreement');
+    }
+
+    const localPath = getLocalPath(guarantor.agreementPath);
+
+    if (localPath && fs.existsSync(localPath)) {
+      res.setHeader('Content-Type', guarantor.agreementMimeType || 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${guarantor.agreementOriginalName}"`);
+      const fileStream = fs.createReadStream(localPath);
+      fileStream.pipe(res);
+      return;
+    }
+
+    const fileBuffer = await getGuarantorAgreementFile(guarantor.agreementPath);
+    if (!fileBuffer) {
+      throw new NotFoundError('Guarantor agreement file');
+    }
+
+    res.setHeader('Content-Type', guarantor.agreementMimeType || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${guarantor.agreementOriginalName}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
   } catch (error) {
     next(error);
   }

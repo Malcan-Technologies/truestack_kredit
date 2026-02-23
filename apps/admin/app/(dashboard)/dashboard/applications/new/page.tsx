@@ -99,9 +99,10 @@ interface LoanPreview {
 
 const STEPS = [
   { id: 1, name: "Borrower", icon: User },
-  { id: 2, name: "Product", icon: Package },
-  { id: 3, name: "Details", icon: Calculator },
-  { id: 4, name: "Review", icon: CheckCircle },
+  { id: 2, name: "Guarantors", icon: Users },
+  { id: 3, name: "Product", icon: Package },
+  { id: 4, name: "Details", icon: Calculator },
+  { id: 5, name: "Review", icon: CheckCircle },
 ];
 
 function StepIndicator({ currentStep }: { currentStep: number }) {
@@ -160,7 +161,9 @@ export default function NewApplicationPage() {
 
   // Form state
   const [borrowerSearch, setBorrowerSearch] = useState("");
+  const [guarantorSearch, setGuarantorSearch] = useState("");
   const [selectedBorrower, setSelectedBorrower] = useState<Borrower | null>(null);
+  const [selectedGuarantors, setSelectedGuarantors] = useState<Borrower[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [amount, setAmount] = useState<number | "">(0);
   const [term, setTerm] = useState<number | "">(12);
@@ -279,6 +282,35 @@ export default function NewApplicationPage() {
       b.icNumber.includes(borrowerSearch)
   );
 
+  const availableGuarantors = borrowers.filter(
+    (borrower) => borrower.id !== selectedBorrower?.id && borrower.borrowerType === "INDIVIDUAL"
+  );
+  const filteredGuarantors = availableGuarantors.filter(
+    (b) =>
+      b.name.toLowerCase().includes(guarantorSearch.toLowerCase()) ||
+      b.icNumber.includes(guarantorSearch)
+  );
+
+  const toggleGuarantor = (guarantor: Borrower) => {
+    const exists = selectedGuarantors.some((item) => item.id === guarantor.id);
+    if (exists) {
+      setSelectedGuarantors((prev) => prev.filter((item) => item.id !== guarantor.id));
+      return;
+    }
+
+    if (selectedGuarantors.length >= 5) {
+      toast.error("You can add up to 5 guarantors only");
+      return;
+    }
+
+    setSelectedGuarantors((prev) => [...prev, guarantor]);
+  };
+
+  useEffect(() => {
+    if (!selectedBorrower) return;
+    setSelectedGuarantors((prev) => prev.filter((guarantor) => guarantor.id !== selectedBorrower.id));
+  }, [selectedBorrower]);
+
   const handleSelectProduct = (product: Product) => {
     setSelectedProduct(product);
     setAmount(toSafeNumber(product.minAmount));
@@ -290,11 +322,11 @@ export default function NewApplicationPage() {
       toast.error("Please select a borrower");
       return;
     }
-    if (currentStep === 2 && !selectedProduct) {
+    if (currentStep === 3 && !selectedProduct) {
       toast.error("Please select a product");
       return;
     }
-    if (currentStep === 3 && selectedProduct) {
+    if (currentStep === 4 && selectedProduct) {
       const minAmount = toSafeNumber(selectedProduct.minAmount);
       const maxAmount = toSafeNumber(selectedProduct.maxAmount);
       const minTerm = selectedProduct.minTerm;
@@ -339,7 +371,7 @@ export default function NewApplicationPage() {
         }
       }
     }
-    setCurrentStep((prev) => Math.min(prev + 1, 4));
+    setCurrentStep((prev) => Math.min(prev + 1, 5));
   };
 
   const handleBack = () => {
@@ -356,6 +388,7 @@ export default function NewApplicationPage() {
       const numCollateral = collateralValue === "" ? 0 : collateralValue;
       const res = await api.post<{ id: string }>("/api/loans/applications", {
         borrowerId: selectedBorrower.id,
+        ...(selectedGuarantors.length > 0 ? { guarantorIds: selectedGuarantors.map((guarantor) => guarantor.id) } : {}),
         productId: selectedProduct.id,
         amount: numAmount,
         term: numTerm,
@@ -438,7 +471,7 @@ export default function NewApplicationPage() {
                 />
               </div>
 
-              <div className="grid gap-2 max-h-96 overflow-y-auto">
+              <div className="grid gap-2 max-h-[50rem] overflow-y-auto">
                 {filteredBorrowers.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <User className="h-12 w-12 text-muted-foreground mb-4" />
@@ -522,8 +555,103 @@ export default function NewApplicationPage() {
             </div>
           )}
 
-          {/* Step 2: Select Product */}
+          {/* Step 2: Select Guarantors */}
           {currentStep === 2 && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold mb-2">Select Guarantors (Optional)</h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Select up to 5 guarantors from your personal borrower list. You can skip this step.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-secondary/50 px-3 py-2">
+                <p className="text-sm text-muted-foreground">
+                  Selected guarantors: <span className="font-medium text-foreground">{selectedGuarantors.length}</span>/5
+                </p>
+                {selectedGuarantors.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedGuarantors([])}
+                  >
+                    Clear all
+                  </Button>
+                )}
+              </div>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search guarantors by name or IC number..."
+                  value={guarantorSearch}
+                  onChange={(e) => setGuarantorSearch(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              <div className="grid gap-2 max-h-[50rem] overflow-y-auto">
+                {filteredGuarantors.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Users className="h-12 w-12 text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">
+                      {guarantorSearch
+                        ? `No guarantors found matching "${guarantorSearch}"`
+                        : "No personal borrower candidates available"}
+                    </p>
+                  </div>
+                ) : (
+                  filteredGuarantors.map((guarantor) => {
+                    const isCorporate = guarantor.borrowerType === "CORPORATE";
+                    const displayName = isCorporate && guarantor.companyName
+                      ? guarantor.companyName
+                      : guarantor.name;
+                    const identityLabel = isCorporate
+                      ? "SSM"
+                      : guarantor.documentType === "IC" ? "IC" : "Passport";
+                    const isSelected = selectedGuarantors.some((item) => item.id === guarantor.id);
+
+                    return (
+                      <div
+                        key={guarantor.id}
+                        onClick={() => toggleGuarantor(guarantor)}
+                        className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                          isSelected
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-full ${isCorporate ? "bg-blue-100 dark:bg-blue-900/40" : "bg-slate-100 dark:bg-slate-800"}`}>
+                              {isCorporate ? (
+                                <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <User className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium">{displayName}</p>
+                              {isCorporate && guarantor.companyName && (
+                                <p className="text-xs text-muted-foreground">Rep: {guarantor.name}</p>
+                              )}
+                              <p className="text-sm text-muted-foreground">
+                                {identityLabel}: {guarantor.icNumber}
+                              </p>
+                            </div>
+                          </div>
+                          {isSelected && <CheckCircle className="h-5 w-5 text-foreground" />}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Select Product */}
+          {currentStep === 3 && (
             <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-semibold mb-2">Select Loan Product</h2>
@@ -640,8 +768,8 @@ export default function NewApplicationPage() {
             </div>
           )}
 
-          {/* Step 3: Loan Details */}
-          {currentStep === 3 && selectedProduct && (
+          {/* Step 4: Loan Details */}
+          {currentStep === 4 && selectedProduct && (
             <div className="space-y-6">
               <div>
                 <h2 className="text-lg font-semibold mb-2">Loan Details</h2>
@@ -833,8 +961,8 @@ export default function NewApplicationPage() {
             </div>
           )}
 
-          {/* Step 4: Review */}
-          {currentStep === 4 && selectedBorrower && selectedProduct && preview && (
+          {/* Step 5: Review */}
+          {currentStep === 5 && selectedBorrower && selectedProduct && preview && (
             <div className="space-y-6">
               <div>
                 <h2 className="text-lg font-semibold mb-2">Review Application</h2>
@@ -902,6 +1030,42 @@ export default function NewApplicationPage() {
                         </div>
                       )}
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* Guarantors */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      Guarantors
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {selectedGuarantors.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No guarantors selected</p>
+                    ) : (
+                      selectedGuarantors.map((guarantor) => {
+                        const displayName =
+                          guarantor.borrowerType === "CORPORATE" && guarantor.companyName
+                            ? guarantor.companyName
+                            : guarantor.name;
+                        const identityLabel =
+                          guarantor.borrowerType === "CORPORATE"
+                            ? "SSM"
+                            : guarantor.documentType === "IC"
+                              ? "IC Number"
+                              : "Passport";
+                        return (
+                          <div key={guarantor.id} className="rounded-md border p-2">
+                            <p className="font-medium">{displayName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {identityLabel}: {guarantor.icNumber}
+                            </p>
+                          </div>
+                        );
+                      })
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1078,7 +1242,7 @@ export default function NewApplicationPage() {
           Back
         </Button>
 
-        {currentStep < 4 ? (
+        {currentStep < 5 ? (
           <Button onClick={handleNext}>
             Next
             <ArrowRight className="h-4 w-4 ml-2" />

@@ -354,7 +354,7 @@ router.get('/', async (req, res, next) => {
 router.get('/:borrowerId', async (req, res, next) => {
   try {
     const borrowerId = req.params.borrowerId;
-    const [borrower, totalBorrowedRes, totalPaidRes] = await Promise.all([
+    const [borrower, totalBorrowedRes, totalPaidRes, guarantorCount] = await Promise.all([
       prisma.borrower.findFirst({
         where: {
           id: borrowerId,
@@ -395,6 +395,12 @@ router.get('/:borrowerId', async (req, res, next) => {
         },
         _sum: { totalAmount: true },
       }),
+      prisma.loanGuarantor.count({
+        where: {
+          tenantId: req.tenantId!,
+          borrowerId,
+        },
+      }),
     ]);
 
     if (!borrower) {
@@ -408,7 +414,7 @@ router.get('/:borrowerId', async (req, res, next) => {
 
     res.json({
       success: true,
-      data: { ...borrower, loanSummary },
+      data: { ...borrower, loanSummary, guarantorCount },
     });
   } catch (error) {
     next(error);

@@ -122,6 +122,8 @@ model Tenant {
   members              TenantMember[]
   subscription         Subscription?
   borrowers            Borrower[]
+  applicationGuarantors ApplicationGuarantor[]
+  loanGuarantors       LoanGuarantor[]
   borrowerDocuments    BorrowerDocument[]
   products             Product[]
   applications         LoanApplication[]
@@ -490,7 +492,9 @@ model Borrower {
   // Relations
   tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   applications LoanApplication[]
+  applicationGuarantors ApplicationGuarantor[]
   loans        Loan[]
+  loanGuarantors LoanGuarantor[]
   documents    BorrowerDocument[]
   directors    BorrowerDirector[]
   emailLogs    EmailLog[] // TrueSend email delivery logs
@@ -628,9 +632,28 @@ model LoanApplication {
   product   Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
   loan      Loan?
   documents ApplicationDocument[]
+  guarantors ApplicationGuarantor[]
 
   @@index([tenantId])
   @@index([status])
+}
+
+model ApplicationGuarantor {
+  id            String   @id @default(cuid())
+  tenantId      String
+  applicationId String
+  borrowerId    String
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  borrower    Borrower        @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, borrowerId])
+  @@index([tenantId])
+  @@index([applicationId])
+  @@index([borrowerId])
 }
 
 model ApplicationDocument {
@@ -747,6 +770,7 @@ model Loan {
   borrower         Borrower              @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
   product          Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
   application      LoanApplication       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  guarantors       LoanGuarantor[]
   scheduleVersions LoanScheduleVersion[]
   transactions     PaymentTransaction[]
   lateFeeEntries   LateFeeEntry[]
@@ -754,6 +778,41 @@ model Loan {
 
   @@index([tenantId])
   @@index([status])
+}
+
+model LoanGuarantor {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  loanId               String
+  borrowerId           String
+  order                Int      @default(0)
+  name                 String
+  borrowerType         String   @default("INDIVIDUAL")
+  companyName          String?
+  documentType         String   @default("IC")
+  icNumber             String
+  phone                String?
+  email                String?
+  address              String?
+  agreementGeneratedAt DateTime?
+  agreementPath        String?
+  agreementFilename    String?
+  agreementOriginalName String?
+  agreementMimeType    String?
+  agreementSize        Int?
+  agreementUploadedAt  DateTime?
+  agreementVersion     Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  loan     Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  @@unique([loanId, borrowerId])
+  @@index([tenantId])
+  @@index([loanId])
+  @@index([borrowerId])
 }
 
 model LoanScheduleVersion {

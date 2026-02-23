@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   User,
+  Users,
   Package,
   Calculator,
   FileText,
@@ -118,6 +119,22 @@ interface Application {
     earlySettlementDiscountType: string;
     earlySettlementDiscountValue: string;
   };
+  guarantors: Array<{
+    id: string;
+    order: number;
+    borrower: {
+      id: string;
+      name: string;
+      borrowerType: string;
+      companyName: string | null;
+      icNumber: string;
+      documentType: string;
+      documentVerified: boolean;
+      phone: string | null;
+      email: string | null;
+      address: string | null;
+    };
+  }>;
   documents: ApplicationDocument[];
   loan?: {
     id: string;
@@ -722,6 +739,70 @@ export default function ApplicationDetailPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Guarantors */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                Guarantors
+              </CardTitle>
+              <CardDescription>
+                Optional guarantors linked to this application
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(application.guarantors || []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No guarantors selected</p>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {application.guarantors.map((item) => {
+                    const guarantor = item.borrower;
+                    const displayName =
+                      guarantor.borrowerType === "CORPORATE" && guarantor.companyName
+                        ? guarantor.companyName
+                        : guarantor.name;
+                    const identityLabel =
+                      guarantor.borrowerType === "CORPORATE"
+                        ? "SSM"
+                        : guarantor.documentType === "IC"
+                          ? "IC Number"
+                          : "Passport";
+
+                    return (
+                      <div key={item.id} className="rounded-lg border p-3 space-y-2">
+                        <Link
+                          href={`/dashboard/borrowers/${guarantor.id}`}
+                          className="font-medium hover:text-muted-foreground hover:underline inline-flex items-center gap-1.5"
+                        >
+                          {displayName}
+                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Link>
+                        <div className="flex items-center gap-2">
+                          {guarantor.documentVerified ? (
+                            <Badge variant="verified" className="text-xs">
+                              <ShieldCheck className="h-3 w-3 mr-1" />
+                              e-KYC Verified
+                            </Badge>
+                          ) : (
+                            <Badge variant="unverified" className="text-xs">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              Manual Verification
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <CopyField label={identityLabel} value={guarantor.icNumber} />
+                          {guarantor.phone && <PhoneDisplay label="Phone" value={guarantor.phone} />}
+                          {guarantor.email && <CopyField label="Email" value={guarantor.email} />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Loan Summary */}
           {preview && (

@@ -1,4 +1,4 @@
-import { Gift, FileText, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Gift, FileText, ShieldCheck, Store, type LucideIcon } from "lucide-react";
 
 // ============================================
 // Promotion / Advertisement Data
@@ -103,5 +103,28 @@ export const KPKT_PROMOTIONS: Promotion[] = [
     ],
     cta: "Learn More",
     footerText: "Contact us to learn more about digital licensing.",
+  },
+  {
+    id: "debt-marketplace",
+    title: "Debt Marketplace",
+    tagline: "Buy and sell debt portfolios with other licensed lenders.",
+    description:
+      "List loans for sale — for cashflow, portfolio rebalancing, or risk management — or acquire debt portfolios at a discount. Peer-to-peer trading, compliant and secure — built for KPKT-licensed lenders.",
+    icon: Store,
+    illustration: "/illustrations/undraw_empty-cart_574u.svg",
+    badge: "Coming Soon",
+    badgeVariant: "secondary",
+    gradient: "from-foreground/[0.12] via-card to-foreground/[0.09] dark:from-black/[0.15] dark:via-card dark:to-black/[0.08]",
+    borderColor: "border-foreground/[0.08] dark:border-white/[0.08]",
+    href: "/dashboard/debt-marketplace",
+    features: [
+      "Sell debt — List any loans for sale (e.g. for cashflow)",
+      "Buy debt — Acquire portfolios at a discount",
+      "Peer-to-peer trading with other licensed lenders",
+      "Compliant & secure — full audit trail and data protection",
+      "Streamlined workflow — list, browse, negotiate, settle in TrueKredit",
+    ],
+    cta: "Learn More",
+    footerText: "We'll notify you when the Debt Marketplace is ready.",
   },
 ];

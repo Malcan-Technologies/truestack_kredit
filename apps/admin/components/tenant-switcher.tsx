@@ -164,27 +164,8 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
     );
   }
 
-  // Collapsed mode — show just the tenant logo (clickable if multiple tenants)
+  // Collapsed mode — always show dropdown (for Create New Tenant access)
   if (collapsed) {
-    if (memberships.length <= 1) {
-      return (
-        <TooltipProvider delayDuration={0}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className={cn("flex items-center justify-center h-16", className)}>
-                <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>{activeMembership?.tenantName || "No tenant"}</p>
-              <p className="opacity-70 text-xs">{activeMembership?.tenantSlug || ""}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      );
-    }
-
-    // Multiple tenants — collapsed dropdown
     return (
       <>
         <DropdownMenu>
@@ -206,7 +187,9 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
               </DropdownMenuTrigger>
               <TooltipContent side="right">
                 <p>{activeMembership?.tenantName || "Select tenant"}</p>
-                <p className="opacity-70 text-xs">Click to switch</p>
+                <p className="opacity-70 text-xs">
+                  {memberships.length > 1 ? "Click to switch" : "Click for options"}
+                </p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -258,24 +241,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
     );
   }
 
-  // Expanded mode — single tenant static display
-  if (memberships.length <= 1) {
-    return (
-      <div className={cn("px-4 py-3 flex items-center gap-3", className)}>
-        <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate">
-            {activeMembership?.tenantName || "No tenant"}
-          </p>
-          <p className="text-xs text-muted truncate">
-            {activeMembership?.tenantSlug || ""}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Expanded mode — multiple tenants switcher (with Create New Tenant)
+  // Expanded mode — always show dropdown (for Create New Tenant access)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

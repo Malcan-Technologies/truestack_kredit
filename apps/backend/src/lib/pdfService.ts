@@ -46,6 +46,32 @@ export interface LoanForAgreement {
   collateralValue?: number | null;
 }
 
+export interface GuarantorAgreementInput {
+  agreementDate: Date;
+  guarantor: {
+    name: string;
+    borrowerType: string;
+    companyName?: string | null;
+    documentType: string;
+    icNumber: string;
+    address?: string | null;
+  };
+  principalDebtor: {
+    name: string;
+    borrowerType: string;
+    companyName?: string | null;
+    documentType: string;
+    icNumber: string;
+    ssmRegistrationNo?: string | null;
+    address?: string | null;
+  };
+  creditor: {
+    name: string;
+    registrationNumber?: string | null;
+    businessAddress?: string | null;
+  };
+}
+
 interface AgreementComputedValues {
   principal: number;
   interestRate: number;
@@ -1615,6 +1641,380 @@ export async function generateLoanAgreement(loan: LoanForAgreement): Promise<Buf
     // JADUAL PERTAMA — always on its own page
     doc.addPage();
     drawJadualPertamaPage(doc, jadualRows);
+  });
+}
+
+function formatEnglishDate(date: Date): string {
+  return date.toLocaleDateString('en-MY', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+function resolvePartyName(
+  borrowerType: string,
+  name: string,
+  companyName?: string | null
+): string {
+  if (borrowerType === 'CORPORATE' && companyName) {
+    return companyName;
+  }
+  return name;
+}
+
+function resolveDocumentLabel(documentType: string, borrowerType: string): string {
+  if (borrowerType === 'CORPORATE') {
+    return 'Company No.';
+  }
+  if (documentType === 'PASSPORT') {
+    return 'Passport No.';
+  }
+  return 'NRIC No.';
+}
+
+function drawGuarantorSignatureBlock(
+  doc: PDFKit.PDFDocument,
+  guarantorName: string,
+  guarantorIdLabel: string,
+  guarantorIdValue: string,
+  y: number
+): number {
+  const lineH = 22;
+  doc.font(FB).fontSize(FS_BODY).text('SIGNED BY THE GUARANTOR', ML, y);
+  y = doc.y + 14;
+
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('Signature:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+
+  doc.text(`Name: ${guarantorName}`, ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+
+  doc.text(`${guarantorIdLabel} ${guarantorIdValue}`, ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH + 10;
+
+  doc.text('In the presence of:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness Signature:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness Name:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness NRIC No.:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+
+  return y + lineH;
+}
+
+function drawPrincipalDebtorSignatureBlock(
+  doc: PDFKit.PDFDocument,
+  principalDebtorName: string,
+  principalDebtorIdLabel: string,
+  principalDebtorIdValue: string,
+  y: number
+): number {
+  const lineH = 22;
+  doc.font(FB).fontSize(FS_BODY).text('SIGNED BY THE PRINCIPAL DEBTOR', ML, y);
+  y = doc.y + 14;
+
+  doc.font(FR).fontSize(FS_BODY);
+  doc.text('Signature:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+
+  doc.text(`Name: ${principalDebtorName}`, ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+
+  doc.text(`${principalDebtorIdLabel}: ${principalDebtorIdValue}`, ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH + 10;
+
+  doc.text('In the presence of:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness Signature:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness Name:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness NRIC No.:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+
+  return y + lineH;
+}
+
+function drawCreditorExecutionBlock(
+  doc: PDFKit.PDFDocument,
+  creditorName: string,
+  creditorCompanyNo: string | null | undefined,
+  y: number
+): number {
+  const lineH = 22;
+
+  doc.font(FB).fontSize(FS_BODY).text('EXECUTED BY THE CREDITOR', ML, y);
+  y = doc.y + 14;
+
+  doc.font(FR).fontSize(FS_BODY).text('For and on behalf of', ML, y);
+  y += lineH;
+  doc.text(creditorName, ML, y);
+  y += lineH;
+
+  doc.text(`Company No.: ${creditorCompanyNo || '___________________'}`, ML, y);
+  y += lineH + 8;
+
+  doc.text('Authorised Signatory:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+
+  doc.text('Name:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+
+  doc.text('Designation:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH + 10;
+
+  doc.text('In the presence of:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness Signature:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness Name:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+  y += lineH;
+  doc.text('Witness NRIC No.:', ML, y);
+  doc.text(')', BRACKET_COL, y);
+
+  return y + lineH;
+}
+
+export async function generateGuarantorAgreement(input: GuarantorAgreementInput): Promise<Buffer> {
+  const guarantorName = resolvePartyName(
+    input.guarantor.borrowerType,
+    input.guarantor.name,
+    input.guarantor.companyName
+  );
+  const guarantorIdLabel = resolveDocumentLabel(input.guarantor.documentType, input.guarantor.borrowerType);
+
+  const principalDebtorName = resolvePartyName(
+    input.principalDebtor.borrowerType,
+    input.principalDebtor.name,
+    input.principalDebtor.companyName
+  );
+  const principalDebtorIdLabel = input.principalDebtor.borrowerType === 'CORPORATE'
+    ? 'Company No.'
+    : resolveDocumentLabel(input.principalDebtor.documentType, input.principalDebtor.borrowerType);
+  const principalDebtorIdValue = input.principalDebtor.borrowerType === 'CORPORATE'
+    ? (input.principalDebtor.ssmRegistrationNo || input.principalDebtor.icNumber)
+    : input.principalDebtor.icNumber;
+
+  const articleParagraphs: Array<{ title: string; clauses: string[] }> = [
+    {
+      title: 'ARTICLE 1: DEFINITIONS AND INTERPRETATION',
+      clauses: [
+        '1.1 In this Deed, unless the context otherwise requires: "Default" means any failure by the Principal Debtor to pay or perform any obligation under the Principal Agreement when due. "Guaranteed Amount" means all monies and liabilities whatsoever now or hereafter owing by the Principal Debtor to the Creditor under or in connection with the Facilities. "Principal Agreement" means the Facility Agreement, Loan Agreement, and all related security documents entered into between the Creditor and the Principal Debtor.',
+        '1.2 Words importing the singular include the plural and vice versa.',
+        '1.3 This Deed shall take effect as a deed and shall not require consideration to be binding.',
+      ],
+    },
+    {
+      title: 'ARTICLE 2: GUARANTEE',
+      clauses: [
+        '2.1 In consideration of the Creditor granting or continuing the Facilities, the Guarantor irrevocably and unconditionally guarantees due and punctual payment and performance by the Principal Debtor of the Guaranteed Amount.',
+        '2.2 The liability of the Guarantor under this Deed shall be as principal debtor and not merely as surety.',
+        '2.3 The Creditor may enforce this Deed immediately upon Default without first taking action against the Principal Debtor, enforcing any other security, or making demand on any other guarantor.',
+        '2.4 A written certificate signed by an authorised officer of the Creditor stating the amount due shall be prima facie evidence of indebtedness.',
+      ],
+    },
+    {
+      title: 'ARTICLE 3: CONTINUING GUARANTEE',
+      clauses: [
+        '3.1 This is a continuing guarantee and remains in full force until all Guaranteed Amount has been irrevocably paid in full.',
+        '3.2 This Deed is not discharged by intermediate payments, changes in constitution of the Principal Debtor, insolvency events, or renewal/restructuring/variation of Facilities.',
+        '3.3 This Deed is in addition to and not in substitution for any other security or guarantee held by the Creditor.',
+      ],
+    },
+    {
+      title: 'ARTICLE 4: INDEMNITY',
+      clauses: [
+        '4.1 As a separate and independent obligation, the Guarantor shall indemnify the Creditor on demand against all losses, damages, costs, and expenses resulting from any Default or unenforceability of obligations under the Principal Agreement.',
+        '4.2 This indemnity constitutes a primary obligation and remains enforceable notwithstanding invalidity of the Principal Agreement.',
+      ],
+    },
+    {
+      title: 'ARTICLE 5: WAIVERS',
+      clauses: [
+        '5.1 The Guarantor waives any right to require the Creditor to proceed first against the Principal Debtor, enforce any security, or exercise other remedies before enforcing this Deed.',
+        '5.2 The Guarantor waives defences arising from variation of the Principal Agreement, indulgence, release/compromise, or failure to perfect/enforce security.',
+      ],
+    },
+    {
+      title: 'ARTICLE 6: RIGHTS OF GUARANTOR',
+      clauses: [
+        '6.1 The Guarantor shall not exercise rights of subrogation, contribution, reimbursement, or indemnity against the Principal Debtor until the Guaranteed Amount is fully paid.',
+        '6.2 Upon full payment, the Guarantor shall be entitled to rights available under applicable Malaysian law.',
+      ],
+    },
+    {
+      title: 'ARTICLE 7: REPRESENTATIONS AND WARRANTIES',
+      clauses: [
+        '7.1 The Guarantor has read and understood this Deed and has been advised to obtain independent legal advice.',
+        '7.2 The Guarantor is not an undischarged bankrupt and execution of this Deed does not contravene any law or court order.',
+        '7.3 This Deed constitutes legal, valid and binding obligations enforceable under Malaysian law.',
+      ],
+    },
+    {
+      title: 'ARTICLE 8: COVENANTS',
+      clauses: [
+        '8.1 Until full settlement of the Guaranteed Amount, the Guarantor shall not take steps that materially prejudice the Creditor’s rights under this Deed.',
+      ],
+    },
+    {
+      title: 'ARTICLE 9: NOTICES',
+      clauses: [
+        '9.1 Any notice shall be in writing and deemed served when delivered by hand, within three (3) business days after posting by registered post, or upon transmission confirmation if sent electronically.',
+      ],
+    },
+    {
+      title: 'ARTICLE 10: GOVERNING LAW AND JURISDICTION',
+      clauses: [
+        '10.1 This Deed is governed by the laws of Malaysia.',
+        '10.2 The parties submit to the exclusive jurisdiction of the Courts of Malaysia.',
+      ],
+    },
+    {
+      title: 'ARTICLE 11: STAMP DUTY',
+      clauses: [
+        '11.1 This Deed shall be stamped in accordance with the Stamp Act 1949 (Malaysia).',
+      ],
+    },
+    {
+      title: 'ARTICLE 12: SEVERABILITY',
+      clauses: [
+        '12.1 If any provision is held invalid or unenforceable, the remaining provisions remain in full force and effect.',
+      ],
+    },
+  ];
+
+  return createPdfBuffer((doc) => {
+    let y = MT;
+
+    doc.font(FB).fontSize(14).text('DEED OF GUARANTEE AND INDEMNITY', ML, y, { width: CW, align: 'center' });
+    y = doc.y + 16;
+
+    const deedIntro = `This DEED OF GUARANTEE AND INDEMNITY ("Deed") is made on ${formatEnglishDate(input.agreementDate)}.`;
+    y = para(doc, deedIntro, ML, y, CW, { align: 'left', lineGap: LG });
+    y += 16;
+
+    doc.font(FB).fontSize(FS_SUBHEADING).text('BETWEEN', ML, y);
+    y = doc.y + 10;
+
+    y = para(doc, 'GUARANTOR:', ML, y, CW, { font: FB, align: 'left', lineGap: LG });
+    y = para(doc, `Name: ${guarantorName}`, ML, y, CW, { align: 'left', lineGap: LG });
+    y = para(doc, `${guarantorIdLabel} ${input.guarantor.icNumber}`, ML, y, CW, { align: 'left', lineGap: LG });
+    y = para(doc, `Address: ${input.guarantor.address || '___________________'}`, ML, y, CW, { align: 'left', lineGap: LG });
+    y = para(doc, '(hereinafter referred to as the "Guarantor")', ML, y, CW, { align: 'left', lineGap: LG });
+    y += 12;
+
+    y = para(doc, 'IN FAVOUR OF', ML, y, CW, { font: FB, align: 'left', lineGap: LG });
+    y = para(doc, 'CREDITOR:', ML, y, CW, { font: FB, align: 'left', lineGap: LG });
+    y = para(doc, `Name: ${input.creditor.name}`, ML, y, CW, { align: 'left', lineGap: LG });
+    y = para(
+      doc,
+      `Company No.: ${input.creditor.registrationNumber || '___________________'}`,
+      ML,
+      y,
+      CW,
+      { align: 'left', lineGap: LG }
+    );
+    y = para(
+      doc,
+      `Address: ${input.creditor.businessAddress || '___________________'}`,
+      ML,
+      y,
+      CW,
+      { align: 'left', lineGap: LG }
+    );
+    y = para(doc, '(hereinafter referred to as the "Creditor")', ML, y, CW, { align: 'left', lineGap: LG });
+    y += 14;
+
+    doc.font(FB).fontSize(FS_SUBHEADING).text('RECITALS', ML, y);
+    y = doc.y + 10;
+
+    y = para(
+      doc,
+      'A. The Creditor has agreed to grant and/or continue to grant credit facilities, loans, or other financial accommodations ("Facilities") to the following Principal Debtor:',
+      ML,
+      y,
+      CW,
+      { align: 'justify', lineGap: LG }
+    );
+    y += 6;
+    y = para(doc, `Name: ${principalDebtorName}`, ML, y, CW, { align: 'left', lineGap: LG });
+    y = para(doc, `${principalDebtorIdLabel} ${principalDebtorIdValue}`, ML, y, CW, { align: 'left', lineGap: LG });
+    y = para(doc, `Address: ${input.principalDebtor.address || '___________________'}`, ML, y, CW, { align: 'left', lineGap: LG });
+    y = para(doc, '(hereinafter referred to as the "Principal Debtor")', ML, y, CW, { align: 'left', lineGap: LG });
+    y += 8;
+    y = para(
+      doc,
+      'B. The Guarantor has agreed to execute this Deed in favour of the Creditor as a condition precedent to the granting and/or continuation of the Facilities.',
+      ML,
+      y,
+      CW,
+      { align: 'justify', lineGap: LG }
+    );
+    y += 10;
+    y = para(doc, 'NOW THIS DEED WITNESSETH as follows:', ML, y, CW, { font: FB, align: 'left', lineGap: LG });
+    y += 14;
+
+    for (const article of articleParagraphs) {
+      y = ensureSpace(doc, y, 120);
+      doc.font(FB).fontSize(FS_SUBHEADING).text(article.title, ML, y);
+      y = doc.y + 6;
+      for (const clause of article.clauses) {
+        y = para(doc, clause, ML, y, CW, { align: 'justify', lineGap: LG });
+        y += 6;
+      }
+      y += 6;
+    }
+
+    y = ensureSpace(doc, y, 80);
+    y = para(
+      doc,
+      'IN WITNESS WHEREOF this Deed has been executed as a deed on the date first written above.',
+      ML,
+      y,
+      CW,
+      { font: FB, align: 'left', lineGap: LG }
+    );
+    y += 16;
+
+    y = ensureSpace(doc, y, 180);
+    y = drawGuarantorSignatureBlock(doc, guarantorName, `${guarantorIdLabel}:`, input.guarantor.icNumber, y);
+    y += 20;
+
+    y = ensureSpace(doc, y, 180);
+    y = drawPrincipalDebtorSignatureBlock(
+      doc,
+      principalDebtorName,
+      principalDebtorIdLabel,
+      principalDebtorIdValue,
+      y
+    );
+
+    doc.addPage();
+    y = MT;
+    drawCreditorExecutionBlock(doc, input.creditor.name, input.creditor.registrationNumber, y);
   });
 }
 

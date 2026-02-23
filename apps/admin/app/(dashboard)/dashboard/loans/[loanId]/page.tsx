@@ -14,6 +14,7 @@ import {
   Check,
   X,
   User,
+  Users,
   CreditCard,
   Clock,
   Plus,
@@ -218,6 +219,27 @@ interface Loan {
     id: string;
     status: string;
   };
+  guarantors: Array<{
+    id: string;
+    borrowerId: string;
+    order: number;
+    name: string;
+    borrowerType: string;
+    companyName: string | null;
+    documentType: string;
+    icNumber: string;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    agreementGeneratedAt: string | null;
+    agreementPath: string | null;
+    agreementOriginalName: string | null;
+    agreementVersion: number;
+    agreementUploadedAt: string | null;
+    borrower?: {
+      documentVerified: boolean;
+    } | null;
+  }>;
   scheduleVersions: LoanScheduleVersion[];
 }
 
@@ -415,6 +437,10 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: FileText, label: isReplacement ? "Agreement Replaced" : "Agreement Uploaded" };
       case "UPLOAD_STAMP_CERTIFICATE":
         return { icon: Shield, label: isReplacement ? "Stamp Certificate Replaced" : "Stamp Certificate Uploaded" };
+      case "GENERATE_GUARANTOR_AGREEMENT":
+        return { icon: FileText, label: "Guarantor Agreement Generated" };
+      case "UPLOAD_GUARANTOR_AGREEMENT":
+        return { icon: Upload, label: isReplacement ? "Guarantor Agreement Replaced" : "Guarantor Agreement Uploaded" };
       case "CREATE":
         return { icon: Plus, label: "Loan Created" };
       case "LATE_FEE_ACCRUAL":
@@ -575,6 +601,40 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
             </div>
           );
         })()}
+        {event.newData && event.action === "GENERATE_GUARANTOR_AGREEMENT" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          const guarantorName = data.guarantorName as string | undefined;
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">
+                Generated for{" "}
+                <span className="font-medium text-foreground">{guarantorName || "Guarantor"}</span>
+              </p>
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "UPLOAD_GUARANTOR_AGREEMENT" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          const guarantorName = data.guarantorName as string | undefined;
+          const version = data.version as number | undefined;
+          const filename = data.filename as string | undefined;
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Guarantor: <span className="font-medium text-foreground">{guarantorName || "Guarantor"}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                File: <span className="font-medium text-foreground">{filename || "-"}</span>
+                {typeof version === "number" && (
+                  <>
+                    <span className="mx-1.5">|</span>
+                    Version <span className="font-medium text-foreground">v{version}</span>
+                  </>
+                )}
+              </p>
+            </div>
+          );
+        })()}
         <p className="text-xs text-muted-foreground mt-2">
           {formatDate(event.createdAt)}
         </p>
@@ -683,6 +743,13 @@ export default function LoanDetailPage() {
   const [showGenerateAgreementDialog, setShowGenerateAgreementDialog] = useState(false);
   const [agreementDate, setAgreementDate] = useState<string>("");
   const [generatingAgreement, setGeneratingAgreement] = useState(false);
+  const [generatingGuarantorId, setGeneratingGuarantorId] = useState<string | null>(null);
+
+  // Guarantor agreement dialog state
+  const [showUploadGuarantorAgreementDialog, setShowUploadGuarantorAgreementDialog] = useState(false);
+  const [selectedGuarantorId, setSelectedGuarantorId] = useState<string | null>(null);
+  const [guarantorAgreementFile, setGuarantorAgreementFile] = useState<File | null>(null);
+  const [uploadingGuarantorAgreement, setUploadingGuarantorAgreement] = useState(false);
 
   // Generate letter states
   const [showGenerateArrearsLetterDialog, setShowGenerateArrearsLetterDialog] = useState(false);
@@ -1236,6 +1303,82 @@ export default function LoanDetailPage() {
     }
   };
 
+  const handleGenerateGuarantorAgreement = async (guarantorId: string) => {
+    setGeneratingGuarantorId(guarantorId);
+    try {
+      const response = await fetch(`/api/proxy/loans/${loanId}/guarantors/${guarantorId}/generate-agreement`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        toast.error(errorData.error || "Failed to generate guarantor agreement");
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const contentDisposition = response.headers.get("Content-Disposition");
+      const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
+      const filename = filenameMatch ? filenameMatch[1] : `Guarantor_Agreement_${guarantorId.substring(0, 8)}.pdf`;
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Guarantor agreement PDF downloaded");
+      await Promise.all([fetchLoan(), fetchTimeline()]);
+    } catch {
+      toast.error("Failed to generate guarantor agreement");
+    } finally {
+      setGeneratingGuarantorId(null);
+    }
+  };
+
+  const openUploadGuarantorAgreementDialog = (guarantorId: string) => {
+    setSelectedGuarantorId(guarantorId);
+    setGuarantorAgreementFile(null);
+    setShowUploadGuarantorAgreementDialog(true);
+  };
+
+  const handleUploadGuarantorAgreement = async () => {
+    if (!selectedGuarantorId || !guarantorAgreementFile) {
+      toast.error("Please select a file to upload");
+      return;
+    }
+
+    setUploadingGuarantorAgreement(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", guarantorAgreementFile);
+
+      const response = await fetch(`/api/proxy/loans/${loanId}/guarantors/${selectedGuarantorId}/agreement`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        toast.success("Signed guarantor agreement uploaded successfully");
+        setShowUploadGuarantorAgreementDialog(false);
+        setGuarantorAgreementFile(null);
+        setSelectedGuarantorId(null);
+        await Promise.all([fetchLoan(), fetchTimeline()]);
+      } else {
+        toast.error(result.error || "Failed to upload signed guarantor agreement");
+      }
+    } catch {
+      toast.error("Failed to upload signed guarantor agreement");
+    } finally {
+      setUploadingGuarantorAgreement(false);
+    }
+  };
+
   // Handle upload signed agreement
   const handleUploadAgreement = async () => {
     if (!agreementFile) {
@@ -1378,10 +1521,17 @@ export default function LoanDetailPage() {
     : !loan.product.earlySettlementEnabled
       ? "Early settlement is not enabled for this product. Enable it in the product configuration."
       : null;
-  const canDisburseLoan = Boolean(loan.agreementDate);
+  const hasGuarantors = (loan.guarantors || []).length > 0;
+  const pendingGuarantorAgreementGeneration = (loan.guarantors || []).filter(
+    (guarantor) => !guarantor.agreementGeneratedAt
+  );
+  const allGuarantorAgreementsGenerated = pendingGuarantorAgreementGeneration.length === 0;
+  const canDisburseLoan = Boolean(loan.agreementDate) && (!hasGuarantors || allGuarantorAgreementsGenerated);
   const disbursementDisabledReason = !loan.agreementDate
     ? "Generate the agreement PDF first to fix the agreement date before disbursement"
-    : undefined;
+    : hasGuarantors && !allGuarantorAgreementsGenerated
+      ? "Generate all guarantor agreement PDFs before disbursement"
+      : undefined;
 
   // ============================================
   // Main Render
@@ -1630,6 +1780,47 @@ export default function LoanDetailPage() {
                       )}
                     </>
                   )}
+                  {hasGuarantors && (
+                    <>
+                      <div className="border-t pt-2 mt-2" />
+                      <div className="space-y-1.5">
+                        <p className="text-xs text-muted-foreground">Guarantors ({loan.guarantors.length})</p>
+                        <div className="space-y-1">
+                          {(loan.guarantors || []).map((guarantor) => {
+                            const guarantorDisplayName =
+                              guarantor.borrowerType === "CORPORATE" && guarantor.companyName
+                                ? guarantor.companyName
+                                : guarantor.name;
+                            return (
+                              <div
+                                key={guarantor.id}
+                                className="rounded-md border bg-secondary/30 px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2"
+                              >
+                                <Link
+                                  href={`/dashboard/borrowers/${guarantor.borrowerId}`}
+                                  className="text-sm hover:text-muted-foreground hover:underline transition-colors inline-flex items-center gap-1.5"
+                                >
+                                  {guarantorDisplayName}
+                                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                                </Link>
+                                {guarantor.borrower?.documentVerified ? (
+                                  <Badge variant="verified" className="text-xs">
+                                    <Fingerprint className="h-3 w-3 mr-1" />
+                                    e-KYC
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="unverified" className="text-xs">
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    Manual Verification
+                                  </Badge>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1689,150 +1880,250 @@ export default function LoanDetailPage() {
                   
                   return (
                     <div className="border-t pt-3 space-y-2">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Disbursed</p>
-                        <p className="font-semibold text-emerald-600 dark:text-emerald-400">
-                          {formatCurrency(netDisbursement)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          on {formatDate(loan.disbursementDate)}
-                        </p>
-                      </div>
-                      {loan.agreementDate && (
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs text-muted-foreground">Agreement Date</p>
-                          <p className="text-sm font-medium">{formatDate(loan.agreementDate)}</p>
+                          <p className="text-xs text-muted-foreground">Disbursed</p>
+                          <p className="font-semibold text-emerald-600 dark:text-emerald-400">
+                            {formatCurrency(netDisbursement)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            on {formatDate(loan.disbursementDate)}
+                          </p>
                         </div>
-                      )}
+                        {loan.agreementDate && (
+                          <div className="sm:text-right">
+                            <p className="text-xs text-muted-foreground">Agreement Date</p>
+                            <p className="text-sm font-medium">{formatDate(loan.agreementDate)}</p>
+                          </div>
+                        )}
+                      </div>
                       {loan.disbursementReference && (
                         <CopyField
                           label="Reference"
                           value={loan.disbursementReference}
                         />
                       )}
-                      <div className="flex items-center gap-2">
-                        {loan.disbursementProofPath ? (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-xs h-7"
-                              onClick={() => window.open(`/api/proxy/loans/${loan.id}/disbursement-proof`, "_blank")}
-                            >
-                              <FileCheck className="h-3 w-3 mr-1" />
-                              View Proof
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-xs h-7"
-                              onClick={() => setShowUploadDisbursementProofDialog(true)}
-                            >
-                              <Upload className="h-3 w-3 mr-1" />
-                              Replace
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
-                            onClick={() => setShowUploadDisbursementProofDialog(true)}
-                          >
-                            <Upload className="h-3 w-3 mr-1" />
-                            Upload Proof
-                          </Button>
-                        )}
+
+                      <div className="rounded-md border bg-secondary/30 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium">Proof of Disbursement</p>
+                            <p className="text-xs text-muted-foreground">
+                              {loan.disbursementProofPath ? "Uploaded" : "Not uploaded"}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {loan.disbursementProofPath ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs h-7"
+                                  onClick={() => window.open(`/api/proxy/loans/${loan.id}/disbursement-proof`, "_blank")}
+                                >
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs h-7"
+                                  onClick={() => setShowUploadDisbursementProofDialog(true)}
+                                >
+                                  <Upload className="h-3 w-3 mr-1" />
+                                  Replace
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
+                                onClick={() => setShowUploadDisbursementProofDialog(true)}
+                              >
+                                <Upload className="h-3 w-3 mr-1" />
+                                Upload
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                       
                       {/* Loan Documents */}
                       <div className="border-t pt-3 mt-3">
                         <p className="text-xs text-muted-foreground mb-2">Loan Documents</p>
-                        <div className="flex flex-wrap gap-2">
-                          {loan.agreementPath ? (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
-                              >
-                                <FileText className="h-3 w-3 mr-1" />
-                                Agreement
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => setShowUploadAgreementDialog(true)}
-                              >
-                                <Upload className="h-3 w-3 mr-1" />
-                                Replace
-                              </Button>
-                            </>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
-                              onClick={() => setShowUploadAgreementDialog(true)}
-                            >
-                              <Upload className="h-3 w-3 mr-1" />
-                              Upload Agreement
-                            </Button>
-                          )}
-                          {loan.stampCertPath ? (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => window.open(`/api/proxy/loans/${loan.id}/stamp-certificate`, "_blank")}
-                              >
-                                <Shield className="h-3 w-3 mr-1" />
-                                Stamp Cert
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => setShowUploadStampCertDialog(true)}
-                              >
-                                <Upload className="h-3 w-3 mr-1" />
-                                Replace
-                              </Button>
-                            </>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
-                              onClick={() => setShowUploadStampCertDialog(true)}
-                            >
-                              <Upload className="h-3 w-3 mr-1" />
-                              Upload Stamp Cert
-                            </Button>
-                          )}
+                        <div className="space-y-2">
+                          <div className="rounded-md border bg-secondary/30 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-medium">Signed Loan Agreement</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {loan.agreementPath ? "Uploaded" : "Not uploaded"}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {loan.agreementPath ? (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-xs h-7"
+                                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
+                                    >
+                                      <Eye className="h-3 w-3 mr-1" />
+                                      View
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs h-7"
+                                      onClick={() => setShowUploadAgreementDialog(true)}
+                                    >
+                                      <Upload className="h-3 w-3 mr-1" />
+                                      Replace
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
+                                    onClick={() => setShowUploadAgreementDialog(true)}
+                                  >
+                                    <Upload className="h-3 w-3 mr-1" />
+                                    Upload
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="rounded-md border bg-secondary/30 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-medium">Stamp Certificate</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {loan.stampCertPath ? "Uploaded" : "Not uploaded"}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {loan.stampCertPath ? (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-xs h-7"
+                                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/stamp-certificate`, "_blank")}
+                                    >
+                                      <Eye className="h-3 w-3 mr-1" />
+                                      View
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs h-7"
+                                      onClick={() => setShowUploadStampCertDialog(true)}
+                                    >
+                                      <Upload className="h-3 w-3 mr-1" />
+                                      Replace
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
+                                    onClick={() => setShowUploadStampCertDialog(true)}
+                                  >
+                                    <Upload className="h-3 w-3 mr-1" />
+                                    Upload
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {(loan.guarantors || []).map((guarantor) => {
+                            const guarantorDisplayName =
+                              guarantor.borrowerType === "CORPORATE" && guarantor.companyName
+                                ? guarantor.companyName
+                                : guarantor.name;
+                            return (
+                              <div key={guarantor.id} className="rounded-md border bg-secondary/30 p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div>
+                                    <p className="text-sm font-medium">Guarantor Agreement - {guarantorDisplayName}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {guarantor.agreementPath ? "Signed copy uploaded" : "Signed copy not uploaded"}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {guarantor.agreementPath ? (
+                                      <>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="text-xs h-7"
+                                          onClick={() => window.open(`/api/proxy/loans/${loan.id}/guarantors/${guarantor.id}/agreement`, "_blank")}
+                                        >
+                                          <Eye className="h-3 w-3 mr-1" />
+                                          View
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-xs h-7"
+                                          onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}
+                                        >
+                                          <Upload className="h-3 w-3 mr-1" />
+                                          Replace
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
+                                        onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}
+                                      >
+                                        <Upload className="h-3 w-3 mr-1" />
+                                        Upload
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+
                           {loan.status !== "PENDING_DISBURSEMENT" && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-xs h-7"
-                              onClick={handleDownloadLampiranA}
-                              disabled={downloadingLampiranA}
-                            >
-                              {downloadingLampiranA ? (
-                                <>
-                                  <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
-                                  Generating...
-                                </>
-                              ) : (
-                                <>
-                                  <Download className="h-3 w-3 mr-1" />
-                                  Lampiran A
-                                </>
-                              )}
-                            </Button>
+                            <div className="rounded-md border bg-secondary/30 p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-medium">Lampiran A (Lejar Akaun Peminjam)</p>
+                                  <p className="text-xs text-muted-foreground">Generate and download ledger export</p>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs h-7"
+                                  onClick={handleDownloadLampiranA}
+                                  disabled={downloadingLampiranA}
+                                >
+                                  {downloadingLampiranA ? (
+                                    <>
+                                      <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                                      Generating...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Download className="h-3 w-3 mr-1" />
+                                      Download
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1945,6 +2236,121 @@ export default function LoanDetailPage() {
                           Upload Signed Agreement
                         </Button>
                       )}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Guarantor Agreements (required to generate before disbursement if guarantors exist) */}
+          {loan.status === "PENDING_DISBURSEMENT" && hasGuarantors && (
+            <Card className={allGuarantorAgreementsGenerated ? "border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"}>
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <Users className={`h-8 w-8 ${allGuarantorAgreementsGenerated ? "text-emerald-600" : "text-amber-600"}`} />
+                  <div className="flex-1 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">Guarantor Agreements</h3>
+                      {allGuarantorAgreementsGenerated ? (
+                        <Badge variant="verified" className="text-xs">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Ready
+                        </Badge>
+                      ) : (
+                        <Badge variant="warning" className="text-xs">
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Required Before Disbursement
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Generate one guarantor agreement per guarantor before disbursement. Signed uploads are optional and can be done before or after disbursement.
+                    </p>
+
+                    <div className="space-y-3">
+                      {(loan.guarantors || []).map((guarantor) => {
+                        const guarantorDisplayName =
+                          guarantor.borrowerType === "CORPORATE" && guarantor.companyName
+                            ? guarantor.companyName
+                            : guarantor.name;
+                        const generatingThisGuarantor = generatingGuarantorId === guarantor.id;
+                        return (
+                          <div key={guarantor.id} className="rounded-lg border bg-background p-3 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="font-medium">{guarantorDisplayName}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {guarantor.documentType === "PASSPORT" ? "Passport" : "IC"}: {guarantor.icNumber}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {guarantor.agreementGeneratedAt ? (
+                                  <Badge variant="verified" className="text-xs">
+                                    <CheckCircle className="h-3 w-3 mr-1" />
+                                    Generated
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="warning" className="text-xs">
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    Not Generated
+                                  </Badge>
+                                )}
+                                {guarantor.agreementPath ? (
+                                  <Badge variant="verified" className="text-xs">
+                                    <CheckCircle className="h-3 w-3 mr-1" />
+                                    Signed Uploaded (v{guarantor.agreementVersion})
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs">Signed Optional</Badge>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={generatingThisGuarantor || !loan.agreementDate}
+                                onClick={() => handleGenerateGuarantorAgreement(guarantor.id)}
+                              >
+                                <Download className="h-4 w-4 mr-2" />
+                                {generatingThisGuarantor
+                                  ? "Generating..."
+                                  : guarantor.agreementGeneratedAt
+                                    ? "Regenerate PDF"
+                                    : "Generate PDF"}
+                              </Button>
+
+                              {guarantor.agreementPath ? (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => window.open(`/api/proxy/loans/${loan.id}/guarantors/${guarantor.id}/agreement`, "_blank")}
+                                  >
+                                    <Eye className="h-4 w-4 mr-2" />
+                                    View Signed
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}
+                                  >
+                                    <Upload className="h-4 w-4 mr-2" />
+                                    Replace Signed
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button size="sm" onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}>
+                                  <Upload className="h-4 w-4 mr-2" />
+                                  Upload Signed
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -3577,6 +3983,78 @@ export default function LoanDetailPage() {
             <Button onClick={handleUploadAgreement} disabled={uploadingAgreement || !agreementFile}>
               <Upload className="h-4 w-4 mr-2" />
               {uploadingAgreement ? "Uploading..." : "Upload Agreement"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Signed Guarantor Agreement Dialog */}
+      <Dialog
+        open={showUploadGuarantorAgreementDialog}
+        onOpenChange={(open) => {
+          setShowUploadGuarantorAgreementDialog(open);
+          if (!open) {
+            setGuarantorAgreementFile(null);
+            setSelectedGuarantorId(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Upload Signed Guarantor Agreement</DialogTitle>
+            <DialogDescription>
+              Upload the signed guarantor agreement PDF.
+              {selectedGuarantorId && (() => {
+                const guarantor = (loan.guarantors || []).find((item) => item.id === selectedGuarantorId);
+                if (!guarantor) return null;
+                const guarantorDisplayName =
+                  guarantor.borrowerType === "CORPORATE" && guarantor.companyName
+                    ? guarantor.companyName
+                    : guarantor.name;
+                return (
+                  <span className="block mt-1">
+                    Guarantor: <span className="font-medium">{guarantorDisplayName}</span>
+                    {guarantor.agreementPath && (
+                      <span className="block mt-1 text-amber-600 dark:text-amber-400">
+                        Note: This will replace the existing signed file (v{guarantor.agreementVersion}).
+                      </span>
+                    )}
+                  </span>
+                );
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div>
+              <Label htmlFor="guarantor-agreement-file">Select PDF File *</Label>
+              <Input
+                id="guarantor-agreement-file"
+                type="file"
+                accept=".pdf"
+                onChange={(e) => setGuarantorAgreementFile(e.target.files?.[0] || null)}
+                className="mt-1"
+              />
+              {guarantorAgreementFile && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Selected: {guarantorAgreementFile.name} ({(guarantorAgreementFile.size / 1024).toFixed(1)} KB)
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowUploadGuarantorAgreementDialog(false);
+                setGuarantorAgreementFile(null);
+                setSelectedGuarantorId(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleUploadGuarantorAgreement} disabled={uploadingGuarantorAgreement || !guarantorAgreementFile}>
+              <Upload className="h-4 w-4 mr-2" />
+              {uploadingGuarantorAgreement ? "Uploading..." : "Upload Signed"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -178,6 +178,7 @@ interface Borrower {
     totalBorrowed: number;
     totalPaid: number;
   };
+  guarantorCount?: number;
   documents: BorrowerDocument[];
   trueIdentitySessions?: Array<{
     verificationDocumentUrls: {
@@ -1391,6 +1392,11 @@ export default function BorrowerDetailPage() {
                   <span className="text-sm text-muted-foreground">Loans</span>
                   <Badge variant="outline">{borrower.loans.length}</Badge>
                 </div>
+                <div className="h-4 w-px bg-border" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Guarantor For</span>
+                  <Badge variant="outline">{borrower.guarantorCount ?? 0}</Badge>
+                </div>
                 {(borrower.performanceProjection?.completedLoans ?? 0) > 0 && (
                   <>
                     <div className="h-4 w-px bg-border" />
@@ -1447,7 +1453,9 @@ export default function BorrowerDetailPage() {
                 const sampleSize = paidOnTimeCount + paidLateCount + overdueCount;
                 const lastPaymentAt = projection?.lastPaymentAt ?? null;
                 const tags = (projection?.tags || []).slice(0, 4);
+                const guarantorCount = borrower.guarantorCount ?? 0;
                 const signalItems = [
+                  guarantorCount > 0 ? `${guarantorCount} as guarantor` : null,
                   projection?.defaultedLoans ? `${projection.defaultedLoans} defaulted` : null,
                   projection?.writtenOffLoans ? `${projection.writtenOffLoans} written off` : null,
                   projection?.inArrearsLoans ? `${projection.inArrearsLoans} in arrears` : null,

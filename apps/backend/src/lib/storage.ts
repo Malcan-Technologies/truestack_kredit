@@ -379,6 +379,38 @@ export async function deleteAgreementFile(filePath: string): Promise<void> {
 }
 
 /**
+ * Save a guarantor agreement file to storage (local or S3)
+ */
+export async function saveGuarantorAgreementFile(
+  buffer: Buffer,
+  loanId: string,
+  guarantorId: string,
+  originalName: string
+): Promise<{ path: string; filename: string }> {
+  const filename = generateFilename(`${loanId}-${guarantorId}`, originalName);
+  const category = 'guarantor-agreements';
+
+  if (STORAGE_TYPE === 's3') {
+    return saveToS3(buffer, category, filename);
+  }
+  return saveToLocal(buffer, category, filename);
+}
+
+/**
+ * Get a guarantor agreement file from storage
+ */
+export async function getGuarantorAgreementFile(filePath: string): Promise<Buffer | null> {
+  return getAgreementFile(filePath);
+}
+
+/**
+ * Delete a guarantor agreement file from storage
+ */
+export async function deleteGuarantorAgreementFile(filePath: string): Promise<void> {
+  return deleteAgreementFile(filePath);
+}
+
+/**
  * Get the full filesystem path for a local file (for streaming)
  */
 export function getLocalPath(filePath: string): string | null {

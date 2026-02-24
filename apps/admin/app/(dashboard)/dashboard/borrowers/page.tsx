@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search, User, Fingerprint, AlertTriangle, Building2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Search, User, Fingerprint, AlertTriangle, Building2, ArrowUpDown, ArrowUp, ArrowDown, ChartPie } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -434,9 +434,10 @@ export default function BorrowersPage() {
                             return (
                               <Badge
                                 variant="outline"
+                                className="bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
                                 title="Some directors are verified, but not all yet"
                               >
-                                <Fingerprint className="h-3 w-3 mr-1" />
+                                <ChartPie className="h-3 w-3 mr-1" />
                                 Partially verified
                               </Badge>
                             );

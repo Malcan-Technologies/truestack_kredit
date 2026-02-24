@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Fingerprint, Sparkles, Copy, Loader2, RefreshCw, Check, Circle, XCircle } from "lucide-react";
+import { Fingerprint, Sparkles, Copy, Loader2, RefreshCw, Check, Circle, XCircle, ChartPie } from "lucide-react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -542,7 +542,11 @@ export function TrueIdentityBox({
       }
       if (anyVerified) {
         return (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge
+            variant="outline"
+            className="text-[10px] bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+          >
+            <ChartPie className="h-3 w-3 mr-1" />
             Partially verified
           </Badge>
         );

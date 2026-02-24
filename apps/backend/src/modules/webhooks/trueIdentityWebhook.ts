@@ -248,7 +248,6 @@ router.post('/', async (req, res) => {
                 },
                 ipAddress: req.ip,
               });
-            }
           }
         }
       } else {

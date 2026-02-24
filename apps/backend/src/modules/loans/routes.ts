@@ -21,7 +21,7 @@ import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receipt
 import { fetchLogoBuffer } from '../../lib/safeLogoFetch.js';
 import PDFDocument from 'pdfkit';
 import { recalculateBorrowerPerformanceProjection } from '../borrowers/performanceProjectionService.js';
-import { resolveVerificationStatus } from '../../lib/verification.js';
+import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {

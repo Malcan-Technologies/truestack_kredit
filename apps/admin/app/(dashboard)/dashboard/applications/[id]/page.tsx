@@ -29,6 +29,7 @@ import {
   Building2,
   AlertTriangle,
   RotateCcw,
+  ChartPie,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +98,7 @@ interface Application {
     phone: string | null;
     email: string | null;
     documentVerified: boolean;
+    verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
     companyName: string | null;
   };
   product: {
@@ -130,6 +132,7 @@ interface Application {
       icNumber: string;
       documentType: string;
       documentVerified: boolean;
+      verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
       phone: string | null;
       email: string | null;
       address: string | null;
@@ -661,17 +664,41 @@ export default function ApplicationDetailPage() {
                         Individual
                       </Badge>
                     )}
-                    {application.borrower.documentVerified ? (
-                      <Badge variant="verified" className="text-xs">
-                        <ShieldCheck className="h-3 w-3 mr-1" />
-                        e-KYC
-                      </Badge>
-                    ) : (
-                      <Badge variant="unverified" className="text-xs">
-                        <AlertTriangle className="h-3 w-3 mr-1" />
-                        Manual Verification
-                      </Badge>
-                    )}
+                    {(() => {
+                      const isFullyVerified =
+                        application.borrower.verificationStatus === "FULLY_VERIFIED" ||
+                        (!application.borrower.verificationStatus && application.borrower.documentVerified);
+                      const isPartiallyVerified =
+                        application.borrower.verificationStatus === "PARTIALLY_VERIFIED";
+
+                      if (isFullyVerified) {
+                        return (
+                          <Badge variant="verified" className="text-xs">
+                            <ShieldCheck className="h-3 w-3 mr-1" />
+                            e-KYC
+                          </Badge>
+                        );
+                      }
+
+                      if (isPartiallyVerified) {
+                        return (
+                          <Badge
+                            variant="outline"
+                            className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+                          >
+                            <ChartPie className="h-3 w-3 mr-1" />
+                            Partially verified
+                          </Badge>
+                        );
+                      }
+
+                      return (
+                        <Badge variant="unverified" className="text-xs">
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Manual Verification
+                        </Badge>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -779,17 +806,40 @@ export default function ApplicationDetailPage() {
                           <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
                         </Link>
                         <div className="flex items-center gap-2">
-                          {guarantor.documentVerified ? (
-                            <Badge variant="verified" className="text-xs">
-                              <ShieldCheck className="h-3 w-3 mr-1" />
-                              e-KYC Verified
-                            </Badge>
-                          ) : (
-                            <Badge variant="unverified" className="text-xs">
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              Manual Verification
-                            </Badge>
-                          )}
+                          {(() => {
+                            const isFullyVerified =
+                              guarantor.verificationStatus === "FULLY_VERIFIED" ||
+                              (!guarantor.verificationStatus && guarantor.documentVerified);
+                            const isPartiallyVerified = guarantor.verificationStatus === "PARTIALLY_VERIFIED";
+
+                            if (isFullyVerified) {
+                              return (
+                                <Badge variant="verified" className="text-xs">
+                                  <ShieldCheck className="h-3 w-3 mr-1" />
+                                  e-KYC Verified
+                                </Badge>
+                              );
+                            }
+
+                            if (isPartiallyVerified) {
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+                                >
+                                  <ChartPie className="h-3 w-3 mr-1" />
+                                  Partially verified
+                                </Badge>
+                              );
+                            }
+
+                            return (
+                              <Badge variant="unverified" className="text-xs">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Manual Verification
+                              </Badge>
+                            );
+                          })()}
                         </div>
                         <div className="space-y-2">
                           <CopyField label={identityLabel} value={guarantor.icNumber} />

@@ -19,6 +19,8 @@ import {
   Users,
   Shield,
   ShieldCheck,
+  ChartPie,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,6 +50,7 @@ interface Borrower {
   phone: string | null;
   email: string | null;
   documentVerified: boolean;
+  verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
   companyName: string | null;
 }
 
@@ -533,9 +536,35 @@ export default function NewApplicationPage() {
                                 Corporate
                               </Badge>
                             ) : (
-                              borrower.documentVerified && (
-                                <Badge variant="verified">e-KYC</Badge>
-                              )
+                              (() => {
+                                const isFullyVerified =
+                                  borrower.verificationStatus === "FULLY_VERIFIED" ||
+                                  (!borrower.verificationStatus && borrower.documentVerified);
+                                const isPartiallyVerified = borrower.verificationStatus === "PARTIALLY_VERIFIED";
+
+                                if (isFullyVerified) {
+                                  return <Badge variant="verified">e-KYC</Badge>;
+                                }
+
+                                if (isPartiallyVerified) {
+                                  return (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+                                    >
+                                      <ChartPie className="h-3 w-3 mr-1" />
+                                      Partially verified
+                                    </Badge>
+                                  );
+                                }
+
+                                return (
+                                  <Badge variant="unverified" className="text-xs">
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    Manual
+                                  </Badge>
+                                );
+                              })()
                             )}
                             {selectedBorrower?.id === borrower.id && (
                               <CheckCircle className="h-5 w-5 text-foreground" />

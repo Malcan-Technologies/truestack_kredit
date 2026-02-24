@@ -30,6 +30,7 @@ import {
   Shield,
   ShieldCheck,
   Fingerprint,
+  ChartPie,
   XCircle,
   RefreshCw,
   Download,
@@ -194,6 +195,7 @@ interface Loan {
     email: string | null;
     companyName: string | null;
     documentVerified: boolean;
+    verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
     bankName: string | null;
     bankNameOther: string | null;
     bankAccountNo: string | null;
@@ -238,6 +240,7 @@ interface Loan {
     agreementUploadedAt: string | null;
     borrower?: {
       documentVerified: boolean;
+      verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
     } | null;
   }>;
   scheduleVersions: LoanScheduleVersion[];
@@ -1740,17 +1743,41 @@ export default function LoanDetailPage() {
                     <p className="text-sm text-muted-foreground">Rep: {loan.borrower.name}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                    {loan.borrower.documentVerified ? (
-                      <Badge variant="verified" className="text-xs">
-                        <Fingerprint className="h-3 w-3 mr-1" />
-                        e-KYC
-                      </Badge>
-                    ) : (
-                      <Badge variant="unverified" className="text-xs">
-                        <AlertTriangle className="h-3 w-3 mr-1" />
-                        Manual Verification
-                      </Badge>
-                    )}
+                    {(() => {
+                      const isFullyVerified =
+                        loan.borrower.verificationStatus === "FULLY_VERIFIED" ||
+                        (!loan.borrower.verificationStatus && loan.borrower.documentVerified);
+                      const isPartiallyVerified =
+                        loan.borrower.verificationStatus === "PARTIALLY_VERIFIED";
+
+                      if (isFullyVerified) {
+                        return (
+                          <Badge variant="verified" className="text-xs">
+                            <Fingerprint className="h-3 w-3 mr-1" />
+                            e-KYC
+                          </Badge>
+                        );
+                      }
+
+                      if (isPartiallyVerified) {
+                        return (
+                          <Badge
+                            variant="outline"
+                            className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+                          >
+                            <ChartPie className="h-3 w-3 mr-1" />
+                            Partially verified
+                          </Badge>
+                        );
+                      }
+
+                      return (
+                        <Badge variant="unverified" className="text-xs">
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Manual Verification
+                        </Badge>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -1803,17 +1830,41 @@ export default function LoanDetailPage() {
                                   {guarantorDisplayName}
                                   <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                                 </Link>
-                                {guarantor.borrower?.documentVerified ? (
-                                  <Badge variant="verified" className="text-xs">
-                                    <Fingerprint className="h-3 w-3 mr-1" />
-                                    e-KYC
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="unverified" className="text-xs">
-                                    <AlertTriangle className="h-3 w-3 mr-1" />
-                                    Manual Verification
-                                  </Badge>
-                                )}
+                                {(() => {
+                                  const verificationStatus = guarantor.borrower?.verificationStatus;
+                                  const isFullyVerified =
+                                    verificationStatus === "FULLY_VERIFIED" ||
+                                    (!verificationStatus && Boolean(guarantor.borrower?.documentVerified));
+                                  const isPartiallyVerified = verificationStatus === "PARTIALLY_VERIFIED";
+
+                                  if (isFullyVerified) {
+                                    return (
+                                      <Badge variant="verified" className="text-xs">
+                                        <Fingerprint className="h-3 w-3 mr-1" />
+                                        e-KYC
+                                      </Badge>
+                                    );
+                                  }
+
+                                  if (isPartiallyVerified) {
+                                    return (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+                                      >
+                                        <ChartPie className="h-3 w-3 mr-1" />
+                                        Partially verified
+                                      </Badge>
+                                    );
+                                  }
+
+                                  return (
+                                    <Badge variant="unverified" className="text-xs">
+                                      <AlertTriangle className="h-3 w-3 mr-1" />
+                                      Manual Verification
+                                    </Badge>
+                                  );
+                                })()}
                               </div>
                             );
                           })}

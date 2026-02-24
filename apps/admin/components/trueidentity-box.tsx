@@ -521,7 +521,8 @@ export function TrueIdentityBox({
       );
       if (allVerified) {
         return (
-          <Badge variant="default" className="text-[10px] bg-emerald-600">
+          <Badge variant="verified" className="text-xs">
+            <Fingerprint className="h-3 w-3 mr-1" />
             e-KYC Verified
           </Badge>
         );
@@ -564,8 +565,9 @@ export function TrueIdentityBox({
       const isFailed = s.status === "failed";
       if (isVerified) {
         return (
-          <Badge variant="default" className="text-[10px] bg-emerald-600">
-            Verified
+          <Badge variant="verified" className="text-xs">
+            <Fingerprint className="h-3 w-3 mr-1" />
+            e-KYC Verified
           </Badge>
         );
       }

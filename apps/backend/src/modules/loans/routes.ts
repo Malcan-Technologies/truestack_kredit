@@ -43,6 +43,40 @@ function validateSettlementPaymentDate(paymentDate: Date, disbursementDate?: Dat
   }
 }
 
+type BorrowerVerificationSummary = 'FULLY_VERIFIED' | 'PARTIALLY_VERIFIED' | 'UNVERIFIED';
+
+const getBorrowerVerificationSummary = (borrower: {
+  borrowerType: string;
+  documentVerified: boolean;
+  trueIdentityStatus: string | null;
+  trueIdentityResult: string | null;
+  directors?: Array<{
+    trueIdentityStatus: string | null;
+    trueIdentityResult: string | null;
+  }>;
+}): BorrowerVerificationSummary => {
+  if (borrower.borrowerType === 'CORPORATE') {
+    const directors = borrower.directors ?? [];
+    const allDirectorsVerified =
+      directors.length > 0 &&
+      directors.every(
+        (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
+      );
+    const anyDirectorVerified = directors.some(
+      (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
+    );
+
+    if (allDirectorsVerified) return 'FULLY_VERIFIED';
+    if (anyDirectorVerified) return 'PARTIALLY_VERIFIED';
+    return 'UNVERIFIED';
+  }
+
+  const isIndividualVerified =
+    borrower.trueIdentityStatus === 'completed' && borrower.trueIdentityResult === 'approved';
+
+  return isIndividualVerified || borrower.documentVerified ? 'FULLY_VERIFIED' : 'UNVERIFIED';
+};
+
 // Generate early settlement receipt PDF
 interface SettlementReceiptParams {
   receiptNumber: string;
@@ -722,7 +756,25 @@ router.post('/applications', async (req, res, next) => {
           : undefined,
       },
       include: {
-        borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
+        borrower: {
+          select: {
+            id: true,
+            name: true,
+            borrowerType: true,
+            icNumber: true,
+            documentType: true,
+            companyName: true,
+            documentVerified: true,
+            trueIdentityStatus: true,
+            trueIdentityResult: true,
+            directors: {
+              select: {
+                trueIdentityStatus: true,
+                trueIdentityResult: true,
+              },
+            },
+          },
+        },
         product: { select: { id: true, name: true, interestModel: true, interestRate: true, loanScheduleType: true } },
         guarantors: {
           orderBy: { order: 'asc' },
@@ -741,6 +793,14 @@ router.post('/applications', async (req, res, next) => {
                 email: true,
                 address: true,
                 documentVerified: true,
+                trueIdentityStatus: true,
+                trueIdentityResult: true,
+                directors: {
+                  select: {
+                    trueIdentityStatus: true,
+                    trueIdentityResult: true,
+                  },
+                },
               },
             },
           },
@@ -772,9 +832,24 @@ router.post('/applications', async (req, res, next) => {
       req.ip
     );
 
+    const applicationWithVerification = {
+      ...application,
+      borrower: {
+        ...application.borrower,
+        verificationStatus: getBorrowerVerificationSummary(application.borrower),
+      },
+      guarantors: application.guarantors.map((guarantor) => ({
+        ...guarantor,
+        borrower: {
+          ...guarantor.borrower,
+          verificationStatus: getBorrowerVerificationSummary(guarantor.borrower),
+        },
+      })),
+    };
+
     res.status(201).json({
       success: true,
-      data: application,
+      data: applicationWithVerification,
     });
   } catch (error) {
     next(error);
@@ -805,6 +880,14 @@ router.get('/applications/:applicationId', async (req, res, next) => {
             email: true,
             companyName: true,
             documentVerified: true,
+            trueIdentityStatus: true,
+            trueIdentityResult: true,
+            directors: {
+              select: {
+                trueIdentityStatus: true,
+                trueIdentityResult: true,
+              },
+            },
           },
         },
         product: true,
@@ -822,6 +905,14 @@ router.get('/applications/:applicationId', async (req, res, next) => {
                 icNumber: true,
                 documentType: true,
                 documentVerified: true,
+                trueIdentityStatus: true,
+                trueIdentityResult: true,
+                directors: {
+                  select: {
+                    trueIdentityStatus: true,
+                    trueIdentityResult: true,
+                  },
+                },
                 phone: true,
                 email: true,
                 address: true,
@@ -842,9 +933,24 @@ router.get('/applications/:applicationId', async (req, res, next) => {
       throw new NotFoundError('Application');
     }
 
+    const applicationWithVerification = {
+      ...application,
+      borrower: {
+        ...application.borrower,
+        verificationStatus: getBorrowerVerificationSummary(application.borrower),
+      },
+      guarantors: application.guarantors.map((guarantor) => ({
+        ...guarantor,
+        borrower: {
+          ...guarantor.borrower,
+          verificationStatus: getBorrowerVerificationSummary(guarantor.borrower),
+        },
+      })),
+    };
+
     res.json({
       success: true,
-      data: application,
+      data: applicationWithVerification,
     });
   } catch (error) {
     next(error);
@@ -1521,7 +1627,25 @@ router.get('/', async (req, res, next) => {
         take,
         orderBy: { createdAt: 'desc' },
         include: {
-          borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true, documentVerified: true } },
+          borrower: {
+            select: {
+              id: true,
+              name: true,
+              borrowerType: true,
+              icNumber: true,
+              documentType: true,
+              companyName: true,
+              documentVerified: true,
+              trueIdentityStatus: true,
+              trueIdentityResult: true,
+              directors: {
+                select: {
+                  trueIdentityStatus: true,
+                  trueIdentityResult: true,
+                },
+              },
+            },
+          },
           product: { select: { id: true, name: true, loanScheduleType: true } },
           scheduleVersions: {
             orderBy: { version: 'desc' },
@@ -1545,6 +1669,7 @@ router.get('/', async (req, res, next) => {
       const paidCount = repayments.filter(r => r.status === 'PAID' || r.status === 'CANCELLED').length;
       const readyToComplete = totalRepayments > 0 && paidCount === totalRepayments && 
         (loan.status === 'ACTIVE' || loan.status === 'IN_ARREARS');
+      const borrowerVerificationStatus = getBorrowerVerificationSummary(loan.borrower);
 
       // Calculate late fee breakdown
       const totalLateFeesAccrued = repayments.reduce((sum, r) => safeAdd(sum, toSafeNumber(r.lateFeeAccrued)), 0);
@@ -1556,6 +1681,10 @@ router.get('/', async (req, res, next) => {
       
       return {
         ...loanData,
+        borrower: {
+          ...loan.borrower,
+          verificationStatus: borrowerVerificationStatus,
+        },
         lateFeeBreakdown: {
           total: safeRound(toSafeNumber(loan.totalLateFees), 2),
           paid: safeRound(totalLateFeesPaid, 2),
@@ -1682,7 +1811,16 @@ router.get('/:loanId', async (req, res, next) => {
         tenantId: req.tenantId,
       },
       include: {
-        borrower: true,
+        borrower: {
+          include: {
+            directors: {
+              select: {
+                trueIdentityStatus: true,
+                trueIdentityResult: true,
+              },
+            },
+          },
+        },
         product: true,
         application: true,
         guarantors: {
@@ -1691,6 +1829,15 @@ router.get('/:loanId', async (req, res, next) => {
             borrower: {
               select: {
                 documentVerified: true,
+                borrowerType: true,
+                trueIdentityStatus: true,
+                trueIdentityResult: true,
+                directors: {
+                  select: {
+                    trueIdentityStatus: true,
+                    trueIdentityResult: true,
+                  },
+                },
               },
             },
           },
@@ -1718,9 +1865,26 @@ router.get('/:loanId', async (req, res, next) => {
       throw new NotFoundError('Loan');
     }
 
+    const loanWithVerification = {
+      ...loan,
+      borrower: {
+        ...loan.borrower,
+        verificationStatus: getBorrowerVerificationSummary(loan.borrower),
+      },
+      guarantors: loan.guarantors.map((guarantor) => ({
+        ...guarantor,
+        borrower: guarantor.borrower
+          ? {
+              ...guarantor.borrower,
+              verificationStatus: getBorrowerVerificationSummary(guarantor.borrower),
+            }
+          : guarantor.borrower,
+      })),
+    };
+
     res.json({
       success: true,
-      data: loan,
+      data: loanWithVerification,
     });
   } catch (error) {
     next(error);

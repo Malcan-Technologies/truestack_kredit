@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, Fingerprint } from "lucide-react";
+import { FileText, Building2, User, CheckCircle, Search, AlertTriangle, Clock, PlayCircle, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, Fingerprint, ChartPie } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -56,6 +56,7 @@ interface Loan {
     borrowerType: string;
     companyName: string | null;
     documentVerified?: boolean;
+    verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
   };
   product: {
     id: string;
@@ -731,31 +732,61 @@ function LoansPageContent() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {loan.borrower.documentVerified ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge variant="verified" className="text-xs">
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              Verified
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Borrower verified via TrueIdentity e-KYC</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge variant="outline" className="text-xs text-muted-foreground">
-                              <Fingerprint className="h-3 w-3 mr-1" />
-                              Manual
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Borrower verified manually</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
+                      {(() => {
+                        const isFullyVerified =
+                          loan.borrower.verificationStatus === "FULLY_VERIFIED" ||
+                          (!loan.borrower.verificationStatus && Boolean(loan.borrower.documentVerified));
+                        const isPartiallyVerified = loan.borrower.verificationStatus === "PARTIALLY_VERIFIED";
+
+                        if (isFullyVerified) {
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge variant="verified" className="text-xs">
+                                  <CheckCircle className="h-3 w-3 mr-1" />
+                                  Verified
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Borrower verified via TrueIdentity e-KYC</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        }
+
+                        if (isPartiallyVerified) {
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+                                >
+                                  <ChartPie className="h-3 w-3 mr-1" />
+                                  Partial
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Some corporate directors are verified, but not all yet</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        }
+
+                        return (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="outline" className="text-xs text-muted-foreground">
+                                <Fingerprint className="h-3 w-3 mr-1" />
+                                Manual
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Borrower verified manually</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       {loan.disbursementDate ? formatDate(loan.disbursementDate) : "-"}

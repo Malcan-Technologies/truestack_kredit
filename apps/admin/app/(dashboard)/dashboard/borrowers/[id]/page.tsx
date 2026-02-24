@@ -2051,22 +2051,20 @@ export default function BorrowerDetailPage() {
                               <p className="text-sm font-medium">
                                 Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
                               </p>
-                              {hasDocs && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="shrink-0 h-8 w-8 p-0"
-                                  onClick={() => setExpandedDirectorIndex(isExpanded ? null : index)}
-                                  title={isExpanded ? "Collapse e-KYC documents" : "Expand e-KYC documents"}
-                                >
-                                  {isExpanded ? (
-                                    <ChevronUp className="h-4 w-4" />
-                                  ) : (
-                                    <ChevronDown className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              )}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="shrink-0 h-8 w-8 p-0"
+                                onClick={() => setExpandedDirectorIndex(isExpanded ? null : index)}
+                                title={isExpanded ? "Collapse e-KYC documents" : "Expand e-KYC documents"}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
+                              </Button>
                             </div>
                             {isEditing && (
                               <Button
@@ -2177,55 +2175,59 @@ export default function BorrowerDetailPage() {
                             </div>
                           )}
 
-                          {isExpanded && hasDocs && docUrls && (
+                          {isExpanded && (
                             <div className="pt-3 mt-3 border-t space-y-2">
                               <p className="text-xs font-medium text-muted-foreground">e-KYC Documents</p>
-                              <div className="flex flex-wrap gap-2">
-                                {docUrls.icFrontUrl && (
-                                  <a
-                                    href={docUrls.icFrontUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                                  >
-                                    <ExternalLink className="h-4 w-4" />
-                                    IC Front
-                                  </a>
-                                )}
-                                {docUrls.icBackUrl && (
-                                  <a
-                                    href={docUrls.icBackUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                                  >
-                                    <ExternalLink className="h-4 w-4" />
-                                    IC Back
-                                  </a>
-                                )}
-                                {docUrls.selfieUrl && (
-                                  <a
-                                    href={docUrls.selfieUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                                  >
-                                    <ExternalLink className="h-4 w-4" />
-                                    Selfie Liveness
-                                  </a>
-                                )}
-                                {docUrls.verificationDetailUrl && (
-                                  <a
-                                    href={docUrls.verificationDetailUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                                  >
-                                    <ExternalLink className="h-4 w-4" />
-                                    View in Admin
-                                  </a>
-                                )}
-                              </div>
+                              {hasDocs && docUrls ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {docUrls.icFrontUrl && (
+                                    <a
+                                      href={docUrls.icFrontUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                    >
+                                      <ExternalLink className="h-4 w-4" />
+                                      IC Front
+                                    </a>
+                                  )}
+                                  {docUrls.icBackUrl && (
+                                    <a
+                                      href={docUrls.icBackUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                    >
+                                      <ExternalLink className="h-4 w-4" />
+                                      IC Back
+                                    </a>
+                                  )}
+                                  {docUrls.selfieUrl && (
+                                    <a
+                                      href={docUrls.selfieUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                    >
+                                      <ExternalLink className="h-4 w-4" />
+                                      Selfie Liveness
+                                    </a>
+                                  )}
+                                  {docUrls.verificationDetailUrl && (
+                                    <a
+                                      href={docUrls.verificationDetailUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                    >
+                                      <ExternalLink className="h-4 w-4" />
+                                      View in Admin
+                                    </a>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">No e-KYC documents available for this director yet.</p>
+                              )}
                             </div>
                           )}
                         </div>

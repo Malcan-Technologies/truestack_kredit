@@ -13,6 +13,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
+import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
 import { AuditService } from '../compliance/auditService.js';
 import { processDocumentImagesFromWebhook } from '../trueidentity/documentImagesFromWebhook.js';
@@ -188,33 +189,45 @@ router.post('/', async (req, res) => {
             where: { id: directorId },
             data: directorUpdateData as Parameters<typeof prisma.borrowerDirector.update>[0]['data'],
           });
-          if (status === 'completed' && result === 'approved') {
-            const directorStates = await prisma.borrowerDirector.findMany({
-              where: { borrowerId },
-              select: {
-                id: true,
-                name: true,
-                trueIdentityStatus: true,
-                trueIdentityResult: true,
-              },
-            });
-            const allDirectorsVerified =
-              directorStates.length > 0 &&
-              directorStates.every(
-                (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
-              );
-
-            if (allDirectorsVerified) {
-              await prisma.borrower.update({
-                where: { id: borrowerId },
-                data: {
-                  documentVerified: true,
-                  verifiedAt: new Date(),
-                  verifiedBy: 'TrueIdentity',
-                },
-              });
-
-              await AuditService.log({
+          // Sync borrower.verificationStatus (single source of truth) after any director update
+          const directorStates = await prisma.borrowerDirector.findMany({
+            where: { borrowerId },
+            select: {
+              id: true,
+              name: true,
+              trueIdentityStatus: true,
+              trueIdentityResult: true,
+            },
+          });
+          const borrowerForSummary = await prisma.borrower.findFirst({
+            where: { id: borrowerId, tenantId },
+            select: { documentVerified: true },
+          });
+          const verificationStatus = getBorrowerVerificationSummary({
+            borrowerType: 'CORPORATE',
+            documentVerified: borrowerForSummary?.documentVerified ?? false,
+            trueIdentityStatus: null,
+            trueIdentityResult: null,
+            directors: directorStates,
+          });
+          const allDirectorsVerified =
+            directorStates.length > 0 &&
+            directorStates.every(
+              (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
+            );
+          await prisma.borrower.update({
+            where: { id: borrowerId },
+            data: {
+              verificationStatus,
+              ...(allDirectorsVerified && {
+                documentVerified: true,
+                verifiedAt: new Date(),
+                verifiedBy: 'TrueIdentity',
+              }),
+            },
+          });
+          if (status === 'completed' && result === 'approved' && allDirectorsVerified) {
+            await AuditService.log({
                 tenantId,
                 action: 'TRUEIDENTITY_ALL_DIRECTORS_VERIFIED',
                 entityType: 'Borrower',
@@ -256,6 +269,10 @@ router.post('/', async (req, res) => {
           where: { id: borrowerId, tenantId },
         });
         if (borrower) {
+          const isApproved = status === 'completed' && result === 'approved';
+          const verificationStatus =
+            isApproved || borrower.documentVerified ? 'FULLY_VERIFIED' : 'UNVERIFIED';
+          (updateData as Record<string, unknown>).verificationStatus = verificationStatus;
           await prisma.borrower.update({
             where: { id: borrowerId },
             data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],

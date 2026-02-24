@@ -12,6 +12,7 @@ import { ensureBorrowerPerformanceProjections } from './performanceProjectionSer
 import { AddOnService } from '../../lib/addOnService.js';
 import { requestVerificationSession } from '../trueidentity/adminWebhookClient.js';
 import { recordVerificationStart } from '../trueidentity/usageService.js';
+import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 
 const router = Router();
 
@@ -195,37 +196,26 @@ const resolveUpdatedAddressFields = (existing: ExistingAddressData, data: Addres
 
 type BorrowerVerificationSummary = 'FULLY_VERIFIED' | 'PARTIALLY_VERIFIED' | 'UNVERIFIED';
 
-const getBorrowerVerificationSummary = (borrower: {
+function resolveVerificationStatus(borrower: {
   borrowerType: string;
   documentVerified: boolean;
+  verificationStatus?: string | null;
   trueIdentityStatus: string | null;
   trueIdentityResult: string | null;
-  directors: Array<{
+  directors?: Array<{
     trueIdentityStatus: string | null;
     trueIdentityResult: string | null;
   }>;
-}): BorrowerVerificationSummary => {
-  if (borrower.borrowerType === 'CORPORATE') {
-    const directors = borrower.directors ?? [];
-    const allDirectorsVerified =
-      directors.length > 0 &&
-      directors.every(
-        (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
-      );
-    const anyDirectorVerified = directors.some(
-      (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
-    );
-
-    if (allDirectorsVerified) return 'FULLY_VERIFIED';
-    if (anyDirectorVerified) return 'PARTIALLY_VERIFIED';
-    return 'UNVERIFIED';
+}): BorrowerVerificationSummary {
+  if (
+    borrower.verificationStatus === 'FULLY_VERIFIED' ||
+    borrower.verificationStatus === 'PARTIALLY_VERIFIED' ||
+    borrower.verificationStatus === 'UNVERIFIED'
+  ) {
+    return borrower.verificationStatus;
   }
-
-  const isIndividualVerified =
-    borrower.trueIdentityStatus === 'completed' && borrower.trueIdentityResult === 'approved';
-
-  return isIndividualVerified || borrower.documentVerified ? 'FULLY_VERIFIED' : 'UNVERIFIED';
-};
+  return getBorrowerVerificationSummary(borrower);
+}
 
 // Individual borrower fields schema
 const individualFieldsSchema = z.object({
@@ -373,7 +363,7 @@ router.get('/', async (req, res, next) => {
 
     const borrowersWithVerification = borrowers.map((borrower) => ({
       ...borrower,
-      verificationStatus: getBorrowerVerificationSummary(borrower),
+      verificationStatus: resolveVerificationStatus(borrower),
     }));
 
     res.json({

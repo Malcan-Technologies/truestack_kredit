@@ -480,6 +480,9 @@ model Borrower {
   verifiedAt       DateTime? // When verification was completed
   verifiedBy       String? // e-KYC provider or manual verification
 
+  // Cached overall verification status (FULLY_VERIFIED, PARTIALLY_VERIFIED, UNVERIFIED) - single source of truth, updated by webhook
+  verificationStatus         String?   // FULLY_VERIFIED, PARTIALLY_VERIFIED, UNVERIFIED
+
   // TrueIdentity verification snapshot (updated from Admin webhooks)
   trueIdentityStatus         String?   // pending, processing, completed, expired, failed
   trueIdentityResult         String?   // approved, rejected (when status=completed)

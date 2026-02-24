@@ -21,6 +21,7 @@ import { generateReceiptNumber, withReceiptNumberRetry } from '../../lib/receipt
 import { fetchLogoBuffer } from '../../lib/safeLogoFetch.js';
 import PDFDocument from 'pdfkit';
 import { recalculateBorrowerPerformanceProjection } from '../borrowers/performanceProjectionService.js';
+import { resolveVerificationStatus } from '../../lib/verification.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
@@ -45,37 +46,26 @@ function validateSettlementPaymentDate(paymentDate: Date, disbursementDate?: Dat
 
 type BorrowerVerificationSummary = 'FULLY_VERIFIED' | 'PARTIALLY_VERIFIED' | 'UNVERIFIED';
 
-const getBorrowerVerificationSummary = (borrower: {
+function resolveVerificationStatus(borrower: {
   borrowerType: string;
   documentVerified: boolean;
+  verificationStatus?: string | null;
   trueIdentityStatus: string | null;
   trueIdentityResult: string | null;
   directors?: Array<{
     trueIdentityStatus: string | null;
     trueIdentityResult: string | null;
   }>;
-}): BorrowerVerificationSummary => {
-  if (borrower.borrowerType === 'CORPORATE') {
-    const directors = borrower.directors ?? [];
-    const allDirectorsVerified =
-      directors.length > 0 &&
-      directors.every(
-        (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
-      );
-    const anyDirectorVerified = directors.some(
-      (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
-    );
-
-    if (allDirectorsVerified) return 'FULLY_VERIFIED';
-    if (anyDirectorVerified) return 'PARTIALLY_VERIFIED';
-    return 'UNVERIFIED';
+}): BorrowerVerificationSummary {
+  if (
+    borrower.verificationStatus === 'FULLY_VERIFIED' ||
+    borrower.verificationStatus === 'PARTIALLY_VERIFIED' ||
+    borrower.verificationStatus === 'UNVERIFIED'
+  ) {
+    return borrower.verificationStatus;
   }
-
-  const isIndividualVerified =
-    borrower.trueIdentityStatus === 'completed' && borrower.trueIdentityResult === 'approved';
-
-  return isIndividualVerified || borrower.documentVerified ? 'FULLY_VERIFIED' : 'UNVERIFIED';
-};
+  return getBorrowerVerificationSummary(borrower);
+}
 
 // Generate early settlement receipt PDF
 interface SettlementReceiptParams {
@@ -765,6 +755,7 @@ router.post('/applications', async (req, res, next) => {
             documentType: true,
             companyName: true,
             documentVerified: true,
+            verificationStatus: true,
             trueIdentityStatus: true,
             trueIdentityResult: true,
             directors: {
@@ -793,6 +784,7 @@ router.post('/applications', async (req, res, next) => {
                 email: true,
                 address: true,
                 documentVerified: true,
+                verificationStatus: true,
                 trueIdentityStatus: true,
                 trueIdentityResult: true,
                 directors: {
@@ -836,13 +828,13 @@ router.post('/applications', async (req, res, next) => {
       ...application,
       borrower: {
         ...application.borrower,
-        verificationStatus: getBorrowerVerificationSummary(application.borrower),
+        verificationStatus: resolveVerificationStatus(application.borrower),
       },
       guarantors: application.guarantors.map((guarantor) => ({
         ...guarantor,
         borrower: {
           ...guarantor.borrower,
-          verificationStatus: getBorrowerVerificationSummary(guarantor.borrower),
+          verificationStatus: resolveVerificationStatus(guarantor.borrower),
         },
       })),
     };
@@ -880,6 +872,7 @@ router.get('/applications/:applicationId', async (req, res, next) => {
             email: true,
             companyName: true,
             documentVerified: true,
+            verificationStatus: true,
             trueIdentityStatus: true,
             trueIdentityResult: true,
             directors: {
@@ -905,6 +898,7 @@ router.get('/applications/:applicationId', async (req, res, next) => {
                 icNumber: true,
                 documentType: true,
                 documentVerified: true,
+                verificationStatus: true,
                 trueIdentityStatus: true,
                 trueIdentityResult: true,
                 directors: {
@@ -937,13 +931,13 @@ router.get('/applications/:applicationId', async (req, res, next) => {
       ...application,
       borrower: {
         ...application.borrower,
-        verificationStatus: getBorrowerVerificationSummary(application.borrower),
+        verificationStatus: resolveVerificationStatus(application.borrower),
       },
       guarantors: application.guarantors.map((guarantor) => ({
         ...guarantor,
         borrower: {
           ...guarantor.borrower,
-          verificationStatus: getBorrowerVerificationSummary(guarantor.borrower),
+          verificationStatus: resolveVerificationStatus(guarantor.borrower),
         },
       })),
     };
@@ -1636,6 +1630,7 @@ router.get('/', async (req, res, next) => {
               documentType: true,
               companyName: true,
               documentVerified: true,
+              verificationStatus: true,
               trueIdentityStatus: true,
               trueIdentityResult: true,
               directors: {
@@ -1669,7 +1664,7 @@ router.get('/', async (req, res, next) => {
       const paidCount = repayments.filter(r => r.status === 'PAID' || r.status === 'CANCELLED').length;
       const readyToComplete = totalRepayments > 0 && paidCount === totalRepayments && 
         (loan.status === 'ACTIVE' || loan.status === 'IN_ARREARS');
-      const borrowerVerificationStatus = getBorrowerVerificationSummary(loan.borrower);
+      const borrowerVerificationStatus = resolveVerificationStatus(loan.borrower);
 
       // Calculate late fee breakdown
       const totalLateFeesAccrued = repayments.reduce((sum, r) => safeAdd(sum, toSafeNumber(r.lateFeeAccrued)), 0);
@@ -1829,6 +1824,7 @@ router.get('/:loanId', async (req, res, next) => {
             borrower: {
               select: {
                 documentVerified: true,
+                verificationStatus: true,
                 borrowerType: true,
                 trueIdentityStatus: true,
                 trueIdentityResult: true,
@@ -1869,14 +1865,14 @@ router.get('/:loanId', async (req, res, next) => {
       ...loan,
       borrower: {
         ...loan.borrower,
-        verificationStatus: getBorrowerVerificationSummary(loan.borrower),
+        verificationStatus: resolveVerificationStatus(loan.borrower),
       },
       guarantors: loan.guarantors.map((guarantor) => ({
         ...guarantor,
         borrower: guarantor.borrower
           ? {
               ...guarantor.borrower,
-              verificationStatus: getBorrowerVerificationSummary(guarantor.borrower),
+              verificationStatus: resolveVerificationStatus(guarantor.borrower),
             }
           : guarantor.borrower,
       })),

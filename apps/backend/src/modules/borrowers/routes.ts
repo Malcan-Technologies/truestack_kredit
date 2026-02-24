@@ -303,6 +303,12 @@ router.get('/', async (req, res, next) => {
         _count: {
           select: { loans: true, applications: true },
         },
+        directors: {
+          select: {
+            trueIdentityStatus: true,
+            trueIdentityResult: true,
+          },
+        },
         performanceProjection: {
           select: {
             riskLevel: true,

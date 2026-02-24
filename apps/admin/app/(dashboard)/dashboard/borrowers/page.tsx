@@ -49,6 +49,10 @@ interface Borrower {
     readyForDefaultLoans: number;
     totalLoans: number;
   } | null;
+  directors?: Array<{
+    trueIdentityStatus: string | null;
+    trueIdentityResult: string | null;
+  }>;
   _count: {
     loans: number;
   };
@@ -401,23 +405,53 @@ export default function BorrowersPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {borrower.documentVerified ? (
-                          <Badge
-                            variant="verified"
-                            title="Verified via TrueIdentity e-KYC"
-                          >
-                            <Fingerprint className="h-3 w-3 mr-1" />
-                            e-KYC
-                          </Badge>
-                        ) : (
-                          <Badge
-                            variant="unverified"
-                            title="Manually verified by admin - exercise caution"
-                          >
-                            <AlertTriangle className="h-3 w-3 mr-1" />
-                            Manual
-                          </Badge>
-                        )}
+                        {(() => {
+                          const isCorporate = borrower.borrowerType === "CORPORATE";
+                          const directors = borrower.directors ?? [];
+                          const verifiedDirectors = directors.filter(
+                            (d) =>
+                              d.trueIdentityStatus === "completed" &&
+                              d.trueIdentityResult === "approved"
+                          ).length;
+                          const isPartiallyVerified =
+                            isCorporate &&
+                            !borrower.documentVerified &&
+                            verifiedDirectors > 0;
+
+                          if (borrower.documentVerified) {
+                            return (
+                              <Badge
+                                variant="verified"
+                                title="Verified via TrueIdentity e-KYC"
+                              >
+                                <Fingerprint className="h-3 w-3 mr-1" />
+                                e-KYC
+                              </Badge>
+                            );
+                          }
+
+                          if (isPartiallyVerified) {
+                            return (
+                              <Badge
+                                variant="outline"
+                                title="Some directors are verified, but not all yet"
+                              >
+                                <Fingerprint className="h-3 w-3 mr-1" />
+                                Partially verified
+                              </Badge>
+                            );
+                          }
+
+                          return (
+                            <Badge
+                              variant="unverified"
+                              title="Manually verified by admin - exercise caution"
+                            >
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              Manual
+                            </Badge>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <div className="space-y-0.5">

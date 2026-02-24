@@ -656,6 +656,8 @@ function getKycMessage(action: string, displayName: string): string {
   switch (action) {
     case "TRUEIDENTITY_VERIFICATION_STARTED":
       return `Trueidentity started to register KYC: ${displayName}`;
+    case "TRUEIDENTITY_VERIFICATION_PROCESSING":
+      return `Trueidentity is processing KYC for: ${displayName}`;
     case "TRUEIDENTITY_VERIFICATION_COMPLETED":
       return `Trueidentity completed KYC verification for: ${displayName}`;
     case "TRUEIDENTITY_VERIFICATION_EXPIRED":
@@ -689,6 +691,7 @@ function TimelineItem({
       case "DOCUMENT_DELETE":
         return { icon: Trash2, label: "Document Deleted" };
       case "TRUEIDENTITY_VERIFICATION_STARTED":
+      case "TRUEIDENTITY_VERIFICATION_PROCESSING":
       case "TRUEIDENTITY_VERIFICATION_COMPLETED":
       case "TRUEIDENTITY_VERIFICATION_EXPIRED":
       case "TRUEIDENTITY_VERIFICATION_FAILED":

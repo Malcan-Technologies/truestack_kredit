@@ -158,14 +158,53 @@ router.post('/', async (req, res) => {
             data: directorUpdateData as Parameters<typeof prisma.borrowerDirector.update>[0]['data'],
           });
           if (status === 'completed' && result === 'approved') {
-            await prisma.borrower.update({
-              where: { id: borrowerId },
-              data: {
-                documentVerified: true,
-                verifiedAt: new Date(),
-                verifiedBy: 'TrueIdentity',
+            const directorStates = await prisma.borrowerDirector.findMany({
+              where: { borrowerId },
+              select: {
+                id: true,
+                name: true,
+                trueIdentityStatus: true,
+                trueIdentityResult: true,
               },
             });
+            const allDirectorsVerified =
+              directorStates.length > 0 &&
+              directorStates.every(
+                (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
+              );
+
+            if (allDirectorsVerified) {
+              await prisma.borrower.update({
+                where: { id: borrowerId },
+                data: {
+                  documentVerified: true,
+                  verifiedAt: new Date(),
+                  verifiedBy: 'TrueIdentity',
+                },
+              });
+
+              await AuditService.log({
+                tenantId,
+                action: 'TRUEIDENTITY_ALL_DIRECTORS_VERIFIED',
+                entityType: 'Borrower',
+                entityId: borrowerId,
+                newData: {
+                  event,
+                  status,
+                  result,
+                  sessionId,
+                  allDirectorsVerified: true,
+                  verifiedDirectorId: directorId,
+                  directors: directorStates.map((d) => ({
+                    id: d.id,
+                    name: d.name,
+                    status: d.trueIdentityStatus,
+                    result: d.trueIdentityResult,
+                  })),
+                },
+                ipAddress: req.ip,
+              });
+            }
           }
         }
       } else {
@@ -245,7 +284,7 @@ router.post('/', async (req, res) => {
         });
       }
 
-      if (tenantId) {
+      if (tenantId && event !== 'kyc.session.processing') {
         const auditAction =
           status === 'completed' && result === 'approved'
             ? 'TRUEIDENTITY_VERIFICATION_COMPLETED'

@@ -656,14 +656,14 @@ function getKycMessage(action: string, displayName: string): string {
   switch (action) {
     case "TRUEIDENTITY_VERIFICATION_STARTED":
       return `Trueidentity started to register KYC: ${displayName}`;
-    case "TRUEIDENTITY_VERIFICATION_PROCESSING":
-      return `Trueidentity is processing KYC for: ${displayName}`;
     case "TRUEIDENTITY_VERIFICATION_COMPLETED":
       return `Trueidentity completed KYC verification for: ${displayName}`;
     case "TRUEIDENTITY_VERIFICATION_EXPIRED":
       return `Trueidentity KYC session expired for: ${displayName}`;
     case "TRUEIDENTITY_VERIFICATION_FAILED":
       return `Trueidentity KYC verification failed for: ${displayName}`;
+    case "TRUEIDENTITY_ALL_DIRECTORS_VERIFIED":
+      return `Trueidentity completed e-KYC verification for all directors of: ${displayName}`;
     default:
       return `Trueidentity KYC update for: ${displayName}`;
   }
@@ -689,10 +689,10 @@ function TimelineItem({
       case "DOCUMENT_DELETE":
         return { icon: Trash2, label: "Document Deleted" };
       case "TRUEIDENTITY_VERIFICATION_STARTED":
-      case "TRUEIDENTITY_VERIFICATION_PROCESSING":
       case "TRUEIDENTITY_VERIFICATION_COMPLETED":
       case "TRUEIDENTITY_VERIFICATION_EXPIRED":
       case "TRUEIDENTITY_VERIFICATION_FAILED":
+      case "TRUEIDENTITY_ALL_DIRECTORS_VERIFIED":
       case "TRUEIDENTITY_WEBHOOK":
         return { icon: ShieldCheck, label: "True Identity" };
       default:

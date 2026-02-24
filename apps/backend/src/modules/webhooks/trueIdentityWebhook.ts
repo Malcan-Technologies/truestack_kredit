@@ -155,9 +155,21 @@ router.post('/', async (req, res) => {
           }
           // Persist per-director document URLs on approved completion
           if (event === 'kyc.session.completed' && status === 'completed' && result === 'approved') {
-            const icFront = payload.ic_front_url ?? payload.metadata?.ic_front_url;
-            const icBack = payload.ic_back_url ?? payload.metadata?.ic_back_url;
-            const selfie = payload.selfie_url ?? payload.metadata?.selfie_url;
+            const imageMap = payload.document_images ?? {};
+            const icFront =
+              payload.ic_front_url ??
+              payload.metadata?.ic_front_url ??
+              imageMap.DIRECTOR_IC_FRONT?.url ??
+              imageMap.IC_FRONT?.url;
+            const icBack =
+              payload.ic_back_url ??
+              payload.metadata?.ic_back_url ??
+              imageMap.DIRECTOR_IC_BACK?.url ??
+              imageMap.IC_BACK?.url;
+            const selfie =
+              payload.selfie_url ??
+              payload.metadata?.selfie_url ??
+              imageMap.SELFIE_LIVENESS?.url;
             const detailUrl = payload.verification_detail_url ?? payload.metadata?.verification_detail_url;
             const hasDocUrls = icFront ?? icBack ?? selfie ?? detailUrl;
             if (hasDocUrls) {
@@ -275,9 +287,21 @@ router.post('/', async (req, res) => {
       }
 
       if (session) {
-        const icFront = payload.ic_front_url ?? payload.metadata?.ic_front_url;
-        const icBack = payload.ic_back_url ?? payload.metadata?.ic_back_url;
-        const selfie = payload.selfie_url ?? payload.metadata?.selfie_url;
+        const imageMap = payload.document_images ?? {};
+        const icFront =
+          payload.ic_front_url ??
+          payload.metadata?.ic_front_url ??
+          imageMap.DIRECTOR_IC_FRONT?.url ??
+          imageMap.IC_FRONT?.url;
+        const icBack =
+          payload.ic_back_url ??
+          payload.metadata?.ic_back_url ??
+          imageMap.DIRECTOR_IC_BACK?.url ??
+          imageMap.IC_BACK?.url;
+        const selfie =
+          payload.selfie_url ??
+          payload.metadata?.selfie_url ??
+          imageMap.SELFIE_LIVENESS?.url;
         const detailUrl = payload.verification_detail_url ?? payload.metadata?.verification_detail_url;
         const hasDocUrls = icFront ?? icBack ?? selfie ?? detailUrl;
         const docUrls = hasDocUrls

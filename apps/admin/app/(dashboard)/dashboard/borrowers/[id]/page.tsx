@@ -962,7 +962,7 @@ export default function BorrowerDetailPage() {
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [selectedDocCategory, setSelectedDocCategory] = useState("ALL");
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
-  const [expandedDirectorIndex, setExpandedDirectorIndex] = useState<number | null>(null);
+  const [expandedDirectorIndices, setExpandedDirectorIndices] = useState<number[]>([]);
   const [deletingDoc, setDeletingDoc] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState<BorrowerVerifyStatusResponse | null>(null);
 
@@ -2043,7 +2043,7 @@ export default function BorrowerDetailPage() {
                           verificationDetailUrl?: string | null;
                         } | null | undefined;
                         const hasDocs = docUrls && (docUrls.icFrontUrl ?? docUrls.icBackUrl ?? docUrls.selfieUrl ?? docUrls.verificationDetailUrl);
-                        const isExpanded = expandedDirectorIndex === index;
+                        const isExpanded = expandedDirectorIndices.includes(index);
                         return (
                         <div key={`director-${index}`} className="rounded-lg border p-3 space-y-2">
                           <div className="flex items-center justify-between gap-2">
@@ -2056,7 +2056,13 @@ export default function BorrowerDetailPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="shrink-0 h-8 w-8 p-0"
-                                onClick={() => setExpandedDirectorIndex(isExpanded ? null : index)}
+                                onClick={() =>
+                                  setExpandedDirectorIndices((prev) =>
+                                    prev.includes(index)
+                                      ? prev.filter((i) => i !== index)
+                                      : [...prev, index]
+                                  )
+                                }
                                 title={isExpanded ? "Collapse e-KYC documents" : "Expand e-KYC documents"}
                               >
                                 {isExpanded ? (
@@ -2085,8 +2091,11 @@ export default function BorrowerDetailPage() {
                                       name: firstDirector?.name || prev.name,
                                     };
                                   });
-                                  if (expandedDirectorIndex === index) setExpandedDirectorIndex(null);
-                                  else if (expandedDirectorIndex !== null && expandedDirectorIndex > index) setExpandedDirectorIndex(expandedDirectorIndex - 1);
+                                  setExpandedDirectorIndices((prev) =>
+                                    prev
+                                      .filter((i) => i !== index)
+                                      .map((i) => (i > index ? i - 1 : i))
+                                  );
                                 }}
                               >
                                 <Trash2 className="h-4 w-4 mr-1" />

@@ -153,6 +153,25 @@ router.post('/', async (req, res) => {
             if (docName) directorUpdateData.name = docName;
             if (docNumber) directorUpdateData.icNumber = docNumber;
           }
+          // Persist per-director document URLs on approved completion
+          if (event === 'kyc.session.completed' && status === 'completed' && result === 'approved') {
+            const icFront = payload.ic_front_url ?? payload.metadata?.ic_front_url;
+            const icBack = payload.ic_back_url ?? payload.metadata?.ic_back_url;
+            const selfie = payload.selfie_url ?? payload.metadata?.selfie_url;
+            const detailUrl = payload.verification_detail_url ?? payload.metadata?.verification_detail_url;
+            const hasDocUrls = icFront ?? icBack ?? selfie ?? detailUrl;
+            if (hasDocUrls) {
+              directorUpdateData.trueIdentityDocumentUrls = {
+                icFrontUrl: icFront ?? null,
+                icBackUrl: icBack ?? null,
+                selfieUrl: selfie ?? null,
+                verificationDetailUrl: detailUrl ?? null,
+                updatedAt: new Date().toISOString(),
+              };
+            }
+          } else if (result === 'rejected') {
+            directorUpdateData.trueIdentityDocumentUrls = Prisma.JsonNull;
+          }
           await prisma.borrowerDirector.update({
             where: { id: directorId },
             data: directorUpdateData as Parameters<typeof prisma.borrowerDirector.update>[0]['data'],
@@ -233,21 +252,23 @@ router.post('/', async (req, res) => {
       }
 
       // Process document_images on kyc.session.completed only when approved.
-      // When verification is rejected, do not store or display document images.
+      // Skip for CORPORATE: per-director docs are stored in BorrowerDirector.trueIdentityDocumentUrls
+      // (URLs only); borrower-level file upsert would overwrite previous directors' images.
       if (
         event === 'kyc.session.completed' &&
         result === 'approved' &&
+        !directorId &&
         payload.document_images &&
         Object.keys(payload.document_images).length > 0
       ) {
         const borrower = await prisma.borrower.findFirst({
           where: { id: borrowerId, tenantId },
         });
-        if (borrower) {
+        if (borrower && borrower.borrowerType === 'INDIVIDUAL') {
           await processDocumentImagesFromWebhook({
             borrowerId,
             tenantId,
-            borrowerType: borrower.borrowerType as 'INDIVIDUAL' | 'CORPORATE',
+            borrowerType: 'INDIVIDUAL',
             documentImages: payload.document_images,
           });
         }

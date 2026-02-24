@@ -594,6 +594,7 @@ model BorrowerDirector {
   trueIdentityExpiresAt     DateTime? // Session expiry
   trueIdentityLastWebhookAt DateTime? // Last callback processed
   trueIdentityRejectMessage String?   // Rejection reason when result=rejected
+  trueIdentityDocumentUrls  Json?     // { icFrontUrl?, icBackUrl?, selfieUrl?, verificationDetailUrl?, updatedAt? } from Admin
 
   borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
 

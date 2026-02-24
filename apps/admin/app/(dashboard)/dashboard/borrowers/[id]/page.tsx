@@ -144,6 +144,13 @@ interface Borrower {
     order: number;
     trueIdentityStatus?: string | null;
     trueIdentityResult?: string | null;
+    trueIdentityDocumentUrls?: {
+      icFrontUrl?: string | null;
+      icBackUrl?: string | null;
+      selfieUrl?: string | null;
+      verificationDetailUrl?: string | null;
+      updatedAt?: string;
+    } | null;
   }>;
   companyPhone: string | null;
   companyEmail: string | null;
@@ -955,6 +962,7 @@ export default function BorrowerDetailPage() {
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [selectedDocCategory, setSelectedDocCategory] = useState("ALL");
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+  const [expandedDirectorIndex, setExpandedDirectorIndex] = useState<number | null>(null);
   const [deletingDoc, setDeletingDoc] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState<BorrowerVerifyStatusResponse | null>(null);
 
@@ -1077,6 +1085,7 @@ export default function BorrowerDetailPage() {
               ? data.directors
                   .sort((a, b) => a.order - b.order)
                   .map((director) => ({
+                    id: director.id,
                     name: director.name || "",
                     icNumber: director.icNumber || "",
                     position: director.position || "",
@@ -2023,12 +2032,42 @@ export default function BorrowerDetailPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {formData.directors.map((director, index) => (
+                      {formData.directors.map((director, index) => {
+                        const apiDirector = "id" in director && director.id
+                          ? borrower.directors?.find((d) => d.id === director.id)
+                          : borrower.directors?.[index];
+                        const docUrls = apiDirector?.trueIdentityDocumentUrls as {
+                          icFrontUrl?: string | null;
+                          icBackUrl?: string | null;
+                          selfieUrl?: string | null;
+                          verificationDetailUrl?: string | null;
+                        } | null | undefined;
+                        const hasDocs = docUrls && (docUrls.icFrontUrl ?? docUrls.icBackUrl ?? docUrls.selfieUrl ?? docUrls.verificationDetailUrl);
+                        const isExpanded = expandedDirectorIndex === index;
+                        return (
                         <div key={`director-${index}`} className="rounded-lg border p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium">
-                              Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
-                            </p>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <p className="text-sm font-medium">
+                                Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
+                              </p>
+                              {hasDocs && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="shrink-0 h-8 w-8 p-0"
+                                  onClick={() => setExpandedDirectorIndex(isExpanded ? null : index)}
+                                  title={isExpanded ? "Collapse e-KYC documents" : "Expand e-KYC documents"}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronUp className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronDown className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              )}
+                            </div>
                             {isEditing && (
                               <Button
                                 type="button"
@@ -2048,6 +2087,8 @@ export default function BorrowerDetailPage() {
                                       name: firstDirector?.name || prev.name,
                                     };
                                   });
+                                  if (expandedDirectorIndex === index) setExpandedDirectorIndex(null);
+                                  else if (expandedDirectorIndex !== null && expandedDirectorIndex > index) setExpandedDirectorIndex(expandedDirectorIndex - 1);
                                 }}
                               >
                                 <Trash2 className="h-4 w-4 mr-1" />
@@ -2135,8 +2176,61 @@ export default function BorrowerDetailPage() {
                               </div>
                             </div>
                           )}
+
+                          {isExpanded && hasDocs && docUrls && (
+                            <div className="pt-3 mt-3 border-t space-y-2">
+                              <p className="text-xs font-medium text-muted-foreground">e-KYC Documents</p>
+                              <div className="flex flex-wrap gap-2">
+                                {docUrls.icFrontUrl && (
+                                  <a
+                                    href={docUrls.icFrontUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                    IC Front
+                                  </a>
+                                )}
+                                {docUrls.icBackUrl && (
+                                  <a
+                                    href={docUrls.icBackUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                    IC Back
+                                  </a>
+                                )}
+                                {docUrls.selfieUrl && (
+                                  <a
+                                    href={docUrls.selfieUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                    Selfie Liveness
+                                  </a>
+                                )}
+                                {docUrls.verificationDetailUrl && (
+                                  <a
+                                    href={docUrls.verificationDetailUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                    View in Admin
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      ))}
+                      );
+                      })}
 
                       {validationErrors.directors && (
                         <p className="text-xs text-red-500">{validationErrors.directors}</p>
@@ -2997,7 +3091,8 @@ export default function BorrowerDetailPage() {
               directors={borrower.directors}
             />
 
-          {/* Identity Documents */}
+          {/* Identity Documents - hidden for corporate (docs shown per director) */}
+          {borrower.borrowerType !== "CORPORATE" && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -3136,9 +3231,10 @@ export default function BorrowerDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
-          {/* TrueIdentity IC Documents (from Admin) */}
-          {borrower.trueIdentitySessions?.[0]?.verificationDocumentUrls && (() => {
+          {/* TrueIdentity IC Documents (from Admin) - individual only; corporate shows per-director */}
+          {borrower.borrowerType !== "CORPORATE" && borrower.trueIdentitySessions?.[0]?.verificationDocumentUrls && (() => {
             const urls = borrower.trueIdentitySessions[0].verificationDocumentUrls as {
               icFrontUrl?: string | null;
               icBackUrl?: string | null;

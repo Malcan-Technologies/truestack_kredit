@@ -15,6 +15,7 @@ import {
   ChevronUp,
   ShieldCheck,
   Fingerprint,
+  ChartPie,
   AlertTriangle,
   Pencil,
   Plus,
@@ -141,6 +142,8 @@ interface Borrower {
     icNumber: string;
     position: string | null;
     order: number;
+    trueIdentityStatus?: string | null;
+    trueIdentityResult?: string | null;
   }>;
   companyPhone: string | null;
   companyEmail: string | null;
@@ -189,6 +192,20 @@ interface Borrower {
     } | null;
   }>;
 }
+
+type BorrowerVerifyStatusResponse =
+  | {
+      borrowerType: "INDIVIDUAL";
+      status: string | null;
+      result: string | null;
+    }
+  | {
+      borrowerType: "CORPORATE";
+      directors: Array<{
+        status: string | null;
+        result: string | null;
+      }>;
+    };
 
 interface TimelineEvent {
   id: string;
@@ -939,6 +956,7 @@ export default function BorrowerDetailPage() {
   const [selectedDocCategory, setSelectedDocCategory] = useState("ALL");
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [deletingDoc, setDeletingDoc] = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState<BorrowerVerifyStatusResponse | null>(null);
 
   const isIC = formData.documentType === "IC";
   const countryOptions = getCountryOptions();
@@ -984,6 +1002,21 @@ export default function BorrowerDetailPage() {
       console.error("Failed to fetch timeline:", error);
     } finally {
       setLoadingMoreTimeline(false);
+    }
+  }, [borrowerId]);
+
+  const fetchVerifyStatus = useCallback(async () => {
+    try {
+      const res = await api.get<BorrowerVerifyStatusResponse>(
+        `/api/borrowers/${borrowerId}/verify/status`
+      );
+      if (res.success && res.data) {
+        setVerifyStatus(res.data);
+      } else {
+        setVerifyStatus(null);
+      }
+    } catch {
+      setVerifyStatus(null);
     }
   }, [borrowerId]);
 
@@ -1067,11 +1100,11 @@ export default function BorrowerDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchBorrower(), fetchTimeline()]);
+      await Promise.all([fetchBorrower(), fetchTimeline(), fetchVerifyStatus()]);
       setLoading(false);
     };
     loadData();
-  }, [fetchBorrower, fetchTimeline]);
+  }, [fetchBorrower, fetchTimeline, fetchVerifyStatus]);
 
   const handleIcNumberChange = (value: string) => {
     const currentIsIC = formData.documentType === "IC";
@@ -1389,6 +1422,33 @@ export default function BorrowerDetailPage() {
     return options.find((o) => o.value === value)?.label || value;
   };
 
+  const isCorporateBorrower = borrower.borrowerType === "CORPORATE";
+  const corporateDirectorStatuses =
+    verifyStatus?.borrowerType === "CORPORATE"
+      ? verifyStatus.directors
+      : (borrower.directors ?? []).map((director) => ({
+          status: director.trueIdentityStatus ?? null,
+          result: director.trueIdentityResult ?? null,
+        }));
+  const allDirectorsVerified =
+    isCorporateBorrower &&
+    corporateDirectorStatuses.length > 0 &&
+    corporateDirectorStatuses.every(
+      (d) => d.status === "completed" && d.result === "approved"
+    );
+  const anyDirectorVerified =
+    isCorporateBorrower &&
+    corporateDirectorStatuses.some(
+      (d) => d.status === "completed" && d.result === "approved"
+    );
+  const isPartiallyVerified =
+    isCorporateBorrower && anyDirectorVerified && !allDirectorsVerified;
+  const isFullyVerified = isCorporateBorrower
+    ? allDirectorsVerified
+    : verifyStatus?.borrowerType === "INDIVIDUAL"
+      ? verifyStatus.status === "completed" && verifyStatus.result === "approved"
+      : borrower.documentVerified;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1405,10 +1465,19 @@ export default function BorrowerDetailPage() {
                   ? borrower.companyName
                   : isEditing ? formData.name || "Edit Borrower" : borrower.name}
               </h1>
-              {borrower.documentVerified ? (
+              {isFullyVerified ? (
                 <Badge variant="verified">
                   <Fingerprint className="h-3 w-3 mr-1" />
                   e-KYC Verified
+                </Badge>
+              ) : isPartiallyVerified ? (
+                <Badge
+                  variant="outline"
+                  className="bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+                  title="Some directors are verified, but not all yet"
+                >
+                  <ChartPie className="h-3 w-3 mr-1" />
+                  Partially verified
                 </Badge>
               ) : (
                 <Badge variant="unverified">

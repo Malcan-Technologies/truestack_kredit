@@ -53,6 +53,7 @@ interface Borrower {
     trueIdentityStatus: string | null;
     trueIdentityResult: string | null;
   }>;
+  verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
   _count: {
     loans: number;
   };
@@ -201,7 +202,23 @@ export default function BorrowersPage() {
       let cmp = 0;
       switch (sortField) {
         case "verification":
-          cmp = Number(a.documentVerified) - Number(b.documentVerified);
+          const rankA =
+            a.verificationStatus === "FULLY_VERIFIED"
+              ? 2
+              : a.verificationStatus === "PARTIALLY_VERIFIED"
+                ? 1
+                : a.documentVerified
+                  ? 2
+                  : 0;
+          const rankB =
+            b.verificationStatus === "FULLY_VERIFIED"
+              ? 2
+              : b.verificationStatus === "PARTIALLY_VERIFIED"
+                ? 1
+                : b.documentVerified
+                  ? 2
+                  : 0;
+          cmp = rankA - rankB;
           break;
         case "created":
           cmp = a.createdAt.localeCompare(b.createdAt);
@@ -408,17 +425,35 @@ export default function BorrowersPage() {
                         {(() => {
                           const isCorporate = borrower.borrowerType === "CORPORATE";
                           const directors = borrower.directors ?? [];
-                          const verifiedDirectors = directors.filter(
-                            (d) =>
-                              d.trueIdentityStatus === "completed" &&
-                              d.trueIdentityResult === "approved"
-                          ).length;
-                          const isPartiallyVerified =
+                          const allDirectorsVerified =
                             isCorporate &&
-                            !borrower.documentVerified &&
-                            verifiedDirectors > 0;
+                            directors.length > 0 &&
+                            directors.every(
+                              (d) =>
+                                d.trueIdentityStatus === "completed" &&
+                                d.trueIdentityResult === "approved"
+                            );
+                          const anyDirectorVerified =
+                            isCorporate &&
+                            directors.some(
+                              (d) =>
+                                d.trueIdentityStatus === "completed" &&
+                                d.trueIdentityResult === "approved"
+                            );
+                          const fallbackPartiallyVerified =
+                            isCorporate && anyDirectorVerified && !allDirectorsVerified;
+                          const fallbackFullyVerified = isCorporate
+                            ? allDirectorsVerified
+                            : borrower.documentVerified;
 
-                          if (borrower.documentVerified) {
+                          const isFullyVerified =
+                            borrower.verificationStatus === "FULLY_VERIFIED" ||
+                            (!borrower.verificationStatus && fallbackFullyVerified);
+                          const isPartiallyVerified =
+                            borrower.verificationStatus === "PARTIALLY_VERIFIED" ||
+                            (!borrower.verificationStatus && fallbackPartiallyVerified);
+
+                          if (isFullyVerified) {
                             return (
                               <Badge
                                 variant="verified"

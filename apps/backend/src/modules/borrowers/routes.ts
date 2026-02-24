@@ -193,6 +193,40 @@ const resolveUpdatedAddressFields = (existing: ExistingAddressData, data: Addres
   };
 };
 
+type BorrowerVerificationSummary = 'FULLY_VERIFIED' | 'PARTIALLY_VERIFIED' | 'UNVERIFIED';
+
+const getBorrowerVerificationSummary = (borrower: {
+  borrowerType: string;
+  documentVerified: boolean;
+  trueIdentityStatus: string | null;
+  trueIdentityResult: string | null;
+  directors: Array<{
+    trueIdentityStatus: string | null;
+    trueIdentityResult: string | null;
+  }>;
+}): BorrowerVerificationSummary => {
+  if (borrower.borrowerType === 'CORPORATE') {
+    const directors = borrower.directors ?? [];
+    const allDirectorsVerified =
+      directors.length > 0 &&
+      directors.every(
+        (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
+      );
+    const anyDirectorVerified = directors.some(
+      (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
+    );
+
+    if (allDirectorsVerified) return 'FULLY_VERIFIED';
+    if (anyDirectorVerified) return 'PARTIALLY_VERIFIED';
+    return 'UNVERIFIED';
+  }
+
+  const isIndividualVerified =
+    borrower.trueIdentityStatus === 'completed' && borrower.trueIdentityResult === 'approved';
+
+  return isIndividualVerified || borrower.documentVerified ? 'FULLY_VERIFIED' : 'UNVERIFIED';
+};
+
 // Individual borrower fields schema
 const individualFieldsSchema = z.object({
   // Compliance fields (mandatory for regulatory reporting - Individual borrowers)
@@ -337,9 +371,14 @@ router.get('/', async (req, res, next) => {
       borrowers = await prisma.borrower.findMany(borrowerListQuery);
     }
 
+    const borrowersWithVerification = borrowers.map((borrower) => ({
+      ...borrower,
+      verificationStatus: getBorrowerVerificationSummary(borrower),
+    }));
+
     res.json({
       success: true,
-      data: borrowers,
+      data: borrowersWithVerification,
       pagination: {
         total,
         page: parseInt(page as string),

@@ -2185,43 +2185,53 @@ export default function BorrowerDetailPage() {
                           )}
 
                           {isExpanded && (
-                            <div className="pt-3 mt-3 border-t space-y-2">
+                            <div className="pt-3 mt-3 border-t space-y-3">
                               <p className="text-xs font-medium text-muted-foreground">e-KYC Documents</p>
                               {hasDocs && docUrls ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {docUrls.icFrontUrl && (
-                                    <a
-                                      href={docUrls.icFrontUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                                <div className="space-y-3">
+                                  {[
+                                    { url: docUrls.icFrontUrl, label: "IC Front" },
+                                    { url: docUrls.icBackUrl, label: "IC Back" },
+                                    { url: docUrls.selfieUrl, label: "Selfie Liveness" },
+                                  ].filter((d): d is { url: string; label: string } => Boolean(d.url)).map(({ url, label }) => (
+                                    <div
+                                      key={label}
+                                      className="flex items-start gap-4 p-3 border rounded-lg"
                                     >
-                                      <ExternalLink className="h-4 w-4" />
-                                      IC Front
-                                    </a>
-                                  )}
-                                  {docUrls.icBackUrl && (
-                                    <a
-                                      href={docUrls.icBackUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                                    >
-                                      <ExternalLink className="h-4 w-4" />
-                                      IC Back
-                                    </a>
-                                  )}
-                                  {docUrls.selfieUrl && (
-                                    <a
-                                      href={docUrls.selfieUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                                    >
-                                      <ExternalLink className="h-4 w-4" />
-                                      Selfie Liveness
-                                    </a>
-                                  )}
+                                      <div className="relative shrink-0 w-20 h-20 rounded-md overflow-hidden bg-muted border">
+                                        <img
+                                          src={url}
+                                          alt={label}
+                                          className="w-full h-full object-cover"
+                                          referrerPolicy="no-referrer"
+                                          onError={(e) => {
+                                            const target = e.target as HTMLImageElement;
+                                            target.style.display = "none";
+                                            const fallback = target.nextElementSibling as HTMLElement | null;
+                                            if (fallback) {
+                                              fallback.classList.remove("hidden");
+                                              fallback.classList.add("flex", "items-center", "justify-center");
+                                            }
+                                          }}
+                                        />
+                                        <div className="absolute inset-0 hidden bg-muted">
+                                          <FileText className="h-8 w-8 text-muted-foreground" />
+                                        </div>
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium">{label}</p>
+                                        <a
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-2 text-xs text-primary hover:underline mt-1"
+                                        >
+                                          <ExternalLink className="h-3 w-3" />
+                                          Open Full Size
+                                        </a>
+                                      </div>
+                                    </div>
+                                  ))}
                                   {docUrls.verificationDetailUrl && (
                                     <a
                                       href={docUrls.verificationDetailUrl}

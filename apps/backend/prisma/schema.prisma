@@ -168,6 +168,11 @@ model User {
   name          String?
   image         String?
   referralCode  String?  @unique
+  // Referral payout bank details (user-level, not borrower/tenant-level)
+  referralBankAccountName String?
+  referralBankName        String?
+  referralBankNameOther   String?
+  referralBankAccountNo   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

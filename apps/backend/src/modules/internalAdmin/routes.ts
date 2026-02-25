@@ -700,7 +700,7 @@ router.get('/referrals', async (req, res, next) => {
       ];
     }
 
-    const [referrals, total] = await Promise.all([
+    const [referrals, total] = (await Promise.all([
       prisma.referral.findMany({
         where,
         include: {
@@ -709,6 +709,10 @@ router.get('/referrals', async (req, res, next) => {
               id: true,
               email: true,
               name: true,
+              referralBankAccountName: true,
+              referralBankName: true,
+              referralBankNameOther: true,
+              referralBankAccountNo: true,
             },
           },
           referredUser: {
@@ -718,13 +722,13 @@ router.get('/referrals', async (req, res, next) => {
               name: true,
             },
           },
-        },
+        } as any,
         orderBy: { createdAt: 'desc' },
         skip,
         take: pageSize,
       }),
       prisma.referral.count({ where }),
-    ]);
+    ])) as [any[], number];
 
     // Calculate summary stats
     const [totalCount, eligibleCount, paidCount] = await Promise.all([
@@ -751,6 +755,10 @@ router.get('/referrals', async (req, res, next) => {
             id: referral.referrer.id,
             email: referral.referrer.email,
             name: referral.referrer.name,
+            referralBankAccountName: referral.referrer.referralBankAccountName,
+            referralBankName: referral.referrer.referralBankName,
+            referralBankNameOther: referral.referrer.referralBankNameOther,
+            referralBankAccountNo: referral.referrer.referralBankAccountNo,
           },
           referredUser: {
             id: referral.referredUser.id,

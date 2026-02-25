@@ -10,6 +10,11 @@ import { getOrCreateReferralCode } from '../../lib/referral.js';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
 
 const router = Router();
+const BANK_VALUES = [
+  'MAYBANK', 'CIMB', 'PUBLIC_BANK', 'RHB', 'HONG_LEONG', 'AMBANK', 'BANK_RAKYAT',
+  'BANK_ISLAM', 'AFFIN', 'ALLIANCE', 'OCBC', 'HSBC', 'UOB', 'STANDARD_CHARTERED',
+  'CITIBANK', 'BSN', 'AGROBANK', 'MUAMALAT', 'MBSB', 'OTHER'
+] as const;
 
 // Helper to parse device type from user agent
 function parseDeviceType(userAgent: string | undefined): string {
@@ -230,6 +235,10 @@ router.get('/me', requireSession, async (req, res, next) => {
             name: user.name,
             role: null,
             createdAt: user.createdAt.toISOString(),
+            referralBankAccountName: user.referralBankAccountName,
+            referralBankName: user.referralBankName,
+            referralBankNameOther: user.referralBankNameOther,
+            referralBankAccountNo: user.referralBankAccountNo,
             referrer: user.referrer
               ? { id: user.referrer.id, name: user.referrer.name, email: user.referrer.email }
               : null,
@@ -262,6 +271,10 @@ router.get('/me', requireSession, async (req, res, next) => {
             name: user.name,
             role: null,
             createdAt: user.createdAt.toISOString(),
+            referralBankAccountName: user.referralBankAccountName,
+            referralBankName: user.referralBankName,
+            referralBankNameOther: user.referralBankNameOther,
+            referralBankAccountNo: user.referralBankAccountNo,
             referrer: user.referrer
               ? { id: user.referrer.id, name: user.referrer.name, email: user.referrer.email }
               : null,
@@ -280,6 +293,10 @@ router.get('/me', requireSession, async (req, res, next) => {
           name: user.name,
           role: membership.role, // Role from membership (tenant-scoped)
           createdAt: user.createdAt.toISOString(),
+          referralBankAccountName: user.referralBankAccountName,
+          referralBankName: user.referralBankName,
+          referralBankNameOther: user.referralBankNameOther,
+          referralBankAccountNo: user.referralBankAccountNo,
           referrer: user.referrer
             ? { id: user.referrer.id, name: user.referrer.name, email: user.referrer.email }
             : null,
@@ -464,7 +481,11 @@ router.get('/login-history', requireSession, async (req, res, next) => {
 
 // Update profile schema
 const updateProfileSchema = z.object({
-  name: z.string().min(2).max(100),
+  name: z.string().trim().min(2).max(100).optional(),
+  referralBankAccountName: z.string().trim().max(120).optional().nullable(),
+  referralBankName: z.enum(BANK_VALUES).optional().nullable(),
+  referralBankNameOther: z.string().trim().max(100).optional().nullable(),
+  referralBankAccountNo: z.string().max(20).optional().nullable(),
 });
 
 /**
@@ -474,16 +495,76 @@ const updateProfileSchema = z.object({
 router.patch('/profile', requireSession, async (req, res, next) => {
   try {
     const data = updateProfileSchema.parse(req.body);
+    const hasBankFields =
+      data.referralBankAccountName !== undefined ||
+      data.referralBankName !== undefined ||
+      data.referralBankNameOther !== undefined ||
+      data.referralBankAccountNo !== undefined;
+
+    const updateData: {
+      name?: string;
+      referralBankAccountName?: string | null;
+      referralBankName?: (typeof BANK_VALUES)[number] | null;
+      referralBankNameOther?: string | null;
+      referralBankAccountNo?: string | null;
+    } = {};
+
+    if (data.name !== undefined) {
+      updateData.name = data.name;
+    }
+
+    if (hasBankFields) {
+      const normalizedAccountName = data.referralBankAccountName?.trim() || null;
+      const normalizedBankName = data.referralBankName || null;
+      const normalizedBankOther = data.referralBankNameOther?.trim() || null;
+      const normalizedAccountNo = data.referralBankAccountNo
+        ? data.referralBankAccountNo.replace(/\D/g, '')
+        : null;
+
+      const hasAnyBankValue = !!(
+        normalizedAccountName ||
+        normalizedBankName ||
+        normalizedBankOther ||
+        normalizedAccountNo
+      );
+
+      // If user starts filling payout details, require a complete set.
+      if (hasAnyBankValue) {
+        if (!normalizedAccountName || !normalizedBankName || !normalizedAccountNo) {
+          throw new BadRequestError(
+            'Please provide account holder name, bank, and account number for referral payouts'
+          );
+        }
+        if (!/^\d{8,17}$/.test(normalizedAccountNo)) {
+          throw new BadRequestError('Bank account number must be 8-17 digits');
+        }
+        if (normalizedBankName === 'OTHER' && !normalizedBankOther) {
+          throw new BadRequestError('Please provide bank name when selecting Other');
+        }
+      }
+
+      updateData.referralBankAccountName = normalizedAccountName;
+      updateData.referralBankName = normalizedBankName;
+      updateData.referralBankNameOther =
+        normalizedBankName === 'OTHER' ? normalizedBankOther : null;
+      updateData.referralBankAccountNo = normalizedAccountNo;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestError('No profile fields provided to update');
+    }
 
     const user = await prisma.user.update({
       where: { id: req.user!.userId },
-      data: {
-        name: data.name,
-      },
+      data: updateData,
       select: {
         id: true,
         email: true,
         name: true,
+        referralBankAccountName: true,
+        referralBankName: true,
+        referralBankNameOther: true,
+        referralBankAccountNo: true,
       },
     });
 

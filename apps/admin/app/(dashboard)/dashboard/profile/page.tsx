@@ -2,23 +2,35 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserCircle, Share2, Users, Shield, Eye, EyeOff, Building2, Plus } from "lucide-react";
+import { UserCircle, Share2, Users, Shield, Eye, EyeOff, Building2, Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSession, updateUser } from "@/lib/auth-client";
 import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { CopyField } from "@/components/ui/copy-field";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BANK_OPTIONS, getBankLabel } from "@/lib/bank-options";
 import Link from "next/link";
 
 interface CurrentMembership {
   referrer: { id: string; name: string | null; email: string } | null;
   createdAt: string | null;
+  referralBankAccountName: string | null;
+  referralBankName: string | null;
+  referralBankNameOther: string | null;
+  referralBankAccountNo: string | null;
 }
 
 interface ReferralData {
@@ -81,6 +93,12 @@ export default function ProfilePage() {
   const [loadingReferralCode, setLoadingReferralCode] = useState(false);
   const [referrals, setReferrals] = useState<ReferralsResponse | null>(null);
   const [loadingReferrals, setLoadingReferrals] = useState(false);
+  const [savingReferralBank, setSavingReferralBank] = useState(false);
+  const [editingReferralBank, setEditingReferralBank] = useState(false);
+  const [referralBankAccountName, setReferralBankAccountName] = useState("");
+  const [referralBankName, setReferralBankName] = useState("");
+  const [referralBankNameOther, setReferralBankNameOther] = useState("");
+  const [referralBankAccountNo, setReferralBankAccountNo] = useState("");
   const [passwordInfo, setPasswordInfo] = useState<PasswordInfo | null>(null);
   const [loginLogs, setLoginLogs] = useState<LoginLog[]>([]);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -112,10 +130,21 @@ export default function ProfilePage() {
       const meData = await meRes.json();
 
       if (meData.success && meData.data?.user) {
+        const user = meData.data.user;
         setCurrentMembership({
-          referrer: meData.data.user.referrer ?? null,
-          createdAt: meData.data.user.createdAt ?? null,
+          referrer: user.referrer ?? null,
+          createdAt: user.createdAt ?? null,
+          referralBankAccountName: user.referralBankAccountName ?? null,
+          referralBankName: user.referralBankName ?? null,
+          referralBankNameOther: user.referralBankNameOther ?? null,
+          referralBankAccountNo: user.referralBankAccountNo ?? null,
         });
+        setReferralBankAccountName(
+          (user.referralBankAccountName || "").trim() || (user.name || "").trim()
+        );
+        setReferralBankName(user.referralBankName || "");
+        setReferralBankNameOther(user.referralBankNameOther || "");
+        setReferralBankAccountNo(user.referralBankAccountNo || "");
       }
       if (passwordInfoRes.success && passwordInfoRes.data) {
         setPasswordInfo(passwordInfoRes.data);
@@ -296,6 +325,57 @@ Sign up here: ${referralLink}`
           toast.error("Failed to copy");
         }
       }
+    }
+  };
+
+  const handleSaveReferralBank = async () => {
+    const accountHolderName = referralBankAccountName.trim();
+    const accountNo = referralBankAccountNo.replace(/\D/g, "");
+    const bankNameOther = referralBankNameOther.trim();
+
+    if (!accountHolderName) {
+      toast.error("Account holder name is required");
+      return;
+    }
+    if (!referralBankName) {
+      toast.error("Bank is required");
+      return;
+    }
+    if (referralBankName === "OTHER" && !bankNameOther) {
+      toast.error("Please enter the bank name");
+      return;
+    }
+    if (!/^\d{8,17}$/.test(accountNo)) {
+      toast.error("Account number must be 8-17 digits");
+      return;
+    }
+
+    setSavingReferralBank(true);
+    try {
+      const response = await fetch("/api/proxy/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          referralBankAccountName: accountHolderName,
+          referralBankName,
+          referralBankNameOther: referralBankName === "OTHER" ? bankNameOther : null,
+          referralBankAccountNo: accountNo,
+        }),
+      });
+      const result = await response.json();
+      if (!result.success) {
+        toast.error(result.error || "Failed to save referral payout bank details");
+        return;
+      }
+
+      toast.success("Referral payout bank details saved");
+      setEditingReferralBank(false);
+      await fetchData();
+    } catch (error) {
+      toast.error("Failed to save referral payout bank details");
+    } finally {
+      setSavingReferralBank(false);
     }
   };
 
@@ -678,6 +758,150 @@ Sign up here: ${referralLink}`
                   Share
                 </Button>
               </div>
+            )}
+          </div>
+
+          {/* Referral payout bank account */}
+          <div
+            className={`rounded-lg border p-4 space-y-4 ${
+              currentMembership?.referralBankAccountNo
+                ? "bg-neutral-100 dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700"
+                : "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700/60"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Bank account for referral payouts</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Provide your bank account details so we can send referral rewards to you when payouts are processed.
+                  Account holder name must match your bank account name exactly.
+                </p>
+              </div>
+              {currentMembership?.referralBankAccountNo && !editingReferralBank && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditingReferralBank(true)}
+                  className="shrink-0"
+                >
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+              )}
+            </div>
+
+            {currentMembership?.referralBankAccountNo && !editingReferralBank ? (
+              /* Read-only view when saved */
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Account holder name</p>
+                  <p className="font-medium">{currentMembership.referralBankAccountName || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Bank</p>
+                  <p className="font-medium">
+                    {getBankLabel(currentMembership.referralBankName, currentMembership.referralBankNameOther)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Account number</p>
+                  <p className="font-mono font-medium">{currentMembership.referralBankAccountNo}</p>
+                </div>
+              </div>
+            ) : (
+              /* Editable form */
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Account holder name *</label>
+                    <Input
+                      value={referralBankAccountName}
+                      onChange={(e) => setReferralBankAccountName(e.target.value)}
+                      placeholder="As per bank account"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Bank *</label>
+                    <Select
+                      value={referralBankName}
+                      onValueChange={(value) => {
+                        setReferralBankName(value);
+                        if (value !== "OTHER") setReferralBankNameOther("");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select bank" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {BANK_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {referralBankName === "OTHER" && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Bank name *</label>
+                      <Input
+                        value={referralBankNameOther}
+                        onChange={(e) => setReferralBankNameOther(e.target.value)}
+                        placeholder="Enter bank name"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Account number *</label>
+                    <Input
+                      value={referralBankAccountNo}
+                      onChange={(e) => setReferralBankAccountNo(e.target.value.replace(/\D/g, "").slice(0, 17))}
+                      placeholder="8-17 digits"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    Current bank: {getBankLabel(referralBankName || currentMembership?.referralBankName || null, referralBankNameOther || currentMembership?.referralBankNameOther)}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleSaveReferralBank}
+                      disabled={savingReferralBank}
+                      className={
+                        !currentMembership?.referralBankAccountNo
+                          ? "bg-black hover:bg-black/90 text-white"
+                          : undefined
+                      }
+                    >
+                      {savingReferralBank ? "Saving..." : "Save payout bank details"}
+                    </Button>
+                    {currentMembership?.referralBankAccountNo && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setEditingReferralBank(false);
+                          setReferralBankAccountName(
+                            (currentMembership?.referralBankAccountName || "").trim() || (currentUser?.name || "").trim()
+                          );
+                          setReferralBankName(currentMembership?.referralBankName || "");
+                          setReferralBankNameOther(currentMembership?.referralBankNameOther || "");
+                          setReferralBankAccountNo(currentMembership?.referralBankAccountNo || "");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </div>
 

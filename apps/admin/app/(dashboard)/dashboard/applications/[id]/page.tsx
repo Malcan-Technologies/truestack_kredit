@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/dialog";
 import { CopyField } from "@/components/ui/copy-field";
 import { VerificationBadge } from "@/components/verification-badge";
+import { RefreshButton } from "@/components/ui/refresh-button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
 import { api } from "@/lib/api";
 import {
@@ -558,6 +559,14 @@ export default function ApplicationDetailPage() {
 
         {/* Action Buttons */}
         <div className="flex gap-2">
+          <RefreshButton
+            onRefresh={async () => {
+              await Promise.all([fetchApplication(), fetchTimeline()]);
+            }}
+            showLabel
+            showToast
+            successMessage="Application refreshed"
+          />
           {application.status === "DRAFT" && (
             <Button
               onClick={handleSubmitClick}

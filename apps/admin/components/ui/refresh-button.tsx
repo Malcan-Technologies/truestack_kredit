@@ -11,6 +11,8 @@ interface RefreshButtonProps extends Omit<ButtonProps, "onClick"> {
   successMessage?: string;
   errorMessage?: string;
   showToast?: boolean;
+  /** Show "Refresh" label next to icon (matches loan detail style) */
+  showLabel?: boolean;
 }
 
 /**
@@ -21,11 +23,14 @@ export function RefreshButton({
   successMessage = "Data refreshed",
   errorMessage = "Failed to refresh",
   showToast = true,
+  showLabel = false,
   className,
   variant = "secondary",
   size = "icon",
   ...props
 }: RefreshButtonProps) {
+  const effectiveVariant = showLabel ? "outline" : variant;
+  const effectiveSize = showLabel ? "default" : size;
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -48,8 +53,8 @@ export function RefreshButton({
   return (
     <Button
       type="button"
-      variant={variant}
-      size={size}
+      variant={effectiveVariant}
+      size={effectiveSize}
       onClick={handleRefresh}
       disabled={isRefreshing}
       className={cn(className)}
@@ -59,9 +64,11 @@ export function RefreshButton({
       <RefreshCw
         className={cn(
           "h-4 w-4",
+          showLabel && "mr-2",
           isRefreshing && "animate-spin"
         )}
       />
+      {showLabel && "Refresh"}
     </Button>
   );
 }

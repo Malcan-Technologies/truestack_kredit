@@ -57,6 +57,8 @@ interface TrueIdentityBoxProps {
   borrowerName: string;
   borrowerIcNumber: string;
   directors?: Director[];
+  /** Increment to trigger refetch (e.g. when parent refresh is clicked) */
+  refreshKey?: number;
 }
 
 // ============================================
@@ -412,6 +414,7 @@ export function TrueIdentityBox({
   borrowerName,
   borrowerIcNumber,
   directors = [],
+  refreshKey,
 }: TrueIdentityBoxProps) {
   const [isActive, setIsActive] = useState<boolean | null>(null);
   const [status, setStatus] = useState<VerifyStatusResponse | null>(null);
@@ -463,7 +466,7 @@ export function TrueIdentityBox({
     if (isActive) {
       fetchStatus();
     }
-  }, [isActive, fetchStatus, directorsKey]);
+  }, [isActive, fetchStatus, directorsKey, refreshKey]);
 
   const handleSendVerificationIndividual = async () => {
     const res = await api.post<{

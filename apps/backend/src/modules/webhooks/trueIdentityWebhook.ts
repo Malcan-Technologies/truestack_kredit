@@ -345,27 +345,41 @@ router.post('/', async (req, res) => {
         });
       }
 
-      if (tenantId && event !== 'kyc.session.processing') {
+      // Log to borrower audit trail (shows in borrower timeline).
+      // Applies to both individual and corporate (directors) - only start and complete (approved or rejected).
+      const shouldLogAudit =
+        tenantId &&
+        (event === 'kyc.session.started' || event === 'kyc.session.completed');
+      if (shouldLogAudit) {
         const auditAction =
           status === 'completed' && result === 'approved'
             ? 'TRUEIDENTITY_VERIFICATION_COMPLETED'
             : status === 'completed' && result === 'rejected'
               ? 'TRUEIDENTITY_VERIFICATION_FAILED'
-              : event
-                ? `TRUEIDENTITY_VERIFICATION_${event.replace('kyc.session.', '').toUpperCase()}`
+              : event === 'kyc.session.started'
+                ? 'TRUEIDENTITY_VERIFICATION_STARTED'
                 : 'TRUEIDENTITY_WEBHOOK';
+        const director = directorId
+          ? await prisma.borrowerDirector.findFirst({
+              where: { id: directorId, borrowerId },
+              select: { name: true },
+            })
+          : null;
         await AuditService.log({
           tenantId,
           action: auditAction,
-          entityType: directorId ? 'BorrowerDirector' : 'Borrower',
-          entityId: directorId ?? borrowerId,
+          entityType: 'Borrower',
+          entityId: borrowerId,
           newData: {
             event,
             status,
             result,
             sessionId,
             ...(rejectMessage && { rejectMessage }),
-            ...(directorId && { directorId, borrowerId }),
+            ...(directorId && {
+              directorId,
+              directorName: director?.name ?? null,
+            }),
           },
           ipAddress: req.ip,
         });

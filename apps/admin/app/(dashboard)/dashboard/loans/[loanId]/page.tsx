@@ -81,6 +81,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CopyField } from "@/components/ui/copy-field";
 import { VerificationBadge } from "@/components/verification-badge";
+import { RefreshButton } from "@/components/ui/refresh-button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
 import { api } from "@/lib/api";
 import {
@@ -1081,10 +1082,8 @@ export default function LoanDetailPage() {
   };
 
   const handleRefreshPage = async () => {
-    setActionLoading("status");
-    await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
-    toast.success("Loan data refreshed");
-    setActionLoading(null);
+    await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]);
+    refreshEmailLog();
   };
 
   const handleGenerateArrearsLetter = async () => {
@@ -1580,14 +1579,12 @@ export default function LoanDetailPage() {
               Disburse Loan
             </Button>
           )}
-          <Button
-            variant="outline"
-            onClick={handleRefreshPage}
-            disabled={actionLoading === "status"}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${actionLoading === "status" ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+          <RefreshButton
+            onRefresh={handleRefreshPage}
+            showLabel
+            showToast
+            successMessage="Loan data refreshed"
+          />
           {(loan.status === "ACTIVE" || loan.status === "IN_ARREARS") && (
             <>
               <TooltipProvider>

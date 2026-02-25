@@ -979,6 +979,7 @@ export default function BorrowerDetailPage() {
   const [expandedDirectorIndices, setExpandedDirectorIndices] = useState<number[]>([]);
   const [deletingDoc, setDeletingDoc] = useState(false);
   const [showKycInvalidationConfirm, setShowKycInvalidationConfirm] = useState(false);
+  const [trueIdentityRefreshKey, setTrueIdentityRefreshKey] = useState(0);
 
   const isIC = formData.documentType === "IC";
   const countryOptions = getCountryOptions();
@@ -1026,6 +1027,11 @@ export default function BorrowerDetailPage() {
       setLoadingMoreTimeline(false);
     }
   }, [borrowerId]);
+
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([fetchBorrower(), fetchTimeline()]);
+    setTrueIdentityRefreshKey((k) => k + 1);
+  }, [fetchBorrower, fetchTimeline]);
 
   const populateForm = (data: Borrower) => {
     const docType = data.documentType || "IC";
@@ -1511,8 +1517,9 @@ export default function BorrowerDetailPage() {
         </div>
         <div className="flex gap-2">
           <RefreshButton
-            onRefresh={fetchBorrower}
+            onRefresh={handleRefresh}
             showToast
+            showLabel
             successMessage="Borrower refreshed"
           />
           {isEditing ? (
@@ -3157,6 +3164,7 @@ export default function BorrowerDetailPage() {
               borrowerName={borrower.name}
               borrowerIcNumber={borrower.icNumber}
               directors={borrower.directors}
+              refreshKey={trueIdentityRefreshKey}
             />
 
           <Card>

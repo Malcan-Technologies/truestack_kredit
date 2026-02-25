@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CopyField } from "@/components/ui/copy-field";
+import { VerificationBadge } from "@/components/verification-badge";
 import { PhoneDisplay } from "@/components/ui/phone-display";
 import { api } from "@/lib/api";
 import {
@@ -664,41 +665,11 @@ export default function ApplicationDetailPage() {
                         Individual
                       </Badge>
                     )}
-                    {(() => {
-                      const isFullyVerified =
-                        application.borrower.verificationStatus === "FULLY_VERIFIED" ||
-                        (!application.borrower.verificationStatus && application.borrower.documentVerified);
-                      const isPartiallyVerified =
-                        application.borrower.verificationStatus === "PARTIALLY_VERIFIED";
-
-                      if (isFullyVerified) {
-                        return (
-                          <Badge variant="verified" className="text-xs">
-                            <ShieldCheck className="h-3 w-3 mr-1" />
-                            e-KYC
-                          </Badge>
-                        );
-                      }
-
-                      if (isPartiallyVerified) {
-                        return (
-                          <Badge
-                            variant="outline"
-                            className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
-                          >
-                            <ChartPie className="h-3 w-3 mr-1" />
-                            Partially verified
-                          </Badge>
-                        );
-                      }
-
-                      return (
-                        <Badge variant="unverified" className="text-xs">
-                          <AlertTriangle className="h-3 w-3 mr-1" />
-                          Manual Verification
-                        </Badge>
-                      );
-                    })()}
+                    <VerificationBadge
+                      verificationStatus={application.borrower.verificationStatus}
+                      documentVerified={application.borrower.documentVerified}
+                      size="compact"
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -806,40 +777,11 @@ export default function ApplicationDetailPage() {
                           <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
                         </Link>
                         <div className="flex items-center gap-2">
-                          {(() => {
-                            const isFullyVerified =
-                              guarantor.verificationStatus === "FULLY_VERIFIED" ||
-                              (!guarantor.verificationStatus && guarantor.documentVerified);
-                            const isPartiallyVerified = guarantor.verificationStatus === "PARTIALLY_VERIFIED";
-
-                            if (isFullyVerified) {
-                              return (
-                                <Badge variant="verified" className="text-xs">
-                                  <ShieldCheck className="h-3 w-3 mr-1" />
-                                  e-KYC Verified
-                                </Badge>
-                              );
-                            }
-
-                            if (isPartiallyVerified) {
-                              return (
-                                <Badge
-                                  variant="outline"
-                                  className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
-                                >
-                                  <ChartPie className="h-3 w-3 mr-1" />
-                                  Partially verified
-                                </Badge>
-                              );
-                            }
-
-                            return (
-                              <Badge variant="unverified" className="text-xs">
-                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                Manual Verification
-                              </Badge>
-                            );
-                          })()}
+                          <VerificationBadge
+                            verificationStatus={guarantor.verificationStatus}
+                            documentVerified={guarantor.documentVerified}
+                            size="compact"
+                          />
                         </div>
                         <div className="space-y-2">
                           <CopyField label={identityLabel} value={guarantor.icNumber} />

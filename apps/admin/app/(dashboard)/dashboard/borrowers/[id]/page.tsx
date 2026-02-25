@@ -25,6 +25,7 @@ import {
   Save,
   Upload,
   FileText,
+  Image,
   Download,
   Briefcase,
   TrendingUp,
@@ -71,6 +72,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { TrueIdentityBox } from "@/components/trueidentity-box";
+import { VerificationBadge } from "@/components/verification-badge";
+import { RefreshButton } from "@/components/ui/refresh-button";
 import {
   InstagramIcon,
   TikTokIcon,
@@ -101,6 +104,7 @@ interface Borrower {
   icNumber: string;
   documentType: string;
   documentVerified: boolean;
+  verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
   verifiedAt: string | null;
   phone: string | null;
   email: string | null;
@@ -199,20 +203,6 @@ interface Borrower {
     } | null;
   }>;
 }
-
-type BorrowerVerifyStatusResponse =
-  | {
-      borrowerType: "INDIVIDUAL";
-      status: string | null;
-      result: string | null;
-    }
-  | {
-      borrowerType: "CORPORATE";
-      directors: Array<{
-        status: string | null;
-        result: string | null;
-      }>;
-    };
 
 interface TimelineEvent {
   id: string;
@@ -329,6 +319,10 @@ function formatDateForInput(dateString: string | null): string {
   }
 }
 
+function normalizeIdentityNumber(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "").trim();
+}
+
 // ============================================
 // Option Constants
 // ============================================
@@ -418,6 +412,7 @@ const INDIVIDUAL_DOCUMENT_OPTIONS = [
   { value: "PASSPORT", label: "Passport" },
   { value: "WORK_PERMIT", label: "Work Permit" },
   { value: "SELFIE_LIVENESS", label: "Selfie (Liveness)" },
+  { value: "OTHER", label: "Other" },
 ];
 
 const CORPORATE_DOCUMENT_OPTIONS = [
@@ -429,8 +424,9 @@ const CORPORATE_DOCUMENT_OPTIONS = [
   { value: "COMPANY_PROFILE", label: "Company Profile" },
   { value: "DIRECTOR_IC_FRONT", label: "Director IC Front" },
   { value: "DIRECTOR_IC_BACK", label: "Director IC Back" },
-  { value: "DIRECTOR_PASSPORT", label: "Director Passport" },
+  { value: "DIRECTOR_PASSPORT", label: "Director Identification" },
   { value: "SELFIE_LIVENESS", label: "Selfie (Liveness)" },
+  { value: "OTHER", label: "Other" },
 ];
 
 const CORPORATE_HIDDEN_KYC_DOC_CATEGORIES = new Set([
@@ -442,6 +438,8 @@ const CORPORATE_HIDDEN_KYC_DOC_CATEGORIES = new Set([
 const CORPORATE_BORROWER_DOCUMENT_OPTIONS = CORPORATE_DOCUMENT_OPTIONS.filter(
   (opt) => !CORPORATE_HIDDEN_KYC_DOC_CATEGORIES.has(opt.value)
 );
+
+const MAX_DOCUMENTS_PER_CATEGORY = 3;
 
 function getDocumentLabel(category: string, borrowerType: string): string {
   const options = borrowerType === "CORPORATE" 
@@ -469,6 +467,12 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getDocumentIcon(mimeType: string) {
+  if (/^image\//i.test(mimeType)) return Image;
+  if (mimeType === "application/pdf") return FileText;
+  return FileText;
 }
 
 function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | null | undefined) {
@@ -974,7 +978,7 @@ export default function BorrowerDetailPage() {
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [expandedDirectorIndices, setExpandedDirectorIndices] = useState<number[]>([]);
   const [deletingDoc, setDeletingDoc] = useState(false);
-  const [verifyStatus, setVerifyStatus] = useState<BorrowerVerifyStatusResponse | null>(null);
+  const [showKycInvalidationConfirm, setShowKycInvalidationConfirm] = useState(false);
 
   const isIC = formData.documentType === "IC";
   const countryOptions = getCountryOptions();
@@ -1020,21 +1024,6 @@ export default function BorrowerDetailPage() {
       console.error("Failed to fetch timeline:", error);
     } finally {
       setLoadingMoreTimeline(false);
-    }
-  }, [borrowerId]);
-
-  const fetchVerifyStatus = useCallback(async () => {
-    try {
-      const res = await api.get<BorrowerVerifyStatusResponse>(
-        `/api/borrowers/${borrowerId}/verify/status`
-      );
-      if (res.success && res.data) {
-        setVerifyStatus(res.data);
-      } else {
-        setVerifyStatus(null);
-      }
-    } catch {
-      setVerifyStatus(null);
     }
   }, [borrowerId]);
 
@@ -1119,11 +1108,11 @@ export default function BorrowerDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchBorrower(), fetchTimeline(), fetchVerifyStatus()]);
+      await Promise.all([fetchBorrower(), fetchTimeline()]);
       setLoading(false);
     };
     loadData();
-  }, [fetchBorrower, fetchTimeline, fetchVerifyStatus]);
+  }, [fetchBorrower, fetchTimeline]);
 
   const handleIcNumberChange = (value: string) => {
     const currentIsIC = formData.documentType === "IC";
@@ -1237,8 +1226,42 @@ export default function BorrowerDetailPage() {
     return true;
   };
 
-  const handleSave = async () => {
+  const hasKycIdentityChange = useCallback((): boolean => {
+    if (!borrower) return false;
+
+    if (borrower.borrowerType === "CORPORATE") {
+      const existingById = new Map((borrower.directors ?? []).map((d) => [d.id, d]));
+      return formData.directors.some((director, index) => {
+        const directorId =
+          "id" in director && typeof director.id === "string"
+            ? director.id
+            : undefined;
+        const existingDirector = directorId
+          ? existingById.get(directorId)
+          : borrower.directors?.[index];
+        if (!existingDirector) return false;
+
+        return (
+          director.name.trim() !== existingDirector.name.trim() ||
+          normalizeIdentityNumber(director.icNumber) !==
+            normalizeIdentityNumber(existingDirector.icNumber)
+        );
+      });
+    }
+
+    return (
+      formData.name.trim() !== borrower.name.trim() ||
+      normalizeIdentityNumber(formData.icNumber) !==
+        normalizeIdentityNumber(borrower.icNumber)
+    );
+  }, [borrower, formData]);
+
+  const handleSave = async (skipKycInvalidationConfirm = false) => {
     if (!validateForm() || !borrower) return;
+    if (!skipKycInvalidationConfirm && hasKycIdentityChange()) {
+      setShowKycInvalidationConfirm(true);
+      return;
+    }
     
     setSaving(true);
     try {
@@ -1324,7 +1347,7 @@ export default function BorrowerDetailPage() {
       if (res.success) {
         toast.success("Borrower updated successfully");
         setIsEditing(false);
-        // Refetch full borrower data (including loans, loanSummary)
+        // Refetch full borrower data (including loans, loanSummary, directors)
         await fetchBorrower();
         fetchTimeline(); // Refresh timeline to show new update
       } else {
@@ -1347,6 +1370,17 @@ export default function BorrowerDetailPage() {
     const file = e.target.files?.[0];
     if (!file || !selectedDocCategory || selectedDocCategory === "ALL") {
       toast.error("Please select a document category first");
+      return;
+    }
+
+    const docsInCategory = (borrower?.documents ?? []).filter(
+      (d) => d.category === selectedDocCategory
+    ).length;
+    if (docsInCategory >= MAX_DOCUMENTS_PER_CATEGORY) {
+      toast.error(
+        `Maximum ${MAX_DOCUMENTS_PER_CATEGORY} documents per category. This category already has ${docsInCategory} document(s).`
+      );
+      e.target.value = "";
       return;
     }
 
@@ -1441,33 +1475,6 @@ export default function BorrowerDetailPage() {
     return options.find((o) => o.value === value)?.label || value;
   };
 
-  const isCorporateBorrower = borrower.borrowerType === "CORPORATE";
-  const corporateDirectorStatuses =
-    verifyStatus?.borrowerType === "CORPORATE"
-      ? verifyStatus.directors
-      : (borrower.directors ?? []).map((director) => ({
-          status: director.trueIdentityStatus ?? null,
-          result: director.trueIdentityResult ?? null,
-        }));
-  const allDirectorsVerified =
-    isCorporateBorrower &&
-    corporateDirectorStatuses.length > 0 &&
-    corporateDirectorStatuses.every(
-      (d) => d.status === "completed" && d.result === "approved"
-    );
-  const anyDirectorVerified =
-    isCorporateBorrower &&
-    corporateDirectorStatuses.some(
-      (d) => d.status === "completed" && d.result === "approved"
-    );
-  const isPartiallyVerified =
-    isCorporateBorrower && anyDirectorVerified && !allDirectorsVerified;
-  const isFullyVerified = isCorporateBorrower
-    ? allDirectorsVerified
-    : verifyStatus?.borrowerType === "INDIVIDUAL"
-      ? verifyStatus.status === "completed" && verifyStatus.result === "approved"
-      : borrower.documentVerified;
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1484,26 +1491,11 @@ export default function BorrowerDetailPage() {
                   ? borrower.companyName
                   : isEditing ? formData.name || "Edit Borrower" : borrower.name}
               </h1>
-              {isFullyVerified ? (
-                <Badge variant="verified">
-                  <Fingerprint className="h-3 w-3 mr-1" />
-                  e-KYC Verified
-                </Badge>
-              ) : isPartiallyVerified ? (
-                <Badge
-                  variant="outline"
-                  className="bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
-                  title="Some directors are verified, but not all yet"
-                >
-                  <ChartPie className="h-3 w-3 mr-1" />
-                  Partially verified
-                </Badge>
-              ) : (
-                <Badge variant="unverified">
-                  <AlertTriangle className="h-3 w-3 mr-1" />
-                  Manual Verification
-                </Badge>
-              )}
+              <VerificationBadge
+                verificationStatus={borrower.verificationStatus}
+                documentVerified={borrower.documentVerified}
+                size="full"
+              />
             </div>
             <p className="text-muted-foreground">
               {borrower.borrowerType === "CORPORATE" 
@@ -1518,13 +1510,18 @@ export default function BorrowerDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <RefreshButton
+            onRefresh={fetchBorrower}
+            showToast
+            successMessage="Borrower refreshed"
+          />
           {isEditing ? (
             <>
               <Button variant="outline" onClick={handleCancelEdit} disabled={saving}>
                 <X className="h-4 w-4 mr-2" />
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={saving}>
+              <Button onClick={() => void handleSave()} disabled={saving}>
                 <Save className="h-4 w-4 mr-2" />
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
@@ -3142,7 +3139,7 @@ export default function BorrowerDetailPage() {
                 <X className="h-4 w-4 mr-2" />
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={saving}>
+              <Button onClick={() => void handleSave()} disabled={saving}>
                 <Save className="h-4 w-4 mr-2" />
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
@@ -3168,49 +3165,71 @@ export default function BorrowerDetailPage() {
                 <FileText className="h-5 w-5 text-muted-foreground" />
                 Borrower Documents
               </CardTitle>
-              <CardDescription>
-                Upload and manage documents for this borrower
-              </CardDescription>
+              <div className="space-y-0.5">
+                <CardDescription>
+                  Upload and manage documents for this borrower.
+                </CardDescription>
+                <p className="text-[10px] text-muted-foreground">
+                  Allowed: PDF, PNG, JPG (max 5MB per file).
+                </p>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Upload Section */}
-              <div className="flex gap-2 items-end">
-                <div className="flex-1">
-                  <label className="text-xs text-muted-foreground">Document Category</label>
-                  <Select value={selectedDocCategory} onValueChange={setSelectedDocCategory}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select document type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All categories</SelectItem>
-                      {(borrower.borrowerType === "CORPORATE" 
-                        ? CORPORATE_BORROWER_DOCUMENT_OPTIONS
-                        : INDIVIDUAL_DOCUMENT_OPTIONS
-                      ).map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <input
-                    type="file"
-                    id="doc-upload"
-                    className="hidden"
-                    accept=".jpg,.jpeg,.png,.pdf,.webp"
-                    onChange={handleDocumentUpload}
-                    disabled={uploadingDoc || selectedDocCategory === "ALL"}
-                  />
-                  <Button
-                    variant="outline"
-                    disabled={uploadingDoc || selectedDocCategory === "ALL"}
-                    onClick={() => document.getElementById("doc-upload")?.click()}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    {uploadingDoc ? "Uploading..." : "Upload"}
-                  </Button>
-                </div>
-              </div>
+              {(() => {
+                const docsInSelectedCategory =
+                  selectedDocCategory !== "ALL"
+                    ? (borrower.documents ?? []).filter((d) => d.category === selectedDocCategory).length
+                    : 0;
+                const categoryLimitReached =
+                  selectedDocCategory !== "ALL" && docsInSelectedCategory >= MAX_DOCUMENTS_PER_CATEGORY;
+                return (
+                  <div className="space-y-2">
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1">
+                        <label className="text-xs text-muted-foreground">Document Category</label>
+                        <Select value={selectedDocCategory} onValueChange={setSelectedDocCategory}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select document type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ALL">All categories</SelectItem>
+                            {(borrower.borrowerType === "CORPORATE"
+                              ? CORPORATE_BORROWER_DOCUMENT_OPTIONS
+                              : INDIVIDUAL_DOCUMENT_OPTIONS
+                            ).map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <input
+                          type="file"
+                          id="doc-upload"
+                          className="hidden"
+                          accept=".pdf,.png,.jpg,.jpeg"
+                          onChange={handleDocumentUpload}
+                          disabled={uploadingDoc || selectedDocCategory === "ALL" || categoryLimitReached}
+                        />
+                        <Button
+                          variant="outline"
+                          disabled={uploadingDoc || selectedDocCategory === "ALL" || categoryLimitReached}
+                          onClick={() => document.getElementById("doc-upload")?.click()}
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          {uploadingDoc ? "Uploading..." : "Upload"}
+                        </Button>
+                      </div>
+                    </div>
+                    {categoryLimitReached && (
+                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                        Maximum {MAX_DOCUMENTS_PER_CATEGORY} documents per category. This category has reached its limit.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Documents List */}
               {borrower.documents && borrower.documents.length > 0 ? (
@@ -3239,13 +3258,14 @@ export default function BorrowerDetailPage() {
                     return sorted.map((doc) => {
                     const isImage = /^image\/(jpeg|jpg|png|webp)$/i.test(doc.mimeType);
                     const docUrl = doc.path.startsWith("/") ? `/api/proxy${doc.path}` : doc.path;
+                    const DocIcon = getDocumentIcon(doc.mimeType);
                     return (
                       <div
                         key={doc.id}
                         className="flex items-start gap-4 p-3 border rounded-lg"
                       >
                         {isImage ? (
-                          <div className="shrink-0 w-20 h-20 rounded-md overflow-hidden bg-muted border">
+                          <div className="shrink-0 w-20 h-20 rounded-md overflow-hidden bg-muted/15 border border-border/30">
                             <img
                               src={docUrl}
                               alt={getDocumentLabel(doc.category, borrower.borrowerType)}
@@ -3253,8 +3273,8 @@ export default function BorrowerDetailPage() {
                             />
                           </div>
                         ) : (
-                          <div className="shrink-0 w-10 h-10 rounded-md bg-muted border flex items-center justify-center">
-                            <FileText className="h-5 w-5 text-muted-foreground" />
+                          <div className="shrink-0 w-10 h-10 rounded-md bg-muted/15 border border-border/30 flex items-center justify-center">
+                            <DocIcon className="h-5 w-5 text-foreground" />
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
@@ -3433,6 +3453,35 @@ export default function BorrowerDetailPage() {
               className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
             >
               {deletingDoc ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* KYC Invalidation Warning Dialog */}
+      <AlertDialog
+        open={showKycInvalidationConfirm}
+        onOpenChange={setShowKycInvalidationConfirm}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Invalidate e-KYC Verification?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {borrower?.borrowerType === "CORPORATE"
+                ? "Changing any director name or IC number will invalidate e-KYC verification for the affected director(s). Re-verification will be required."
+                : "Changing borrower name or IC number will invalidate e-KYC verification. Re-verification will be required."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving}
+              onClick={() => {
+                setShowKycInvalidationConfirm(false);
+                void handleSave(true);
+              }}
+            >
+              {saving ? "Saving..." : "Proceed and Save"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -80,6 +80,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CopyField } from "@/components/ui/copy-field";
+import { VerificationBadge } from "@/components/verification-badge";
 import { PhoneDisplay } from "@/components/ui/phone-display";
 import { api } from "@/lib/api";
 import {
@@ -1743,41 +1744,11 @@ export default function LoanDetailPage() {
                     <p className="text-sm text-muted-foreground">Rep: {loan.borrower.name}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                    {(() => {
-                      const isFullyVerified =
-                        loan.borrower.verificationStatus === "FULLY_VERIFIED" ||
-                        (!loan.borrower.verificationStatus && loan.borrower.documentVerified);
-                      const isPartiallyVerified =
-                        loan.borrower.verificationStatus === "PARTIALLY_VERIFIED";
-
-                      if (isFullyVerified) {
-                        return (
-                          <Badge variant="verified" className="text-xs">
-                            <Fingerprint className="h-3 w-3 mr-1" />
-                            e-KYC
-                          </Badge>
-                        );
-                      }
-
-                      if (isPartiallyVerified) {
-                        return (
-                          <Badge
-                            variant="outline"
-                            className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
-                          >
-                            <ChartPie className="h-3 w-3 mr-1" />
-                            Partially verified
-                          </Badge>
-                        );
-                      }
-
-                      return (
-                        <Badge variant="unverified" className="text-xs">
-                          <AlertTriangle className="h-3 w-3 mr-1" />
-                          Manual Verification
-                        </Badge>
-                      );
-                    })()}
+                    <VerificationBadge
+                      verificationStatus={loan.borrower.verificationStatus}
+                      documentVerified={loan.borrower.documentVerified}
+                      size="compact"
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -1830,41 +1801,11 @@ export default function LoanDetailPage() {
                                   {guarantorDisplayName}
                                   <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                                 </Link>
-                                {(() => {
-                                  const verificationStatus = guarantor.borrower?.verificationStatus;
-                                  const isFullyVerified =
-                                    verificationStatus === "FULLY_VERIFIED" ||
-                                    (!verificationStatus && Boolean(guarantor.borrower?.documentVerified));
-                                  const isPartiallyVerified = verificationStatus === "PARTIALLY_VERIFIED";
-
-                                  if (isFullyVerified) {
-                                    return (
-                                      <Badge variant="verified" className="text-xs">
-                                        <Fingerprint className="h-3 w-3 mr-1" />
-                                        e-KYC
-                                      </Badge>
-                                    );
-                                  }
-
-                                  if (isPartiallyVerified) {
-                                    return (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
-                                      >
-                                        <ChartPie className="h-3 w-3 mr-1" />
-                                        Partially verified
-                                      </Badge>
-                                    );
-                                  }
-
-                                  return (
-                                    <Badge variant="unverified" className="text-xs">
-                                      <AlertTriangle className="h-3 w-3 mr-1" />
-                                      Manual Verification
-                                    </Badge>
-                                  );
-                                })()}
+                                <VerificationBadge
+                                  verificationStatus={guarantor.borrower?.verificationStatus}
+                                  documentVerified={guarantor.borrower?.documentVerified}
+                                  size="compact"
+                                />
                               </div>
                             );
                           })}

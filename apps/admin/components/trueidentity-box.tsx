@@ -184,9 +184,23 @@ function DirectorVerificationCard({
                 Last verified: {formatSmartDateTime(d.lastWebhookAt)}
               </p>
             )}
-            <p className="text-xs text-emerald-700 dark:text-emerald-400">
-              This director is already verified. No re-verification needed.
+            <p className="text-xs text-emerald-700 dark:text-emerald-400 mb-2">
+              This director is verified. You can re-verify to generate a new link if needed.
             </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5"
+              onClick={handleSend}
+              disabled={sending}
+            >
+              {sending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {sending ? "Creating..." : "Redo verification"}
+            </Button>
           </div>
         ) : canStart ? (
           <Button
@@ -442,11 +456,14 @@ export function TrueIdentityBox({
     checkAddOn();
   }, []);
 
+  // Refetch when directors change (e.g. after add/remove/edit and save) so TrueIdentity section updates immediately
+  const directorsKey = directors?.map((d) => d.id).join(",") ?? "";
+
   useEffect(() => {
     if (isActive) {
       fetchStatus();
     }
-  }, [isActive, fetchStatus]);
+  }, [isActive, fetchStatus, directorsKey]);
 
   const handleSendVerificationIndividual = async () => {
     const res = await api.post<{

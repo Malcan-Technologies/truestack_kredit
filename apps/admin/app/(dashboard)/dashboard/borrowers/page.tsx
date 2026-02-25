@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search, User, Fingerprint, AlertTriangle, Building2, ArrowUpDown, ArrowUp, ArrowDown, ChartPie } from "lucide-react";
+import { Plus, Search, User, Building2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RefreshButton } from "@/components/ui/refresh-button";
+import { VerificationBadge } from "@/components/verification-badge";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
@@ -422,72 +423,11 @@ export default function BorrowersPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {(() => {
-                          const isCorporate = borrower.borrowerType === "CORPORATE";
-                          const directors = borrower.directors ?? [];
-                          const allDirectorsVerified =
-                            isCorporate &&
-                            directors.length > 0 &&
-                            directors.every(
-                              (d) =>
-                                d.trueIdentityStatus === "completed" &&
-                                d.trueIdentityResult === "approved"
-                            );
-                          const anyDirectorVerified =
-                            isCorporate &&
-                            directors.some(
-                              (d) =>
-                                d.trueIdentityStatus === "completed" &&
-                                d.trueIdentityResult === "approved"
-                            );
-                          const fallbackPartiallyVerified =
-                            isCorporate && anyDirectorVerified && !allDirectorsVerified;
-                          const fallbackFullyVerified = isCorporate
-                            ? allDirectorsVerified
-                            : borrower.documentVerified;
-
-                          const isFullyVerified =
-                            borrower.verificationStatus === "FULLY_VERIFIED" ||
-                            (!borrower.verificationStatus && fallbackFullyVerified);
-                          const isPartiallyVerified =
-                            borrower.verificationStatus === "PARTIALLY_VERIFIED" ||
-                            (!borrower.verificationStatus && fallbackPartiallyVerified);
-
-                          if (isFullyVerified) {
-                            return (
-                              <Badge
-                                variant="verified"
-                                title="Verified via TrueIdentity e-KYC"
-                              >
-                                <Fingerprint className="h-3 w-3 mr-1" />
-                                e-KYC
-                              </Badge>
-                            );
-                          }
-
-                          if (isPartiallyVerified) {
-                            return (
-                              <Badge
-                                variant="outline"
-                                className="bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
-                                title="Some directors are verified, but not all yet"
-                              >
-                                <ChartPie className="h-3 w-3 mr-1" />
-                                Partially verified
-                              </Badge>
-                            );
-                          }
-
-                          return (
-                            <Badge
-                              variant="unverified"
-                              title="Manually verified by admin - exercise caution"
-                            >
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              Manual
-                            </Badge>
-                          );
-                        })()}
+                        <VerificationBadge
+                          verificationStatus={borrower.verificationStatus}
+                          documentVerified={borrower.documentVerified}
+                          size="compact"
+                        />
                       </TableCell>
                       <TableCell>
                         <div className="space-y-0.5">

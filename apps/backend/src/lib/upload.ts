@@ -8,7 +8,7 @@ import { saveFile, deleteFile } from './storage.js';
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 const USE_LOCAL_UPLOADS = (process.env.STORAGE_TYPE || 'local') !== 's3';
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB for logos
-const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024; // 10MB for documents
+const MAX_DOCUMENT_SIZE = 5 * 1024 * 1024; // 5MB for documents (site-wide)
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
 

@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Badge } from "@/components/ui/badge";
+import { VerificationBadge } from "@/components/verification-badge";
 import { api } from "@/lib/api";
 import {
   formatCurrency,
@@ -536,35 +537,11 @@ export default function NewApplicationPage() {
                                 Corporate
                               </Badge>
                             ) : (
-                              (() => {
-                                const isFullyVerified =
-                                  borrower.verificationStatus === "FULLY_VERIFIED" ||
-                                  (!borrower.verificationStatus && borrower.documentVerified);
-                                const isPartiallyVerified = borrower.verificationStatus === "PARTIALLY_VERIFIED";
-
-                                if (isFullyVerified) {
-                                  return <Badge variant="verified">e-KYC</Badge>;
-                                }
-
-                                if (isPartiallyVerified) {
-                                  return (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-xs bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
-                                    >
-                                      <ChartPie className="h-3 w-3 mr-1" />
-                                      Partially verified
-                                    </Badge>
-                                  );
-                                }
-
-                                return (
-                                  <Badge variant="unverified" className="text-xs">
-                                    <AlertTriangle className="h-3 w-3 mr-1" />
-                                    Manual
-                                  </Badge>
-                                );
-                              })()
+                              <VerificationBadge
+                                verificationStatus={borrower.verificationStatus}
+                                documentVerified={borrower.documentVerified}
+                                size="compact"
+                              />
                             )}
                             {selectedBorrower?.id === borrower.id && (
                               <CheckCircle className="h-5 w-5 text-foreground" />

@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import path from 'path';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, ConflictError } from '../../lib/errors.js';
+import { NotFoundError, ConflictError, BadRequestError } from '../../lib/errors.js';
 import { toSafeNumber } from '../../lib/math.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
@@ -44,13 +45,13 @@ const POSTCODE_MAX_LENGTH = 20;
 
 // Document categories for individual borrowers
 const INDIVIDUAL_DOCUMENT_CATEGORIES = [
-  'IC_FRONT', 'IC_BACK', 'PASSPORT', 'WORK_PERMIT', 'SELFIE_LIVENESS'
+  'IC_FRONT', 'IC_BACK', 'PASSPORT', 'WORK_PERMIT', 'SELFIE_LIVENESS', 'OTHER'
 ] as const;
 
 // Document categories for corporate borrowers
 const CORPORATE_DOCUMENT_CATEGORIES = [
   'SSM_CERT', 'FORM_9', 'FORM_13', 'FORM_24', 'FORM_49', 
-  'COMPANY_PROFILE', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT', 'SELFIE_LIVENESS'
+  'COMPANY_PROFILE', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT', 'SELFIE_LIVENESS', 'OTHER'
 ] as const;
 
 // All valid document categories
@@ -100,6 +101,9 @@ const normalizeOptionalText = (value: string | undefined): string | null | undef
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 };
+
+const normalizeIdentityNumber = (value: string | null | undefined): string =>
+  (value ?? '').replace(/\D/g, '');
 
 const normalizeCountryCode = (value: string | undefined): string | null | undefined => {
   if (value === undefined) return undefined;
@@ -450,6 +454,7 @@ router.get('/:borrowerId', async (req, res, next) => {
       throw new NotFoundError('Borrower');
     }
 
+    const resolvedVerificationStatus = resolveVerificationStatus(borrower);
     const loanSummary = {
       totalBorrowed: toSafeNumber(totalBorrowedRes._sum.principalAmount),
       totalPaid: toSafeNumber(totalPaidRes._sum.totalAmount),
@@ -457,7 +462,12 @@ router.get('/:borrowerId', async (req, res, next) => {
 
     res.json({
       success: true,
-      data: { ...borrower, loanSummary, guarantorCount },
+      data: {
+        ...borrower,
+        verificationStatus: resolvedVerificationStatus,
+        loanSummary,
+        guarantorCount,
+      },
     });
   } catch (error) {
     next(error);
@@ -1003,6 +1013,14 @@ router.patch('/:borrowerId', async (req, res, next) => {
       position: director.position?.trim() || null,
       order: index,
     }));
+    const hasIndividualNameChange =
+      data.name !== undefined && data.name.trim() !== existing.name.trim();
+    const hasIndividualIcChange =
+      data.icNumber !== undefined &&
+      normalizeIdentityNumber(data.icNumber) !== normalizeIdentityNumber(existing.icNumber);
+    const shouldInvalidateIndividualKyc =
+      effectiveBorrowerType === 'INDIVIDUAL' &&
+      (hasIndividualNameChange || hasIndividualIcChange);
     
     // Base fields
     if (data.borrowerType !== undefined) updateData.borrowerType = data.borrowerType;
@@ -1081,6 +1099,19 @@ router.patch('/:borrowerId', async (req, res, next) => {
       updateData.authorizedRepName = normalizedDirectors[0]?.name || null;
       updateData.authorizedRepIc = normalizedDirectors[0]?.icNumber || null;
     }
+    if (shouldInvalidateIndividualKyc) {
+      updateData.trueIdentityStatus = null;
+      updateData.trueIdentityResult = null;
+      updateData.trueIdentityRejectMessage = null;
+      updateData.trueIdentitySessionId = null;
+      updateData.trueIdentityOnboardingUrl = null;
+      updateData.trueIdentityExpiresAt = null;
+      updateData.trueIdentityLastWebhookAt = null;
+      updateData.documentVerified = false;
+      updateData.verifiedAt = null;
+      updateData.verifiedBy = null;
+      updateData.verificationStatus = 'UNVERIFIED';
+    }
 
     const borrower = await prisma.$transaction(async (tx) => {
       const updatedBorrower = await tx.borrower.update({
@@ -1096,7 +1127,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
         } else if (normalizedDirectors.length > 0) {
           const existingDirectors = await tx.borrowerDirector.findMany({
             where: { borrowerId: req.params.borrowerId },
-            select: { id: true, icNumber: true },
+            select: { id: true, name: true, icNumber: true },
           });
 
           const existingById = new Map(existingDirectors.map((d) => [d.id, d]));
@@ -1110,6 +1141,10 @@ router.patch('/:borrowerId', async (req, res, next) => {
 
             if (matchedExisting) {
               retainedIds.add(matchedExisting.id);
+              const hasDirectorIdentityChange =
+                director.name.trim() !== matchedExisting.name.trim() ||
+                normalizeIdentityNumber(director.icNumber) !==
+                  normalizeIdentityNumber(matchedExisting.icNumber);
               await tx.borrowerDirector.update({
                 where: { id: matchedExisting.id },
                 data: {
@@ -1117,6 +1152,16 @@ router.patch('/:borrowerId', async (req, res, next) => {
                   icNumber: director.icNumber,
                   position: director.position,
                   order: director.order,
+                  ...(hasDirectorIdentityChange && {
+                    trueIdentityStatus: null,
+                    trueIdentityResult: null,
+                    trueIdentityRejectMessage: null,
+                    trueIdentitySessionId: null,
+                    trueIdentityOnboardingUrl: null,
+                    trueIdentityExpiresAt: null,
+                    trueIdentityLastWebhookAt: null,
+                    trueIdentityDocumentUrls: Prisma.JsonNull,
+                  }),
                 },
               });
             } else {
@@ -1149,6 +1194,47 @@ router.patch('/:borrowerId', async (req, res, next) => {
         } else {
           await tx.borrowerDirector.deleteMany({
             where: { borrowerId: req.params.borrowerId },
+          });
+        }
+
+        if (effectiveBorrowerType === 'CORPORATE') {
+          const directorStates = await tx.borrowerDirector.findMany({
+            where: { borrowerId: req.params.borrowerId },
+            select: {
+              trueIdentityStatus: true,
+              trueIdentityResult: true,
+            },
+          });
+          const verificationStatus = getBorrowerVerificationSummary({
+            borrowerType: 'CORPORATE',
+            documentVerified: false,
+            trueIdentityStatus: null,
+            trueIdentityResult: null,
+            directors: directorStates,
+          });
+          const allDirectorsVerified =
+            directorStates.length > 0 &&
+            directorStates.every(
+              (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
+            );
+
+          await tx.borrower.update({
+            where: { id: updatedBorrower.id },
+            data: {
+              verificationStatus,
+              documentVerified: allDirectorsVerified,
+              ...(!allDirectorsVerified && {
+                verifiedAt: null,
+                verifiedBy: null,
+                trueIdentityStatus: null,
+                trueIdentityResult: null,
+                trueIdentityRejectMessage: null,
+                trueIdentitySessionId: null,
+                trueIdentityOnboardingUrl: null,
+                trueIdentityExpiresAt: null,
+                trueIdentityLastWebhookAt: null,
+              }),
+            },
           });
         }
       }
@@ -1409,6 +1495,16 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
     // Parse the multipart form data
     const { buffer, originalName, mimeType, category } = await parseDocumentUpload(req);
 
+    // Borrower documents: only PDF, PNG, JPG allowed (both individual and corporate)
+    const BORROWER_ALLOWED_MIME_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+    const BORROWER_ALLOWED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg'];
+    const ext = path.extname(originalName).toLowerCase();
+    if (!BORROWER_ALLOWED_MIME_TYPES.includes(mimeType) || !BORROWER_ALLOWED_EXTENSIONS.includes(ext)) {
+      throw new BadRequestError(
+        'Invalid file type for borrower documents. Allowed: PDF, PNG, JPG only.'
+      );
+    }
+
     // Validate category based on borrower type
     // Corporate borrowers only use corporate document categories (no individual IC/passport)
     const validCategories = borrower.borrowerType === 'CORPORATE' 
@@ -1420,25 +1516,21 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
       throw new ConflictError(`Invalid document category for ${borrower.borrowerType} borrower`);
     }
 
-    // Check if document with this category already exists
-    const existingDoc = await prisma.borrowerDocument.findFirst({
+    const MAX_DOCUMENTS_PER_CATEGORY = 3;
+    const existingCount = await prisma.borrowerDocument.count({
       where: {
         borrowerId: req.params.borrowerId,
         category,
       },
     });
-
-    if (existingDoc) {
-      // Delete the old file and record
-      await deleteDocumentFile(existingDoc.path);
-      await prisma.borrowerDocument.delete({
-        where: { id: existingDoc.id },
-      });
+    if (existingCount >= MAX_DOCUMENTS_PER_CATEGORY) {
+      throw new BadRequestError(
+        `Maximum ${MAX_DOCUMENTS_PER_CATEGORY} documents per category allowed. This category already has ${existingCount} document(s).`
+      );
     }
 
     // Save the file
     ensureDocumentsDir();
-    const ext = path.extname(originalName).toLowerCase();
     const { filename, path: filePath } = await saveDocumentFile(
       buffer,
       req.tenantId!,

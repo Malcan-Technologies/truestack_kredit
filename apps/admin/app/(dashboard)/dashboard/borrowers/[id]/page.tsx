@@ -680,9 +680,11 @@ function getKycDisplayName(
   borrower: Borrower | null
 ): string {
   if (!borrower) return "—";
-  const newData = event.newData as { directorId?: string } | null;
-  if (newData?.directorId && borrower.directors?.length) {
-    const director = borrower.directors.find((d) => d.id === newData.directorId);
+  const newData = event.newData as { directorId?: string; directorName?: string | null } | null;
+  if (newData?.directorId) {
+    // Prefer directorName from audit log (always present for director events)
+    if (newData.directorName) return newData.directorName;
+    const director = borrower.directors?.find((d) => d.id === newData.directorId);
     return director?.name ?? borrower.companyName ?? borrower.name ?? "—";
   }
   return borrower.borrowerType === "CORPORATE"

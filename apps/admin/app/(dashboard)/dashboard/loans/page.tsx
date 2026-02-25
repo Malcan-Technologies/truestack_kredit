@@ -319,6 +319,16 @@ function LoansPageContent() {
         case "disbursed":
           cmp = (a.disbursementDate || "").localeCompare(b.disbursementDate || "");
           break;
+        case "verification": {
+          const rank = (v: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED" | null | undefined, docVerified?: boolean) => {
+            if (v === "FULLY_VERIFIED" || (!v && docVerified)) return 3;
+            if (v === "PARTIALLY_VERIFIED") return 2;
+            if (v === "UNVERIFIED") return 1;
+            return 0;
+          };
+          cmp = rank(a.borrower.verificationStatus, a.borrower.documentVerified) - rank(b.borrower.verificationStatus, b.borrower.documentVerified);
+          break;
+        }
       }
       return sortDir === "desc" ? -cmp : cmp;
     });
@@ -519,9 +529,10 @@ function LoansPageContent() {
         <CardContent className="p-0">
           {loading ? (
             <TableSkeleton
-              headers={["Borrower", "", "Principal", "Term", "Progress", "Late Fees", "Status", "Disbursed"]}
+              headers={["Borrower", "Verification", "", "Principal", "Term", "Progress", "Late Fees", "Status", "Disbursed"]}
               columns={[
                 { width: "w-32", subLine: true },
+                { badge: true, width: "w-20" },
                 { width: "w-8" },
                 { width: "w-20" },
                 { width: "w-16" },
@@ -544,6 +555,12 @@ function LoansPageContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Borrower</TableHead>
+                  <TableHead className="w-20">
+                    <button onClick={() => toggleSort("verification")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      Verification
+                      {sortField === "verification" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </TableHead>
                   <TableHead className="w-10 px-2">
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -579,7 +596,6 @@ function LoansPageContent() {
                     </button>
                   </TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="w-20">Verification</TableHead>
                   <TableHead>
                     <button onClick={() => toggleSort("disbursed")} className="flex items-center gap-1 hover:text-foreground transition-colors">
                       Disbursed
@@ -628,6 +644,14 @@ function LoansPageContent() {
                           <p className="text-xs text-muted">{loan.borrower.icNumber}</p>
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell className="w-20">
+                      <VerificationBadge
+                        verificationStatus={loan.borrower.verificationStatus}
+                        documentVerified={loan.borrower.documentVerified}
+                        size="minimal"
+                        showTooltip
+                      />
                     </TableCell>
                     <TableCell className="w-10 px-2">
                       {(loan.product?.loanScheduleType ?? "JADUAL_J") === "JADUAL_K" ? (
@@ -735,14 +759,6 @@ function LoansPageContent() {
                           </Tooltip>
                         )}
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <VerificationBadge
-                        verificationStatus={loan.borrower.verificationStatus}
-                        documentVerified={loan.borrower.documentVerified}
-                        size="minimal"
-                        showTooltip
-                      />
                     </TableCell>
                     <TableCell>
                       {loan.disbursementDate ? formatDate(loan.disbursementDate) : "-"}

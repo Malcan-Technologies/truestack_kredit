@@ -27,6 +27,7 @@ const ROUTE_LABELS: Record<string, string> = {
   promotions: "Promotions",
   subscription: "Subscription",
   payment: "Payment",
+  onboarding: "Onboarding",
 };
 
 interface BreadcrumbItem {
@@ -53,7 +54,9 @@ export function Breadcrumbs({ className, tenantName }: BreadcrumbsProps) {
     // Check if this segment is a dynamic ID (UUID-like)
     const isId = /^[a-z0-9]{20,}$/i.test(segment) || /^[0-9a-f-]{36}$/i.test(segment);
     
-    let label = ROUTE_LABELS[segment] || segment;
+    let label =
+      ROUTE_LABELS[segment] ||
+      (segment ? segment.charAt(0).toUpperCase() + segment.slice(1) : segment);
     
     // For IDs, show "Details" instead of the raw ID
     if (isId) {

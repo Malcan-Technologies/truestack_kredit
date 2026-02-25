@@ -83,6 +83,8 @@ export default function TenantOnboardingPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 pb-10">
+      <OnboardingStepper currentStep={1} />
+
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/dashboard">
@@ -96,8 +98,6 @@ export default function TenantOnboardingPage() {
           </p>
         </div>
       </div>
-
-      <OnboardingStepper currentStep={1} />
 
       <Card>
         <CardHeader>

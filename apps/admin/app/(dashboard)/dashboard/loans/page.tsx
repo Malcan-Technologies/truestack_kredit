@@ -361,8 +361,12 @@ function LoansPageContent() {
           </div>
           {lateFeeStatus?.lastRun && (
             <span className="text-muted-foreground text-xs mt-2 ml-1 block">
-              {/* <Clock className="inline h-3 w-3 mr-1" /> */}
               Last run: {formatSmartDateTime(lateFeeStatus.lastRun)}
+              {lateFeeStatus.lastTrigger && (
+                <span className="opacity-70">
+                  {" "}({lateFeeStatus.lastTrigger === "CRON" ? "scheduled" : "manual"})
+                </span>
+              )}
             </span>
           )}
         </div>

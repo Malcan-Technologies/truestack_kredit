@@ -699,7 +699,7 @@ export class LateFeeProcessor {
       where: {
         processedAt: { gte: todayStart, lt: todayEnd },
         status: 'SUCCESS',
-        ...(tenantId ? { tenantId } : {}),
+        ...(tenantId ? { OR: [{ tenantId }, { tenantId: null }] } : {}),
       },
       orderBy: { processedAt: 'desc' },
     });
@@ -712,7 +712,9 @@ export class LateFeeProcessor {
   }
 
   /**
-   * Get the latest processing status
+   * Get the latest processing status.
+   * Uses a single log query when possible: if the most recent run was a successful run today,
+   * we derive processedToday from it and skip the extra hasProcessedToday query.
    */
   static async getProcessingStatus(tenantId?: string): Promise<{
     lastRun: Date | null;
@@ -723,15 +725,16 @@ export class LateFeeProcessor {
     loansInArrears: number;
     loansReadyToComplete: number;
   }> {
-    const tenantFilter = tenantId ? { tenantId } : {};
+    const logFilter = tenantId ? { OR: [{ tenantId }, { tenantId: null }] } : {};
     const loanTenantFilter = tenantId ? { tenantId } : {};
+    const todayStart = getMalaysiaStartOfDay();
+    const todayEnd = getMalaysiaEndOfDay();
 
-    const [lastLog, todayCheck, defaultCount, arrearsCount, readyToCompleteLoans] = await Promise.all([
+    const [lastLog, defaultCount, arrearsCount, readyToCompleteLoans] = await Promise.all([
       prisma.lateFeeProcessingLog.findFirst({
-        where: tenantFilter,
+        where: logFilter,
         orderBy: { processedAt: 'desc' },
       }),
-      this.hasProcessedToday(tenantId),
       prisma.loan.count({
         where: { ...loanTenantFilter, readyForDefault: true, status: { not: 'DEFAULTED' } },
       }),
@@ -759,6 +762,20 @@ export class LateFeeProcessor {
       }),
     ]);
 
+    // Derive processedToday from lastLog when possible (avoids extra DB query in common case)
+    let processedToday: boolean;
+    const lastRunInToday =
+      lastLog &&
+      lastLog.processedAt >= todayStart &&
+      lastLog.processedAt < todayEnd &&
+      lastLog.status === 'SUCCESS';
+    if (lastRunInToday) {
+      processedToday = true;
+    } else {
+      const todayCheck = await this.hasProcessedToday(tenantId);
+      processedToday = todayCheck.processed;
+    }
+
     // Count loans where every repayment in the latest schedule version is PAID
     const readyToCompleteCount = readyToCompleteLoans.filter(loan => {
       const schedule = loan.scheduleVersions[0];
@@ -770,7 +787,7 @@ export class LateFeeProcessor {
       lastRun: lastLog?.processedAt || null,
       lastTrigger: lastLog?.trigger || null,
       lastStatus: lastLog?.status || null,
-      processedToday: todayCheck.processed,
+      processedToday,
       loansReadyForDefault: defaultCount,
       loansInArrears: arrearsCount,
       loansReadyToComplete: readyToCompleteCount,

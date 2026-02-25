@@ -1254,4 +1254,5 @@ model LateFeeProcessingLog {
 
   @@index([processedAt])
   @@index([trigger])
+  @@index([tenantId, processedAt])
 }

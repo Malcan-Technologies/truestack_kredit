@@ -81,6 +81,7 @@ router.get('/memberships', async (req, res, next) => {
             slug: true,
             status: true,
             logoUrl: true,
+            subscriptionStatus: true,
             subscription: {
               select: {
                 plan: true,
@@ -117,6 +118,7 @@ router.get('/memberships', async (req, res, next) => {
                 gracePeriodEnd: m.tenant.subscription.gracePeriodEnd?.toISOString() ?? null,
               }
             : null,
+          tenantSubscriptionStatus: m.tenant.subscriptionStatus,
           addOns: m.tenant.addOns?.map((a) => ({ addOnType: a.addOnType, status: a.status })) ?? [],
         })),
         activeTenantId: dbSession?.activeTenantId || null,

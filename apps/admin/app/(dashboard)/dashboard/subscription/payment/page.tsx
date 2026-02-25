@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { OnboardingStepper } from "@/components/onboarding-stepper";
 import { cn, formatCurrency, formatNumber, safeAdd, safeMultiply } from "@/lib/utils";
 import { format } from "date-fns";
 
@@ -102,6 +103,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 
 function PaymentPageContent() {
   const searchParams = useSearchParams();
+  const isOnboardingFlow = searchParams.get("from") === "onboarding";
 
   // Parse query params from subscription page
   const queryAmount = Number(searchParams.get("amount")) || CORE_PRICE;
@@ -197,6 +199,7 @@ function PaymentPageContent() {
         } else {
           toast.success("Payment submitted. Awaiting admin verification.");
         }
+        window.location.href = "/dashboard";
       } else {
         // PAID: activate add-ons that are selected but not yet active (testing only)
         const addOnsRes = await api.get<{ addOns: { addOnType: string; status: string }[] }>(
@@ -219,7 +222,7 @@ function PaymentPageContent() {
         }
         if (toActivate.length > 0) {
           toast.success("Add-ons activated! Reloading…");
-          setTimeout(() => window.location.reload(), 1000);
+          setTimeout(() => (window.location.href = "/dashboard"), 1000);
         } else {
           toast.info("No add-on changes to apply.");
         }
@@ -284,10 +287,12 @@ function PaymentPageContent() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 pb-16">
+    <div className="mx-auto max-w-6xl space-y-6 pb-16">
+      {isOnboardingFlow && <OnboardingStepper currentStep={3} />}
+
       {/* ── Header ── */}
       <div className="flex items-center gap-3">
-        <Link href="/dashboard/subscription">
+        <Link href={isOnboardingFlow ? "/dashboard/subscription?from=onboarding" : "/dashboard/subscription"}>
           <Button variant="ghost" size="icon" className="h-8 w-8">
             <ArrowLeft className="h-4 w-4" />
           </Button>

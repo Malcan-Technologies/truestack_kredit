@@ -256,6 +256,7 @@ router.get('/current', async (req, res, next) => {
           status: tenant.subscription.status,
           currentPeriodEnd: tenant.subscription.currentPeriodEnd,
           gracePeriodEnd: tenant.subscription.gracePeriodEnd,
+          tenantSubscriptionStatus: tenant.subscriptionStatus,
         } : null,
         counts: {
           users: tenant._count.members,

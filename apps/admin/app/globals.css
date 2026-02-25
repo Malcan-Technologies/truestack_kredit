@@ -272,6 +272,7 @@
 /* Phone input - theme overrides for react-phone-number-input */
 .PhoneInput {
   --PhoneInput-color--focus: hsl(var(--ring));
+  --PhoneInputCountryFlag-height: 1rem;
   --PhoneInputCountryFlag-borderColor: transparent;
   --PhoneInputCountryFlag-borderColor--focus: transparent;
   --PhoneInputCountrySelectArrow-color: hsl(var(--muted-foreground));

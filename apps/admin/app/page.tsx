@@ -1,38 +1,42 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PoweredByTruestack, BackToTruestackButton } from "@/components/powered-by-truestack";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "TrueKredit - Loan Management Platform",
+    absolute: "TrueKredit™  - Loan Management Platform",
   },
   description: "Multi-tenant loan management platform for lenders",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "TrueKredit - Loan Management Platform",
+    title: "TrueKredit™ - Loan Management Platform",
     description: "Multi-tenant loan management platform for lenders",
     url: "/",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "TrueKredit - Loan Management Platform",
+    title: "TrueKredit™ - Loan Management Platform",
     description: "Multi-tenant loan management platform for lenders",
   },
 };
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-background flex flex-col items-center justify-center p-8">
+    <main className="relative min-h-screen bg-background flex flex-col items-center justify-center p-8">
+      <div className="absolute top-4 right-4 flex items-center gap-4">
+        <BackToTruestackButton variant="outline" />
+      </div>
       <div className="text-center space-y-8">
         {/* Logo */}
         <div className="space-y-2">
           <h1 className="text-4xl font-heading font-bold text-gradient">
-            TrueKredit
+            TrueKredit™
           </h1>
           <p className="text-muted">
-            Multi-tenant loan management platform
+            KPKT loan management platform for PPW license holders
           </p>
         </div>
 
@@ -48,7 +52,7 @@ export default function Home() {
             href="/register"
             className="btn-secondary"
           >
-            Register Tenant
+            Register
           </Link>
         </div>
 
@@ -66,6 +70,11 @@ export default function Home() {
             title="Compliance Ready"
             description="Audit logs, Schedule A reports, and data exports"
           />
+        </div>
+
+        {/* Powered by Truestack */}
+        <div className="flex flex-col items-center gap-4 mt-16">
+          <PoweredByTruestack className="text-center" />
         </div>
       </div>
     </main>

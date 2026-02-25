@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   ArrowLeft,
   Send,
   Fingerprint,
+  BadgePercent,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -23,6 +24,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { OnboardingStepper } from "@/components/onboarding-stepper";
 import { cn, formatCurrency, formatNumber, safeAdd, safeMultiply } from "@/lib/utils";
 import { api } from "@/lib/api";
 
@@ -53,6 +55,8 @@ const CORE_FEATURES = [
 
 export default function SubscriptionPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isOnboardingFlow = searchParams.get("from") === "onboarding";
 
   // ── state ──
   const [subscriptionStatus, setSubscriptionStatus] = useState<"FREE" | "PAID">("FREE");
@@ -65,6 +69,7 @@ export default function SubscriptionPage() {
 
   // Dialog state
   const [pendingDisableAddOn, setPendingDisableAddOn] = useState<"TRUESEND" | "TRUEIDENTITY" | null>(null);
+  const [showBackToOnboardingConfirm, setShowBackToOnboardingConfirm] = useState(false);
 
   const isPaid = subscriptionStatus === "PAID";
 
@@ -147,6 +152,7 @@ export default function SubscriptionPage() {
     params.set("amount", String(monthlyTotal));
     if (wantsTruesend) params.set("truesend", "1");
     if (wantsTrueIdentity) params.set("trueidentity", "1");
+    if (isOnboardingFlow) params.set("from", "onboarding");
     router.push(`/dashboard/subscription/payment?${params.toString()}`);
   };
 
@@ -163,7 +169,9 @@ export default function SubscriptionPage() {
   // Render
   // ============================================
   return (
-    <div className="px-4 space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 pb-16">
+      {isOnboardingFlow && <OnboardingStepper currentStep={2} />}
+
       {/* Header */}
       <div>
         <div className="flex items-start gap-2">
@@ -171,7 +179,13 @@ export default function SubscriptionPage() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 -ml-1 mt-0.5"
-            onClick={() => router.push("/dashboard/plan")}
+            onClick={() => {
+              if (isOnboardingFlow) {
+                setShowBackToOnboardingConfirm(true);
+              } else {
+                router.push("/dashboard/plan");
+              }
+            }}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -321,12 +335,7 @@ export default function SubscriptionPage() {
 
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-foreground inline-flex items-center gap-2">
-                    Core Plan
-                    <Badge className="bg-black text-white hover:bg-black text-[10px] font-semibold border-0 px-1.5 py-0.5">
-                      Save {CORE_DISCOUNT_PCT}%
-                    </Badge>
-                  </span>
+                  <span className="text-foreground">Core Plan</span>
                   <span className="tabular-nums">{formatCurrency(CORE_PRICE)}/mo</span>
                 </div>
                 {extraBlocks > 0 && (
@@ -389,6 +398,12 @@ export default function SubscriptionPage() {
                 </p>
               )}
             </Card>
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+              <BadgePercent className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                Nice! You save {formatCurrency(CORE_ORIGINAL_PRICE - CORE_PRICE)}/month
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -437,6 +452,35 @@ export default function SubscriptionPage() {
               }}
             >
               {pendingDisableAddOn === "TRUESEND" ? "Remove TrueSend" : "Disable"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ================================================ */}
+      {/* Dialog: Back to company details confirmation     */}
+      {/* ================================================ */}
+      <AlertDialog
+        open={showBackToOnboardingConfirm}
+        onOpenChange={setShowBackToOnboardingConfirm}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Go back to company details?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your tenant has already been created. Going back to company details will create a new tenant. Are you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setShowBackToOnboardingConfirm(false);
+                router.push("/dashboard/onboarding");
+              }}
+            >
+              Continue
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

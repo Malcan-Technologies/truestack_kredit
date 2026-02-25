@@ -13,8 +13,8 @@ import { useSession, updateUser } from "@/lib/auth-client";
 import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { CopyField } from "@/components/ui/copy-field";
-import { CreateTenantModal } from "@/components/create-tenant-modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import Link from "next/link";
 
 interface CurrentMembership {
   referrer: { id: string; name: string | null; email: string } | null;
@@ -94,7 +94,6 @@ export default function ProfilePage() {
   });
   const [tenants, setTenants] = useState<TenantMembership[]>([]);
   const [loadingTenants, setLoadingTenants] = useState(false);
-  const [showCreateTenantModal, setShowCreateTenantModal] = useState(false);
 
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
@@ -555,13 +554,11 @@ Sign up here: ${referralLink}`
                   <CardDescription>Organizations you belong to with their plans and billing</CardDescription>
                 </div>
               </div>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => setShowCreateTenantModal(true)}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                 New Tenant
+              <Button variant="default" size="sm" asChild>
+                <Link href="/dashboard/onboarding">
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Tenant
+                </Link>
               </Button>
             </div>
           </CardHeader>
@@ -642,11 +639,6 @@ Sign up here: ${referralLink}`
           </CardContent>
         </Card>
       </div>
-
-      <CreateTenantModal
-        open={showCreateTenantModal}
-        onClose={() => setShowCreateTenantModal(false)}
-      />
 
       {/* Referrals - combined code + my referrals */}
       <Card>

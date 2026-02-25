@@ -143,6 +143,7 @@ function LoanUsageBar({ used, limit, truesendActive = false }: { used: number; l
 
 interface SubscriptionData {
   plan: string;
+  tenantSubscriptionStatus?: "FREE" | "PAID";
 }
 
 export default function PlanPage() {
@@ -163,7 +164,7 @@ export default function PlanPage() {
           emailStats?: EmailStats;
           verificationStats?: VerificationStats;
         }>("/api/billing/add-ons"),
-        api.get<{ plan: string }>("/api/billing/subscription"),
+        api.get<{ plan: string; tenantSubscriptionStatus?: "FREE" | "PAID" }>("/api/billing/subscription"),
         api.get<{ counts: { loans: number } }>("/api/tenants/current"),
       ]);
       if (addOnsRes.success && addOnsRes.data) {
@@ -197,6 +198,8 @@ export default function PlanPage() {
 
   const isTrueSendActive = getAddOnStatus("TRUESEND")?.status === "ACTIVE";
   const isTrueIdentityActive = getAddOnStatus("TRUEIDENTITY")?.status === "ACTIVE";
+
+  const isCoreActive = subscription?.tenantSubscriptionStatus === "PAID";
 
   const planName =
     subscription?.plan === "Core+"
@@ -307,19 +310,34 @@ export default function PlanPage() {
             >
               <CardContent className="pt-6 pb-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                       Your plan
                     </h2>
-                    <p className="text-xl font-heading font-bold text-foreground flex items-center gap-2">
-                      {planName === "Core" ? (
-                        <Zap className="h-5 w-5 text-primary" />
-                      ) : null}
-                      {planName} Plan
-                    </p>
+                    <div className="flex items-center gap-2">
+                      {planName === "Core" && (
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                            isCoreActive ? "bg-emerald-500/20" : "bg-muted"
+                          }`}
+                        >
+                          {isCoreActive ? (
+                            <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <X className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                      )}
+                      {planName === "Core" && <Zap className="h-5 w-5 text-primary shrink-0" />}
+                      <p className="text-xl font-heading font-bold text-foreground">
+                        {planName} Plan
+                      </p>
+                    </div>
                     <p className="text-sm text-muted-foreground mt-1">
                       {planName === "Core"
-                        ? "Full loan management, compliance, and schedules. Add TrueSend™ as an add-on for automated emails."
+                        ? isCoreActive
+                          ? "Full loan management, compliance, and schedules. Add TrueSend™ as an add-on for automated emails."
+                          : "Subscription pending. Full access after payment verification."
                         : "Subscribe to Core to unlock the full platform."}
                     </p>
                     {planName === "Core" && (

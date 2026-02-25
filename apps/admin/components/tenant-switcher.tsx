@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { Check, ChevronsUpDown, Building2, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronsUpDown, Building2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +23,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useTenantContext } from "@/components/tenant-context";
 import { cn } from "@/lib/utils";
-import { CreateTenantModal } from "@/components/create-tenant-modal";
 
 interface Membership {
   id: string;
@@ -31,6 +31,7 @@ interface Membership {
   tenantSlug: string;
   tenantStatus: string;
   tenantLogoUrl: string | null;
+  tenantSubscriptionStatus?: "FREE" | "PAID";
   role: string;
 }
 
@@ -69,12 +70,27 @@ function TenantLogo({ logoUrl, name, size = "md" }: TenantLogoProps) {
   );
 }
 
+function SubscriptionStatusDot({ status }: { status?: "FREE" | "PAID" }) {
+  if (!status) return null;
+  return (
+    <span
+      className={cn(
+        "inline-block w-1.5 h-1.5 rounded-full shrink-0",
+        status === "PAID"
+          ? "bg-emerald-500"
+          : "bg-amber-500"
+      )}
+      title={status === "PAID" ? "Subscribed" : "Pending"}
+    />
+  );
+}
+
 export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherProps) {
+  const router = useRouter();
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [activeTenantId, setActiveTenantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const { refreshKey } = useTenantContext();
 
   useEffect(() => {
@@ -175,29 +191,34 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
                 <TooltipTrigger asChild>
                   <button
                     className={cn(
-                      "flex items-center justify-center w-full h-16 hover:bg-surface transition-colors outline-none",
+                      "flex items-center justify-center w-full h-16 hover:bg-surface transition-colors outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0",
                       className,
                     )}
                     disabled={switching}
                     aria-label="Switch tenant"
                   >
-                    <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
+                    <TenantLogo
+                      logoUrl={activeMembership?.tenantLogoUrl}
+                      name={activeMembership?.tenantName}
+                    />
                   </button>
                 </TooltipTrigger>
               </DropdownMenuTrigger>
               <TooltipContent side="right">
                 <p>{activeMembership?.tenantName || "Select tenant"}</p>
-                <p className="opacity-70 text-xs">
-                  {memberships.length > 1 ? "Click to switch" : "Click for options"}
+                <p className="flex items-center gap-1.5 opacity-70 text-xs mt-0.5">
+                  <SubscriptionStatusDot status={activeMembership?.tenantSubscriptionStatus} />
+                  {activeMembership?.tenantSlug || ""}
+                  {memberships.length > 1 ? " · Click to switch" : " · Click for options"}
                 </p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <DropdownMenuContent className="w-[240px]" side="right" align="start">
+          <DropdownMenuContent className="w-[320px]" side="right" align="start">
             <DropdownMenuLabel>Switch Tenant</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => router.push("/dashboard/onboarding")}
               className="cursor-pointer"
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -208,35 +229,37 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
               <DropdownMenuItem
                 key={membership.tenantId}
                 onClick={() => handleSwitchTenant(membership.tenantId)}
-                className="cursor-pointer"
+                className={cn(
+                  "cursor-pointer",
+                  membership.tenantId === activeTenantId &&
+                    "bg-muted/10 focus:bg-muted/10 data-[highlighted]:bg-muted/10"
+                )}
               >
-                <div className="flex items-center justify-between w-full gap-2">
-                  <TenantLogo logoUrl={membership.tenantLogoUrl} name={membership.tenantName} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">
-                      {membership.tenantName}
+                <div className="flex items-center w-full gap-2 min-w-0">
+                  <TenantLogo
+                    logoUrl={membership.tenantLogoUrl}
+                    name={membership.tenantName}
+                    size="sm"
+                  />
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <p className="text-sm font-medium min-w-0">
+                      <span className="truncate block">{membership.tenantName}</span>
                     </p>
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-xs text-muted truncate">
-                        {membership.tenantSlug}
-                      </p>
-                      <Badge variant="outline" className="text-[10px] px-1 py-0">
+                    <div className="flex items-center justify-between gap-2 w-full min-w-0">
+                      <span className="text-xs text-muted min-w-0 flex items-center gap-1.5">
+                        <SubscriptionStatusDot status={membership.tenantSubscriptionStatus} />
+                        <span className="truncate">{membership.tenantSlug}</span>
+                      </span>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
                         {membership.role}
                       </Badge>
                     </div>
                   </div>
-                  {membership.tenantId === activeTenantId && (
-                    <Check className="h-4 w-4 text-foreground shrink-0" />
-                  )}
                 </div>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <CreateTenantModal
-          open={showCreateModal}
-          onClose={() => setShowCreateModal(false)}
-        />
       </>
     );
   }
@@ -248,30 +271,34 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
         <Button
           variant="ghost"
           className={cn(
-            "w-full justify-between px-4 py-6 h-auto rounded-none hover:bg-surface hover:text-foreground",
+            "w-full justify-between px-4 py-6 h-auto rounded-none hover:bg-surface hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
             className
           )}
           disabled={switching}
         >
           <div className="flex items-center gap-3 min-w-0">
-            <TenantLogo logoUrl={activeMembership?.tenantLogoUrl} name={activeMembership?.tenantName} />
+                <TenantLogo
+                  logoUrl={activeMembership?.tenantLogoUrl}
+                  name={activeMembership?.tenantName}
+                />
             <div className="text-left min-w-0">
               <p className="text-sm font-medium truncate">
                 {activeMembership?.tenantName || "Select tenant"}
               </p>
-              <p className="text-xs text-muted truncate">
-                {activeMembership?.tenantSlug || ""}
+              <p className="text-xs text-muted flex items-center gap-1.5 min-w-0">
+                <SubscriptionStatusDot status={activeMembership?.tenantSubscriptionStatus} />
+                <span className="truncate">{activeMembership?.tenantSlug || ""}</span>
               </p>
             </div>
           </div>
           <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-[240px]" side="right" align="start">
+      <DropdownMenuContent className="w-[320px]" side="right" align="start">
         <DropdownMenuLabel>Switch Tenant</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => router.push("/dashboard/onboarding")}
           className="cursor-pointer"
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -283,26 +310,32 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
           <DropdownMenuItem
             key={membership.tenantId}
             onClick={() => handleSwitchTenant(membership.tenantId)}
-            className="cursor-pointer"
+            className={cn(
+              "cursor-pointer",
+              membership.tenantId === activeTenantId &&
+                "bg-muted/25 focus:bg-muted/25 data-[highlighted]:bg-muted/25"
+            )}
           >
-            <div className="flex items-center justify-between w-full gap-2">
-              <TenantLogo logoUrl={membership.tenantLogoUrl} name={membership.tenantName} size="sm" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">
-                  {membership.tenantName}
+            <div className="flex items-center w-full gap-2 min-w-0">
+              <TenantLogo
+                logoUrl={membership.tenantLogoUrl}
+                name={membership.tenantName}
+                size="sm"
+              />
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <p className="text-sm font-medium min-w-0">
+                  <span className="truncate block">{membership.tenantName}</span>
                 </p>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-xs text-muted truncate">
-                    {membership.tenantSlug}
-                  </p>
-                  <Badge variant="outline" className="text-[10px] px-1 py-0">
+                <div className="flex items-center justify-between gap-2 w-full min-w-0">
+                  <span className="text-xs text-muted min-w-0 flex items-center gap-1.5">
+                    <SubscriptionStatusDot status={membership.tenantSubscriptionStatus} />
+                    <span className="truncate">{membership.tenantSlug}</span>
+                  </span>
+                  <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
                     {membership.role}
                   </Badge>
                 </div>
               </div>
-              {membership.tenantId === activeTenantId && (
-                <Check className="h-4 w-4 text-foreground shrink-0" />
-              )}
             </div>
           </DropdownMenuItem>
         ))
@@ -312,10 +345,6 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
-      <CreateTenantModal
-        open={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-      />
     </DropdownMenu>
   );
 }

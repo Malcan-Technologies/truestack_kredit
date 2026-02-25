@@ -22,6 +22,7 @@ import {
   ExternalLink,
   Info,
   TrendingUp,
+  Clock,
 } from "lucide-react";
 import {
   Bar,
@@ -75,6 +76,7 @@ interface TenantStats {
     status: string;
     currentPeriodEnd: string;
     gracePeriodEnd?: string;
+    tenantSubscriptionStatus?: "FREE" | "PAID";
   } | null;
   counts: {
     users: number;
@@ -282,11 +284,18 @@ interface AddOnStatus {
   status: string;
 }
 
+interface LatestPaymentRequest {
+  requestId: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  rejectionReason?: string | null;
+}
+
 export default function DashboardPage() {
   const { hasTenants } = useTenantContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [tenant, setTenant] = useState<TenantStats | null>(null);
   const [addOns, setAddOns] = useState<AddOnStatus[]>([]);
+  const [latestPaymentRequest, setLatestPaymentRequest] = useState<LatestPaymentRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [datePreset, setDatePreset] = useState<DatePreset>("3m");
   const hasInitialFetched = useRef(false);
@@ -317,11 +326,13 @@ export default function DashboardPage() {
       api.get<TenantStats>("/api/tenants/current"),
       api.get<DashboardStats>(`/api/dashboard/stats?${params}`),
       api.get<{ addOns: AddOnStatus[] }>("/api/billing/add-ons"),
+      api.get<LatestPaymentRequest | null>("/api/billing/subscription-payment-request/latest"),
     ])
-      .then(([tenantRes, dashRes, addOnsRes]) => {
+      .then(([tenantRes, dashRes, addOnsRes, paymentReqRes]) => {
         if (tenantRes.success && tenantRes.data) setTenant(tenantRes.data);
         if (dashRes.success && dashRes.data) setStats(dashRes.data);
         if (addOnsRes.success && addOnsRes.data) setAddOns(addOnsRes.data.addOns);
+        if (paymentReqRes.success) setLatestPaymentRequest(paymentReqRes.data ?? null);
       })
       .catch((err) => console.error("Failed to refresh:", err))
       .finally(() => setLoading(false));
@@ -441,6 +452,49 @@ export default function DashboardPage() {
         </div>
 
         {/* ============================================ */}
+        {/* Row 2a: Payment Pending Verification */}
+        {/* ============================================ */}
+        {latestPaymentRequest?.status === "PENDING" && (
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-blue-500/30 bg-blue-500/5">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/10">
+              <Clock className="h-4 w-4 text-blue-500" />
+            </div>
+            <div>
+              <p className="text-base font-medium text-blue-600 dark:text-blue-400">
+                Waiting for payment to be verified
+              </p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Your subscription will be activated within 1 business day after we confirm your payment.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================ */}
+        {/* Row 2b: Not Subscribed (tenant registered, no plan) */}
+        {/* ============================================ */}
+        {((tenant?.subscription?.tenantSubscriptionStatus === "FREE") ||
+          (tenant?.subscription?.tenantSubscriptionStatus !== "PAID" && getPlanName(tenant?.subscription?.plan) !== "Core")) &&
+          latestPaymentRequest?.status !== "PENDING" && (
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
+              <Rocket className="h-4 w-4 text-amber-500" />
+            </div>
+            <div>
+              <p className="text-base font-medium text-amber-600 dark:text-amber-400">
+                Your tenant is not yet subscribed to a plan
+              </p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Subscribe to Core to access loan management, compliance, and more.
+              </p>
+            </div>
+            <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-amber-500/50 hover:bg-amber-500/10">
+              <Link href="/dashboard/subscription">Choose plan</Link>
+            </Button>
+          </div>
+        )}
+
+        {/* ============================================ */}
         {/* Row 2: Action Needed Bar */}
         {/* ============================================ */}
         {stats?.actionNeeded && (
@@ -512,7 +566,8 @@ export default function DashboardPage() {
             <CardContent className="py-4">
               {(() => {
                 const planName = getPlanName(tenant?.subscription?.plan);
-                const hasPaidPlan = planName === "Core";
+                const isPaidTenant = tenant?.subscription?.tenantSubscriptionStatus === "PAID";
+                const hasPaidPlan = planName === "Core" && isPaidTenant;
 
                 if (!hasPaidPlan) {
                   return (
@@ -554,18 +609,22 @@ export default function DashboardPage() {
                           </Link>
                           <Badge
                             variant={
-                              tenant!.subscription!.status === "ACTIVE"
-                                ? "success"
-                                : tenant!.subscription!.status === "GRACE_PERIOD"
-                                  ? "warning"
-                                  : "destructive"
+                              !isPaidTenant
+                                ? "secondary"
+                                : tenant!.subscription!.status === "ACTIVE"
+                                  ? "success"
+                                  : tenant!.subscription!.status === "GRACE_PERIOD"
+                                    ? "warning"
+                                    : "destructive"
                             }
                           >
-                            {tenant!.subscription!.status === "ACTIVE"
-                              ? "Active"
-                              : tenant!.subscription!.status === "GRACE_PERIOD"
-                                ? "Grace Period"
-                                : tenant!.subscription!.status}
+                            {!isPaidTenant
+                              ? "Pending"
+                              : tenant!.subscription!.status === "ACTIVE"
+                                ? "Active"
+                                : tenant!.subscription!.status === "GRACE_PERIOD"
+                                  ? "Grace Period"
+                                  : tenant!.subscription!.status}
                           </Badge>
                         </div>
                         <p className="text-base text-muted mt-0.5">

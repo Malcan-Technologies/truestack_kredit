@@ -48,6 +48,13 @@ interface TenantInfo {
   businessAddress: string | null;
   logoUrl: string | null;
   status: string;
+  subscription?: {
+    plan: string;
+    status: string;
+    currentPeriodEnd: string;
+    gracePeriodEnd?: string | null;
+    tenantSubscriptionStatus?: "FREE" | "PAID";
+  } | null;
 }
 
 interface User {
@@ -100,7 +107,7 @@ export default function SettingsPage() {
 
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
-  const { refreshTenantData } = useTenantContext();
+  const { refreshTenantData, hasTenants } = useTenantContext();
   const currentUser = session?.user;
   const currentRole = currentMembership?.role || "STAFF";
 
@@ -353,6 +360,31 @@ export default function SettingsPage() {
     return null;
   }
 
+  if (!hasTenants) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-heading font-bold text-gradient">Settings</h1>
+          <p className="text-muted">Manage your tenant settings and users</p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Register a tenant first</CardTitle>
+            <CardDescription>
+              You need to complete tenant onboarding before tenant settings become available.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/dashboard/onboarding">Start tenant onboarding</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -519,13 +551,32 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Status</label>
-                  <div className="flex items-center h-10">
-                    <Badge variant={tenant?.status === "ACTIVE" ? "success" : "warning"}>
-                      {tenant?.status}
+                  <label className="text-sm font-medium">Subscription</label>
+                  <div className="flex items-center h-10 gap-2">
+                    <Badge
+                      variant={
+                        tenant?.subscription?.tenantSubscriptionStatus === "PAID" &&
+                        tenant?.subscription?.status === "ACTIVE"
+                          ? "success"
+                          : tenant?.subscription?.status === "GRACE_PERIOD"
+                            ? "warning"
+                            : "secondary"
+                      }
+                    >
+                      {tenant?.subscription?.tenantSubscriptionStatus === "PAID" &&
+                      tenant?.subscription?.status === "ACTIVE"
+                        ? "Subscribed"
+                        : tenant?.subscription?.status === "GRACE_PERIOD"
+                          ? "Grace Period"
+                          : "Pending"}
                     </Badge>
+                    <Link
+                      href="/dashboard/billing"
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      View billing
+                    </Link>
                   </div>
-                  <p className="text-xs text-muted">Status cannot be changed</p>
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <label className="text-sm font-medium">Business Address</label>
@@ -589,10 +640,32 @@ export default function SettingsPage() {
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-sm text-muted">Status</p>
-                  <Badge variant={tenant?.status === "ACTIVE" ? "success" : "warning"}>
-                    {tenant?.status}
-                  </Badge>
+                  <p className="text-sm text-muted">Subscription</p>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={
+                        tenant?.subscription?.tenantSubscriptionStatus === "PAID" &&
+                        tenant?.subscription?.status === "ACTIVE"
+                          ? "success"
+                          : tenant?.subscription?.status === "GRACE_PERIOD"
+                            ? "warning"
+                            : "secondary"
+                      }
+                    >
+                      {tenant?.subscription?.tenantSubscriptionStatus === "PAID" &&
+                      tenant?.subscription?.status === "ACTIVE"
+                        ? "Subscribed"
+                        : tenant?.subscription?.status === "GRACE_PERIOD"
+                          ? "Grace Period"
+                          : "Pending"}
+                    </Badge>
+                    <Link
+                      href="/dashboard/billing"
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      View billing
+                    </Link>
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm text-muted">KPKT License Number</p>

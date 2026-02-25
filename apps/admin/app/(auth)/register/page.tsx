@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { BackToTruestackButton, BackToRootButton } from "@/components/powered-by-truestack";
 
 function RegisterForm() {
   const router = useRouter();
@@ -57,7 +58,10 @@ function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+      <div className="absolute top-4 right-4">
+        <BackToTruestackButton variant="outline" />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl text-gradient">Create Account</CardTitle>
@@ -135,6 +139,9 @@ function RegisterForm() {
           </CardFooter>
         </form>
       </Card>
+      <div className="mt-8">
+        <BackToRootButton variant="ghost" />
+      </div>
     </div>
   );
 }

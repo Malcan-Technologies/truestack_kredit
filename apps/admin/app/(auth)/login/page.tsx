@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { signIn } from "@/lib/auth-client";
+import { BackToTruestackButton, BackToRootButton } from "@/components/powered-by-truestack";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -72,7 +73,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+      <div className="absolute top-4 right-4">
+        <BackToTruestackButton variant="outline" />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl text-gradient">Sign In</CardTitle>
@@ -134,6 +138,9 @@ export default function LoginPage() {
           </CardFooter>
         </form>
       </Card>
+      <div className="mt-8">
+        <BackToRootButton variant="ghost" />
+      </div>
     </div>
   );
 }

@@ -63,6 +63,7 @@ router.get('/subscription', async (req, res, next) => {
         currentPeriodStart: subscription.currentPeriodStart,
         currentPeriodEnd: subscription.currentPeriodEnd,
         gracePeriodEnd: subscription.gracePeriodEnd,
+        tenantSubscriptionStatus: tenant?.subscriptionStatus ?? "FREE",
       },
     });
   } catch (error) {

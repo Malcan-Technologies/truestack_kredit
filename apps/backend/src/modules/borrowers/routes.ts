@@ -269,6 +269,9 @@ const directorSchema = z.object({
     .refine((val) => val.length === 12, 'Director IC must be exactly 12 digits'),
   position: z.string().max(100).optional(),
 });
+const updateDirectorSchema = directorSchema.extend({
+  id: z.string().cuid().optional(),
+});
 
 // Validation schemas
 const createBorrowerSchema = z.object({
@@ -290,7 +293,7 @@ const updateBorrowerSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
   address: z.string().max(500).optional(),
-  directors: z.array(directorSchema).min(1).max(10).optional(),
+  directors: z.array(updateDirectorSchema).min(1).max(10).optional(),
 }).merge(individualFieldsSchema).merge(corporateFieldsSchema).merge(addressFieldsSchema);
 
 /**
@@ -818,6 +821,7 @@ router.post('/', async (req, res, next) => {
 
     const isCorporate = data.borrowerType === 'CORPORATE';
     const normalizedDirectors = (data.directors || []).map((director, index) => ({
+      id: 'id' in director ? director.id : undefined,
       name: director.name.trim(),
       icNumber: director.icNumber.trim(),
       position: director.position?.trim() || null,
@@ -993,6 +997,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
     const updateData: Record<string, unknown> = {};
     const effectiveBorrowerType = data.borrowerType ?? existing.borrowerType;
     const normalizedDirectors = (data.directors || []).map((director, index) => ({
+      id: 'id' in director ? director.id : undefined,
       name: director.name.trim(),
       icNumber: director.icNumber.trim(),
       position: director.position?.trim() || null,
@@ -1084,19 +1089,66 @@ router.patch('/:borrowerId', async (req, res, next) => {
       });
 
       if (data.directors !== undefined) {
-        await tx.borrowerDirector.deleteMany({
-          where: { borrowerId: req.params.borrowerId },
-        });
+        if (effectiveBorrowerType !== 'CORPORATE') {
+          await tx.borrowerDirector.deleteMany({
+            where: { borrowerId: req.params.borrowerId },
+          });
+        } else if (normalizedDirectors.length > 0) {
+          const existingDirectors = await tx.borrowerDirector.findMany({
+            where: { borrowerId: req.params.borrowerId },
+            select: { id: true, icNumber: true },
+          });
 
-        if (effectiveBorrowerType === 'CORPORATE' && normalizedDirectors.length > 0) {
-          await tx.borrowerDirector.createMany({
-            data: normalizedDirectors.map((director) => ({
-              borrowerId: req.params.borrowerId,
-              name: director.name,
-              icNumber: director.icNumber,
-              position: director.position,
-              order: director.order,
-            })),
+          const existingById = new Map(existingDirectors.map((d) => [d.id, d]));
+          const existingByIc = new Map(existingDirectors.map((d) => [d.icNumber, d]));
+          const retainedIds = new Set<string>();
+
+          for (const director of normalizedDirectors) {
+            const matchedExisting =
+              (director.id ? existingById.get(director.id) : undefined) ??
+              existingByIc.get(director.icNumber);
+
+            if (matchedExisting) {
+              retainedIds.add(matchedExisting.id);
+              await tx.borrowerDirector.update({
+                where: { id: matchedExisting.id },
+                data: {
+                  name: director.name,
+                  icNumber: director.icNumber,
+                  position: director.position,
+                  order: director.order,
+                },
+              });
+            } else {
+              const created = await tx.borrowerDirector.create({
+                data: {
+                  borrowerId: req.params.borrowerId,
+                  name: director.name,
+                  icNumber: director.icNumber,
+                  position: director.position,
+                  order: director.order,
+                },
+                select: { id: true },
+              });
+              retainedIds.add(created.id);
+            }
+          }
+
+          if (retainedIds.size > 0) {
+            await tx.borrowerDirector.deleteMany({
+              where: {
+                borrowerId: req.params.borrowerId,
+                id: { notIn: Array.from(retainedIds) },
+              },
+            });
+          } else {
+            await tx.borrowerDirector.deleteMany({
+              where: { borrowerId: req.params.borrowerId },
+            });
+          }
+        } else {
+          await tx.borrowerDirector.deleteMany({
+            where: { borrowerId: req.params.borrowerId },
           });
         }
       }

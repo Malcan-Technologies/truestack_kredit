@@ -184,20 +184,9 @@ function DirectorVerificationCard({
                 Last verified: {formatSmartDateTime(d.lastWebhookAt)}
               </p>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full gap-1.5"
-              onClick={handleSend}
-              disabled={sending}
-            >
-              {sending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              {sending ? "Creating..." : "Redo verification"}
-            </Button>
+            <p className="text-xs text-emerald-700 dark:text-emerald-400">
+              This director is already verified. No re-verification needed.
+            </p>
           </div>
         ) : canStart ? (
           <Button

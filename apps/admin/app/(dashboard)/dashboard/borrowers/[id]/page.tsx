@@ -433,6 +433,16 @@ const CORPORATE_DOCUMENT_OPTIONS = [
   { value: "SELFIE_LIVENESS", label: "Selfie (Liveness)" },
 ];
 
+const CORPORATE_HIDDEN_KYC_DOC_CATEGORIES = new Set([
+  "DIRECTOR_IC_FRONT",
+  "DIRECTOR_IC_BACK",
+  "SELFIE_LIVENESS",
+]);
+
+const CORPORATE_BORROWER_DOCUMENT_OPTIONS = CORPORATE_DOCUMENT_OPTIONS.filter(
+  (opt) => !CORPORATE_HIDDEN_KYC_DOC_CATEGORIES.has(opt.value)
+);
+
 function getDocumentLabel(category: string, borrowerType: string): string {
   const options = borrowerType === "CORPORATE" 
     ? CORPORATE_DOCUMENT_OPTIONS
@@ -2036,6 +2046,8 @@ export default function BorrowerDetailPage() {
                         const apiDirector = "id" in director && director.id
                           ? borrower.directors?.find((d) => d.id === director.id)
                           : borrower.directors?.[index];
+                        const directorStatus = apiDirector?.trueIdentityStatus ?? null;
+                        const directorResult = apiDirector?.trueIdentityResult ?? null;
                         const docUrls = apiDirector?.trueIdentityDocumentUrls as {
                           icFrontUrl?: string | null;
                           icBackUrl?: string | null;
@@ -2051,6 +2063,44 @@ export default function BorrowerDetailPage() {
                               <p className="text-sm font-medium">
                                 Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
                               </p>
+                              {directorStatus === "completed" && directorResult === "approved" ? (
+                                <Badge variant="verified" className="text-[10px]">
+                                  <Fingerprint className="h-3 w-3 mr-1" />
+                                  e-KYC Verified
+                                </Badge>
+                              ) : directorStatus === "completed" && directorResult === "rejected" ? (
+                                <Badge variant="destructive" className="text-[10px]">
+                                  Rejected
+                                </Badge>
+                              ) : directorStatus === "failed" ? (
+                                <Badge variant="destructive" className="text-[10px]">
+                                  Failed
+                                </Badge>
+                              ) : directorStatus === "completed" && directorResult !== "approved" ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-300 dark:border-cyan-700"
+                                >
+                                  <ChartPie className="h-3 w-3 mr-1" />
+                                  Partially verified
+                                </Badge>
+                              ) : directorStatus === "processing" || directorStatus === "pending" ? (
+                                <Badge variant="secondary" className="text-[10px]">
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  In Progress
+                                </Badge>
+                              ) : directorStatus === "expired" ? (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Expired
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                                >
+                                  Unverified
+                                </Badge>
+                              )}
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -3112,8 +3162,6 @@ export default function BorrowerDetailPage() {
               directors={borrower.directors}
             />
 
-          {/* Identity Documents - hidden for corporate (docs shown per director) */}
-          {borrower.borrowerType !== "CORPORATE" && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -3136,7 +3184,7 @@ export default function BorrowerDetailPage() {
                     <SelectContent>
                       <SelectItem value="ALL">All categories</SelectItem>
                       {(borrower.borrowerType === "CORPORATE" 
-                        ? CORPORATE_DOCUMENT_OPTIONS
+                        ? CORPORATE_BORROWER_DOCUMENT_OPTIONS
                         : INDIVIDUAL_DOCUMENT_OPTIONS
                       ).map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
@@ -3168,10 +3216,13 @@ export default function BorrowerDetailPage() {
               {borrower.documents && borrower.documents.length > 0 ? (
                 <div className="space-y-4">
                   {(() => {
+                    const visibleDocs = borrower.borrowerType === "CORPORATE"
+                      ? borrower.documents.filter((d) => !CORPORATE_HIDDEN_KYC_DOC_CATEGORIES.has(d.category))
+                      : borrower.documents;
                     const filtered =
                       selectedDocCategory === "ALL"
-                        ? borrower.documents
-                        : borrower.documents.filter((d) => {
+                        ? visibleDocs
+                        : visibleDocs.filter((d) => {
                             if (d.category === selectedDocCategory) return true;
                             const filename = (d.originalName || d.filename || "").toUpperCase();
                             const categoryInFilename = selectedDocCategory.replace(/-/g, "_");
@@ -3252,7 +3303,6 @@ export default function BorrowerDetailPage() {
               )}
             </CardContent>
           </Card>
-          )}
 
           {/* TrueIdentity IC Documents (from Admin) - individual only; corporate shows per-director */}
           {borrower.borrowerType !== "CORPORATE" && borrower.trueIdentitySessions?.[0]?.verificationDocumentUrls && (() => {

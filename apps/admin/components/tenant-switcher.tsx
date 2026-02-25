@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronsUpDown, Building2, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -10,7 +11,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -215,15 +215,15 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
             </Tooltip>
           </TooltipProvider>
           <DropdownMenuContent className="w-[320px]" side="right" align="start">
-            <DropdownMenuLabel>Switch Tenant</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => router.push("/dashboard/onboarding")}
-              className="cursor-pointer"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Create New Tenant
-            </DropdownMenuItem>
+            <div className="flex items-center justify-between px-2 py-1.5">
+              <span className="text-sm font-semibold">Switch Tenant</span>
+              <Button variant="ghost" size="sm" asChild className="h-7 px-2 -mr-1 text-xs">
+                <Link href="/dashboard/onboarding" className="flex items-center gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  New Tenant
+                </Link>
+              </Button>
+            </div>
             <DropdownMenuSeparator />
             {memberships.map((membership) => (
               <DropdownMenuItem
@@ -295,15 +295,15 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-[320px]" side="right" align="start">
-        <DropdownMenuLabel>Switch Tenant</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => router.push("/dashboard/onboarding")}
-          className="cursor-pointer"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Create New Tenant
-        </DropdownMenuItem>
+        <div className="flex items-center justify-between px-2 py-1.5">
+          <span className="text-sm font-semibold">Switch Tenant</span>
+          <Button variant="ghost" size="sm" asChild className="h-7 px-2 -mr-1 text-xs">
+            <Link href="/dashboard/onboarding" className="flex items-center gap-1.5">
+              <Plus className="h-3.5 w-3.5" />
+              New Tenant
+            </Link>
+          </Button>
+        </div>
         <DropdownMenuSeparator />
         {memberships.length > 0 ? (
           memberships.map((membership) => (

@@ -577,6 +577,7 @@ router.get('/borrowers', async (req, res, next) => {
       ? {
           OR: [
             { name: { contains: search, mode: 'insensitive' as const } },
+            { companyName: { contains: search, mode: 'insensitive' as const } },
             { icNumber: { contains: search, mode: 'insensitive' as const } },
             { phone: { contains: search, mode: 'insensitive' as const } },
             { email: { contains: search, mode: 'insensitive' as const } },
@@ -628,9 +629,11 @@ router.get('/borrowers', async (req, res, next) => {
           id: borrower.id,
           name: borrower.name,
           borrowerType: borrower.borrowerType,
+          companyName: borrower.companyName,
           icNumber: borrower.icNumber,
           documentType: borrower.documentType,
           documentVerified: borrower.documentVerified,
+          verificationStatus: borrower.verificationStatus,
           email: borrower.email,
           phone: borrower.phone,
           tenant: borrower.tenant,

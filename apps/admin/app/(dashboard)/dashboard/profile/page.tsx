@@ -929,6 +929,9 @@ Sign up here: ${referralLink}`
                   <p className="text-2xl font-heading font-bold tabular-nums">
                     {formatCurrency(referrals.totalRewards / 100)}
                   </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Total paid: {formatCurrency(referrals.paidRewards / 100)}
+                  </p>
                 </div>
                 {/* Secondary: Count breakdown */}
                 <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
@@ -970,7 +973,7 @@ Sign up here: ${referralLink}`
                   <Table>
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
-                        <TableHead>User</TableHead>
+                        <TableHead>Referred User</TableHead>
                         <TableHead>Code</TableHead>
                         <TableHead>Reward</TableHead>
                         <TableHead>Status</TableHead>

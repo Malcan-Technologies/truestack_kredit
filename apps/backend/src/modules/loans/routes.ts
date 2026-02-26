@@ -3569,7 +3569,7 @@ router.get('/:loanId/disbursement-proof', async (req, res, next) => {
 // Loan Agreement Endpoints
 // ============================================
 
-import { generateLoanAgreement, generateGuarantorAgreement, LoanForAgreement } from '../../lib/pdfService.js';
+import { generateLoanAgreement, generateGuarantorAgreement, LoanForAgreement, computeScheduleTotal } from '../../lib/pdfService.js';
 import {
   saveAgreementFile,
   getAgreementFile,
@@ -3688,12 +3688,16 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
       monthlyRepaymentDay = firstRepaymentDate.getUTCDate();
     }
 
-    // Prepare loan data for PDF generation
+    // Prepare loan data for PDF generation (agreementDate required for "Hari dan tahun Perjanjian ini")
+    if (!agreementDate) {
+      throw new BadRequestError('Agreement date is required. Provide agreementDate query parameter (YYYY-MM-DD) or ensure the loan has a stored agreement date.');
+    }
     const loanData: LoanForAgreement = {
       id: loan.id,
       principalAmount: loan.principalAmount,
       interestRate: loan.interestRate,
       term: loan.term,
+      agreementDate,
       firstRepaymentDate,
       monthlyRepaymentDay,
       borrower: {
@@ -3906,6 +3910,7 @@ router.get('/:loanId/guarantors/:guarantorId/generate-agreement', async (req, re
       },
       include: {
         borrower: true,
+        product: true,
         tenant: true,
         guarantors: {
           where: { id: guarantorId },
@@ -3927,8 +3932,26 @@ router.get('/:loanId/guarantors/:guarantorId/generate-agreement', async (req, re
       throw new BadRequestError('Agreement date is not set. Please generate the loan agreement first.');
     }
 
+    const principal = toSafeNumber(loan.principalAmount);
+    const interestRate = toSafeNumber(loan.interestRate);
+    const term = loan.term;
+    const interestModel = String(loan.product?.interestModel ?? 'FLAT');
+    const isFlat = interestModel === 'FLAT' || interestModel === 'RULE_78';
+    const flatInterest = calculateFlatInterest(principal, interestRate, term);
+    const monthlyPaymentFlat = safeRound(safeDivide(safeAdd(principal, flatInterest), term), 2);
+    const monthlyPaymentEmi = calculateEMI(principal, interestRate, term);
+    const monthlyPayment = isFlat ? monthlyPaymentFlat : monthlyPaymentEmi;
+    const totalPayable = computeScheduleTotal(principal, interestRate, term, isFlat, monthlyPayment);
+
     const pdfBuffer = await generateGuarantorAgreement({
       agreementDate: loan.agreementDate,
+      loanDetails: {
+        principal,
+        interestRate,
+        term,
+        totalPayable,
+        monthlyPayment,
+      },
       guarantor: {
         name: guarantor.name,
         borrowerType: guarantor.borrowerType,

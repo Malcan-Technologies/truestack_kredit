@@ -16,6 +16,7 @@ export interface LoanForAgreement {
   principalAmount: Decimal;
   interestRate: Decimal;
   term: number;
+  agreementDate: Date;
   firstRepaymentDate?: Date | null;
   monthlyRepaymentDay?: number | null;
   borrower: {
@@ -48,6 +49,13 @@ export interface LoanForAgreement {
 
 export interface GuarantorAgreementInput {
   agreementDate: Date;
+  loanDetails?: {
+    principal: number;
+    interestRate: number;
+    term: number;
+    totalPayable: number;
+    monthlyPayment: number;
+  };
   guarantor: {
     name: string;
     borrowerType: string;
@@ -278,7 +286,7 @@ function boldPara(doc: PDFKit.PDFDocument, boldText: string, regularText: string
  * This prevents the agreement PDF from showing a slightly inflated total
  * (e.g. RM 0.01–0.02 extra) caused by monthlyPayment × term rounding.
  */
-function computeScheduleTotal(principal: number, interestRate: number, term: number, isFlat: boolean, monthlyPayment: number): number {
+export function computeScheduleTotal(principal: number, interestRate: number, term: number, isFlat: boolean, monthlyPayment: number): number {
   if (isFlat) {
     // Flat: totalPayable = principal + totalInterest, each instalment = totalPayable / term
     const totalInterest = calculateFlatInterest(principal, interestRate, term);
@@ -390,7 +398,7 @@ function calculateValues(loan: LoanForAgreement): AgreementComputedValues {
     monthlyPayment,
     totalPayable,
     totalInterest,
-    agreementDateText: formatMalayDate(new Date()),
+    agreementDateText: formatMalayDate(loan.agreementDate),
     firstRepaymentDateText: effectiveFirstRepaymentDate ? formatMalayDate(effectiveFirstRepaymentDate) : '___________________',
     monthlyRepaymentDay: effectiveRepaymentDay,
     borrowerName,
@@ -1964,7 +1972,28 @@ export async function generateGuarantorAgreement(input: GuarantorAgreementInput)
     y = para(doc, `${principalDebtorIdLabel} ${principalDebtorIdValue}`, ML, y, CW, { align: 'left', lineGap: LG });
     y = para(doc, `Address: ${input.principalDebtor.address || '___________________'}`, ML, y, CW, { align: 'left', lineGap: LG });
     y = para(doc, '(hereinafter referred to as the "Principal Debtor")', ML, y, CW, { align: 'left', lineGap: LG });
-    y += 8;
+    y += 6;
+
+    if (input.loanDetails) {
+      y = para(
+        doc,
+        'The Facilities comprise a loan with the following terms:',
+        ML,
+        y,
+        CW,
+        { align: 'left', lineGap: LG }
+      );
+      y += 4;
+      const ld = input.loanDetails;
+      y = para(doc, `Agreement Date: ${formatEnglishDate(input.agreementDate)}`, ML, y, CW, { align: 'left', lineGap: LG });
+      y = para(doc, `Principal Amount: ${formatCurrency(ld.principal)}`, ML, y, CW, { align: 'left', lineGap: LG });
+      y = para(doc, `Interest Rate: ${ld.interestRate}% per annum`, ML, y, CW, { align: 'left', lineGap: LG });
+      y = para(doc, `Term: ${ld.term} months`, ML, y, CW, { align: 'left', lineGap: LG });
+      y = para(doc, `Monthly Repayment: ${formatCurrency(ld.monthlyPayment)}`, ML, y, CW, { align: 'left', lineGap: LG });
+      y = para(doc, `Total Payable: ${formatCurrency(ld.totalPayable)}`, ML, y, CW, { align: 'left', lineGap: LG });
+      y += 8;
+    }
+
     y = para(
       doc,
       'B. The Guarantor has agreed to execute this Deed in favour of the Creditor as a condition precedent to the granting and/or continuation of the Facilities.',
@@ -2059,6 +2088,7 @@ export async function generateTestAgreement(template: 'jadual-j' | 'jadual-k' = 
     principalAmount: new Decimal(10000),
     interestRate: new Decimal(isK ? 12 : 18),
     term: 12,
+    agreementDate: new Date('2026-02-15'),
     firstRepaymentDate: new Date('2026-03-15'),
     monthlyRepaymentDay: 15,
     borrower: {

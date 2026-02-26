@@ -748,6 +748,7 @@ export default function LoanDetailPage() {
   const [showGenerateAgreementDialog, setShowGenerateAgreementDialog] = useState(false);
   const [agreementDate, setAgreementDate] = useState<string>("");
   const [generatingAgreement, setGeneratingAgreement] = useState(false);
+  const [regeneratingAgreement, setRegeneratingAgreement] = useState(false);
   const [generatingGuarantorId, setGeneratingGuarantorId] = useState<string | null>(null);
 
   // Guarantor agreement dialog state
@@ -1303,6 +1304,44 @@ export default function LoanDetailPage() {
       toast.error("Failed to generate agreement PDF");
     } finally {
       setGeneratingAgreement(false);
+    }
+  };
+
+  const handleRegenerateAgreement = async () => {
+    if (!loan?.agreementDate) {
+      toast.error("Agreement date is not set");
+      return;
+    }
+    setRegeneratingAgreement(true);
+    try {
+      const params = new URLSearchParams();
+      params.append("agreementDate", formatDateForInput(loan.agreementDate));
+      const response = await fetch(`/api/proxy/loans/${loanId}/generate-agreement?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        toast.error(errorData.error || "Failed to regenerate agreement");
+        return;
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const contentDisposition = response.headers.get("Content-Disposition");
+      const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/);
+      const filename = filenameMatch ? filenameMatch[1] : `Loan_Agreement_${loanId.substring(0, 8)}.pdf`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success("Agreement PDF regenerated successfully");
+      await fetchLoan();
+    } catch {
+      toast.error("Failed to regenerate agreement PDF");
+    } finally {
+      setRegeneratingAgreement(false);
     }
   };
 
@@ -1951,6 +1990,23 @@ export default function LoanDetailPage() {
                                 </p>
                               </div>
                               <div className="flex flex-wrap gap-2">
+                                {loan.agreementDate && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs h-7"
+                                    onClick={handleRegenerateAgreement}
+                                    disabled={regeneratingAgreement}
+                                    title={`Regenerate using agreement date ${formatDate(loan.agreementDate)}`}
+                                  >
+                                    {regeneratingAgreement ? (
+                                      <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                                    ) : (
+                                      <Download className="h-3 w-3 mr-1" />
+                                    )}
+                                    Regenerate
+                                  </Button>
+                                )}
                                 {loan.agreementPath ? (
                                   <>
                                     <Button
@@ -2037,6 +2093,7 @@ export default function LoanDetailPage() {
                               guarantor.borrowerType === "CORPORATE" && guarantor.companyName
                                 ? guarantor.companyName
                                 : guarantor.name;
+                            const isGenerating = generatingGuarantorId === guarantor.id;
                             return (
                               <div key={guarantor.id} className="rounded-md border bg-secondary/30 p-3">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2047,6 +2104,23 @@ export default function LoanDetailPage() {
                                     </p>
                                   </div>
                                   <div className="flex flex-wrap gap-2">
+                                    {loan.agreementDate && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs h-7"
+                                        onClick={() => handleGenerateGuarantorAgreement(guarantor.id)}
+                                        disabled={isGenerating}
+                                        title={`Regenerate using agreement date ${formatDate(loan.agreementDate)}`}
+                                      >
+                                        {isGenerating ? (
+                                          <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                                        ) : (
+                                          <Download className="h-3 w-3 mr-1" />
+                                        )}
+                                        Regenerate
+                                      </Button>
+                                    )}
                                     {guarantor.agreementPath ? (
                                       <>
                                         <Button
@@ -2806,18 +2880,24 @@ export default function LoanDetailPage() {
                                 <span className={paid > 0 ? "text-success" : ""}>
                                   {formatCurrency(paid)}
                                 </span>
-                                {repayment.allocations.length > 0 && (
-                                  <>
-                                    <span title="Has payment receipt">
-                                      <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
-                                    </span>
-                                    {repayment.allocations.some((a) => (a as { transaction?: { proofPath?: string } }).transaction?.proofPath) && (
-                                      <span title="Has proof of payment">
-                                        <FileCheck className="h-3.5 w-3.5 text-muted-foreground" />
+                                {repayment.allocations.length > 0 && (() => {
+                                  const hasReceipt = repayment.allocations.some(
+                                    (a) => (a as { transaction?: { receiptPath?: string } }).transaction?.receiptPath
+                                  );
+                                  const hasProof = repayment.allocations.some(
+                                    (a) => (a as { transaction?: { proofPath?: string } }).transaction?.proofPath
+                                  );
+                                  return (
+                                    <>
+                                      <span title={hasReceipt ? "Has payment receipt" : "Receipt not yet generated"}>
+                                        <Receipt className={`h-3.5 w-3.5 ${hasReceipt ? "text-success" : "text-amber-500"}`} />
                                       </span>
-                                    )}
-                                  </>
-                                )}
+                                      <span title={hasProof ? "Has proof of payment" : "Proof of payment not yet uploaded"}>
+                                        <FileCheck className={`h-3.5 w-3.5 ${hasProof ? "text-success" : "text-amber-500"}`} />
+                                      </span>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </TableCell>
@@ -2871,7 +2951,10 @@ export default function LoanDetailPage() {
                                             </DropdownMenuItem>
                                           )}
                                           {tx && (
-                                            <DropdownMenuItem onClick={() => openUploadProofDialog(tx.id)}>
+                                            <DropdownMenuItem
+                                              onClick={() => openUploadProofDialog(tx.id)}
+                                              className={!hasProof ? "text-amber-500 focus:text-amber-500" : ""}
+                                            >
                                               <Upload className="h-4 w-4 mr-2" />
                                               {hasProof ? "Replace" : "Upload"} Proof of Payment
                                             </DropdownMenuItem>

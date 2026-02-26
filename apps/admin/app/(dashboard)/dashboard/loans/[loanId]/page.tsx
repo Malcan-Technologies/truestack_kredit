@@ -2466,6 +2466,28 @@ export default function LoanDetailPage() {
                           <TableCell className="text-right text-muted-foreground">{formatCurrency(rep.balance)}</TableCell>
                         </TableRow>
                       ))}
+                      {/* Totals row for preview */}
+                      {(() => {
+                        const totals = schedulePreview.repayments.reduce(
+                          (acc, rep) => ({
+                            principal: safeAdd(acc.principal, toSafeNumber(rep.principal)),
+                            interest: safeAdd(acc.interest, toSafeNumber(rep.interest)),
+                            totalDue: safeAdd(acc.totalDue, toSafeNumber(rep.totalDue)),
+                          }),
+                          { principal: 0, interest: 0, totalDue: 0 }
+                        );
+                        return (
+                          <TableRow className="bg-muted/10 font-semibold border-t-2">
+                            <TableCell colSpan={2} className="font-medium">
+                              Total
+                            </TableCell>
+                            <TableCell className="text-right">{formatCurrency(totals.principal)}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(totals.interest)}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(totals.totalDue)}</TableCell>
+                            <TableCell />
+                          </TableRow>
+                        );
+                      })()}
                     </TableBody>
                   </Table>
                 </div>
@@ -2865,6 +2887,39 @@ export default function LoanDetailPage() {
                         </TableRow>
                       );
                     })}
+                    {/* Totals row */}
+                    {(() => {
+                      const totals = currentSchedule.repayments.reduce(
+                        (acc, r) => {
+                          const principal = toSafeNumber(r.principal);
+                          const interest = toSafeNumber(r.interest);
+                          const totalDue = toSafeNumber(r.totalDue);
+                          const lateFeeAccrued = toSafeNumber(r.lateFeeAccrued);
+                          const paid = r.allocations.reduce((s, a) => s + toSafeNumber(a.amount), 0);
+                          return {
+                            principal: safeAdd(acc.principal, principal),
+                            interest: safeAdd(acc.interest, interest),
+                            totalDue: safeAdd(acc.totalDue, totalDue),
+                            lateFees: safeAdd(acc.lateFees, lateFeeAccrued),
+                            paid: safeAdd(acc.paid, paid),
+                          };
+                        },
+                        { principal: 0, interest: 0, totalDue: 0, lateFees: 0, paid: 0 }
+                      );
+                      return (
+                        <TableRow className="bg-muted/10 font-semibold border-t-2">
+                          <TableCell colSpan={2} className="font-medium">
+                            Total
+                          </TableCell>
+                          <TableCell className="text-right">{formatCurrency(totals.principal)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(totals.interest)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(totals.totalDue)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(totals.lateFees)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(totals.paid)}</TableCell>
+                          <TableCell colSpan={2} />
+                        </TableRow>
+                      );
+                    })()}
                   </TableBody>
                 </Table>
               </CardContent>

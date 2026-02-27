@@ -3269,10 +3269,11 @@ export default function BorrowerDetailPage() {
                     const isImage = /^image\/(jpeg|jpg|png|webp)$/i.test(doc.mimeType);
                     const docUrl = doc.path.startsWith("/") ? `/api/proxy${doc.path}` : doc.path;
                     const DocIcon = getDocumentIcon(doc.mimeType);
+                    const displayName = doc.originalName || doc.filename || "Document";
                     return (
                       <div
                         key={doc.id}
-                        className="flex items-start gap-4 p-3 border rounded-lg"
+                        className="flex items-start gap-4 p-3 border rounded-lg min-w-0 overflow-hidden"
                       >
                         {isImage ? (
                           <div className="shrink-0 w-20 h-20 rounded-md overflow-hidden bg-muted/15 border border-border/30">
@@ -3287,12 +3288,13 @@ export default function BorrowerDetailPage() {
                             <DocIcon className="h-5 w-5 text-foreground" />
                           </div>
                         )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">
+                        <div className="flex-1 min-w-0 overflow-hidden">
+                          <p className="text-sm font-medium truncate" title={getDocumentLabel(doc.category, borrower.borrowerType)}>
                             {getDocumentLabel(doc.category, borrower.borrowerType)}
                           </p>
-                          <p className="text-xs text-muted-foreground">
-                            {doc.originalName} • {formatFileSize(doc.size)}
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 min-w-0" title={displayName}>
+                            <span className="truncate">{displayName}</span>
+                            <span className="shrink-0">• {formatFileSize(doc.size)}</span>
                           </p>
                           <a
                             href={docUrl}

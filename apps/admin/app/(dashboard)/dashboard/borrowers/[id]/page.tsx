@@ -475,6 +475,14 @@ function getDocumentIcon(mimeType: string) {
   return FileText;
 }
 
+function resolveKycAssetUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("/api/proxy/")) return url;
+  if (url.startsWith("/api/uploads/")) return `/api/proxy${url.replace("/api", "")}`;
+  if (url.startsWith("/uploads/")) return `/api/proxy${url}`;
+  return url;
+}
+
 function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | null | undefined) {
   switch (riskLevel) {
     case "DEFAULTED":
@@ -2246,9 +2254,9 @@ export default function BorrowerDetailPage() {
                               {hasDocs && docUrls ? (
                                 <div className="space-y-3">
                                   {[
-                                    { url: docUrls.icFrontUrl, label: "IC Front" },
-                                    { url: docUrls.icBackUrl, label: "IC Back" },
-                                    { url: docUrls.selfieUrl, label: "Selfie Liveness" },
+                                    { url: resolveKycAssetUrl(docUrls.icFrontUrl), label: "IC Front" },
+                                    { url: resolveKycAssetUrl(docUrls.icBackUrl), label: "IC Back" },
+                                    { url: resolveKycAssetUrl(docUrls.selfieUrl), label: "Selfie Liveness" },
                                   ].filter((d): d is { url: string; label: string } => Boolean(d.url)).map(({ url, label }) => (
                                     <div
                                       key={label}

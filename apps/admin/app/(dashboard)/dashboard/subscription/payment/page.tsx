@@ -32,6 +32,7 @@ const TRUESEND_PRICE = 50;
 const LOANS_PER_BLOCK = 500;
 const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
+const SST_RATE = 0.08; // 8% SST (Service Tax)
 
 const BANK_DETAILS = {
   accountName: "Truestack Technologies Sdn Bhd",
@@ -244,12 +245,13 @@ function PaymentPageContent() {
   const extraBlocks = Math.max(0, totalBlocks - 1);
   const coreExtraBlockCost = safeMultiply(extraBlocks, EXTRA_BLOCK_PRICE);
   const truesendExtraBlockCost = hasTruesend ? safeMultiply(extraBlocks, TRUESEND_EXTRA_BLOCK_PRICE) : 0;
-  const computedAmount = safeAdd(
+  const subtotal = safeAdd(
     CORE_PRICE,
     coreExtraBlockCost,
     hasTruesend ? safeAdd(TRUESEND_PRICE, truesendExtraBlockCost) : 0
   );
-  const amount = computedAmount > 0 ? computedAmount : queryAmount;
+  const sstAmount = Math.round((subtotal > 0 ? subtotal : queryAmount) * SST_RATE * 100) / 100;
+  const amount = Math.round(((subtotal > 0 ? subtotal : queryAmount) + sstAmount) * 100) / 100;
 
   // ── Derived pricing breakdown ──
   const lineItems = useMemo(() => {
@@ -540,9 +542,19 @@ function PaymentPageContent() {
 
               <Separator />
 
-              <div className="flex justify-between font-semibold">
-                <span>Monthly Total</span>
-                <span className="text-lg">{formatCurrency(amount)}</span>
+              <div className="space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span>{formatCurrency(subtotal > 0 ? subtotal : queryAmount)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">SST (8%)</span>
+                  <span>+{formatCurrency(sstAmount)}</span>
+                </div>
+                <div className="flex justify-between font-semibold pt-1">
+                  <span>Monthly Total</span>
+                  <span className="text-lg">{formatCurrency(amount)}</span>
+                </div>
               </div>
 
               <p className="text-xs text-muted-foreground">

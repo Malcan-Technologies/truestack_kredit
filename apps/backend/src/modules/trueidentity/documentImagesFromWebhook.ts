@@ -55,6 +55,126 @@ function getExtensionFromMime(mimeType: string): string {
 
 export type DocumentImagesPayload = Record<string, { url?: string }>;
 
+type DirectorDocumentUrls = {
+  icFrontUrl?: string | null;
+  icBackUrl?: string | null;
+  selfieUrl?: string | null;
+  verificationDetailUrl?: string | null;
+  updatedAt?: string;
+} | null;
+
+function isInternalStoredPath(value: string): boolean {
+  return value.startsWith('/uploads/') || value.startsWith('/api/uploads/') || value.startsWith('s3://');
+}
+
+async function persistDirectorImageUrl(params: {
+  sourceUrl: string | null | undefined;
+  previousStoredPath: string | null | undefined;
+  tenantId: string;
+  borrowerId: string;
+  directorId: string;
+  slot: 'ic-front' | 'ic-back' | 'selfie';
+}): Promise<string | null> {
+  const { sourceUrl, previousStoredPath, tenantId, borrowerId, directorId, slot } = params;
+  if (!sourceUrl || typeof sourceUrl !== 'string') {
+    return previousStoredPath ?? null;
+  }
+
+  if (isInternalStoredPath(sourceUrl)) {
+    return sourceUrl;
+  }
+
+  try {
+    const res = await fetch(sourceUrl, { method: 'GET' });
+    if (!res.ok) {
+      console.warn(`[Webhook/DocumentImages] Failed to fetch director ${slot}: ${res.status}`);
+      return previousStoredPath ?? null;
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') ?? 'image/jpeg';
+    const ext = getExtensionFromMime(contentType);
+
+    ensureDocumentsDir();
+    const { path: filePath } = await saveDocumentFile(
+      buffer,
+      tenantId,
+      `${borrowerId}-${directorId}-${slot}`,
+      ext
+    );
+
+    if (previousStoredPath && previousStoredPath !== filePath && isInternalStoredPath(previousStoredPath)) {
+      await deleteDocumentFile(previousStoredPath);
+    }
+
+    return filePath;
+  } catch (err) {
+    console.error(`[Webhook/DocumentImages] Error persisting director ${slot}:`, err);
+    return previousStoredPath ?? null;
+  }
+}
+
+export async function processCorporateDirectorDocumentUrls(params: {
+  tenantId: string;
+  borrowerId: string;
+  directorId: string;
+  icFrontUrl?: string | null;
+  icBackUrl?: string | null;
+  selfieUrl?: string | null;
+  verificationDetailUrl?: string | null;
+  existingUrls?: DirectorDocumentUrls;
+}): Promise<DirectorDocumentUrls> {
+  const {
+    tenantId,
+    borrowerId,
+    directorId,
+    icFrontUrl,
+    icBackUrl,
+    selfieUrl,
+    verificationDetailUrl,
+    existingUrls,
+  } = params;
+
+  const persistedIcFront = await persistDirectorImageUrl({
+    sourceUrl: icFrontUrl,
+    previousStoredPath: existingUrls?.icFrontUrl ?? null,
+    tenantId,
+    borrowerId,
+    directorId,
+    slot: 'ic-front',
+  });
+  const persistedIcBack = await persistDirectorImageUrl({
+    sourceUrl: icBackUrl,
+    previousStoredPath: existingUrls?.icBackUrl ?? null,
+    tenantId,
+    borrowerId,
+    directorId,
+    slot: 'ic-back',
+  });
+  const persistedSelfie = await persistDirectorImageUrl({
+    sourceUrl: selfieUrl,
+    previousStoredPath: existingUrls?.selfieUrl ?? null,
+    tenantId,
+    borrowerId,
+    directorId,
+    slot: 'selfie',
+  });
+
+  const detailUrl = verificationDetailUrl ?? existingUrls?.verificationDetailUrl ?? null;
+  const hasAny = persistedIcFront ?? persistedIcBack ?? persistedSelfie ?? detailUrl;
+  if (!hasAny) {
+    return null;
+  }
+
+  return {
+    icFrontUrl: persistedIcFront,
+    icBackUrl: persistedIcBack,
+    selfieUrl: persistedSelfie,
+    verificationDetailUrl: detailUrl,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export async function processDocumentImagesFromWebhook(params: {
   borrowerId: string;
   tenantId: string;

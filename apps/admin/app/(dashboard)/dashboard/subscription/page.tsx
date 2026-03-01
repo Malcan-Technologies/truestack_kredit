@@ -39,6 +39,7 @@ const TRUESEND_PRICE = 50;
 const LOANS_PER_BLOCK = 500;
 const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
+const SST_RATE = 0.08; // 8% SST (Service Tax)
 
 const CORE_FEATURES = [
   "Borrower management",
@@ -97,7 +98,9 @@ export default function SubscriptionPage() {
   const truesendExtraBlockCost = wantsTruesend ? safeMultiply(extraBlocks, TRUESEND_EXTRA_BLOCK_PRICE) : 0;
   const coreMonthlyTotal = safeAdd(CORE_PRICE, coreExtraBlockCost);
   const truesendMonthlyTotal = safeAdd(truesendBaseCost, truesendExtraBlockCost);
-  const monthlyTotal = safeAdd(coreMonthlyTotal, truesendMonthlyTotal);
+  const subtotalMonthly = safeAdd(coreMonthlyTotal, truesendMonthlyTotal);
+  const sstAmount = Math.round(subtotalMonthly * SST_RATE * 100) / 100;
+  const monthlyTotal = Math.round((subtotalMonthly + sstAmount) * 100) / 100;
 
   // ── fetch ──
   useEffect(() => {
@@ -371,8 +374,16 @@ export default function SubscriptionPage() {
 
                 <Separator />
 
-                <div className="pt-1">
-                  <div className="flex justify-between items-baseline">
+                <div className="pt-1 space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="tabular-nums">{formatCurrency(subtotalMonthly)}/mo</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">SST (8%)</span>
+                    <span className="tabular-nums">+{formatCurrency(sstAmount)}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline pt-1">
                     <span className="font-semibold text-foreground">Total</span>
                     <div className="text-right">
                       <span className="text-2xl font-bold tabular-nums">{formatCurrency(monthlyTotal)}</span>

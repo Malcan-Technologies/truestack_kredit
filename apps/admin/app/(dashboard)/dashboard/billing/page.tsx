@@ -80,6 +80,7 @@ const TRUESEND_ADDON_PRICE = 50;
 const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
 const LOANS_PER_BLOCK = 500;
+const SST_RATE = 0.08; // 8% SST (Service Tax)
 
 export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -138,7 +139,9 @@ export default function BillingPage() {
   const basePlanPrice = CORE_PLAN_PRICE;
   const extraBlockCost = extraBlocks * EXTRA_BLOCK_PRICE;
   const truesendCost = truesendActive ? TRUESEND_ADDON_PRICE + extraBlocks * TRUESEND_EXTRA_BLOCK_PRICE : 0;
-  const totalMonthlySubscription = basePlanPrice + extraBlockCost + truesendCost;
+  const subtotalMonthly = basePlanPrice + extraBlockCost + truesendCost;
+  const sstAmount = Math.round(subtotalMonthly * SST_RATE * 100) / 100;
+  const totalMonthlySubscription = Math.round((subtotalMonthly + sstAmount) * 100) / 100;
 
   useEffect(() => {
     fetchData();
@@ -306,9 +309,19 @@ export default function BillingPage() {
                   <span>+{formatCurrency(extraBlockCost)}</span>
                 </div>
               )}
-              <div className="border-t pt-2 mt-2 flex justify-between font-medium">
-                <span>Total (recurring)</span>
-                <span>{formatCurrency(totalMonthlySubscription)}/month</span>
+              <div className="border-t pt-2 mt-2 space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span>{formatCurrency(subtotalMonthly)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">SST (8%)</span>
+                  <span>+{formatCurrency(sstAmount)}</span>
+                </div>
+                <div className="flex justify-between font-medium pt-1">
+                  <span>Total (recurring)</span>
+                  <span>{formatCurrency(totalMonthlySubscription)}/month</span>
+                </div>
               </div>
             </div>
 

@@ -16,7 +16,10 @@ import { config } from '../../lib/config.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
 import { AuditService } from '../compliance/auditService.js';
-import { processDocumentImagesFromWebhook } from '../trueidentity/documentImagesFromWebhook.js';
+import {
+  processCorporateDirectorDocumentUrls,
+  processDocumentImagesFromWebhook,
+} from '../trueidentity/documentImagesFromWebhook.js';
 
 const router = Router();
 
@@ -172,15 +175,24 @@ router.post('/', async (req, res) => {
               payload.metadata?.selfie_url ??
               imageMap.SELFIE_LIVENESS?.url;
             const detailUrl = payload.verification_detail_url ?? payload.metadata?.verification_detail_url;
-            const hasDocUrls = icFront ?? icBack ?? selfie ?? detailUrl;
-            if (hasDocUrls) {
-              directorUpdateData.trueIdentityDocumentUrls = {
-                icFrontUrl: icFront ?? null,
-                icBackUrl: icBack ?? null,
-                selfieUrl: selfie ?? null,
-                verificationDetailUrl: detailUrl ?? null,
-                updatedAt: new Date().toISOString(),
-              };
+            const persistedDocUrls = await processCorporateDirectorDocumentUrls({
+              tenantId,
+              borrowerId,
+              directorId,
+              icFrontUrl: icFront ?? null,
+              icBackUrl: icBack ?? null,
+              selfieUrl: selfie ?? null,
+              verificationDetailUrl: detailUrl ?? null,
+              existingUrls:
+                (director.trueIdentityDocumentUrls as {
+                  icFrontUrl?: string | null;
+                  icBackUrl?: string | null;
+                  selfieUrl?: string | null;
+                  verificationDetailUrl?: string | null;
+                } | null) ?? null,
+            });
+            if (persistedDocUrls) {
+              directorUpdateData.trueIdentityDocumentUrls = persistedDocUrls;
             }
           } else if (result === 'rejected') {
             directorUpdateData.trueIdentityDocumentUrls = Prisma.JsonNull;

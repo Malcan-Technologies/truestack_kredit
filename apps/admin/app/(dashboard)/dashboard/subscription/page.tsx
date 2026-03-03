@@ -27,6 +27,7 @@ import { Separator } from "@/components/ui/separator";
 import { OnboardingStepper } from "@/components/onboarding-stepper";
 import { cn, formatCurrency, formatNumber, safeAdd, safeMultiply } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 // ============================================
 // Constants
@@ -60,33 +61,105 @@ export default function SubscriptionPage() {
   const isOnboardingFlow = searchParams.get("from") === "onboarding";
 
   // ── state ──
-  const [subscriptionStatus, setSubscriptionStatus] = useState<"FREE" | "PAID">("FREE");
+  const [subscriptionStatus, setSubscriptionStatus] = useState<"FREE" | "PAID" | "OVERDUE" | "SUSPENDED">("FREE");
   const [loading, setLoading] = useState(true);
+  const [autoRenew, setAutoRenew] = useState(true);
+  const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(null);
 
   // Local toggle state (drives the UI switches)
   const [wantsTruesend, setWantsTruesend] = useState(true); // all add-ons enabled by default
   const [wantsTrueIdentity, setWantsTrueIdentity] = useState(true);
+  const [existingTruesendActive, setExistingTruesendActive] = useState(false);
+  const [existingTrueIdentityActive, setExistingTrueIdentityActive] = useState(false);
   const [loanCount, setLoanCount] = useState(0);
+  const [pendingAddOnAction, setPendingAddOnAction] = useState<{
+    addOnType: "TRUESEND" | "TRUEIDENTITY";
+    enable: boolean;
+  } | null>(null);
+  const [addOnActionLoading, setAddOnActionLoading] = useState(false);
 
   // Dialog state
-  const [pendingDisableAddOn, setPendingDisableAddOn] = useState<"TRUESEND" | "TRUEIDENTITY" | null>(null);
   const [showBackToOnboardingConfirm, setShowBackToOnboardingConfirm] = useState(false);
+  const [showCancelAutoRenewConfirm, setShowCancelAutoRenewConfirm] = useState(false);
+  const [cancelAutoRenewLoading, setCancelAutoRenewLoading] = useState(false);
+  const [showCancelOverdueConfirm, setShowCancelOverdueConfirm] = useState(false);
+  const [cancelOverdueLoading, setCancelOverdueLoading] = useState(false);
 
   const isPaid = subscriptionStatus === "PAID";
+  const canManageExistingAddOns = subscriptionStatus === "PAID" || subscriptionStatus === "OVERDUE";
 
-  /** Intercept add-on toggle: show confirmation when disabling */
-  const handleTruesendToggle = (newValue: boolean) => {
-    if (newValue === false) {
-      setPendingDisableAddOn("TRUESEND");
-    } else {
-      setWantsTruesend(true);
-    }
+  /** Save add-on changes immediately on toggle */
+  const saveToggle = async (addOnType: "TRUESEND" | "TRUEIDENTITY") => {
+    const res = await api.post<{
+      addOnType: string;
+      status: string;
+      effectiveUntil?: string | null;
+    }>("/api/billing/add-ons/toggle", { addOnType });
+    return res;
   };
-  const handleTrueIdentityToggle = (newValue: boolean) => {
-    if (newValue === false) {
-      setPendingDisableAddOn("TRUEIDENTITY");
-    } else {
-      setWantsTrueIdentity(true);
+
+  const handleTruesendToggle = async (newValue: boolean) => {
+    if (!canManageExistingAddOns) {
+      setWantsTruesend(newValue);
+      return;
+    }
+    setPendingAddOnAction({ addOnType: "TRUESEND", enable: newValue });
+  };
+
+  const handleTrueIdentityToggle = async (newValue: boolean) => {
+    if (!canManageExistingAddOns) {
+      setWantsTrueIdentity(newValue);
+      return;
+    }
+    setPendingAddOnAction({ addOnType: "TRUEIDENTITY", enable: newValue });
+  };
+
+  const handleConfirmAddOnAction = async () => {
+    if (!pendingAddOnAction) return;
+    setAddOnActionLoading(true);
+    try {
+      const { addOnType, enable } = pendingAddOnAction;
+
+      if (addOnType === "TRUESEND") {
+        if (enable) {
+          // Chargeable add-on: selection change only, activation happens after payment.
+          setWantsTruesend(true);
+          toast.info("TrueSend selected. Proceed to payment to activate.");
+        } else {
+          const res = await saveToggle("TRUESEND");
+          if (!res.success) {
+            toast.error(res.error || "Failed to update TrueSend");
+            return;
+          }
+          setWantsTruesend(false);
+          setExistingTruesendActive(false);
+          toast.success("TrueSend disabled. It remains usable until your current period ends.");
+        }
+      }
+
+      if (addOnType === "TRUEIDENTITY") {
+        const res = await saveToggle("TRUEIDENTITY");
+        if (!res.success) {
+          toast.error(res.error || "Failed to update TrueIdentity");
+          return;
+        }
+        if (enable) {
+          // No-charge add-on: activate immediately, no payment page needed.
+          setWantsTrueIdentity(true);
+          setExistingTrueIdentityActive(true);
+          toast.success("TrueIdentity activated. Usage-based charges apply per verification call.");
+        } else {
+          // Disable now, but access remains until period-end.
+          setWantsTrueIdentity(false);
+          setExistingTrueIdentityActive(false);
+          toast.success("TrueIdentity disabled. It remains usable until your current period ends.");
+        }
+      }
+    } catch {
+      toast.error("Failed to update add-on");
+    } finally {
+      setAddOnActionLoading(false);
+      setPendingAddOnAction(null);
     }
   };
 
@@ -98,7 +171,14 @@ export default function SubscriptionPage() {
   const truesendExtraBlockCost = wantsTruesend ? safeMultiply(extraBlocks, TRUESEND_EXTRA_BLOCK_PRICE) : 0;
   const coreMonthlyTotal = safeAdd(CORE_PRICE, coreExtraBlockCost);
   const truesendMonthlyTotal = safeAdd(truesendBaseCost, truesendExtraBlockCost);
-  const subtotalMonthly = safeAdd(coreMonthlyTotal, truesendMonthlyTotal);
+  const selectedAddonSubtotal = safeAdd(
+    wantsTruesend && !existingTruesendActive ? truesendMonthlyTotal : 0,
+    0
+  );
+  const hasChargeableAddonSelection = wantsTruesend && !existingTruesendActive;
+  const subtotalMonthly = isPaid
+    ? selectedAddonSubtotal
+    : safeAdd(coreMonthlyTotal, truesendMonthlyTotal);
   const sstAmount = Math.round(subtotalMonthly * SST_RATE * 100) / 100;
   const monthlyTotal = Math.round((subtotalMonthly + sstAmount) * 100) / 100;
 
@@ -109,10 +189,11 @@ export default function SubscriptionPage() {
 
   const fetchStatus = async () => {
     try {
-      const [authRes, addOnsRes, tenantRes] = await Promise.all([
+      const [authRes, addOnsRes, tenantRes, billingSubRes] = await Promise.all([
         fetch("/api/proxy/auth/me", { credentials: "include" }).then((r) => r.json()),
         api.get<{ addOns: { addOnType: string; status: string }[] }>("/api/billing/add-ons"),
         api.get<{ counts: { loans: number } }>("/api/tenants/current"),
+        api.get<{ autoRenew?: boolean; currentPeriodEnd?: string }>("/api/billing/subscription"),
       ]);
 
       if (authRes.success && authRes.data?.tenant) {
@@ -127,8 +208,14 @@ export default function SubscriptionPage() {
         const ti = addOnsRes.data.addOns.some(
           (a) => a.addOnType === "TRUEIDENTITY" && a.status === "ACTIVE"
         );
+        setExistingTruesendActive(ts);
+        setExistingTrueIdentityActive(ti);
         // Sync local toggles with server for existing subscribers
-        if (authRes.success && authRes.data?.tenant?.subscriptionStatus === "PAID") {
+        if (
+          authRes.success &&
+          (authRes.data?.tenant?.subscriptionStatus === "PAID" ||
+            authRes.data?.tenant?.subscriptionStatus === "OVERDUE")
+        ) {
           setWantsTruesend(ts);
           setWantsTrueIdentity(ti);
         }
@@ -138,6 +225,11 @@ export default function SubscriptionPage() {
         setLoanCount(tenantRes.data.counts.loans ?? 0);
       } else {
         setLoanCount(0);
+      }
+
+      if (billingSubRes.success && billingSubRes.data) {
+        setAutoRenew(billingSubRes.data.autoRenew ?? true);
+        setCurrentPeriodEnd(billingSubRes.data.currentPeriodEnd ?? null);
       }
     } catch (error) {
       console.error("Failed to fetch subscription status:", error);
@@ -157,6 +249,78 @@ export default function SubscriptionPage() {
     if (wantsTrueIdentity) params.set("trueidentity", "1");
     if (isOnboardingFlow) params.set("from", "onboarding");
     router.push(`/dashboard/subscription/payment?${params.toString()}`);
+  };
+
+  const handleCancelRenewal = async () => {
+    setShowCancelAutoRenewConfirm(true);
+  };
+
+  const handleCancelOverdueSubscription = () => {
+    setShowCancelOverdueConfirm(true);
+  };
+
+  const handleConfirmCancelOverdueSubscription = async () => {
+    setCancelOverdueLoading(true);
+    try {
+      const res = await fetch("/api/proxy/billing/cancel", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ immediate: true }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        const usageData = data?.data as
+          | {
+              trueIdentityUsageCount?: number;
+              trueIdentityUsageAmountMyr?: number;
+              trueSendUsageCount?: number;
+            }
+          | undefined;
+        if (
+          usageData &&
+          ((usageData.trueIdentityUsageCount ?? 0) > 0 || (usageData.trueSendUsageCount ?? 0) > 0)
+        ) {
+          toast.error(
+            `Cannot cancel: post-expiry usage detected (TrueIdentity: ${usageData.trueIdentityUsageCount ?? 0}, TrueSend: ${usageData.trueSendUsageCount ?? 0}). Please settle charges first.`
+          );
+        } else {
+          toast.error(data.error || "Failed to cancel overdue subscription");
+        }
+        return;
+      }
+      setShowCancelOverdueConfirm(false);
+      toast.success("Subscription cancelled. Tenant has been moved to FREE plan.");
+      await fetchStatus();
+    } catch {
+      toast.error("Failed to cancel overdue subscription");
+    } finally {
+      setCancelOverdueLoading(false);
+    }
+  };
+
+  const handleConfirmCancelRenewal = async () => {
+    setCancelAutoRenewLoading(true);
+    try {
+      const res = await fetch("/api/proxy/billing/cancel", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.error || "Failed to disable auto-renew");
+        return;
+      }
+      setAutoRenew(false);
+      setShowCancelAutoRenewConfirm(false);
+      toast.success("Auto-renew disabled. Your subscription remains active until period end.");
+    } catch {
+      toast.error("Failed to disable auto-renew");
+    } finally {
+      setCancelAutoRenewLoading(false);
+    }
   };
 
   // ── loading ──
@@ -337,26 +501,32 @@ export default function SubscriptionPage() {
               </h3>
 
               <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-foreground">Core Plan</span>
-                  <span className="tabular-nums">{formatCurrency(CORE_PRICE)}/mo</span>
-                </div>
-                {extraBlocks > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      Core extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
-                    </span>
-                    <span className="tabular-nums">+{formatCurrency(coreExtraBlockCost)}/mo</span>
-                  </div>
+                {!isPaid && (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-foreground">Core Plan</span>
+                      <span className="tabular-nums">{formatCurrency(CORE_PRICE)}/mo</span>
+                    </div>
+                    {extraBlocks > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          Core extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
+                        </span>
+                        <span className="tabular-nums">+{formatCurrency(coreExtraBlockCost)}/mo</span>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {wantsTruesend && (
                   <div className="flex justify-between text-sm">
                     <span className="text-foreground">TrueSend™</span>
-                    <span className="tabular-nums">+{formatCurrency(TRUESEND_PRICE)}/mo</span>
+                    <span className="tabular-nums">
+                      {isPaid && existingTruesendActive ? "Already active" : `+${formatCurrency(TRUESEND_PRICE)}/mo`}
+                    </span>
                   </div>
                 )}
-                {wantsTruesend && truesendExtraBlockCost > 0 && (
+                {wantsTruesend && truesendExtraBlockCost > 0 && (!isPaid || !existingTruesendActive) && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
                       TrueSend extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
@@ -368,7 +538,9 @@ export default function SubscriptionPage() {
                 {wantsTrueIdentity && (
                   <div className="flex justify-between text-sm">
                     <span className="text-foreground">TrueIdentity™</span>
-                    <span className="text-muted-foreground tabular-nums">RM 4/use</span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {isPaid && existingTrueIdentityActive ? "Already active" : "RM 4/use"}
+                    </span>
                   </div>
                 )}
 
@@ -376,18 +548,26 @@ export default function SubscriptionPage() {
 
                 <div className="pt-1 space-y-1">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span className="tabular-nums">{formatCurrency(subtotalMonthly)}/mo</span>
+                    <span className="text-muted-foreground">
+                      {isPaid ? "Subtotal (selected add-ons)" : "Subtotal"}
+                    </span>
+                    <span className="tabular-nums">
+                      {`${formatCurrency(subtotalMonthly)}${isPaid ? "" : "/mo"}`}
+                    </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">SST (8%)</span>
-                    <span className="tabular-nums">+{formatCurrency(sstAmount)}</span>
+                    <span className="tabular-nums">
+                      {`+${formatCurrency(sstAmount)}`}
+                    </span>
                   </div>
                   <div className="flex justify-between items-baseline pt-1">
-                    <span className="font-semibold text-foreground">Total</span>
+                    <span className="font-semibold text-foreground">{isPaid ? "Due now" : "Total"}</span>
                     <div className="text-right">
-                      <span className="text-2xl font-bold tabular-nums">{formatCurrency(monthlyTotal)}</span>
-                      <span className="text-muted-foreground text-sm">/mo</span>
+                      <span className="text-2xl font-bold tabular-nums">
+                        {formatCurrency(monthlyTotal)}
+                      </span>
+                      {!isPaid && <span className="text-muted-foreground text-sm">/mo</span>}
                     </div>
                   </div>
                   {wantsTrueIdentity && (
@@ -397,15 +577,53 @@ export default function SubscriptionPage() {
               </div>
 
               {/* Action button */}
-              <Button
-                className="w-full mt-5 bg-gradient-accent hover:opacity-90 text-primary-foreground h-11 text-base"
-                onClick={handleProceedToPayment}
-              >
-                Proceed to payment
-              </Button>
+              {isPaid && !hasChargeableAddonSelection ? (
+                <div className="mt-5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-center">
+                  <p className="text-sm font-medium text-foreground">No payment required right now</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your selected add-ons are already active.
+                  </p>
+                </div>
+              ) : (
+                <Button
+                  className="w-full mt-5 bg-gradient-accent hover:opacity-90 text-primary-foreground h-11 text-base"
+                  onClick={handleProceedToPayment}
+                >
+                  Proceed to payment
+                </Button>
+              )}
               {isPaid && (
                 <p className="text-xs text-muted-foreground mt-2 text-center">
-                  Add-on changes are applied when you proceed to payment.
+                  TrueIdentity activates instantly with no upfront fee. TrueSend changes require payment.
+                </p>
+              )}
+              {subscriptionStatus === "OVERDUE" && (
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  Your subscription has ended. This payment includes Core plan and selected add-ons for reactivation.
+                </p>
+              )}
+              {isPaid && autoRenew && (
+                <Button
+                  variant="outline"
+                  className="w-full mt-3"
+                  onClick={handleCancelRenewal}
+                >
+                  Cancel Subscription
+                </Button>
+              )}
+              {subscriptionStatus === "OVERDUE" && (
+                <Button
+                  variant="outline"
+                  className="w-full mt-3 border-red-500/50 text-red-500 hover:bg-red-500/10 hover:text-red-400"
+                  onClick={handleCancelOverdueSubscription}
+                >
+                  Cancel subscription now
+                </Button>
+              )}
+              {isPaid && !autoRenew && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 text-center">
+                  Your subscription will not renew after{" "}
+                  {currentPeriodEnd ? new Date(currentPeriodEnd).toLocaleDateString("en-MY") : "period end"}.
                 </p>
               )}
             </Card>
@@ -420,49 +638,99 @@ export default function SubscriptionPage() {
       </div>
 
       {/* ================================================ */}
-      {/* Dialog: Disable add-on confirmation              */}
+      {/* Dialog: Confirm add-on action                    */}
       {/* ================================================ */}
       <AlertDialog
-        open={!!pendingDisableAddOn}
-        onOpenChange={(open) => !open && setPendingDisableAddOn(null)}
+        open={!!pendingAddOnAction}
+        onOpenChange={(open) => {
+          if (!open && !addOnActionLoading) setPendingAddOnAction(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pendingDisableAddOn === "TRUESEND" ? "Remove TrueSend™?" : "Disable TrueIdentity™?"}
+              {pendingAddOnAction?.addOnType === "TRUESEND"
+                ? pendingAddOnAction.enable
+                  ? "Enable TrueSend™?"
+                  : "Disable TrueSend™?"
+                : pendingAddOnAction?.enable
+                  ? "Activate TrueIdentity™?"
+                  : "Disable TrueIdentity™?"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
-                {pendingDisableAddOn === "TRUESEND" ? (
+                {pendingAddOnAction?.addOnType === "TRUESEND" ? (
+                  pendingAddOnAction.enable ? (
+                    <>
+                      <p>TrueSend is a paid add-on.</p>
+                      <p>You will need to proceed to payment to complete activation.</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>TrueSend will be disabled and no longer renew next cycle.</p>
+                      <p>You can still use it until your current subscription period ends.</p>
+                    </>
+                  )
+                ) : pendingAddOnAction?.enable ? (
                   <>
-                    <p>
-                      This will disable TrueSend™. Automated emails will stop at the end of your current billing period.
-                      You will still have access to all Core features.
-                    </p>
-                    <p>Are you sure?</p>
+                    <p>TrueIdentity activation has no upfront fee.</p>
+                    <p>Usage-based charges apply per verification call.</p>
                   </>
                 ) : (
                   <>
-                    <p>
-                      This will disable TrueIdentity™. You will no longer be able to verify borrowers&apos; identities.
-                    </p>
-                    <p>Are you sure?</p>
+                    <p>TrueIdentity will be disabled for next cycle.</p>
+                    <p>You can still use it until your current subscription period ends.</p>
                   </>
                 )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep enabled</AlertDialogCancel>
+            <AlertDialogCancel disabled={addOnActionLoading}>Cancel</AlertDialogCancel>
+            <Button
+              onClick={handleConfirmAddOnAction}
+              disabled={addOnActionLoading}
+            >
+              {pendingAddOnAction?.addOnType === "TRUESEND"
+                ? pendingAddOnAction?.enable
+                  ? "Confirm and proceed"
+                  : "Disable at period end"
+                : pendingAddOnAction?.enable
+                  ? "Activate now"
+                  : "Disable at period end"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={showCancelOverdueConfirm}
+        onOpenChange={(open) => {
+          if (!cancelOverdueLoading) setShowCancelOverdueConfirm(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel overdue subscription and revert to FREE?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  We will allow cancellation if there is no billable usage after your expiry date.
+                </p>
+                <p>
+                  If post-expiry usage is detected (TrueIdentity/TrueSend), you must settle those charges first.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelOverdueLoading}>Keep subscription</AlertDialogCancel>
             <Button
               variant="destructive"
-              onClick={() => {
-                if (pendingDisableAddOn === "TRUESEND") setWantsTruesend(false);
-                if (pendingDisableAddOn === "TRUEIDENTITY") setWantsTrueIdentity(false);
-                setPendingDisableAddOn(null);
-              }}
+              onClick={handleConfirmCancelOverdueSubscription}
+              disabled={cancelOverdueLoading}
             >
-              {pendingDisableAddOn === "TRUESEND" ? "Remove TrueSend" : "Disable"}
+              Cancel and revert to FREE
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -471,6 +739,31 @@ export default function SubscriptionPage() {
       {/* ================================================ */}
       {/* Dialog: Back to company details confirmation     */}
       {/* ================================================ */}
+      <AlertDialog
+        open={showCancelAutoRenewConfirm}
+        onOpenChange={(open) => {
+          if (!cancelAutoRenewLoading) setShowCancelAutoRenewConfirm(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable auto-renew?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>Your subscription will remain active until the current period ends.</p>
+                <p>No renewal invoice will be generated for the next cycle.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelAutoRenewLoading}>Cancel</AlertDialogCancel>
+            <Button onClick={handleConfirmCancelRenewal} disabled={cancelAutoRenewLoading}>
+              Disable at period end
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog
         open={showBackToOnboardingConfirm}
         onOpenChange={setShowBackToOnboardingConfirm}

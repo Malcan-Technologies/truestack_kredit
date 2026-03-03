@@ -25,10 +25,10 @@ interface TenantContextValue {
    */
   hasTenants: boolean;
   /**
-   * Current tenant's subscription status (FREE or PAID).
-   * When FREE, premium features are disabled.
+   * Current tenant subscription status.
+   * FREE/SUSPENDED tenants are treated as non-paid for premium feature access.
    */
-  subscriptionStatus: "FREE" | "PAID";
+  subscriptionStatus: "FREE" | "PAID" | "OVERDUE" | "SUSPENDED";
 }
 
 const TenantContext = createContext<TenantContextValue | null>(null);
@@ -40,7 +40,7 @@ interface TenantProviderProps {
   /** Whether the user has at least one tenant membership */
   hasTenants?: boolean;
   /** Current tenant's subscription status */
-  subscriptionStatus?: "FREE" | "PAID";
+  subscriptionStatus?: "FREE" | "PAID" | "OVERDUE" | "SUSPENDED";
 }
 
 export function TenantProvider({ children, role, hasTenants = true, subscriptionStatus = "FREE" }: TenantProviderProps) {

@@ -38,14 +38,23 @@ enum SubscriptionStatus {
 enum TenantSubscriptionStatus {
   FREE
   PAID
+  OVERDUE
+  SUSPENDED
 }
 
 enum InvoiceStatus {
   DRAFT
+  PENDING_APPROVAL
   ISSUED
   PAID
   OVERDUE
   CANCELLED
+}
+
+enum BillingType {
+  FIRST_SUBSCRIPTION
+  ADDON_PURCHASE
+  RENEWAL
 }
 
 enum BillingEventType {
@@ -54,6 +63,13 @@ enum BillingEventType {
   GRACE_PERIOD_STARTED
   ACCESS_BLOCKED
   ACCESS_RESTORED
+  SUBSCRIPTION_RENEWED
+  OVERDUE_MARKED
+  TENANT_SUSPENDED
+  TENANT_REACTIVATED
+  CREDIT_NOTE_ISSUED
+  REFUND_PROCESSED
+  CANCELLATION_PROCESSED
 }
 
 enum SubscriptionPaymentRequestStatus {
@@ -136,6 +152,8 @@ model Tenant {
   applicationDocuments ApplicationDocument[]
   loans                Loan[]
   invoices             Invoice[]
+  invoiceSequences     InvoiceSequence[]
+  creditNotes          CreditNote[]
   receipts             Receipt[]
   billingEvents        BillingEvent[]
   auditLogs            AuditLog[]
@@ -221,7 +239,7 @@ model Referral {
   referredUserId  String   @unique // One referral per profile
   
   // Eligibility and payout tracking
-  isEligible      Boolean  @default(true)  // Eligible immediately on signup
+  isEligible      Boolean  @default(false) // Eligible only after first approved subscription payment
   isPaid          Boolean  @default(false)
   
   eligibleAt      DateTime @default(now())  // Set when referral is created
@@ -358,6 +376,7 @@ model Subscription {
   tenantId           String             @unique
   plan               String             @default("standard")
   status             SubscriptionStatus @default(ACTIVE)
+  autoRenew          Boolean            @default(true)
   currentPeriodStart DateTime
   currentPeriodEnd   DateTime
   gracePeriodEnd     DateTime?
@@ -376,8 +395,11 @@ model Invoice {
   id            String        @id @default(cuid())
   tenantId      String
   invoiceNumber String        @unique
+  sequenceNumber Int?
   amount        Decimal       @db.Decimal(12, 2)
   status        InvoiceStatus @default(DRAFT)
+  billingType   BillingType?
+  lineItemsSnapshot Json?
   periodStart   DateTime
   periodEnd     DateTime
   issuedAt      DateTime      @default(now())
@@ -387,10 +409,15 @@ model Invoice {
   // Relations
   tenant                     Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   receipts                   Receipt[]
+  lineItems                  InvoiceLineItem[]
   subscriptionPaymentRequests SubscriptionPaymentRequest[]
+  sourceCreditNotes          CreditNote[]                @relation("CreditNoteSourceInvoice")
+  appliedCreditNotes         CreditNote[]                @relation("CreditNoteAppliedInvoice")
 
   @@index([tenantId])
   @@index([status])
+  @@index([tenantId, periodStart])
+  @@index([tenantId, sequenceNumber])
 }
 
 model SubscriptionPaymentRequest {
@@ -401,9 +428,11 @@ model SubscriptionPaymentRequest {
   plan             String
   amountCents      Int
   amountMyr        Decimal                          @db.Decimal(12, 2)
+  billingType      BillingType?
   paymentReference String
   periodStart      DateTime
   periodEnd        DateTime
+  lineItems        Json?
   status           SubscriptionPaymentRequestStatus @default(PENDING)
   requestedAddOns  Json?
   requestPayload   Json?
@@ -423,6 +452,72 @@ model SubscriptionPaymentRequest {
   @@index([tenantId, status])
   @@index([tenantId, requestedAt])
   @@index([invoiceId])
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  itemType    String // SUBSCRIPTION, ADDON, USAGE, PRORATION, CREDIT_NOTE, SST
+  description String
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  quantity    Int      @default(1)
+  amount      Decimal  @db.Decimal(12, 2)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([itemType])
+}
+
+model InvoiceSequence {
+  id        String   @id @default(cuid())
+  tenantId  String
+  yearMonth String // YYYYMM
+  lastSeq   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, yearMonth])
+  @@index([tenantId])
+}
+
+model CreditNote {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  sourceInvoiceId    String
+  appliedToInvoiceId String?
+  amount             Decimal  @db.Decimal(12, 2)
+  reason             String
+  isRefunded         Boolean  @default(false)
+  refundedAt         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sourceInvoice    Invoice  @relation("CreditNoteSourceInvoice", fields: [sourceInvoiceId], references: [id], onDelete: Cascade)
+  appliedToInvoice Invoice? @relation("CreditNoteAppliedInvoice", fields: [appliedToInvoiceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([sourceInvoiceId])
+  @@index([appliedToInvoiceId])
+  @@index([isRefunded])
+}
+
+model BillingRunLog {
+  id               String   @id @default(cuid())
+  startedAt        DateTime
+  completedAt      DateTime?
+  status           String // SUCCESS, PARTIAL, FAILED
+  backfillFrom     DateTime?
+  tenantsProcessed Int      @default(0)
+  invoicesCreated  Int      @default(0)
+  approvalsApplied Int      @default(0)
+  errors           Json?
+  createdAt        DateTime @default(now())
 }
 
 model Receipt {

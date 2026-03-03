@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { safeAdd, safeDivide, safeMultiply, safeRound, safeSubtract, toSafeNumber } from '../../lib/math.js';
+import { BillingCronService } from '../../lib/billingCronService.js';
 
 const router = Router();
 
@@ -786,6 +787,202 @@ router.get('/referrals', async (req, res, next) => {
           total,
           totalPages: Math.max(1, Math.ceil(total / pageSize)),
         },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/internal/kredit/admin/tenants/:tenantId/suspend
+ * Manual suspension from Admin (overdue handling).
+ */
+router.post('/tenants/:tenantId/suspend', async (req, res, next) => {
+  try {
+    const { tenantId } = req.params;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'Overdue payment';
+    const suspendedBy = typeof req.body?.suspendedBy === 'string' ? req.body.suspendedBy : null;
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true },
+    });
+    if (!tenant) {
+      return res.status(404).json({ success: false, error: 'Tenant not found' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: { subscriptionStatus: 'SUSPENDED' },
+      });
+
+      await tx.billingEvent.create({
+        data: {
+          tenantId,
+          eventType: 'TENANT_SUSPENDED',
+          metadata: {
+            reason,
+            suspendedBy,
+            suspendedAt: new Date().toISOString(),
+          },
+        },
+      });
+    });
+
+    res.json({ success: true, data: { tenantId, status: 'SUSPENDED' } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/internal/kredit/admin/tenants/:tenantId/revoke-to-free
+ * Manual revoke access and return tenant to FREE subscription.
+ */
+router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
+  try {
+    const { tenantId } = req.params;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'Manual revoke to free';
+    const revokedBy = typeof req.body?.revokedBy === 'string' ? req.body.revokedBy : null;
+    const now = new Date();
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true },
+    });
+    if (!tenant) {
+      return res.status(404).json({ success: false, error: 'Tenant not found' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          subscriptionStatus: 'FREE',
+          subscriptionAmount: null,
+          subscribedAt: null,
+        },
+      });
+
+      await tx.subscription.updateMany({
+        where: { tenantId },
+        data: {
+          status: 'CANCELLED',
+          autoRenew: false,
+          currentPeriodEnd: now,
+          gracePeriodEnd: null,
+        },
+      });
+
+      await tx.tenantAddOn.updateMany({
+        where: {
+          tenantId,
+          status: 'ACTIVE',
+        },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: now,
+        },
+      });
+
+      await tx.billingEvent.create({
+        data: {
+          tenantId,
+          eventType: 'CANCELLATION_PROCESSED',
+          metadata: {
+            reason,
+            revokedBy,
+            revokedAt: now.toISOString(),
+            source: 'admin_manual_revoke',
+          },
+        },
+      });
+    });
+
+    res.json({ success: true, data: { tenantId, subscriptionStatus: 'FREE' } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/internal/kredit/admin/invoices/:invoiceId/refund
+ * Manual refund request from Admin.
+ */
+router.post('/invoices/:invoiceId/refund', async (req, res, next) => {
+  try {
+    const { invoiceId } = req.params;
+    const amountMyr = Number(req.body?.amountMyr ?? 0);
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'Manual refund';
+    const refundedBy = typeof req.body?.refundedBy === 'string' ? req.body.refundedBy : null;
+
+    if (!Number.isFinite(amountMyr) || amountMyr <= 0) {
+      return res.status(400).json({ success: false, error: 'amountMyr must be positive' });
+    }
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, tenantId: true },
+    });
+    if (!invoice) {
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+
+    const creditNote = await prisma.$transaction(async (tx) => {
+      const created = await tx.creditNote.create({
+        data: {
+          tenantId: invoice.tenantId,
+          sourceInvoiceId: invoice.id,
+          amount: amountMyr,
+          reason,
+          isRefunded: true,
+          refundedAt: new Date(),
+        },
+      });
+
+      await tx.billingEvent.create({
+        data: {
+          tenantId: invoice.tenantId,
+          eventType: 'REFUND_PROCESSED',
+          metadata: {
+            invoiceId,
+            creditNoteId: created.id,
+            amountMyr,
+            reason,
+            refundedBy,
+          },
+        },
+      });
+      return created;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        invoiceId,
+        creditNoteId: creditNote.id,
+        amountMyr: Number(creditNote.amount),
+        refundedAt: creditNote.refundedAt,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/internal/kredit/admin/billing/reconcile-now
+ * Trigger billing reconciliation immediately (cron fallback remains active).
+ */
+router.post('/billing/reconcile-now', async (_req, res, next) => {
+  try {
+    await BillingCronService.run();
+    res.json({
+      success: true,
+      data: {
+        triggeredAt: new Date().toISOString(),
       },
     });
   } catch (error) {

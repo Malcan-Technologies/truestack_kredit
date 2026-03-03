@@ -16,6 +16,7 @@
     "db:push": "npm run db:push -w apps/backend",
     "db:migrate": "npm run db:migrate -w apps/backend",
     "db:seed": "npm run db:seed -w apps/backend",
+	"db:reset": "npm run db:reset -w apps/backend",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down"
   },

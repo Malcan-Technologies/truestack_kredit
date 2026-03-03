@@ -40,6 +40,13 @@ const BANK_DETAILS = {
   accountNumber: "26409400034271",
 };
 
+interface InvoiceSummary {
+  id: string;
+  amount: string;
+  status: string;
+  dueAt: string;
+}
+
 // ============================================
 // Helpers
 // ============================================
@@ -105,6 +112,9 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 function PaymentPageContent() {
   const searchParams = useSearchParams();
   const isOnboardingFlow = searchParams.get("from") === "onboarding";
+  const mode = searchParams.get("mode");
+  const overdueInvoiceId = searchParams.get("invoiceId");
+  const isOverdueMode = mode === "overdue" && !!overdueInvoiceId;
 
   // Parse query params from subscription page
   const queryAmount = Number(searchParams.get("amount")) || CORE_PRICE;
@@ -114,7 +124,9 @@ function PaymentPageContent() {
   // State
   const [selectedMethod, setSelectedMethod] = useState<"bank" | "gateway" | null>(null);
   const [tenantName, setTenantName] = useState<string>("");
-  const [subscriptionStatus, setSubscriptionStatus] = useState<"FREE" | "PAID">("FREE");
+  const [subscriptionStatus, setSubscriptionStatus] = useState<"FREE" | "PAID" | "OVERDUE" | "SUSPENDED">("FREE");
+  const [existingTruesendActive, setExistingTruesendActive] = useState(false);
+  const [existingTrueIdentityActive, setExistingTrueIdentityActive] = useState(false);
   const [loanCount, setLoanCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -123,12 +135,13 @@ function PaymentPageContent() {
     status: "PENDING" | "APPROVED" | "REJECTED";
     rejectionReason?: string | null;
   } | null>(null);
+  const [latestOverdueInvoice, setLatestOverdueInvoice] = useState<InvoiceSummary | null>(null);
 
   // Fetch tenant name, subscription status, and loan usage
   useEffect(() => {
     const fetchTenant = async () => {
       try {
-        const [authRes, tenantRes, requestRes] = await Promise.all([
+        const [authRes, tenantRes, requestRes, addOnsRes, invoicesRes] = await Promise.all([
           fetch("/api/proxy/auth/me", { credentials: "include" }).then((r) => r.json()),
           api.get<{ counts: { loans: number } }>("/api/tenants/current"),
           api.get<{
@@ -136,11 +149,18 @@ function PaymentPageContent() {
             status: "PENDING" | "APPROVED" | "REJECTED";
             rejectionReason?: string | null;
           } | null>("/api/billing/subscription-payment-request/latest"),
+          api.get<{ addOns: { addOnType: string; status: string }[] }>("/api/billing/add-ons"),
+          api.get<InvoiceSummary[]>("/api/billing/invoices"),
         ]);
         if (authRes.success && authRes.data?.tenant) {
           const t = authRes.data.tenant;
           setTenantName(t.name || t.companyName || "");
-          setSubscriptionStatus((t.subscriptionStatus || "FREE") === "PAID" ? "PAID" : "FREE");
+          const status = t.subscriptionStatus || "FREE";
+          if (status === "PAID" || status === "OVERDUE" || status === "SUSPENDED") {
+            setSubscriptionStatus(status);
+          } else {
+            setSubscriptionStatus("FREE");
+          }
         }
         if (tenantRes.success && tenantRes.data?.counts) {
           setLoanCount(tenantRes.data.counts.loans ?? 0);
@@ -149,6 +169,24 @@ function PaymentPageContent() {
         }
         if (requestRes.success) {
           setLatestPaymentRequest(requestRes.data ?? null);
+        }
+        if (addOnsRes.success && addOnsRes.data?.addOns) {
+          const truesendActive = addOnsRes.data.addOns.some(
+            (a) => a.addOnType === "TRUESEND" && a.status === "ACTIVE"
+          );
+          const trueidentityActive = addOnsRes.data.addOns.some(
+            (a) => a.addOnType === "TRUEIDENTITY" && a.status === "ACTIVE"
+          );
+          setExistingTruesendActive(truesendActive);
+          setExistingTrueIdentityActive(trueidentityActive);
+        }
+        if (invoicesRes.success && Array.isArray(invoicesRes.data)) {
+          const overdue = invoicesRes.data
+            .filter((inv) => inv.status === "OVERDUE")
+            .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+          setLatestOverdueInvoice(overdue ?? null);
+        } else {
+          setLatestOverdueInvoice(null);
         }
       } catch {
         console.error("Failed to fetch tenant info");
@@ -159,11 +197,52 @@ function PaymentPageContent() {
     fetchTenant();
   }, []);
 
+  const autoOverdueMode =
+    !isOverdueMode &&
+    !!latestOverdueInvoice &&
+    (subscriptionStatus === "PAID" || subscriptionStatus === "OVERDUE");
+  const effectiveOverdueMode = isOverdueMode || autoOverdueMode;
+  const effectiveOverdueInvoiceId = isOverdueMode ? overdueInvoiceId : latestOverdueInvoice?.id;
+  const effectiveOverdueAmount = isOverdueMode
+    ? queryAmount
+    : latestOverdueInvoice
+      ? Number(latestOverdueInvoice.amount)
+      : queryAmount;
+
   /** I've Made the Transfer — activate subscription/add-ons (testing only) */
   const handleMadeTransfer = async () => {
     setSubmitting(true);
     try {
-      if (subscriptionStatus === "FREE") {
+      if (effectiveOverdueMode && effectiveOverdueInvoiceId) {
+        const res = await fetch("/api/proxy/billing/overdue/submit-payment", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            invoiceId: effectiveOverdueInvoiceId,
+            paymentReference: reference,
+          }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          toast.error(data.error || "Failed to submit overdue payment request");
+          return;
+        }
+        const createdRequest = data.data?.request ?? null;
+        if (createdRequest) {
+          setLatestPaymentRequest({
+            requestId: createdRequest.requestId,
+            status: createdRequest.status,
+            rejectionReason: createdRequest.rejectionReason,
+          });
+        }
+        if (data.data?.existing) {
+          toast.info("Overdue payment request is already pending verification.");
+        } else {
+          toast.success("Overdue payment submitted. Awaiting admin verification.");
+        }
+        window.location.href = "/dashboard/billing";
+      } else if (subscriptionStatus !== "PAID") {
         // Subscribe with plan; CORE_TRUESEND enables TrueSend
         const plan = hasTruesend ? "CORE_TRUESEND" : "CORE";
         const requestAddOns = [
@@ -202,7 +281,7 @@ function PaymentPageContent() {
         }
         window.location.href = "/dashboard";
       } else {
-        // PAID: activate add-ons that are selected but not yet active (testing only)
+        // PAID: purchase/activate add-ons only (no base subscription re-charge)
         const addOnsRes = await api.get<{ addOns: { addOnType: string; status: string }[] }>(
           "/api/billing/add-ons"
         );
@@ -215,15 +294,29 @@ function PaymentPageContent() {
             .filter((a) => a.status === "ACTIVE")
             .map((a) => a.addOnType)
         );
-        const toActivate: string[] = [];
-        if (hasTruesend && !active.has("TRUESEND")) toActivate.push("TRUESEND");
-        if (hasTrueIdentity && !active.has("TRUEIDENTITY")) toActivate.push("TRUEIDENTITY");
-        for (const addOnType of toActivate) {
-          await api.post("/api/billing/add-ons/toggle", { addOnType });
+        const toPurchase: string[] = [];
+        if (hasTruesend && !active.has("TRUESEND")) toPurchase.push("TRUESEND");
+        if (hasTrueIdentity && !active.has("TRUEIDENTITY")) toPurchase.push("TRUEIDENTITY");
+        let pendingCount = 0;
+        let activatedCount = 0;
+        for (const addOnType of toPurchase) {
+          const purchaseRes = await api.post<{
+            pending?: boolean;
+            activated?: boolean;
+          }>("/api/billing/add-ons/purchase", {
+            addOnType,
+            paymentReference: reference,
+          });
+          if (!purchaseRes.success) {
+            toast.error(purchaseRes.error || `Failed to process ${addOnType}`);
+            continue;
+          }
+          if (purchaseRes.data?.pending) pendingCount++;
+          if (purchaseRes.data?.activated) activatedCount++;
         }
-        if (toActivate.length > 0) {
-          toast.success("Add-ons activated! Reloading…");
-          setTimeout(() => (window.location.href = "/dashboard"), 1000);
+        if (pendingCount > 0 || activatedCount > 0) {
+          toast.success("Add-on request submitted. Reloading…");
+          setTimeout(() => (window.location.href = "/dashboard"), 1200);
         } else {
           toast.info("No add-on changes to apply.");
         }
@@ -240,39 +333,64 @@ function PaymentPageContent() {
     return buildReference(tenantName);
   }, [tenantName]);
   const hasPendingApproval = latestPaymentRequest?.status === "PENDING";
+  const trueIdentityOnlyActivation =
+    subscriptionStatus === "PAID" && hasTrueIdentity && !hasTruesend;
 
   const totalBlocks = Math.max(1, Math.ceil(loanCount / LOANS_PER_BLOCK));
   const extraBlocks = Math.max(0, totalBlocks - 1);
   const coreExtraBlockCost = safeMultiply(extraBlocks, EXTRA_BLOCK_PRICE);
   const truesendExtraBlockCost = hasTruesend ? safeMultiply(extraBlocks, TRUESEND_EXTRA_BLOCK_PRICE) : 0;
-  const subtotal = safeAdd(
+  const addOnOnlySubtotal = safeAdd(
+    hasTruesend && !existingTruesendActive ? safeAdd(TRUESEND_PRICE, truesendExtraBlockCost) : 0,
+    0
+  );
+  const subscriptionSubtotal = safeAdd(
     CORE_PRICE,
     coreExtraBlockCost,
     hasTruesend ? safeAdd(TRUESEND_PRICE, truesendExtraBlockCost) : 0
   );
-  const sstAmount = Math.round((subtotal > 0 ? subtotal : queryAmount) * SST_RATE * 100) / 100;
-  const amount = Math.round(((subtotal > 0 ? subtotal : queryAmount) + sstAmount) * 100) / 100;
+  const treatAsPaidTenant = subscriptionStatus === "PAID";
+  const subtotal = treatAsPaidTenant ? addOnOnlySubtotal : subscriptionSubtotal;
+  const computedBeforeTax = subtotal > 0 ? subtotal : queryAmount;
+  const sstAmount = effectiveOverdueMode ? 0 : Math.round(computedBeforeTax * SST_RATE * 100) / 100;
+  const amount = effectiveOverdueMode
+    ? effectiveOverdueAmount
+    : Math.round((computedBeforeTax + sstAmount) * 100) / 100;
 
   // ── Derived pricing breakdown ──
   const lineItems = useMemo(() => {
     const items: { label: string; amount: number; isCore?: boolean }[] = [];
-    items.push({ label: "TrueKredit Core Plan", amount: CORE_PRICE, isCore: true });
-    if (coreExtraBlockCost > 0) {
+    if (!treatAsPaidTenant) {
+      items.push({ label: "TrueKredit Core Plan", amount: CORE_PRICE, isCore: true });
+      if (coreExtraBlockCost > 0) {
+        items.push({
+          label: `Core extra blocks (${extraBlocks} x ${LOANS_PER_BLOCK} loans)`,
+          amount: coreExtraBlockCost,
+        });
+      }
+    }
+    if (hasTruesend) {
       items.push({
-        label: `Core extra blocks (${extraBlocks} x ${LOANS_PER_BLOCK} loans)`,
-        amount: coreExtraBlockCost,
+        label: "TrueSend™ Add-on",
+        amount: treatAsPaidTenant && existingTruesendActive ? 0 : TRUESEND_PRICE,
       });
     }
-    if (hasTruesend) items.push({ label: "TrueSend™ Add-on", amount: TRUESEND_PRICE });
-    if (hasTruesend && truesendExtraBlockCost > 0) {
+    if (hasTruesend && truesendExtraBlockCost > 0 && !(treatAsPaidTenant && existingTruesendActive)) {
       items.push({
         label: `TrueSend extra blocks (${extraBlocks} x ${LOANS_PER_BLOCK} loans)`,
         amount: truesendExtraBlockCost,
       });
     }
-    if (hasTrueIdentity) items.push({ label: "TrueIdentity™ Add-on", amount: 0 });
+    if (hasTrueIdentity) {
+      items.push({
+        label: "TrueIdentity™ Add-on",
+        amount: 0,
+      });
+    }
     return items;
   }, [
+    treatAsPaidTenant,
+    existingTruesendActive,
     coreExtraBlockCost,
     extraBlocks,
     hasTruesend,
@@ -421,6 +539,15 @@ function PaymentPageContent() {
                     </p>
                   </div>
 
+                  {hasTrueIdentity && (
+                    <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3">
+                      <p className="text-sm text-blue-700 dark:text-blue-200">
+                        <strong>TrueIdentity Disclaimer:</strong> Activation is free. Each verification
+                        call is usage-based and charged according to your current TrueIdentity price.
+                      </p>
+                    </div>
+                  )}
+
                   {hasPendingApproval && (
                     <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3">
                       <p className="text-sm text-blue-700 dark:text-blue-200">
@@ -446,7 +573,11 @@ function PaymentPageContent() {
                     ) : (
                       <Check className="mr-2 h-4 w-4" />
                     )}
-                    {hasPendingApproval ? "Awaiting Admin Verification" : "I've Made the Transfer"}
+                    {hasPendingApproval
+                      ? "Awaiting Admin Verification"
+                      : trueIdentityOnlyActivation
+                        ? "Activate TrueIdentity"
+                        : "I've Made the Transfer"}
                   </Button>
                 </div>
               )}
@@ -514,7 +645,12 @@ function PaymentPageContent() {
               <h3 className="font-semibold text-lg">Order Summary</h3>
 
               <div className="space-y-2.5">
-                {lineItems.map((item) => (
+                {effectiveOverdueMode ? (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Overdue invoice amount</span>
+                    <span className="font-medium">{formatCurrency(effectiveOverdueAmount)}</span>
+                  </div>
+                ) : lineItems.map((item) => (
                   <div key={item.label} className="flex justify-between text-sm">
                     <span className="text-muted-foreground inline-flex items-center gap-2">
                       {item.label}
@@ -544,22 +680,27 @@ function PaymentPageContent() {
 
               <div className="space-y-1">
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span>{formatCurrency(subtotal > 0 ? subtotal : queryAmount)}</span>
+                  <span className="text-muted-foreground">
+                    {effectiveOverdueMode ? "Subtotal (overdue period)" : treatAsPaidTenant ? "Subtotal (selected add-ons)" : "Subtotal"}
+                  </span>
+                  <span>{formatCurrency(effectiveOverdueMode ? effectiveOverdueAmount : (subtotal > 0 ? subtotal : queryAmount))}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">SST (8%)</span>
-                  <span>+{formatCurrency(sstAmount)}</span>
+                  <span className="text-muted-foreground">{effectiveOverdueMode ? "SST" : "SST (8%)"}</span>
+                  <span>{effectiveOverdueMode ? "Included in invoice total" : `+${formatCurrency(sstAmount)}`}</span>
                 </div>
                 <div className="flex justify-between font-semibold pt-1">
-                  <span>Monthly Total</span>
+                  <span>{treatAsPaidTenant ? "Due Now" : "Monthly Total"}</span>
                   <span className="text-lg">{formatCurrency(amount)}</span>
                 </div>
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Billed monthly. You can manage your plan and add-ons anytime from
-                the{" "}
+                {effectiveOverdueMode
+                  ? "This payment settles your overdue billing period only. After admin approval, your subscription stays in sync with the billed period."
+                  : treatAsPaidTenant
+                  ? "Only selected add-ons are charged now. You can manage your plan and add-ons anytime from the "
+                  : "Billed monthly. You can manage your plan and add-ons anytime from the "}
                 <Link
                   href="/dashboard/subscription"
                   className="text-foreground hover:underline"

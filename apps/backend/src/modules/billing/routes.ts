@@ -7,6 +7,9 @@ import { requireAdmin } from '../../middleware/requireRole.js';
 import { nanoid } from 'nanoid';
 import { AddOnService } from '../../lib/addOnService.js';
 import { derivePlanName, CORE_AMOUNT_CENTS, CORE_PLUS_AMOUNT_CENTS } from '../../lib/subscription.js';
+import { generateInvoiceNumber } from '../../lib/invoiceNumberService.js';
+import { generateInvoicePdf } from '../../lib/invoicePdfService.js';
+import { config } from '../../lib/config.js';
 
 const router = Router();
 
@@ -24,6 +27,20 @@ const subscribeRequestSchema = z.object({
   plan: z.enum(['CORE', 'CORE_TRUESEND']).optional(),
   paymentReference: z.string().trim().min(3).max(120),
   requestAddOns: z.array(z.enum(['TRUESEND', 'TRUEIDENTITY'])).optional().default([]),
+});
+
+const addOnPurchaseSchema = z.object({
+  addOnType: z.enum(['TRUESEND', 'TRUEIDENTITY']),
+  paymentReference: z.string().trim().min(3).max(120),
+});
+
+const overduePaymentSchema = z.object({
+  invoiceId: z.string(),
+  paymentReference: z.string().trim().min(3).max(120),
+});
+
+const cancelSubscriptionSchema = z.object({
+  immediate: z.boolean().optional().default(false),
 });
 
 /**
@@ -60,6 +77,7 @@ router.get('/subscription', async (req, res, next) => {
         id: subscription.id,
         plan,
         status: subscription.status,
+        autoRenew: subscription.autoRenew,
         currentPeriodStart: subscription.currentPeriodStart,
         currentPeriodEnd: subscription.currentPeriodEnd,
         gracePeriodEnd: subscription.gracePeriodEnd,
@@ -141,6 +159,95 @@ router.get('/invoices/:invoiceId', async (req, res, next) => {
 });
 
 /**
+ * Download invoice PDF (generated on demand)
+ * GET /api/billing/invoices/:invoiceId/download
+ */
+router.get('/invoices/:invoiceId/download', async (req, res, next) => {
+  try {
+    const invoice = await prisma.invoice.findFirst({
+      where: {
+        id: req.params.invoiceId,
+        tenantId: req.tenantId,
+      },
+      include: {
+        tenant: {
+          select: {
+            name: true,
+            registrationNumber: true,
+            businessAddress: true,
+          },
+        },
+        lineItems: true,
+      },
+    });
+
+    if (!invoice) {
+      throw new NotFoundError('Invoice');
+    }
+
+    const effectiveLineItems = invoice.status === 'PAID' && Array.isArray(invoice.lineItemsSnapshot)
+      ? (invoice.lineItemsSnapshot as Array<{
+          description: string;
+          quantity?: number;
+          unitPrice?: number;
+          amount?: number;
+          itemType?: string;
+        }>)
+      : invoice.lineItems.map((item) => ({
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: Number(item.unitPrice),
+          amount: Number(item.amount),
+          itemType: item.itemType,
+        }));
+
+    const sstAmountFromLineItems = roundHalfUp2(
+      effectiveLineItems
+        .filter((item) => item.itemType === 'SST' || item.description.toUpperCase().includes('SST'))
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+    );
+    const subtotal = roundHalfUp2(
+      effectiveLineItems
+        .filter((item) => !(item.itemType === 'SST' || item.description.toUpperCase().includes('SST')))
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+    );
+    const sstRate = 0.08;
+    const sstAmount = sstAmountFromLineItems > 0 ? sstAmountFromLineItems : roundHalfUp2(subtotal * sstRate);
+    const total = roundHalfUp2(subtotal + sstAmount);
+
+    const pdfBuffer = await generateInvoicePdf({
+      invoiceNumber: invoice.invoiceNumber,
+      issuedAt: invoice.issuedAt,
+      dueAt: invoice.dueAt,
+      periodStart: invoice.periodStart,
+      periodEnd: invoice.periodEnd,
+      subtotal,
+      sstRate,
+      sstAmount,
+      total,
+      tenant: {
+        name: invoice.tenant.name,
+        registrationNumber: invoice.tenant.registrationNumber,
+        businessAddress: invoice.tenant.businessAddress,
+      },
+      lineItems: effectiveLineItems.map((item) => ({
+        description: item.description,
+        quantity: Number(item.quantity ?? 1),
+        unitPrice: Number(item.unitPrice ?? item.amount ?? 0),
+        amount: Number(item.amount ?? 0),
+      })),
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${invoice.invoiceNumber}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Record a payment (manual payment recording)
  * POST /api/billing/payments
  */
@@ -186,6 +293,18 @@ router.post('/payments', requireAdmin, async (req, res, next) => {
         data: {
           status: 'PAID',
           paidAt: new Date(),
+          lineItemsSnapshot: (
+            await tx.invoiceLineItem.findMany({
+              where: { invoiceId: invoice.id },
+              orderBy: { createdAt: 'asc' },
+            })
+          ).map((item) => ({
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: Number(item.unitPrice),
+            amount: Number(item.amount),
+            itemType: item.itemType,
+          })),
         },
       });
 
@@ -270,9 +389,84 @@ router.get('/events', async (req, res, next) => {
 });
 
 const CORE_TRUESEND_AMOUNT_CENTS = CORE_PLUS_AMOUNT_CENTS;
+const TRUESEND_ADDON_AMOUNT_CENTS = 5000;
+
+function roundHalfUp2(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function getMytDateParts(date: Date) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kuala_Lumpur',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const [year, month, day] = formatter.format(date).split('-').map(Number);
+  return { year, month, day };
+}
+
+function getMytCycleDates(now: Date) {
+  const { year, month, day } = getMytDateParts(now);
+  const periodStart = new Date(Date.UTC(year, month - 1, day));
+  const periodEnd = new Date(periodStart);
+  periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
+  return { periodStart, periodEnd };
+}
+
+function differenceInDays(start: Date, end: Date): number {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / msPerDay));
+}
 
 function toDateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+type AdminPaymentRequestPayload = {
+  event: 'subscription.payment.requested';
+  request_id: string;
+  tenant_id: string;
+  tenant_slug: string;
+  tenant_name: string;
+  plan: string;
+  amount_cents: number;
+  amount_myr: number;
+  billing_type: string;
+  payment_reference: string;
+  period_start: string;
+  period_end: string;
+  requested_at: string;
+  requested_add_ons: string[];
+  line_items: unknown[];
+};
+
+const SST_RATE = 0.08;
+
+async function syncPaymentRequestToAdmin(payload: AdminPaymentRequestPayload): Promise<void> {
+  const baseUrl = config.trueIdentity.adminBaseUrl;
+  const internalSecret = config.trueIdentity.kreditInternalSecret;
+
+  if (!baseUrl || !internalSecret) {
+    throw new Error('Missing TRUESTACK_ADMIN_URL or KREDIT_INTERNAL_SECRET');
+  }
+
+  const response = await fetch(
+    `${baseUrl.replace(/\/$/, '')}/api/internal/kredit/subscription-payment-request`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${internalSecret}`,
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Admin sync failed (${response.status}): ${body.slice(0, 300)}`);
+  }
 }
 
 function serializeSubscriptionPaymentRequest(
@@ -426,98 +620,168 @@ router.post('/subscribe', async (req, res, next) => {
     }
 
     const requestedAt = new Date();
-    const periodStart = new Date(Date.UTC(
-      requestedAt.getUTCFullYear(),
-      requestedAt.getUTCMonth(),
-      requestedAt.getUTCDate()
-    ));
-    const periodEnd = new Date(periodStart);
-    periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
+    const { periodStart, periodEnd } = getMytCycleDates(requestedAt);
 
     const requestId = `SPR-${nanoid(10).toUpperCase()}`;
-    const amountMyr = Number((subscriptionAmount / 100).toFixed(2));
+    const subtotalMyr = Number((subscriptionAmount / 100).toFixed(2));
+    const sstMyr = roundHalfUp2(subtotalMyr * SST_RATE);
+    const totalMyr = roundHalfUp2(subtotalMyr + sstMyr);
+    const totalCents = Math.round(totalMyr * 100);
     const normalizedAddOns = [...new Set(requestedAddOns)].sort();
+    const invoiceMeta = await generateInvoiceNumber(tenant.id, tenant.slug, requestedAt);
+    const billingType =
+      tenant.subscriptionStatus === 'PAID' || tenant.subscriptionStatus === 'OVERDUE'
+        ? 'RENEWAL'
+        : 'FIRST_SUBSCRIPTION';
 
-    const created = await prisma.subscriptionPaymentRequest.create({
-      data: {
-        tenantId: tenant.id,
-        requestId,
-        plan,
-        amountCents: subscriptionAmount,
-        amountMyr,
-        paymentReference,
-        periodStart,
-        periodEnd,
-        requestedAddOns: normalizedAddOns,
-        requestPayload: {
-          source: 'kredit_subscription_payment_page',
-          tenantSubscriptionStatus: tenant.subscriptionStatus,
-          requestAddOns: normalizedAddOns,
+    const updated = await prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          tenantId: tenant.id,
+          invoiceNumber: invoiceMeta.invoiceNumber,
+          sequenceNumber: invoiceMeta.sequence,
+          amount: totalMyr,
+          status: 'PENDING_APPROVAL',
+          billingType,
+          periodStart,
+          periodEnd,
+          dueAt: periodStart,
         },
-      },
-      select: {
-        requestId: true,
-        status: true,
-        plan: true,
-        amountCents: true,
-        amountMyr: true,
-        paymentReference: true,
-        periodStart: true,
-        periodEnd: true,
-        requestedAt: true,
-        approvedAt: true,
-        rejectedAt: true,
-        rejectionReason: true,
-        webhookDelivered: true,
-        webhookError: true,
-      },
+      });
+
+      await tx.invoiceLineItem.createMany({
+        data: [
+          {
+            invoiceId: invoice.id,
+            itemType: 'SUBSCRIPTION',
+            description: plan === 'CORE_TRUESEND' ? 'Core+ Subscription' : 'Core Subscription',
+            quantity: 1,
+            unitPrice: subtotalMyr,
+            amount: subtotalMyr,
+          },
+          {
+            invoiceId: invoice.id,
+            itemType: 'SST',
+            description: 'SST (8%)',
+            quantity: 1,
+            unitPrice: sstMyr,
+            amount: sstMyr,
+          },
+        ],
+      });
+
+      const created = await tx.subscriptionPaymentRequest.create({
+        data: {
+          tenantId: tenant.id,
+          invoiceId: invoice.id,
+          requestId,
+          plan,
+          amountCents: totalCents,
+          amountMyr: totalMyr,
+          billingType,
+          paymentReference,
+          periodStart,
+          periodEnd,
+          lineItems: [
+            {
+              type: 'SUBSCRIPTION',
+              description: plan === 'CORE_TRUESEND' ? 'Core+ Subscription' : 'Core Subscription',
+              amountMyr: subtotalMyr,
+            },
+            {
+              type: 'SST',
+              description: 'SST (8%)',
+              amountMyr: sstMyr,
+            },
+          ],
+          requestedAddOns: normalizedAddOns,
+          requestPayload: {
+            source: 'kredit_subscription_payment_page',
+            tenantSubscriptionStatus: tenant.subscriptionStatus,
+            requestAddOns: normalizedAddOns,
+          },
+          webhookDelivered: false,
+          webhookError: null,
+        },
+        select: {
+          requestId: true,
+          status: true,
+          plan: true,
+          amountCents: true,
+          amountMyr: true,
+          paymentReference: true,
+          periodStart: true,
+          periodEnd: true,
+          requestedAt: true,
+          approvedAt: true,
+          rejectedAt: true,
+          rejectionReason: true,
+          webhookDelivered: true,
+          webhookError: true,
+        },
+      });
+
+      await tx.billingEvent.create({
+        data: {
+          tenantId: tenant.id,
+          eventType: 'INVOICE_ISSUED',
+          metadata: {
+            invoiceId: invoice.id,
+            requestId,
+            billingType,
+          },
+        },
+      });
+
+      return created;
     });
 
-    const { notifySubscriptionPaymentRequested } = await import(
-      '../trueidentity/subscriptionPaymentRequestWebhook.js'
-    );
-    const webhookResult = await notifySubscriptionPaymentRequested({
-      requestId,
-      tenantId: tenant.id,
-      tenantSlug: tenant.slug,
-      tenantName: tenant.name,
-      plan,
-      amountCents: subscriptionAmount,
-      amountMyr,
-      paymentReference,
-      periodStart: toDateOnly(periodStart),
-      periodEnd: toDateOnly(periodEnd),
-      requestedAt: requestedAt.toISOString(),
-      requestedAddOns: normalizedAddOns,
-      decisionWebhookUrl: '/api/webhooks/kredit/subscription-payment-decision',
-    });
+    try {
+      await syncPaymentRequestToAdmin({
+        event: 'subscription.payment.requested',
+        request_id: updated.requestId,
+        tenant_id: tenant.id,
+        tenant_slug: tenant.slug,
+        tenant_name: tenant.name,
+        plan,
+        amount_cents: totalCents,
+        amount_myr: totalMyr,
+        billing_type: billingType,
+        payment_reference: paymentReference,
+        period_start: toDateOnly(periodStart),
+        period_end: toDateOnly(periodEnd),
+        requested_at: requestedAt.toISOString(),
+        requested_add_ons: normalizedAddOns,
+        line_items: [
+          {
+            type: 'SUBSCRIPTION',
+            description: plan === 'CORE_TRUESEND' ? 'Core+ Subscription' : 'Core Subscription',
+            amountMyr: subtotalMyr,
+          },
+          {
+            type: 'SST',
+            description: 'SST (8%)',
+            amountMyr: sstMyr,
+          },
+        ],
+      });
 
-    const updated = await prisma.subscriptionPaymentRequest.update({
-      where: { requestId },
-      data: {
-        webhookDispatchedAt: new Date(),
-        webhookDelivered: webhookResult.delivered,
-        webhookError: webhookResult.delivered
-          ? null
-          : webhookResult.error ?? (webhookResult.statusCode ? `HTTP ${webhookResult.statusCode}` : 'Dispatch failed'),
-      },
-      select: {
-        requestId: true,
-        status: true,
-        plan: true,
-        amountCents: true,
-        amountMyr: true,
-        paymentReference: true,
-        periodStart: true,
-        periodEnd: true,
-        requestedAt: true,
-        approvedAt: true,
-        rejectedAt: true,
-        rejectionReason: true,
-        webhookDelivered: true,
-        webhookError: true,
-      },
-    });
+      await prisma.subscriptionPaymentRequest.update({
+        where: { requestId: updated.requestId },
+        data: { webhookDelivered: true, webhookError: null },
+      });
+      updated.webhookDelivered = true;
+      updated.webhookError = null;
+    } catch (syncError) {
+      const message = syncError instanceof Error ? syncError.message : 'Unknown admin sync error';
+      await prisma.subscriptionPaymentRequest.update({
+        where: { requestId: updated.requestId },
+        data: { webhookDelivered: false, webhookError: message },
+      });
+      updated.webhookDelivered = false;
+      updated.webhookError = message;
+      console.error('[Billing] Failed syncing subscription request to admin:', message);
+    }
 
     res.json({
       success: true,
@@ -526,70 +790,6 @@ router.post('/subscribe', async (req, res, next) => {
         existing: false,
         request: serializeSubscriptionPaymentRequest(updated),
       },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-/**
- * Generate invoice for current period (admin utility)
- * POST /api/billing/invoices/generate
- */
-router.post('/invoices/generate', requireAdmin, async (req, res, next) => {
-  try {
-    const subscription = await prisma.subscription.findUnique({
-      where: { tenantId: req.tenantId },
-    });
-
-    if (!subscription) {
-      throw new BadRequestError('No subscription found');
-    }
-
-    // Check if there's already an unpaid invoice for current period
-    const existingInvoice = await prisma.invoice.findFirst({
-      where: {
-        tenantId: req.tenantId,
-        periodStart: subscription.currentPeriodStart,
-        status: { in: ['DRAFT', 'ISSUED'] },
-      },
-    });
-
-    if (existingInvoice) {
-      throw new BadRequestError('Invoice already exists for this period');
-    }
-
-    // Generate invoice number
-    const invoiceNumber = `INV-${req.tenantId!.slice(0, 6).toUpperCase()}-${nanoid(6).toUpperCase()}`;
-
-    // Create invoice (amount would come from plan pricing in production)
-    const invoice = await prisma.invoice.create({
-      data: {
-        tenantId: req.tenantId!,
-        invoiceNumber,
-        amount: 299.00, // Default plan price
-        status: 'ISSUED',
-        periodStart: subscription.currentPeriodStart,
-        periodEnd: subscription.currentPeriodEnd,
-        dueAt: subscription.currentPeriodEnd,
-      },
-    });
-
-    // Record billing event
-    await prisma.billingEvent.create({
-      data: {
-        tenantId: req.tenantId!,
-        eventType: 'INVOICE_ISSUED',
-        metadata: {
-          invoiceId: invoice.id,
-          amount: invoice.amount,
-        },
-      },
-    });
-
-    res.status(201).json({
-      success: true,
-      data: invoice,
     });
   } catch (error) {
     next(error);
@@ -700,6 +900,606 @@ router.get('/trueidentity-usage', async (req, res, next) => {
 });
 
 /**
+ * Billing pricing configuration
+ * GET /api/billing/pricing
+ */
+router.get('/pricing', async (_req, res, next) => {
+  try {
+    const truesendMonthlyMyr = Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50');
+    const trueidentityUnitMyr = Number(process.env.TRUEIDENTITY_UNIT_PRICE_MYR || '4');
+    const trueidentityUnitCredits = Number(process.env.TRUEIDENTITY_UNIT_PRICE_CREDITS || '400');
+    res.json({
+      success: true,
+      data: {
+        coreAmountCents: CORE_AMOUNT_CENTS,
+        corePlusAmountCents: CORE_PLUS_AMOUNT_CENTS,
+        truesendMonthlyMyr,
+        trueidentityUnitMyr,
+        trueidentityUnitCredits,
+        sstRate: 0.08,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Purchase add-on for active subscription (prorated)
+ * POST /api/billing/add-ons/purchase
+ */
+router.post('/add-ons/purchase', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { addOnType, paymentReference } = addOnPurchaseSchema.parse(req.body);
+
+    const [tenant, subscription, existingAddOn] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { id: true, slug: true, name: true, subscriptionStatus: true },
+      }),
+      prisma.subscription.findUnique({
+        where: { tenantId },
+      }),
+      prisma.tenantAddOn.findUnique({
+        where: { tenantId_addOnType: { tenantId, addOnType } },
+      }),
+    ]);
+
+    if (!tenant) throw new NotFoundError('Tenant');
+    if (!subscription || tenant.subscriptionStatus !== 'PAID') {
+      throw new BadRequestError('Active paid subscription is required');
+    }
+    if (existingAddOn?.status === 'ACTIVE') {
+      throw new BadRequestError(`${addOnType} is already active`);
+    }
+
+    const monthlyAmountMyr = addOnType === 'TRUESEND'
+      ? Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50')
+      : 0;
+
+    const now = new Date();
+    const totalDays = Math.max(1, differenceInDays(subscription.currentPeriodStart, subscription.currentPeriodEnd));
+    const remainingDays = Math.max(0, differenceInDays(now, subscription.currentPeriodEnd));
+    const proratedAmount = roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays);
+    const sstMyr = roundHalfUp2(proratedAmount * SST_RATE);
+    const totalAmountMyr = roundHalfUp2(proratedAmount + sstMyr);
+    const amountCents = Math.round(totalAmountMyr * 100);
+
+    if (amountCents <= 0) {
+      const updated = await prisma.tenantAddOn.upsert({
+        where: { tenantId_addOnType: { tenantId, addOnType } },
+        create: {
+          tenantId,
+          addOnType,
+          status: 'ACTIVE',
+        },
+        update: {
+          status: 'ACTIVE',
+          enabledAt: now,
+          cancelledAt: null,
+        },
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          activated: true,
+          addOnType: updated.addOnType,
+          status: updated.status,
+          amountMyr: 0,
+        },
+      });
+    }
+
+    const requestId = `SPR-${nanoid(10).toUpperCase()}`;
+    const invoiceMeta = await generateInvoiceNumber(tenantId, tenant.slug, now);
+
+    const request = await prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          tenantId,
+          invoiceNumber: invoiceMeta.invoiceNumber,
+          sequenceNumber: invoiceMeta.sequence,
+          amount: totalAmountMyr,
+          status: 'PENDING_APPROVAL',
+          billingType: 'ADDON_PURCHASE',
+          periodStart: subscription.currentPeriodStart,
+          periodEnd: subscription.currentPeriodEnd,
+          dueAt: now,
+        },
+      });
+
+      await tx.invoiceLineItem.create({
+        data: {
+          invoiceId: invoice.id,
+          itemType: 'PRORATION',
+          description: `${addOnType} Add-on Prorated (${remainingDays}/${totalDays} days)`,
+          quantity: 1,
+          unitPrice: proratedAmount,
+          amount: proratedAmount,
+        },
+      });
+      await tx.invoiceLineItem.create({
+        data: {
+          invoiceId: invoice.id,
+          itemType: 'SST',
+          description: 'SST (8%)',
+          quantity: 1,
+          unitPrice: sstMyr,
+          amount: sstMyr,
+        },
+      });
+
+      return tx.subscriptionPaymentRequest.create({
+        data: {
+          tenantId,
+          invoiceId: invoice.id,
+          requestId,
+          plan: 'CORE',
+          amountCents,
+          amountMyr: totalAmountMyr,
+          billingType: 'ADDON_PURCHASE',
+          paymentReference,
+          periodStart: subscription.currentPeriodStart,
+          periodEnd: subscription.currentPeriodEnd,
+          requestedAddOns: [addOnType],
+          lineItems: [
+            {
+              type: 'PRORATION',
+              addOnType,
+              amountMyr: proratedAmount,
+              remainingDays,
+              totalDays,
+            },
+            {
+              type: 'SST',
+              description: 'SST (8%)',
+              amountMyr: sstMyr,
+            },
+          ],
+          webhookDelivered: false,
+        },
+        select: {
+          requestId: true,
+          status: true,
+          plan: true,
+          amountCents: true,
+          amountMyr: true,
+          paymentReference: true,
+          periodStart: true,
+          periodEnd: true,
+          requestedAt: true,
+          approvedAt: true,
+          rejectedAt: true,
+          rejectionReason: true,
+          webhookDelivered: true,
+          webhookError: true,
+        },
+      });
+    });
+
+    try {
+      await syncPaymentRequestToAdmin({
+        event: 'subscription.payment.requested',
+        request_id: request.requestId,
+        tenant_id: tenant.id,
+        tenant_slug: tenant.slug,
+        tenant_name: tenant.name,
+        plan: 'CORE',
+        amount_cents: amountCents,
+        amount_myr: totalAmountMyr,
+        billing_type: 'ADDON_PURCHASE',
+        payment_reference: paymentReference,
+        period_start: toDateOnly(subscription.currentPeriodStart),
+        period_end: toDateOnly(subscription.currentPeriodEnd),
+        requested_at: request.requestedAt.toISOString(),
+        requested_add_ons: [addOnType],
+        line_items: [
+          {
+            type: 'PRORATION',
+            addOnType,
+            amountMyr: proratedAmount,
+            remainingDays,
+            totalDays,
+          },
+          {
+            type: 'SST',
+            description: 'SST (8%)',
+            amountMyr: sstMyr,
+          },
+        ],
+      });
+
+      await prisma.subscriptionPaymentRequest.update({
+        where: { requestId: request.requestId },
+        data: { webhookDelivered: true, webhookError: null },
+      });
+      request.webhookDelivered = true;
+      request.webhookError = null;
+    } catch (syncError) {
+      const message = syncError instanceof Error ? syncError.message : 'Unknown admin sync error';
+      await prisma.subscriptionPaymentRequest.update({
+        where: { requestId: request.requestId },
+        data: { webhookDelivered: false, webhookError: message },
+      });
+      request.webhookDelivered = false;
+      request.webhookError = message;
+      console.error('[Billing] Failed syncing add-on request to admin:', message);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        pending: true,
+        request: serializeSubscriptionPaymentRequest(request),
+        proration: {
+          monthlyAmountMyr,
+          remainingDays,
+          totalDays,
+          amountMyr: proratedAmount,
+          sstMyr,
+          totalAmountMyr,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Submit payment proof for an overdue renewal invoice.
+ * POST /api/billing/overdue/submit-payment
+ */
+router.post('/overdue/submit-payment', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { invoiceId, paymentReference } = overduePaymentSchema.parse(req.body);
+
+    const [tenant, invoice] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { id: true, slug: true, name: true, subscriptionStatus: true },
+      }),
+      prisma.invoice.findFirst({
+        where: {
+          id: invoiceId,
+          tenantId,
+          status: 'OVERDUE',
+        },
+        include: { lineItems: true },
+      }),
+    ]);
+
+    if (!tenant) throw new NotFoundError('Tenant');
+    if (!invoice) throw new BadRequestError('Overdue invoice not found');
+
+    const existingPending = await prisma.subscriptionPaymentRequest.findFirst({
+      where: {
+        tenantId,
+        invoiceId: invoice.id,
+        status: 'PENDING',
+      },
+      orderBy: { requestedAt: 'desc' },
+      select: {
+        requestId: true,
+        status: true,
+        plan: true,
+        amountCents: true,
+        amountMyr: true,
+        paymentReference: true,
+        periodStart: true,
+        periodEnd: true,
+        requestedAt: true,
+        approvedAt: true,
+        rejectedAt: true,
+        rejectionReason: true,
+        webhookDelivered: true,
+        webhookError: true,
+      },
+    });
+
+    if (existingPending) {
+      return res.json({
+        success: true,
+        data: {
+          pending: true,
+          existing: true,
+          request: serializeSubscriptionPaymentRequest(existingPending),
+        },
+      });
+    }
+
+    const requestId = `SPR-${nanoid(10).toUpperCase()}`;
+    const amountMyr = Number(invoice.amount);
+    const amountCents = Math.round(amountMyr * 100);
+    const lineItems = invoice.lineItems.map((item) => ({
+      type: item.itemType,
+      description: item.description,
+      amountMyr: Number(item.amount),
+      quantity: item.quantity,
+      unitPrice: Number(item.unitPrice),
+    }));
+
+    const request = await prisma.$transaction(async (tx) => {
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { status: 'PENDING_APPROVAL' },
+      });
+
+      return tx.subscriptionPaymentRequest.create({
+        data: {
+          tenantId,
+          invoiceId: invoice.id,
+          requestId,
+          plan: 'CORE',
+          amountCents,
+          amountMyr,
+          billingType: 'RENEWAL',
+          paymentReference,
+          periodStart: invoice.periodStart,
+          periodEnd: invoice.periodEnd,
+          requestedAddOns: [],
+          lineItems,
+          requestPayload: {
+            source: 'kredit_overdue_payment_page',
+            invoiceId: invoice.id,
+          },
+          webhookDelivered: false,
+          webhookError: null,
+        },
+        select: {
+          requestId: true,
+          status: true,
+          plan: true,
+          amountCents: true,
+          amountMyr: true,
+          paymentReference: true,
+          periodStart: true,
+          periodEnd: true,
+          requestedAt: true,
+          approvedAt: true,
+          rejectedAt: true,
+          rejectionReason: true,
+          webhookDelivered: true,
+          webhookError: true,
+        },
+      });
+    });
+
+    try {
+      await syncPaymentRequestToAdmin({
+        event: 'subscription.payment.requested',
+        request_id: request.requestId,
+        tenant_id: tenant.id,
+        tenant_slug: tenant.slug,
+        tenant_name: tenant.name,
+        plan: 'CORE',
+        amount_cents: amountCents,
+        amount_myr: amountMyr,
+        billing_type: 'RENEWAL',
+        payment_reference: paymentReference,
+        period_start: toDateOnly(invoice.periodStart),
+        period_end: toDateOnly(invoice.periodEnd),
+        requested_at: request.requestedAt.toISOString(),
+        requested_add_ons: [],
+        line_items: lineItems,
+      });
+
+      await prisma.subscriptionPaymentRequest.update({
+        where: { requestId: request.requestId },
+        data: { webhookDelivered: true, webhookError: null },
+      });
+      request.webhookDelivered = true;
+      request.webhookError = null;
+    } catch (syncError) {
+      const message = syncError instanceof Error ? syncError.message : 'Unknown admin sync error';
+      await prisma.subscriptionPaymentRequest.update({
+        where: { requestId: request.requestId },
+        data: { webhookDelivered: false, webhookError: message },
+      });
+      request.webhookDelivered = false;
+      request.webhookError = message;
+      console.error('[Billing] Failed syncing overdue request to admin:', message);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        pending: true,
+        existing: false,
+        request: serializeSubscriptionPaymentRequest(request),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Cancel subscription at period end (non-renewal)
+ * POST /api/billing/cancel
+ */
+router.post('/cancel', requireAdmin, async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { immediate } = cancelSubscriptionSchema.parse(req.body ?? {});
+    const now = new Date();
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, subscriptionStatus: true },
+    });
+
+    if (!tenant) {
+      throw new NotFoundError('Tenant');
+    }
+
+    const subscription = await prisma.subscription.findUnique({
+      where: { tenantId },
+    });
+    if (!subscription) {
+      throw new NotFoundError('Subscription');
+    }
+
+    if (immediate) {
+      if (tenant.subscriptionStatus !== 'OVERDUE') {
+        throw new BadRequestError('Immediate cancellation is only allowed for overdue tenants');
+      }
+
+      const nextChargeableDay = new Date(subscription.currentPeriodEnd);
+      nextChargeableDay.setUTCDate(nextChargeableDay.getUTCDate() + 1);
+
+      const [trueIdentityUsageRows, trueSendUsageCount, renewalInvoices] = await Promise.all([
+        prisma.trueIdentityUsageDaily.findMany({
+          where: {
+            tenantId,
+            usageDate: { gte: nextChargeableDay },
+          },
+          select: { count: true },
+        }),
+        prisma.emailLog.count({
+          where: {
+            tenantId,
+            sentAt: { gte: nextChargeableDay },
+          },
+        }),
+        prisma.invoice.findMany({
+          where: {
+            tenantId,
+            billingType: 'RENEWAL',
+            status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+          },
+          select: { id: true },
+        }),
+      ]);
+
+      const trueIdentityUsageCount = trueIdentityUsageRows.reduce((sum, row) => sum + row.count, 0);
+      const trueIdentityUnitMyr = Number(process.env.TRUEIDENTITY_UNIT_PRICE_MYR || '4');
+      const trueIdentityUsageAmountMyr = roundHalfUp2(trueIdentityUsageCount * trueIdentityUnitMyr);
+
+      if (trueIdentityUsageCount > 0 || trueSendUsageCount > 0) {
+        return res.status(409).json({
+          success: false,
+          error: 'Cannot cancel subscription: post-expiry usage detected. Please settle the usage charges first.',
+          data: {
+            chargeFromDate: nextChargeableDay.toISOString(),
+            trueIdentityUsageCount,
+            trueIdentityUsageAmountMyr,
+            trueSendUsageCount,
+          },
+        });
+      }
+
+      const renewalInvoiceIds = renewalInvoices.map((inv) => inv.id);
+
+      await prisma.$transaction(async (tx) => {
+        await tx.subscription.update({
+          where: { tenantId },
+          data: {
+            status: 'CANCELLED',
+            autoRenew: false,
+            currentPeriodEnd: now,
+            gracePeriodEnd: null,
+          },
+        });
+
+        await tx.tenant.update({
+          where: { id: tenantId },
+          data: {
+            subscriptionStatus: 'FREE',
+            subscriptionAmount: null,
+            subscribedAt: null,
+          },
+        });
+
+        await tx.tenantAddOn.updateMany({
+          where: {
+            tenantId,
+            OR: [
+              { status: 'ACTIVE' },
+              { status: 'CANCELLED', cancelledAt: { gt: now } },
+            ],
+          },
+          data: {
+            status: 'CANCELLED',
+            cancelledAt: now,
+          },
+        });
+
+        if (renewalInvoiceIds.length > 0) {
+          await tx.invoice.updateMany({
+            where: { id: { in: renewalInvoiceIds } },
+            data: { status: 'CANCELLED' },
+          });
+
+          await tx.subscriptionPaymentRequest.updateMany({
+            where: {
+              tenantId,
+              invoiceId: { in: renewalInvoiceIds },
+              status: 'PENDING',
+            },
+            data: {
+              status: 'REJECTED',
+              rejectedAt: now,
+              rejectionReason: 'Cancelled by tenant before payment (no post-expiry usage)',
+            },
+          });
+        }
+
+        await tx.billingEvent.create({
+          data: {
+            tenantId,
+            eventType: 'CANCELLATION_PROCESSED',
+            metadata: {
+              immediate: true,
+              reason: 'overdue_cancel_without_post_expiry_usage',
+              cancelledAt: now.toISOString(),
+            },
+          },
+        });
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          immediate: true,
+          autoRenew: false,
+          currentPeriodEnd: now,
+          subscriptionStatus: 'FREE',
+        },
+      });
+    }
+
+    const updated = await prisma.subscription.update({
+      where: { tenantId },
+      data: { autoRenew: false },
+    });
+
+    await prisma.billingEvent.create({
+      data: {
+        tenantId,
+        eventType: 'CANCELLATION_PROCESSED',
+        metadata: {
+          autoRenew: false,
+          currentPeriodEnd: updated.currentPeriodEnd.toISOString(),
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        autoRenew: updated.autoRenew,
+        currentPeriodEnd: updated.currentPeriodEnd,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Toggle an add-on subscription (subscribe / cancel)
  * POST /api/billing/add-ons/toggle
  *
@@ -718,6 +1518,11 @@ router.post('/add-ons/toggle', async (req, res, next) => {
     const existing = await prisma.tenantAddOn.findUnique({
       where: { tenantId_addOnType: { tenantId, addOnType } },
     });
+    const subscription = await prisma.subscription.findUnique({
+      where: { tenantId },
+      select: { currentPeriodEnd: true },
+    });
+    const cancelEffectiveAt = subscription?.currentPeriodEnd ?? new Date();
 
     if (existing) {
       // Toggle: ACTIVE -> CANCELLED, anything else -> ACTIVE
@@ -729,7 +1534,9 @@ router.post('/add-ons/toggle', async (req, res, next) => {
           where: { id: existing.id },
           data: {
             status: newStatus,
-            ...(newStatus === 'ACTIVE' ? { enabledAt: new Date(), cancelledAt: null } : { cancelledAt: new Date() }),
+            ...(newStatus === 'ACTIVE'
+              ? { enabledAt: new Date(), cancelledAt: null }
+              : { cancelledAt: cancelEffectiveAt }),
           },
         });
 
@@ -748,7 +1555,15 @@ router.post('/add-ons/toggle', async (req, res, next) => {
       const updated = await prisma.tenantAddOn.findUniqueOrThrow({
         where: { id: existing.id },
       });
-      res.json({ success: true, data: { addOnType: updated.addOnType, status: updated.status } });
+      res.json({
+        success: true,
+        data: {
+          addOnType: updated.addOnType,
+          status: updated.status,
+          cancelledAt: updated.cancelledAt,
+          effectiveUntil: newStatus === 'CANCELLED' ? cancelEffectiveAt : null,
+        },
+      });
     } else {
       // Create new subscription
       const created = await prisma.tenantAddOn.create({
@@ -759,7 +1574,15 @@ router.post('/add-ons/toggle', async (req, res, next) => {
         },
       });
 
-      res.json({ success: true, data: { addOnType: created.addOnType, status: created.status } });
+      res.json({
+        success: true,
+        data: {
+          addOnType: created.addOnType,
+          status: created.status,
+          cancelledAt: created.cancelledAt,
+          effectiveUntil: null,
+        },
+      });
     }
   } catch (error) {
     next(error);

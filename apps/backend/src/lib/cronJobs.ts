@@ -8,6 +8,7 @@
 import cron from 'node-cron';
 import { LateFeeProcessor } from './lateFeeProcessor.js';
 import { PaymentReminderProcessor } from './paymentReminderProcessor.js';
+import { BillingCronService } from './billingCronService.js';
 
 /**
  * Initialize all cron jobs.
@@ -66,4 +67,19 @@ export function initCronJobs(): void {
   });
 
   console.log('  ✓ TrueSend payment reminders: 9:00 AM MYT daily');
+
+  // Billing reconciliation + renewal generation: 12:05 AM GMT daily
+  cron.schedule('5 0 * * *', async () => {
+    console.log('[CRON] Starting daily billing reconciliation...');
+    try {
+      await BillingCronService.run();
+      console.log('[CRON] Billing reconciliation completed');
+    } catch (error) {
+      console.error('[CRON] Billing reconciliation failed:', error);
+    }
+  }, {
+    timezone: 'GMT',
+  });
+
+  console.log('  ✓ Billing reconciliation: 12:05 AM GMT daily');
 }

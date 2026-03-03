@@ -69,6 +69,56 @@ async function main() {
 
   console.log('✓ Created tenant:', tenant2.name);
 
+  // Create dev tenant: about to expire (for renewal reminder/testing)
+  const expiringTenant = await prisma.tenant.upsert({
+    where: { slug: 'dev-about-to-expire' },
+    update: {
+      subscriptionStatus: 'PAID',
+      subscriptionAmount: 49900,
+      subscribedAt: new Date(),
+    },
+    create: {
+      name: 'Dev About To Expire Sdn Bhd',
+      slug: 'dev-about-to-expire',
+      type: 'PPW',
+      licenseNumber: 'PPW/KL/2026/201',
+      registrationNumber: '202600020001',
+      email: 'billing-expiring@demo.com',
+      contactNumber: '+60310002001',
+      businessAddress: '201 Jalan Tester, 50450 Kuala Lumpur',
+      status: 'ACTIVE',
+      subscriptionStatus: 'PAID',
+      subscriptionAmount: 49900,
+      subscribedAt: new Date(),
+    },
+  });
+  console.log('✓ Created tenant:', expiringTenant.name);
+
+  // Create dev tenant: already expired/overdue (for expiry lock testing)
+  const expiredTenant = await prisma.tenant.upsert({
+    where: { slug: 'dev-expired-overdue' },
+    update: {
+      subscriptionStatus: 'OVERDUE',
+      subscriptionAmount: 49900,
+      subscribedAt: new Date(),
+    },
+    create: {
+      name: 'Dev Expired Overdue Sdn Bhd',
+      slug: 'dev-expired-overdue',
+      type: 'PPW',
+      licenseNumber: 'PPW/KL/2026/202',
+      registrationNumber: '202600020002',
+      email: 'billing-expired@demo.com',
+      contactNumber: '+60310002002',
+      businessAddress: '202 Jalan Tester, 50450 Kuala Lumpur',
+      status: 'ACTIVE',
+      subscriptionStatus: 'OVERDUE',
+      subscriptionAmount: 49900,
+      subscribedAt: new Date(),
+    },
+  });
+  console.log('✓ Created tenant:', expiredTenant.name);
+
   // Hash password using Better Auth's scrypt (same as login verification)
   const passwordHash = await hashPassword('Demo@123');
   
@@ -138,10 +188,43 @@ async function main() {
 
   console.log('✓ Created membership: ADMIN in', tenant2.name);
 
-  // Create subscriptions for both tenants (30-day trial)
+  // Also add this user as OWNER for expiry-testing tenants
+  await prisma.tenantMember.upsert({
+    where: {
+      userId_tenantId: {
+        userId: owner.id,
+        tenantId: expiringTenant.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: owner.id,
+      tenantId: expiringTenant.id,
+      role: 'OWNER',
+      isActive: true,
+    },
+  });
+  await prisma.tenantMember.upsert({
+    where: {
+      userId_tenantId: {
+        userId: owner.id,
+        tenantId: expiredTenant.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: owner.id,
+      tenantId: expiredTenant.id,
+      role: 'OWNER',
+      isActive: true,
+    },
+  });
+  console.log('✓ Created memberships for expiry test tenants');
+
+  // Create subscriptions for both tenants (calendar-month cycle)
   const now = new Date();
   const periodEnd = new Date(now);
-  periodEnd.setDate(periodEnd.getDate() + 30);
+  periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
 
   await prisma.subscription.upsert({
     where: { tenantId: tenant.id },
@@ -168,6 +251,60 @@ async function main() {
   });
 
   console.log('✓ Created subscriptions');
+
+  // Create explicit subscription windows for expiry testing
+  const expiringStart = new Date();
+  expiringStart.setDate(expiringStart.getDate() - 29);
+  const expiringEnd = new Date();
+  expiringEnd.setDate(expiringEnd.getDate() + 1);
+
+  await prisma.subscription.upsert({
+    where: { tenantId: expiringTenant.id },
+    update: {
+      plan: 'standard',
+      status: 'ACTIVE',
+      autoRenew: true,
+      currentPeriodStart: expiringStart,
+      currentPeriodEnd: expiringEnd,
+      gracePeriodEnd: null,
+    },
+    create: {
+      tenantId: expiringTenant.id,
+      plan: 'standard',
+      status: 'ACTIVE',
+      autoRenew: true,
+      currentPeriodStart: expiringStart,
+      currentPeriodEnd: expiringEnd,
+      gracePeriodEnd: null,
+    },
+  });
+
+  const expiredStart = new Date();
+  expiredStart.setDate(expiredStart.getDate() - 31);
+  const expiredEnd = new Date();
+  expiredEnd.setDate(expiredEnd.getDate() - 1);
+
+  await prisma.subscription.upsert({
+    where: { tenantId: expiredTenant.id },
+    update: {
+      plan: 'standard',
+      status: 'ACTIVE',
+      autoRenew: true,
+      currentPeriodStart: expiredStart,
+      currentPeriodEnd: expiredEnd,
+      gracePeriodEnd: null,
+    },
+    create: {
+      tenantId: expiredTenant.id,
+      plan: 'standard',
+      status: 'ACTIVE',
+      autoRenew: true,
+      currentPeriodStart: expiredStart,
+      currentPeriodEnd: expiredEnd,
+      gracePeriodEnd: null,
+    },
+  });
+  console.log('✓ Created expiry testing subscriptions');
 
   // Corporate required documents template
   const CORPORATE_REQUIRED_DOCUMENTS = [

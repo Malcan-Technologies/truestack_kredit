@@ -29,6 +29,10 @@ export async function requireActiveSubscription(
       return next(new SubscriptionBlockedError());
     }
 
+    if (subscription.status === 'CANCELLED') {
+      return next(new SubscriptionBlockedError('Subscription has been cancelled'));
+    }
+
     // If in grace period, add headers to inform frontend
     if (subscription.status === 'GRACE_PERIOD') {
       res.setHeader('X-Grace-Period', 'true');
@@ -64,6 +68,14 @@ export async function requirePaidSubscription(
 
     if (!tenant || tenant.subscriptionStatus === 'FREE') {
       return next(new SubscriptionBlockedError('Upgrade to access this feature'));
+    }
+
+    if (tenant.subscriptionStatus === 'SUSPENDED') {
+      return next(new SubscriptionBlockedError('Your account is suspended. Please contact support.'));
+    }
+
+    if (tenant.subscriptionStatus === 'OVERDUE') {
+      res.setHeader('X-Overdue', 'true');
     }
 
     next();

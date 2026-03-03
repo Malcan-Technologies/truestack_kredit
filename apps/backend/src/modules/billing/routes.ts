@@ -10,6 +10,7 @@ import { derivePlanName, CORE_AMOUNT_CENTS, CORE_PLUS_AMOUNT_CENTS } from '../..
 import { generateInvoiceNumber } from '../../lib/invoiceNumberService.js';
 import { generateInvoicePdf } from '../../lib/invoicePdfService.js';
 import { config } from '../../lib/config.js';
+import { notifySubscriptionPaymentRequested } from '../trueidentity/subscriptionPaymentRequestWebhook.js';
 
 const router = Router();
 
@@ -423,51 +424,7 @@ function toDateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-type AdminPaymentRequestPayload = {
-  event: 'subscription.payment.requested';
-  request_id: string;
-  tenant_id: string;
-  tenant_slug: string;
-  tenant_name: string;
-  plan: string;
-  amount_cents: number;
-  amount_myr: number;
-  billing_type: string;
-  payment_reference: string;
-  period_start: string;
-  period_end: string;
-  requested_at: string;
-  requested_add_ons: string[];
-  line_items: unknown[];
-};
-
 const SST_RATE = 0.08;
-
-async function syncPaymentRequestToAdmin(payload: AdminPaymentRequestPayload): Promise<void> {
-  const baseUrl = config.trueIdentity.adminBaseUrl;
-  const internalSecret = config.trueIdentity.kreditInternalSecret;
-
-  if (!baseUrl || !internalSecret) {
-    throw new Error('Missing TRUESTACK_ADMIN_URL or KREDIT_INTERNAL_SECRET');
-  }
-
-  const response = await fetch(
-    `${baseUrl.replace(/\/$/, '')}/api/internal/kredit/subscription-payment-request`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${internalSecret}`,
-      },
-      body: JSON.stringify(payload),
-    }
-  );
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Admin sync failed (${response.status}): ${body.slice(0, 300)}`);
-  }
-}
 
 function serializeSubscriptionPaymentRequest(
   request: {
@@ -737,22 +694,21 @@ router.post('/subscribe', async (req, res, next) => {
     });
 
     try {
-      await syncPaymentRequestToAdmin({
-        event: 'subscription.payment.requested',
-        request_id: updated.requestId,
-        tenant_id: tenant.id,
-        tenant_slug: tenant.slug,
-        tenant_name: tenant.name,
+      const webhookResult = await notifySubscriptionPaymentRequested({
+        requestId: updated.requestId,
+        tenantId: tenant.id,
+        tenantSlug: tenant.slug,
+        tenantName: tenant.name,
         plan,
-        amount_cents: totalCents,
-        amount_myr: totalMyr,
-        billing_type: billingType,
-        payment_reference: paymentReference,
-        period_start: toDateOnly(periodStart),
-        period_end: toDateOnly(periodEnd),
-        requested_at: requestedAt.toISOString(),
-        requested_add_ons: normalizedAddOns,
-        line_items: [
+        amountCents: totalCents,
+        amountMyr: totalMyr,
+        billingType,
+        paymentReference,
+        periodStart: toDateOnly(periodStart),
+        periodEnd: toDateOnly(periodEnd),
+        requestedAt: requestedAt.toISOString(),
+        requestedAddOns: normalizedAddOns,
+        lineItems: [
           {
             type: 'SUBSCRIPTION',
             description: plan === 'CORE_TRUESEND' ? 'Core+ Subscription' : 'Core Subscription',
@@ -765,6 +721,12 @@ router.post('/subscribe', async (req, res, next) => {
           },
         ],
       });
+      if (!webhookResult.delivered) {
+        throw new Error(
+          webhookResult.error ??
+          `Admin webhook failed (${webhookResult.statusCode ?? 'unknown status'})`
+        );
+      }
 
       await prisma.subscriptionPaymentRequest.update({
         where: { requestId: updated.requestId },
@@ -1080,22 +1042,21 @@ router.post('/add-ons/purchase', async (req, res, next) => {
     });
 
     try {
-      await syncPaymentRequestToAdmin({
-        event: 'subscription.payment.requested',
-        request_id: request.requestId,
-        tenant_id: tenant.id,
-        tenant_slug: tenant.slug,
-        tenant_name: tenant.name,
+      const webhookResult = await notifySubscriptionPaymentRequested({
+        requestId: request.requestId,
+        tenantId: tenant.id,
+        tenantSlug: tenant.slug,
+        tenantName: tenant.name,
         plan: 'CORE',
-        amount_cents: amountCents,
-        amount_myr: totalAmountMyr,
-        billing_type: 'ADDON_PURCHASE',
-        payment_reference: paymentReference,
-        period_start: toDateOnly(subscription.currentPeriodStart),
-        period_end: toDateOnly(subscription.currentPeriodEnd),
-        requested_at: request.requestedAt.toISOString(),
-        requested_add_ons: [addOnType],
-        line_items: [
+        amountCents,
+        amountMyr: totalAmountMyr,
+        billingType: 'ADDON_PURCHASE',
+        paymentReference,
+        periodStart: toDateOnly(subscription.currentPeriodStart),
+        periodEnd: toDateOnly(subscription.currentPeriodEnd),
+        requestedAt: request.requestedAt.toISOString(),
+        requestedAddOns: [addOnType],
+        lineItems: [
           {
             type: 'PRORATION',
             addOnType,
@@ -1110,6 +1071,12 @@ router.post('/add-ons/purchase', async (req, res, next) => {
           },
         ],
       });
+      if (!webhookResult.delivered) {
+        throw new Error(
+          webhookResult.error ??
+          `Admin webhook failed (${webhookResult.statusCode ?? 'unknown status'})`
+        );
+      }
 
       await prisma.subscriptionPaymentRequest.update({
         where: { requestId: request.requestId },
@@ -1269,23 +1236,28 @@ router.post('/overdue/submit-payment', async (req, res, next) => {
     });
 
     try {
-      await syncPaymentRequestToAdmin({
-        event: 'subscription.payment.requested',
-        request_id: request.requestId,
-        tenant_id: tenant.id,
-        tenant_slug: tenant.slug,
-        tenant_name: tenant.name,
+      const webhookResult = await notifySubscriptionPaymentRequested({
+        requestId: request.requestId,
+        tenantId: tenant.id,
+        tenantSlug: tenant.slug,
+        tenantName: tenant.name,
         plan: 'CORE',
-        amount_cents: amountCents,
-        amount_myr: amountMyr,
-        billing_type: 'RENEWAL',
-        payment_reference: paymentReference,
-        period_start: toDateOnly(invoice.periodStart),
-        period_end: toDateOnly(invoice.periodEnd),
-        requested_at: request.requestedAt.toISOString(),
-        requested_add_ons: [],
-        line_items: lineItems,
+        amountCents,
+        amountMyr,
+        billingType: 'RENEWAL',
+        paymentReference,
+        periodStart: toDateOnly(invoice.periodStart),
+        periodEnd: toDateOnly(invoice.periodEnd),
+        requestedAt: request.requestedAt.toISOString(),
+        requestedAddOns: [],
+        lineItems,
       });
+      if (!webhookResult.delivered) {
+        throw new Error(
+          webhookResult.error ??
+          `Admin webhook failed (${webhookResult.statusCode ?? 'unknown status'})`
+        );
+      }
 
       await prisma.subscriptionPaymentRequest.update({
         where: { requestId: request.requestId },

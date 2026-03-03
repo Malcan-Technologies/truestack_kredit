@@ -5,8 +5,9 @@ import { CORE_AMOUNT_CENTS } from './subscription.js';
 import { generateInvoiceNumber } from './invoiceNumberService.js';
 import { NotificationService } from '../modules/notifications/service.js';
 import { fetchAdminUsage } from '../modules/trueidentity/adminUsageClient.js';
+import { signRequestBody } from '../modules/trueidentity/signature.js';
 
-type PaymentDecision = {
+export type PaymentDecision = {
   id: string;
   request_id: string;
   tenant_id: string;
@@ -57,15 +58,22 @@ function toBillingType(value?: string | null): 'FIRST_SUBSCRIPTION' | 'ADDON_PUR
 
 async function pullPaymentDecisions(since: Date): Promise<PaymentDecision[]> {
   const baseUrl = config.trueIdentity.adminBaseUrl?.replace(/\/$/, '') || '';
-  const secret = config.trueIdentity.kreditInternalSecret;
+  const secret = config.trueIdentity.kreditWebhookSecret;
   if (!baseUrl || !secret) {
     return [];
   }
 
-  const url = `${baseUrl}/api/internal/kredit/payment-decisions?since=${encodeURIComponent(since.toISOString())}`;
+  const url = `${baseUrl}/api/webhooks/kredit/pull-decisions`;
+  const rawBody = JSON.stringify({ since: since.toISOString() });
+  const { signature, timestamp } = signRequestBody(rawBody, secret);
   const res = await fetch(url, {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${secret}` },
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-kredit-signature': signature,
+      'x-kredit-timestamp': timestamp,
+    },
+    body: rawBody,
   });
   if (!res.ok) {
     throw new Error(`Payment decision pull failed with status ${res.status}`);
@@ -74,7 +82,7 @@ async function pullPaymentDecisions(since: Date): Promise<PaymentDecision[]> {
   return Array.isArray(payload.data) ? payload.data : [];
 }
 
-async function applyApprovedDecision(decision: PaymentDecision): Promise<void> {
+export async function applyApprovedDecision(decision: PaymentDecision): Promise<void> {
   const request = await prisma.subscriptionPaymentRequest.findUnique({
     where: { requestId: decision.request_id },
     include: {
@@ -274,7 +282,7 @@ async function applyApprovedDecision(decision: PaymentDecision): Promise<void> {
   });
 }
 
-async function applyRejectedDecision(decision: PaymentDecision): Promise<void> {
+export async function applyRejectedDecision(decision: PaymentDecision): Promise<void> {
   const request = await prisma.subscriptionPaymentRequest.findUnique({
     where: { requestId: decision.request_id },
   });
@@ -295,15 +303,28 @@ async function applyRejectedDecision(decision: PaymentDecision): Promise<void> {
     });
 
     if (request.invoiceId) {
-      await tx.invoice.updateMany({
-        where: {
-          id: request.invoiceId,
-          status: { in: ['ISSUED', 'PENDING_APPROVAL'] },
-        },
-        data: {
-          status: 'CANCELLED',
-        },
-      });
+      if (request.billingType === 'RENEWAL') {
+        // Keep renewal invoice collectible after rejection (do not cancel overdue cycle).
+        await tx.invoice.updateMany({
+          where: {
+            id: request.invoiceId,
+            status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+          },
+          data: {
+            status: 'OVERDUE',
+          },
+        });
+      } else {
+        await tx.invoice.updateMany({
+          where: {
+            id: request.invoiceId,
+            status: { in: ['ISSUED', 'PENDING_APPROVAL'] },
+          },
+          data: {
+            status: 'CANCELLED',
+          },
+        });
+      }
     }
   });
 }
@@ -334,7 +355,8 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
 
     const nextPeriodStart = sub.currentPeriodEnd;
     const nextPeriodEnd = addMonth(nextPeriodStart);
-    const baseAmount = Number((sub.tenant.subscriptionAmount ?? CORE_AMOUNT_CENTS) / 100);
+    // Always renew from the core plan base price; add-ons and tax are added as separate line items.
+    const baseAmount = Number(CORE_AMOUNT_CENTS / 100);
 
     const [truesendAddOn, usage] = await Promise.all([
       prisma.tenantAddOn.findUnique({

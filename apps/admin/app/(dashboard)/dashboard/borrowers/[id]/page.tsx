@@ -224,6 +224,7 @@ type BorrowerPerformanceRiskLevel = "NO_HISTORY" | "GOOD" | "WATCH" | "HIGH_RISK
 interface CrossTenantInsights {
   hasHistory: boolean;
   otherLenderCount: number;
+  lenderNames: string[];
   totalLoans: number;
   activeLoans: number;
   completedLoans: number;
@@ -234,6 +235,7 @@ interface CrossTenantInsights {
     rating: BorrowerPerformanceRiskLevel;
     onTimeRateRange: string | null;
   };
+  lastBorrowedAt: string | null;
   lastActivityAt: string | null;
   nameDiffers?: boolean;
   phoneDiffers?: boolean;
@@ -1836,6 +1838,11 @@ export default function BorrowerDetailPage() {
                         Borrowed from {crossTenantInsights.otherLenderCount} other lender
                         {crossTenantInsights.otherLenderCount === 1 ? "" : "s"}
                       </p>
+                      {crossTenantInsights.lenderNames.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Lenders: {crossTenantInsights.lenderNames.join(", ")}
+                        </p>
+                      )}
                     </div>
 
                     <div className="rounded-lg border border-border px-4 py-3">
@@ -1939,10 +1946,17 @@ export default function BorrowerDetailPage() {
                       <span className="text-muted-foreground"> Late payments</span>
                     </p>
 
-                    <div className="text-xs text-muted-foreground">
-                      {crossTenantInsights.lastActivityAt
-                        ? `Last platform payment activity ${formatRelativeTime(crossTenantInsights.lastActivityAt)}`
-                        : "No recent payment activity"}
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <p>
+                        {crossTenantInsights.lastBorrowedAt
+                          ? `Last borrowed ${formatRelativeTime(crossTenantInsights.lastBorrowedAt)}`
+                          : "No agreement date found on matched loans"}
+                      </p>
+                      <p>
+                        {crossTenantInsights.lastActivityAt
+                          ? `Last payment ${formatRelativeTime(crossTenantInsights.lastActivityAt)}`
+                          : "No recent payment activity"}
+                      </p>
                     </div>
 
                     <div className="rounded-lg border border-dashed border-border px-3 py-2.5 space-y-1.5">

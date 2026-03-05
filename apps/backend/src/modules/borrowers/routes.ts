@@ -420,6 +420,13 @@ const updateBorrowerSchema = z.object({
   directors: z.array(updateDirectorSchema).min(1).max(10).optional(),
 }).merge(individualFieldsSchema).merge(corporateFieldsSchema).merge(addressFieldsSchema);
 
+const crossTenantLookupQuerySchema = z.object({
+  borrowerType: z.enum(BORROWER_TYPE_VALUES),
+  identifier: z.string().trim().min(3).max(64),
+  name: z.string().trim().max(200).optional(),
+  phone: z.string().trim().max(32).optional(),
+});
+
 /**
  * List borrowers
  * GET /api/borrowers
@@ -598,12 +605,18 @@ router.get('/:borrowerId', async (req, res, next) => {
  * Get cross-tenant borrower insights (anonymized)
  * GET /api/borrowers/:borrowerId/cross-tenant-insights
  */
-router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
+router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
   try {
-    const borrowerId = req.params.borrowerId;
+    const query = crossTenantLookupQuerySchema.safeParse(req.query ?? {});
+    if (!query.success) {
+      throw new BadRequestError(query.error.issues[0]?.message || 'Invalid lookup query');
+    }
+
+    const { borrowerType, identifier, name, phone } = query.data;
     const buildEmptyInsights = () => ({
       hasHistory: false,
       otherLenderCount: 0,
+      lenderNames: [] as string[],
       totalLoans: 0,
       activeLoans: 0,
       completedLoans: 0,
@@ -614,39 +627,30 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
         rating: 'NO_HISTORY' as CrossTenantPerformanceRating,
         onTimeRateRange: null as string | null,
       },
+      lastBorrowedAt: null as string | null,
       lastActivityAt: null as string | null,
       nameDiffers: false,
       phoneDiffers: false,
     });
 
-    const borrower = await prisma.borrower.findFirst({
-      where: {
-        id: borrowerId,
-        tenantId: req.tenantId,
-      },
-      select: {
-        borrowerType: true,
-        icNumber: true,
-        ssmRegistrationNo: true,
-        name: true,
-        phone: true,
-        companyName: true,
-      },
-    });
-
-    if (!borrower) {
-      throw new NotFoundError('Borrower');
+    const isCorporate = borrowerType === 'CORPORATE';
+    const rawMatchValue = identifier.trim();
+    const matchValuesSet = new Set<string>();
+    if (rawMatchValue.length > 0) {
+      matchValuesSet.add(rawMatchValue);
     }
 
-    const rawMatchValue = borrower.borrowerType === 'CORPORATE'
-      ? (borrower.ssmRegistrationNo?.trim() || borrower.icNumber?.trim() || '')
-      : (borrower.icNumber?.trim() || '');
-    const normalizedMatchValue = normalizeIdentityNumber(rawMatchValue);
-    const matchValuesSet = new Set([rawMatchValue, normalizedMatchValue].filter((v) => v.length > 0));
-    if (normalizedMatchValue.length === 12 && /^\d{12}$/.test(normalizedMatchValue)) {
-      matchValuesSet.add(
-        `${normalizedMatchValue.slice(0, 6)}-${normalizedMatchValue.slice(6, 8)}-${normalizedMatchValue.slice(8)}`
-      );
+    // For corporate lookups, keep SSM in canonical/raw form to avoid collisions.
+    if (!isCorporate) {
+      const normalizedMatchValue = normalizeIdentityNumber(rawMatchValue);
+      if (normalizedMatchValue.length > 0) {
+        matchValuesSet.add(normalizedMatchValue);
+      }
+      if (normalizedMatchValue.length === 12 && /^\d{12}$/.test(normalizedMatchValue)) {
+        matchValuesSet.add(
+          `${normalizedMatchValue.slice(0, 6)}-${normalizedMatchValue.slice(6, 8)}-${normalizedMatchValue.slice(8)}`
+        );
+      }
     }
     const matchValues = Array.from(matchValuesSet);
 
@@ -658,14 +662,11 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
       return;
     }
 
-    const matchWhere: Prisma.BorrowerWhereInput = borrower.borrowerType === 'CORPORATE'
+    const matchWhere: Prisma.BorrowerWhereInput = isCorporate
       ? {
           tenantId: { not: req.tenantId! },
           borrowerType: 'CORPORATE',
-          OR: [
-            { ssmRegistrationNo: { in: matchValues } },
-            { icNumber: { in: matchValues } },
-          ],
+          ssmRegistrationNo: { in: matchValues },
         }
       : {
           tenantId: { not: req.tenantId! },
@@ -679,6 +680,7 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
         id: true,
         name: true,
         phone: true,
+        companyPhone: true,
         companyName: true,
         performanceProjection: {
           select: {
@@ -701,7 +703,6 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
     }
 
     const matchedBorrowerIds = matchedBorrowers.map((item) => item.id);
-
     const loanWhere = {
       borrowerId: { in: matchedBorrowerIds },
       tenantId: { not: req.tenantId! },
@@ -712,6 +713,7 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
     const [loanAggregate, loanStatusGroups, loansByTenant] = await Promise.all([
       prisma.loan.aggregate({
         where: loanWhere,
+        _max: { agreementDate: true },
         _count: { id: true },
       }),
       prisma.loan.groupBy({
@@ -790,6 +792,296 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
             return minLabel === maxLabel ? minLabel : `${minLabel} to ${maxLabel}`;
           })()
         : null;
+    const lenders = await prisma.tenant.findMany({
+      where: { id: { in: loansByTenant.map((row) => row.tenantId) } },
+      select: { id: true, name: true },
+    });
+    const lenderNameById = new Map(lenders.map((l) => [l.id, l.name]));
+    const lenderNames = loansByTenant
+      .map((row) => lenderNameById.get(row.tenantId))
+      .filter((v): v is string => Boolean(v))
+      .sort((a, b) => a.localeCompare(b));
+    const currentDisplayName = name?.trim() || '';
+    const nameDiffers =
+      currentDisplayName.length > 0 &&
+      matchedBorrowers.some((m) => {
+        const matchedName =
+          borrowerType === 'CORPORATE'
+            ? (m.companyName || m.name) || ''
+            : (m.name || '');
+        return !namesAreSimilar(currentDisplayName, matchedName);
+      });
+    const currentPhone = phone?.trim() || '';
+    const phoneDiffers =
+      currentPhone.length > 0 &&
+      matchedBorrowers.some((m) => {
+        const matchedPhone =
+          borrowerType === 'CORPORATE'
+            ? (m.companyPhone || m.phone)
+            : m.phone;
+        return !phonesAreSimilar(currentPhone, matchedPhone);
+      });
+
+    res.json({
+      success: true,
+      data: {
+        hasHistory: true,
+        otherLenderCount: loansByTenant.length,
+        lenderNames,
+        totalLoans,
+        activeLoans,
+        completedLoans,
+        defaultedLoans,
+        latePaymentsCount: projectionAggregate.paidLate,
+        totalBorrowedRange,
+        paymentPerformance: {
+          rating,
+          onTimeRateRange: toPercentageRange(onTimeRate),
+        },
+        lastBorrowedAt: loanAggregate._max.agreementDate?.toISOString() ?? null,
+        lastActivityAt: projectionAggregate.lastPaymentAt?.toISOString() ?? null,
+        nameDiffers,
+        phoneDiffers,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Get cross-tenant borrower insights (anonymized)
+ * GET /api/borrowers/:borrowerId/cross-tenant-insights
+ */
+router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
+  try {
+    const borrowerId = req.params.borrowerId;
+    const buildEmptyInsights = () => ({
+      hasHistory: false,
+      otherLenderCount: 0,
+      lenderNames: [] as string[],
+      totalLoans: 0,
+      activeLoans: 0,
+      completedLoans: 0,
+      defaultedLoans: 0,
+      latePaymentsCount: 0,
+      totalBorrowedRange: null as string | null,
+      paymentPerformance: {
+        rating: 'NO_HISTORY' as CrossTenantPerformanceRating,
+        onTimeRateRange: null as string | null,
+      },
+      lastBorrowedAt: null as string | null,
+      lastActivityAt: null as string | null,
+      nameDiffers: false,
+      phoneDiffers: false,
+    });
+
+    const borrower = await prisma.borrower.findFirst({
+      where: {
+        id: borrowerId,
+        tenantId: req.tenantId,
+      },
+      select: {
+        borrowerType: true,
+        icNumber: true,
+        ssmRegistrationNo: true,
+        name: true,
+        phone: true,
+        companyPhone: true,
+        companyName: true,
+      },
+    });
+
+    if (!borrower) {
+      throw new NotFoundError('Borrower');
+    }
+
+    const isCorporate = borrower.borrowerType === 'CORPORATE';
+    const ssmValue = borrower.ssmRegistrationNo?.trim() || '';
+    const icValue = borrower.icNumber?.trim() || '';
+    // For corporate borrowers, prioritize SSM and avoid digit-only normalization
+    // to prevent accidental collisions across different SSM formats.
+    const useSsmMatch = isCorporate && ssmValue.length > 0;
+    const rawMatchValue = useSsmMatch ? ssmValue : icValue;
+
+    const matchValuesSet = new Set<string>();
+    if (rawMatchValue.length > 0) {
+      matchValuesSet.add(rawMatchValue);
+    }
+
+    // Only apply IC-style normalization when matching by IC/fallback IC.
+    if (!useSsmMatch) {
+      const normalizedMatchValue = normalizeIdentityNumber(rawMatchValue);
+      if (normalizedMatchValue.length > 0) {
+        matchValuesSet.add(normalizedMatchValue);
+      }
+      if (normalizedMatchValue.length === 12 && /^\d{12}$/.test(normalizedMatchValue)) {
+        matchValuesSet.add(
+          `${normalizedMatchValue.slice(0, 6)}-${normalizedMatchValue.slice(6, 8)}-${normalizedMatchValue.slice(8)}`
+        );
+      }
+    }
+    const matchValues = Array.from(matchValuesSet);
+
+    if (matchValues.length === 0) {
+      res.json({
+        success: true,
+        data: buildEmptyInsights(),
+      });
+      return;
+    }
+
+    const matchWhere: Prisma.BorrowerWhereInput = borrower.borrowerType === 'CORPORATE'
+      ? (
+          useSsmMatch
+            ? {
+                tenantId: { not: req.tenantId! },
+                borrowerType: 'CORPORATE',
+                ssmRegistrationNo: { in: matchValues },
+              }
+            : {
+                tenantId: { not: req.tenantId! },
+                borrowerType: 'CORPORATE',
+                OR: [
+                  { icNumber: { in: matchValues } },
+                  { ssmRegistrationNo: { in: matchValues } },
+                ],
+              }
+        )
+      : {
+          tenantId: { not: req.tenantId! },
+          borrowerType: 'INDIVIDUAL',
+          icNumber: { in: matchValues },
+        };
+
+    const matchedBorrowers = await prisma.borrower.findMany({
+      where: matchWhere,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        companyPhone: true,
+        companyName: true,
+        performanceProjection: {
+          select: {
+            riskLevel: true,
+            paidOnTimeCount: true,
+            paidLateCount: true,
+            overdueCount: true,
+            lastPaymentAt: true,
+          },
+        },
+      },
+    });
+
+    if (matchedBorrowers.length === 0) {
+      res.json({
+        success: true,
+        data: buildEmptyInsights(),
+      });
+      return;
+    }
+
+    const matchedBorrowerIds = matchedBorrowers.map((item) => item.id);
+
+    const loanWhere = {
+      borrowerId: { in: matchedBorrowerIds },
+      tenantId: { not: req.tenantId! },
+      disbursementDate: { not: null },
+      principalAmount: { gt: 0 },
+    };
+
+    const [loanAggregate, loanStatusGroups, loansByTenant] = await Promise.all([
+      prisma.loan.aggregate({
+        where: loanWhere,
+        _max: { agreementDate: true },
+        _count: { id: true },
+      }),
+      prisma.loan.groupBy({
+        by: ['status'],
+        where: loanWhere,
+        _count: { _all: true },
+      }),
+      prisma.loan.groupBy({
+        by: ['tenantId'],
+        where: loanWhere,
+        _sum: { principalAmount: true },
+      }),
+    ]);
+
+    const totalLoans = loanAggregate._count.id ?? 0;
+    if (totalLoans === 0) {
+      res.json({
+        success: true,
+        data: buildEmptyInsights(),
+      });
+      return;
+    }
+
+    const statusCounts = loanStatusGroups.reduce<Record<string, number>>((acc, row) => {
+      acc[row.status] = row._count._all;
+      return acc;
+    }, {});
+
+    const activeLoans = (statusCounts.ACTIVE ?? 0) + (statusCounts.IN_ARREARS ?? 0);
+    const completedLoans = statusCounts.COMPLETED ?? 0;
+    const defaultedLoans = (statusCounts.DEFAULTED ?? 0) + (statusCounts.WRITTEN_OFF ?? 0);
+
+    const projectionAggregate = matchedBorrowers.reduce(
+      (acc, item) => {
+        const projection = item.performanceProjection;
+        if (!projection) return acc;
+
+        acc.paidOnTime += projection.paidOnTimeCount;
+        acc.paidLate += projection.paidLateCount;
+        acc.overdue += projection.overdueCount;
+        acc.riskLevels.push(projection.riskLevel);
+        if (!acc.lastPaymentAt || (projection.lastPaymentAt && projection.lastPaymentAt > acc.lastPaymentAt)) {
+          acc.lastPaymentAt = projection.lastPaymentAt;
+        }
+        return acc;
+      },
+      {
+        paidOnTime: 0,
+        paidLate: 0,
+        overdue: 0,
+        riskLevels: [] as Array<string | null>,
+        lastPaymentAt: null as Date | null,
+      }
+    );
+
+    const projectionSampleSize =
+      projectionAggregate.paidOnTime + projectionAggregate.paidLate + projectionAggregate.overdue;
+    const onTimeRate = projectionSampleSize > 0
+      ? (projectionAggregate.paidOnTime / projectionSampleSize) * 100
+      : null;
+    let rating = resolveCrossTenantRiskRating(projectionAggregate.riskLevels);
+    if (rating === 'NO_HISTORY' && defaultedLoans > 0) {
+      rating = 'DEFAULTED';
+    }
+
+    const totalBorrowedPerLender = loansByTenant
+      .map((row) => toSafeNumber(row._sum.principalAmount))
+      .filter((v) => v > 0);
+    const totalBorrowedRange =
+      totalBorrowedPerLender.length > 0
+        ? (() => {
+            const minVal = Math.min(...totalBorrowedPerLender);
+            const maxVal = Math.max(...totalBorrowedPerLender);
+            const minLabel = getTotalBorrowedBucketLabel(minVal);
+            const maxLabel = getTotalBorrowedBucketLabel(maxVal);
+            return minLabel === maxLabel ? minLabel : `${minLabel} to ${maxLabel}`;
+          })()
+        : null;
+    const lenders = await prisma.tenant.findMany({
+      where: { id: { in: loansByTenant.map((row) => row.tenantId) } },
+      select: { id: true, name: true },
+    });
+    const lenderNameById = new Map(lenders.map((l) => [l.id, l.name]));
+    const lenderNames = loansByTenant
+      .map((row) => lenderNameById.get(row.tenantId))
+      .filter((v): v is string => Boolean(v))
+      .sort((a, b) => a.localeCompare(b));
 
     const currentDisplayName =
       borrower.borrowerType === 'CORPORATE'
@@ -804,15 +1096,26 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
             : (m.name || '');
         return !namesAreSimilar(currentDisplayName, matchedName);
       });
+    const currentPhone =
+      borrower.borrowerType === 'CORPORATE'
+        ? (borrower.companyPhone || borrower.phone)
+        : borrower.phone;
     const phoneDiffers =
-      (borrower.phone?.trim()?.length ?? 0) > 0 &&
-      matchedBorrowers.some((m) => !phonesAreSimilar(borrower.phone, m.phone));
+      (currentPhone?.trim()?.length ?? 0) > 0 &&
+      matchedBorrowers.some((m) => {
+        const matchedPhone =
+          borrower.borrowerType === 'CORPORATE'
+            ? (m.companyPhone || m.phone)
+            : m.phone;
+        return !phonesAreSimilar(currentPhone, matchedPhone);
+      });
 
     res.json({
       success: true,
       data: {
         hasHistory: true,
         otherLenderCount: loansByTenant.length,
+        lenderNames,
         totalLoans,
         activeLoans,
         completedLoans,
@@ -823,6 +1126,7 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
           rating,
           onTimeRateRange: toPercentageRange(onTimeRate),
         },
+        lastBorrowedAt: loanAggregate._max.agreementDate?.toISOString() ?? null,
         lastActivityAt: projectionAggregate.lastPaymentAt?.toISOString() ?? null,
         nameDiffers,
         phoneDiffers,

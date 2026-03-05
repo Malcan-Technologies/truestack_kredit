@@ -38,7 +38,10 @@ function readPaymentReminderDays(settings: unknown): number[] {
 }
 
 function buildReminderType(daysUntilDue: number): string {
-  return daysUntilDue === 0 ? 'DUE_ON_DAY' : `DUE_IN_${daysUntilDue}_DAYS`;
+  if (daysUntilDue === 0) return 'DUE_ON_DAY';
+  // Keep legacy singular form for idempotent de-dup compatibility.
+  if (daysUntilDue === 1) return 'DUE_IN_1_DAY';
+  return `DUE_IN_${daysUntilDue}_DAYS`;
 }
 
 async function runWithConcurrency<T>(

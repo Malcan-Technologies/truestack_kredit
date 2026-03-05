@@ -34,8 +34,13 @@ function readLatePaymentNoticeDays(settings: unknown, maxLateDay: number): numbe
   const raw = settings && typeof settings === 'object' ? settings as Record<string, unknown> : {};
   const rawDays = Array.isArray(raw.latePaymentNoticeDays) ? raw.latePaymentNoticeDays : DEFAULT_LATE_PAYMENT_NOTICE_DAYS;
   const normalized = normalizeLatePaymentNoticeDays(rawDays as number[], maxLateDay);
+  if (normalized.length > 0) return normalized;
+
   const defaultNormalized = normalizeLatePaymentNoticeDays([...DEFAULT_LATE_PAYMENT_NOTICE_DAYS], maxLateDay);
-  return normalized.length > 0 ? normalized : defaultNormalized;
+  if (defaultNormalized.length > 0) return defaultNormalized;
+
+  // Ensure short arrears periods (e.g. 1-2 days) still get at least one valid notice day.
+  return maxLateDay >= 1 ? [maxLateDay] : [];
 }
 
 function buildLateNoticeType(daysAfterDue: number): string {

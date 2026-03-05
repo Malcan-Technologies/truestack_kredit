@@ -246,9 +246,16 @@ function readTrueSendSettings(rawSettings: unknown, maxLateDay: number): TrueSen
     maxLateDay
   );
 
+  const fallbackLatePaymentNoticeDays = (() => {
+    const normalizedDefault = normalizeLatePaymentNoticeDays([...DEFAULT_LATE_PAYMENT_NOTICE_DAYS], maxLateDay);
+    if (normalizedDefault.length > 0) return normalizedDefault;
+    // Keep at least one valid day when arrears period is very short (e.g. 1-2 days).
+    return maxLateDay >= 1 ? [maxLateDay] : [];
+  })();
+
   return {
     paymentReminderDays: paymentReminderDays.length > 0 ? paymentReminderDays : [...DEFAULT_PAYMENT_REMINDER_DAYS],
-    latePaymentNoticeDays: latePaymentNoticeDays.length > 0 ? latePaymentNoticeDays : normalizeLatePaymentNoticeDays([...DEFAULT_LATE_PAYMENT_NOTICE_DAYS], maxLateDay),
+    latePaymentNoticeDays: latePaymentNoticeDays.length > 0 ? latePaymentNoticeDays : fallbackLatePaymentNoticeDays,
   };
 }
 

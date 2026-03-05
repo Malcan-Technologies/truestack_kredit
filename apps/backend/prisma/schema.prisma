@@ -552,6 +552,8 @@ model Borrower {
   @@unique([tenantId, icNumber])
   @@index([tenantId])
   @@index([borrowerType])
+  @@index([borrowerType, icNumber])
+  @@index([borrowerType, ssmRegistrationNo])
 }
 
 model BorrowerPerformanceProjection {
@@ -685,6 +687,7 @@ model LoanApplication {
 
   @@index([tenantId])
   @@index([status])
+  @@index([borrowerId])
 }
 
 model ApplicationGuarantor {
@@ -827,6 +830,8 @@ model Loan {
 
   @@index([tenantId])
   @@index([status])
+  @@index([borrowerId])
+  @@index([borrowerId, disbursementDate, tenantId])
 }
 
 model LoanGuarantor {

@@ -31,6 +31,7 @@ import {
   TrendingUp,
   Copy,
   Share2,
+  Sparkles,
   ExternalLink,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -219,6 +220,26 @@ interface TimelineEvent {
 }
 
 type BorrowerPerformanceRiskLevel = "NO_HISTORY" | "GOOD" | "WATCH" | "HIGH_RISK" | "DEFAULTED";
+
+interface CrossTenantInsights {
+  hasHistory: boolean;
+  otherLenderCount: number;
+  lenderNames: string[];
+  totalLoans: number;
+  activeLoans: number;
+  completedLoans: number;
+  defaultedLoans: number;
+  latePaymentsCount?: number;
+  totalBorrowedRange: string | null;
+  paymentPerformance: {
+    rating: BorrowerPerformanceRiskLevel;
+    onTimeRateRange: string | null;
+  };
+  lastBorrowedAt: string | null;
+  lastActivityAt: string | null;
+  nameDiffers?: boolean;
+  phoneDiffers?: boolean;
+}
 
 interface FormData {
   // Common fields
@@ -990,6 +1011,8 @@ export default function BorrowerDetailPage() {
   const [deletingDoc, setDeletingDoc] = useState(false);
   const [showKycInvalidationConfirm, setShowKycInvalidationConfirm] = useState(false);
   const [trueIdentityRefreshKey, setTrueIdentityRefreshKey] = useState(0);
+  const [crossTenantInsights, setCrossTenantInsights] = useState<CrossTenantInsights | null>(null);
+  const [crossTenantInsightsLoading, setCrossTenantInsightsLoading] = useState(true);
 
   const isIC = formData.documentType === "IC";
   const countryOptions = getCountryOptions();
@@ -1038,10 +1061,27 @@ export default function BorrowerDetailPage() {
     }
   }, [borrowerId]);
 
+  const fetchCrossTenantInsights = useCallback(async () => {
+    try {
+      setCrossTenantInsightsLoading(true);
+      const res = await api.get<CrossTenantInsights>(`/api/borrowers/${borrowerId}/cross-tenant-insights`);
+      if (res.success && res.data) {
+        setCrossTenantInsights(res.data);
+      } else {
+        setCrossTenantInsights(null);
+      }
+    } catch (error) {
+      console.error("Failed to fetch cross-tenant insights:", error);
+      setCrossTenantInsights(null);
+    } finally {
+      setCrossTenantInsightsLoading(false);
+    }
+  }, [borrowerId]);
+
   const handleRefresh = useCallback(async () => {
-    await Promise.all([fetchBorrower(), fetchTimeline()]);
+    await Promise.all([fetchBorrower(), fetchTimeline(), fetchCrossTenantInsights()]);
     setTrueIdentityRefreshKey((k) => k + 1);
-  }, [fetchBorrower, fetchTimeline]);
+  }, [fetchBorrower, fetchTimeline, fetchCrossTenantInsights]);
 
   const populateForm = (data: Borrower) => {
     const docType = data.documentType || "IC";
@@ -1129,6 +1169,10 @@ export default function BorrowerDetailPage() {
     };
     loadData();
   }, [fetchBorrower, fetchTimeline]);
+
+  useEffect(() => {
+    void fetchCrossTenantInsights();
+  }, [fetchCrossTenantInsights]);
 
   const handleIcNumberChange = (value: string) => {
     const currentIsIC = formData.documentType === "IC";
@@ -1743,6 +1787,188 @@ export default function BorrowerDetailPage() {
                         <p className="text-sm text-muted-foreground">{signalItems.join(" · ")}</p>
                       </div>
                     )}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+          <Card className="border-purple-500/60 shadow-[0_0_25px_rgba(139,92,246,0.35)]">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-muted-foreground" />
+                TrueSight™ - Cross-Tenant Insights
+              </CardTitle>
+              <CardDescription>
+                Aggregated borrower profile across other lenders on the platform
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {crossTenantInsightsLoading ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-4 w-1/2 rounded bg-muted" />
+                  <div className="h-16 w-full rounded-lg bg-muted" />
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="h-14 rounded-lg bg-muted" />
+                    <div className="h-14 rounded-lg bg-muted" />
+                    <div className="h-14 rounded-lg bg-muted" />
+                  </div>
+                </div>
+              ) : !crossTenantInsights ? (
+                <p className="text-sm text-muted-foreground">
+                  Unable to load cross-tenant insights right now.
+                </p>
+              ) : !crossTenantInsights.hasHistory ? (
+                <div className="rounded-lg border border-border px-4 py-3">
+                  <p className="text-sm font-medium">No borrowing history with other lenders</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    We could not find disbursed loans for this borrower outside your tenant.
+                  </p>
+                </div>
+              ) : (() => {
+                const ratingMeta = getPerformanceBadgeMeta(crossTenantInsights.paymentPerformance.rating);
+                const rangeLabel = crossTenantInsights.totalBorrowedRange ?? "Not available";
+
+                const showDiffersAlert =
+                  crossTenantInsights.nameDiffers || crossTenantInsights.phoneDiffers;
+
+                return (
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-border px-4 py-3">
+                      <p className="text-sm font-medium">
+                        Borrowed from {crossTenantInsights.otherLenderCount} other lender
+                        {crossTenantInsights.otherLenderCount === 1 ? "" : "s"}
+                      </p>
+                      {crossTenantInsights.lenderNames.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Lenders: {crossTenantInsights.lenderNames.join(", ")}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-border px-4 py-3">
+                      <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+                        Data consistency with other lenders
+                      </p>
+                      <div className="flex flex-wrap gap-4">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={
+                              crossTenantInsights.nameDiffers
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-emerald-600 dark:text-emerald-400"
+                            }
+                          >
+                            {crossTenantInsights.nameDiffers ? (
+                              <AlertTriangle className="h-4 w-4" />
+                            ) : (
+                              <ShieldCheck className="h-4 w-4" />
+                            )}
+                          </span>
+                          <span className="text-sm">
+                            Name:{" "}
+                            {crossTenantInsights.nameDiffers ? (
+                              <span className="text-amber-600 dark:text-amber-400">Different</span>
+                            ) : (
+                              <span className="text-emerald-600 dark:text-emerald-400">Matches</span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={
+                              crossTenantInsights.phoneDiffers
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-emerald-600 dark:text-emerald-400"
+                            }
+                          >
+                            {crossTenantInsights.phoneDiffers ? (
+                              <AlertTriangle className="h-4 w-4" />
+                            ) : (
+                              <ShieldCheck className="h-4 w-4" />
+                            )}
+                          </span>
+                          <span className="text-sm">
+                            Phone:{" "}
+                            {crossTenantInsights.phoneDiffers ? (
+                              <span className="text-amber-600 dark:text-amber-400">Different</span>
+                            ) : (
+                              <span className="text-emerald-600 dark:text-emerald-400">Matches</span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                      {showDiffersAlert && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Differences may be due to formatting (e.g. binti, missing last name) or data entry. Verify if
+                          needed.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="rounded-lg border border-border px-3 py-2.5">
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Total Borrowed Range</p>
+                        <p className="text-sm font-medium mt-1">{rangeLabel}</p>
+                      </div>
+                      <div className="rounded-lg border border-border px-3 py-2.5">
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Payment Performance</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant={ratingMeta.variant}>{ratingMeta.label}</Badge>
+                          {crossTenantInsights.paymentPerformance.onTimeRateRange && (
+                            <span className="text-sm text-muted-foreground">
+                              On-time {crossTenantInsights.paymentPerformance.onTimeRateRange}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+                      Loan status across other lenders
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium tabular-nums text-foreground">{crossTenantInsights.activeLoans}</span>
+                      <span className="text-muted-foreground"> Active</span>
+                      <span className="text-muted-foreground/60 mx-2">·</span>
+                      <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+                        {crossTenantInsights.completedLoans}
+                      </span>
+                      <span className="text-muted-foreground"> Completed</span>
+                      <span className="text-muted-foreground/60 mx-2">·</span>
+                      <span className="font-medium tabular-nums text-red-600 dark:text-red-400">
+                        {crossTenantInsights.defaultedLoans}
+                      </span>
+                      <span className="text-muted-foreground"> Defaulted</span>
+                      <span className="text-muted-foreground/60 mx-2">·</span>
+                      <span className="font-medium tabular-nums text-foreground">
+                        {crossTenantInsights.latePaymentsCount ?? 0}
+                      </span>
+                      <span className="text-muted-foreground"> Late payments</span>
+                    </p>
+
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <p>
+                        {crossTenantInsights.lastBorrowedAt
+                          ? `Last borrowed ${formatRelativeTime(crossTenantInsights.lastBorrowedAt)}`
+                          : "No agreement date found on matched loans"}
+                      </p>
+                      <p>
+                        {crossTenantInsights.lastActivityAt
+                          ? `Last payment ${formatRelativeTime(crossTenantInsights.lastActivityAt)}`
+                          : "No recent payment activity"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-dashed border-border px-3 py-2.5 space-y-1.5">
+                      <p className="text-xs text-muted-foreground">
+                        <strong className="text-foreground/80">Match criteria:</strong> Borrowers matched by{" "}
+                        {borrower.borrowerType === "CORPORATE" ? "SSM" : "IC"} number only.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Data is aggregated across the platform. Exact loan amounts are not
+                        disclosed.
+                      </p>
+                    </div>
                   </div>
                 );
               })()}

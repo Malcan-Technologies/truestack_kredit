@@ -1192,6 +1192,7 @@ model TenantAddOn {
   tenantId    String
   addOnType   String // "TRUESEND", "TRUEIDENTITY", "BORROWER_PERFORMANCE"
   status      String    @default("ACTIVE") // ACTIVE, CANCELLED, EXPIRED
+  settings    Json? // Module-specific settings (e.g., TrueSend reminder frequencies)
   enabledAt   DateTime  @default(now())
   cancelledAt DateTime?
   createdAt   DateTime  @default(now())
@@ -1267,7 +1268,7 @@ model PaymentReminderDispatch {
   tenantId        String
   loanId          String
   repaymentId     String
-  reminderType    String   // DUE_IN_3_DAYS, DUE_IN_1_DAY
+  reminderType    String   // DUE_IN_3_DAYS, DUE_IN_1_DAY, DUE_ON_DAY, ...
   reminderDateMYT DateTime // Start of reminder day in MYT, stored as UTC
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1275,6 +1276,21 @@ model PaymentReminderDispatch {
   @@unique([tenantId, loanId, repaymentId, reminderType, reminderDateMYT])
   @@index([tenantId, reminderDateMYT])
   @@index([loanId, repaymentId])
+}
+
+// Deterministic de-duplication for late payment notices
+model LatePaymentNoticeDispatch {
+  id            String   @id @default(cuid())
+  tenantId      String
+  loanId        String
+  noticeType    String   // LATE_3_DAYS, LATE_7_DAYS, ...
+  noticeDateMYT DateTime // Start of notice day in MYT, stored as UTC
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, loanId, noticeType, noticeDateMYT])
+  @@index([tenantId, noticeDateMYT])
+  @@index([loanId])
 }
 
 // ============================================

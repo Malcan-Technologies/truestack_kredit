@@ -29,6 +29,9 @@ import {
   Layers,
   Phone,
   Store,
+  Blocks,
+  Send,
+  Fingerprint,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -67,6 +70,7 @@ interface NavItem {
   name: string;
   href: string;
   icon: React.ElementType;
+  children?: NavItem[];
 }
 
 interface NavSection {
@@ -98,6 +102,15 @@ const navigationSections: NavSection[] = [
       { name: "Compliance", href: "/dashboard/compliance", icon: Shield },
       { name: "Promotions", href: "/dashboard/promotions", icon: Megaphone },
       { name: "Debt Marketplace", href: "/dashboard/debt-marketplace", icon: Store },
+      {
+        name: "Modules",
+        href: "/dashboard/modules",
+        icon: Blocks,
+        children: [
+          { name: "TrueSend™", href: "/dashboard/modules/truesend", icon: Send },
+          { name: "TrueIdentity™", href: "/dashboard/modules/trueidentity", icon: Fingerprint },
+        ],
+      },
     ],
   },
   {
@@ -134,6 +147,7 @@ const PATHS_REQUIRING_MEMBERSHIP = [
   "/dashboard/admin-logs",
   "/dashboard/subscription",
   "/dashboard/add-ons",
+  "/dashboard/modules",
 ];
 
 // Paths that require PAID subscription; FREE users can only access dashboard, billing, plan, promotions, help, settings, and subscription (to subscribe)
@@ -147,6 +161,7 @@ const PATHS_REQUIRING_PAID = [
   "/dashboard/reports",
   "/dashboard/admin-logs",
   "/dashboard/add-ons",
+  "/dashboard/modules",
 ];
 
 function pathRequiresMembership(href: string): boolean {
@@ -171,7 +186,11 @@ export default function DashboardLayout({
   const [membershipCheckComplete, setMembershipCheckComplete] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [expandedNavGroups, setExpandedNavGroups] = useState<Record<string, boolean>>({
+    "/dashboard/modules": false,
+  });
   const [applicationsPendingCount, setApplicationsPendingCount] = useState(0);
+  const [loansPendingDisbursementCount, setLoansPendingDisbursementCount] = useState(0);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -201,6 +220,12 @@ export default function DashboardLayout({
     }
   }, [session, isPending, router]);
 
+  useEffect(() => {
+    if (pathname.startsWith("/dashboard/modules")) {
+      setExpandedNavGroups((prev) => ({ ...prev, "/dashboard/modules": true }));
+    }
+  }, [pathname]);
+
   const fetchApplicationsPendingCount = useCallback(async () => {
     if (!hasTenants || subscriptionStatus === "FREE" || subscriptionStatus === "SUSPENDED") {
       setApplicationsPendingCount(0);
@@ -221,12 +246,39 @@ export default function DashboardLayout({
     fetchApplicationsPendingCount();
   }, [fetchApplicationsPendingCount]);
 
+  const fetchLoansPendingDisbursementCount = useCallback(async () => {
+    if (!hasTenants || subscriptionStatus !== "PAID") {
+      setLoansPendingDisbursementCount(0);
+      return;
+    }
+    api
+      .get<{ pendingDisbursement: number }>("/api/loans/counts")
+      .then((res) => {
+        if (res.success && res.data) {
+          setLoansPendingDisbursementCount(res.data.pendingDisbursement);
+        }
+      })
+      .catch(() => setLoansPendingDisbursementCount(0));
+  }, [hasTenants, subscriptionStatus]);
+
+  // Fetch loans pending disbursement count on mount and when count may have changed
+  useEffect(() => {
+    fetchLoansPendingDisbursementCount();
+  }, [fetchLoansPendingDisbursementCount]);
+
   // Listen for count changes (approve, reject, return-to-draft on application detail)
   useEffect(() => {
     const handler = () => fetchApplicationsPendingCount();
     window.addEventListener("applications-count-changed", handler);
     return () => window.removeEventListener("applications-count-changed", handler);
   }, [fetchApplicationsPendingCount]);
+
+  // Listen for loans count changes (disburse on loan detail, approve on application detail)
+  useEffect(() => {
+    const handler = () => fetchLoansPendingDisbursementCount();
+    window.addEventListener("loans-count-changed", handler);
+    return () => window.removeEventListener("loans-count-changed", handler);
+  }, [fetchLoansPendingDisbursementCount]);
 
   const ensureActiveTenantAndFetchMembership = async () => {
     try {
@@ -403,6 +455,169 @@ export default function DashboardLayout({
                     )}
                     <div className="space-y-1">
                       {section.items.map((item) => {
+                        if (item.children && item.children.length > 0) {
+                          const groupExpanded = expandedNavGroups[item.href] ?? false;
+                          const childItems = item.children.map((child) => {
+                            const isChildActive =
+                              pathname === child.href ||
+                              pathname.startsWith(child.href + "/");
+                            const memberRole = (membership?.role as TenantRole) || "STAFF";
+                            const hasAccess = canAccessPage(memberRole, child.href);
+                            const requiresMembership = pathRequiresMembership(child.href);
+                            const requiresPaid = pathRequiresPaid(child.href);
+                            const disabledNoMembership = !hasTenants && requiresMembership;
+                            const disabledFreeSubscription = subscriptionStatus === "FREE" && requiresPaid;
+
+                            return {
+                              ...child,
+                              isChildActive,
+                              disabled: !hasAccess || disabledNoMembership || disabledFreeSubscription,
+                              disabledNoMembership,
+                              disabledFreeSubscription,
+                            };
+                          });
+
+                          const hasEnabledChildren = childItems.some((child) => !child.disabled);
+                          const isGroupActive = childItems.some((child) => child.isChildActive);
+
+                          const parentContent = (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (sidebarCollapsed) return;
+                                setExpandedNavGroups((prev) => ({
+                                  ...prev,
+                                  [item.href]: !groupExpanded,
+                                }));
+                              }}
+                              className={cn(
+                                "w-full flex items-center rounded-lg text-sm font-medium transition-colors",
+                                sidebarCollapsed
+                                  ? "justify-center px-0 py-2 relative"
+                                  : "gap-3 px-3 py-2",
+                                hasEnabledChildren
+                                  ? isGroupActive
+                                    ? "bg-secondary text-foreground"
+                                    : "text-muted hover:text-foreground hover:bg-secondary"
+                                  : "opacity-40 cursor-not-allowed select-none",
+                              )}
+                              disabled={!hasEnabledChildren}
+                            >
+                              <item.icon className="h-5 w-5 shrink-0" />
+                              {!sidebarCollapsed && (
+                                <>
+                                  <span className="flex-1 text-left">{item.name}</span>
+                                  <ChevronDown
+                                    className={cn("h-4 w-4 transition-transform", groupExpanded ? "rotate-180" : "rotate-0")}
+                                  />
+                                </>
+                              )}
+                            </button>
+                          );
+
+                          if (sidebarCollapsed) {
+                            return (
+                              <DropdownMenu key={item.name}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className={cn(
+                                          "w-full flex items-center rounded-lg text-sm font-medium transition-colors",
+                                          "justify-center px-0 py-2 relative",
+                                          hasEnabledChildren
+                                            ? isGroupActive
+                                              ? "bg-secondary text-foreground"
+                                              : "text-muted hover:text-foreground hover:bg-secondary"
+                                            : "opacity-40 cursor-not-allowed select-none",
+                                        )}
+                                        disabled={!hasEnabledChildren}
+                                      >
+                                        <item.icon className="h-5 w-5 shrink-0" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right">
+                                    <p>{item.name} – click to open</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                                <DropdownMenuContent
+                                  side="right"
+                                  align="start"
+                                  sideOffset={8}
+                                  className="min-w-[180px]"
+                                >
+                                  {childItems.map((child) =>
+                                    child.disabled ? (
+                                      <DropdownMenuItem
+                                        key={child.href}
+                                        disabled
+                                        className="opacity-60 cursor-not-allowed"
+                                      >
+                                        <child.icon className="h-4 w-4 mr-2" />
+                                        {child.name}
+                                      </DropdownMenuItem>
+                                    ) : (
+                                      <DropdownMenuItem
+                                        key={child.href}
+                                        onClick={() => {
+                                          router.push(child.href);
+                                          setSidebarOpen(false);
+                                        }}
+                                      >
+                                        <child.icon className="h-4 w-4 mr-2" />
+                                        {child.name}
+                                      </DropdownMenuItem>
+                                    ),
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            );
+                          }
+
+                          return (
+                            <div key={item.name} className="space-y-1">
+                              {parentContent}
+                              {groupExpanded && (
+                                <div className="space-y-1 pl-7">
+                                  {childItems.map((child) => {
+                                    if (child.disabled) {
+                                      return (
+                                        <div
+                                          key={child.href}
+                                          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium opacity-40 cursor-not-allowed select-none"
+                                        >
+                                          <child.icon className="h-4 w-4 shrink-0" />
+                                          <span className="flex-1">{child.name}</span>
+                                          <Lock className="h-3.5 w-3.5" />
+                                        </div>
+                                      );
+                                    }
+
+                                    return (
+                                      <Link
+                                        key={child.href}
+                                        href={child.href}
+                                        className={cn(
+                                          "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                                          child.isChildActive
+                                            ? "bg-secondary text-foreground"
+                                            : "text-muted hover:text-foreground hover:bg-secondary",
+                                        )}
+                                        onClick={() => setSidebarOpen(false)}
+                                      >
+                                        <child.icon className="h-4 w-4 shrink-0" />
+                                        <span className="flex-1">{child.name}</span>
+                                      </Link>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
                         const isActive =
                           pathname === item.href ||
                           (item.href !== "/dashboard" &&
@@ -462,6 +677,7 @@ export default function DashboardLayout({
                         }
 
                         const isApplications = item.href === "/dashboard/applications";
+                        const isLoans = item.href === "/dashboard/loans";
                         const linkContent = (
                           <Link
                             key={item.name}
@@ -486,11 +702,21 @@ export default function DashboardLayout({
                                     {applicationsPendingCount}
                                   </Badge>
                                 )}
+                                {isLoans && loansPendingDisbursementCount > 0 && (
+                                  <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-xs">
+                                    {loansPendingDisbursementCount}
+                                  </Badge>
+                                )}
                               </>
                             )}
                             {sidebarCollapsed && isApplications && applicationsPendingCount > 0 && (
                               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
                                 {applicationsPendingCount > 99 ? "99+" : applicationsPendingCount}
+                              </span>
+                            )}
+                            {sidebarCollapsed && isLoans && loansPendingDisbursementCount > 0 && (
+                              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                                {loansPendingDisbursementCount > 99 ? "99+" : loansPendingDisbursementCount}
                               </span>
                             )}
                           </Link>
@@ -507,6 +733,11 @@ export default function DashboardLayout({
                                 {isApplications && applicationsPendingCount > 0 && (
                                   <p className="opacity-70 text-xs mt-1">
                                     {applicationsPendingCount} pending decision
+                                  </p>
+                                )}
+                                {isLoans && loansPendingDisbursementCount > 0 && (
+                                  <p className="opacity-70 text-xs mt-1">
+                                    {loansPendingDisbursementCount} pending disbursement
                                   </p>
                                 )}
                               </TooltipContent>
@@ -554,7 +785,7 @@ export default function DashboardLayout({
                 <DropdownMenuTrigger asChild>
                   <button
                     className={cn(
-                      "group flex items-center w-full rounded-lg border border-border hover:border-foreground/30 hover:bg-secondary transition-colors outline-none focus:ring-2 focus:ring-ring/50 focus:ring-offset-2 focus:ring-offset-surface",
+                      "group flex items-center w-full rounded-lg border border-border hover:border-foreground/30 hover:bg-secondary transition-colors outline-none focus:ring-0",
                       sidebarCollapsed
                         ? "justify-center p-1.5"
                         : "gap-3 p-2",

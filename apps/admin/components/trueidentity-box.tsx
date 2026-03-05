@@ -638,13 +638,12 @@ export function TrueIdentityBox({
               e-KYC verification is not enabled
             </p>
             <p className="text-xs text-muted-foreground/70 max-w-[260px] mb-4">
-              Subscribe to TrueIdentity to verify borrower identity via QR-based IC capture and face
-              liveness check.
+              Enable the TrueIdentity add-on from your plan settings to verify borrower identity via QR-based IC capture and face liveness check.
             </p>
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <Link href="/dashboard/plan">
                 <Sparkles className="h-3.5 w-3.5" />
-                Learn More
+                Update plan
               </Link>
             </Button>
           </div>

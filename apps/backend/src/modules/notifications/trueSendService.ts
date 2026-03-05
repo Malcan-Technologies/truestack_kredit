@@ -10,7 +10,7 @@ import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { AddOnService } from '../../lib/addOnService.js';
 import { getFile } from '../../lib/storage.js';
-import { safeRound, toSafeNumber } from '../../lib/math.js';
+import { safeAdd, safeRound, toSafeNumber } from '../../lib/math.js';
 
 // ============================================
 // Types
@@ -111,10 +111,10 @@ async function buildEmailWrapper(tenant: TenantEmailInfo, content: string): Prom
     .footer { padding: 24px 32px; background: #fafafa; border-top: 1px solid #eee; }
     .footer-text { color: #999; font-size: 12px; margin: 0; }
     .footer-tenant { padding: 16px 32px; background: #f5f5f5; border-top: 1px solid #eee; text-align: center; }
-    .badge { display: inline-block; background: #a855f7; color: #fff; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.5px; margin-left: 8px; vertical-align: middle; }
+    .badge { display: inline-block; background: #3b82f6; color: #fff; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.5px; margin-left: 8px; vertical-align: middle; }
     h2 { color: #1a1a1a; margin: 0 0 16px 0; font-size: 20px; }
     p { margin: 0 0 12px 0; }
-    .highlight { background: #faf5ff; border-left: 4px solid #a855f7; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0; }
+    .highlight { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0; }
     .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
     .detail-label { color: #666; font-size: 14px; }
     .detail-value { color: #1a1a1a; font-size: 14px; font-weight: 500; }
@@ -368,7 +368,13 @@ export class TrueSendService {
     const content = `
       <h2>Payment Reminder</h2>
       <p>Dear ${recipientName},</p>
-      <p>This is a friendly reminder that your loan repayment is due ${daysUntilDue === 1 ? '<strong>tomorrow</strong>' : `in <strong>${daysUntilDue} days</strong>`}.</p>
+      <p>This is a friendly reminder that your loan repayment is due ${
+        daysUntilDue === 0
+          ? '<strong>today</strong>'
+          : daysUntilDue === 1
+          ? '<strong>tomorrow</strong>'
+          : `in <strong>${daysUntilDue} days</strong>`
+      }.</p>
       <div class="highlight">
         <table class="details">
           <tr><td>Due Date</td><td>${dueDateFormatted}</td></tr>
@@ -423,7 +429,7 @@ export class TrueSendService {
   }
 
   /**
-   * Late Payment Notice — consolidates multiple late milestones into one email (1x per month)
+   * Late Payment Notice — consolidates multiple overdue milestones in one email
    */
   static async sendLatePaymentNotice(
     tenantId: string,
@@ -437,7 +443,7 @@ export class TrueSendService {
     if (!loan || !loan.borrower.email) return false;
 
     const tenantName = loan.tenant.name;
-    const totalOverdue = overdueMilestones.reduce((sum, m) => sum + m.amount, 0);
+    const totalOverdue = overdueMilestones.reduce((sum, m) => safeAdd(sum, m.amount), 0);
 
     const milestoneRows = overdueMilestones.map((m) => `
       <tr>
@@ -569,7 +575,7 @@ export class TrueSendService {
   }
 
   /**
-   * Disbursement Notification — attaches signed agreement (Jadual J/K) and stamp certificate
+   * Disbursement Notification — confirms loan disbursement (no PDF attachments)
    */
   static async sendDisbursementNotification(
     tenantId: string,
@@ -585,9 +591,6 @@ export class TrueSendService {
     const principal = toSafeNumber(loan.principalAmount);
     const rate = toSafeNumber(loan.interestRate);
 
-    // Determine agreement type label
-    const scheduleLabel = loan.product.loanScheduleType === 'JADUAL_K' ? 'Jadual K' : 'Jadual J';
-
     const content = `
       <h2>Loan Disbursement Confirmation</h2>
       <p>Dear ${loan.borrower.name},</p>
@@ -601,28 +604,10 @@ export class TrueSendService {
           ${loan.disbursementReference ? `<tr><td>Reference</td><td>${loan.disbursementReference}</td></tr>` : ''}
         </table>
       </div>
-      <p>Attached are your signed loan agreement (${scheduleLabel}) and stamp certificate for your records.</p>
       <p>Your repayment schedule will begin as per the agreed terms. Please ensure timely payments to maintain a good repayment record.</p>
       <p>If you have any questions, please contact ${tenantName} directly.</p>
       <p>Thank you for your trust.</p>
     `;
-
-    // Build attachments — agreement and stamp cert (both required before disbursement)
-    const emailAttachments: EmailAttachment[] = [];
-
-    if (loan.agreementPath) {
-      emailAttachments.push({
-        path: loan.agreementPath,
-        filename: loan.agreementOriginalName || `Loan_Agreement_${scheduleLabel.replace(' ', '_')}.pdf`,
-      });
-    }
-
-    if (loan.stampCertPath) {
-      emailAttachments.push({
-        path: loan.stampCertPath,
-        filename: loan.stampCertOriginalName || 'Stamp_Certificate.pdf',
-      });
-    }
 
     return await this.sendEmail({
       tenantId,
@@ -633,8 +618,6 @@ export class TrueSendService {
       recipientName: loan.borrower.name,
       subject: `Loan Disbursement Confirmation — ${formatCurrency(principal)}`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
-      attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
-      requireAllAttachments: emailAttachments.length > 0,
     });
   }
 

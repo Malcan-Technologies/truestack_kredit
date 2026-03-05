@@ -30,17 +30,17 @@ Sent before each repayment due date to help reduce late payments. Borrowers are 
 | Detail | Value |
 |--------|-------|
 | Trigger | Upcoming repayment due date |
-| Frequency | 2x per milestone — 3 days and 1 day before due |
+| Frequency | Tenant-configurable, up to 3x per milestone (default: 3 days, 1 day, and on due day) |
 | Attachment | None |
 
 ### Late Payment Notices
 
-Sent when a borrower has one or more overdue repayments. Multiple late milestones are consolidated into a single email to avoid overwhelming the borrower.
+Sent when a borrower has one or more overdue repayments. Multiple late milestones are consolidated into a single email.
 
 | Detail | Value |
 |--------|-------|
 | Trigger | Overdue repayment(s) detected |
-| Frequency | 1x per month (consolidated) |
+| Frequency | Tenant-configurable, up to 3x after due date (default: day 3, day 7, day 10; capped by arrears period) |
 | Attachment | None |
 
 ### Arrears Notices
@@ -65,13 +65,13 @@ Sent when a loan is marked as defaulted, or when an admin manually generates an 
 
 ### Disbursement Confirmations
 
-Sent once when a loan is disbursed. The borrower receives confirmation of the loan amount, interest rate, term, and disbursement reference along with the signed agreement and stamp certificate.
+Sent once when a loan is disbursed. The borrower receives confirmation of the loan amount, interest rate, term, and disbursement reference.
 
 | Detail | Value |
 |--------|-------|
 | Trigger | Loan disbursed |
 | Frequency | 1x per loan |
-| Attachment | Signed agreement (Jadual J/K) + Stamp certificate |
+| Attachment | None |
 
 ### Discharge Letters
 

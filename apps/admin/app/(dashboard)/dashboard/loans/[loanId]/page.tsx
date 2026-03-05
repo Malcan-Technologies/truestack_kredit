@@ -889,6 +889,7 @@ export default function LoanDetailPage() {
         setDisbursementReference("");
         setDisbursementProofFile(null);
         await Promise.all([fetchLoan(), fetchMetrics(), fetchTimeline()]); refreshEmailLog();
+        window.dispatchEvent(new CustomEvent("loans-count-changed"));
       } else {
         toast.error(res.error || "Failed to disburse loan");
       }

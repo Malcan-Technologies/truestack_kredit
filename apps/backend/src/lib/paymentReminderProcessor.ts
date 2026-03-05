@@ -2,7 +2,7 @@
  * Payment Reminder Processor (TrueSend)
  *
  * Runs daily at 9:00 AM MYT via cron.
- * Sends payment reminders 3 days and 1 day before each milestone due date
+ * Sends payment reminders on tenant-configured days before due date
  * for tenants that have the TrueSend add-on active.
  */
 
@@ -15,6 +15,34 @@ import { addMalaysiaDays, getMalaysiaDateString, getMalaysiaStartOfDay } from '.
 
 const TENANT_PROCESSING_CONCURRENCY = 5;
 const REMINDER_SENDING_CONCURRENCY = 10;
+const DEFAULT_PAYMENT_REMINDER_DAYS = [3, 1, 0] as const;
+const MAX_PAYMENT_REMINDER_DAY = 30;
+const MAX_REMINDER_FREQUENCY_COUNT = 3;
+
+function dedupeDays(days: number[]): number[] {
+  return [...new Set(days)];
+}
+
+function normalizePaymentReminderDays(days: number[]): number[] {
+  return dedupeDays(days)
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= MAX_PAYMENT_REMINDER_DAY)
+    .sort((a, b) => b - a)
+    .slice(0, MAX_REMINDER_FREQUENCY_COUNT);
+}
+
+function readPaymentReminderDays(settings: unknown): number[] {
+  const raw = settings && typeof settings === 'object' ? settings as Record<string, unknown> : {};
+  const rawDays = Array.isArray(raw.paymentReminderDays) ? raw.paymentReminderDays : DEFAULT_PAYMENT_REMINDER_DAYS;
+  const normalized = normalizePaymentReminderDays(rawDays as number[]);
+  return normalized.length > 0 ? normalized : [...DEFAULT_PAYMENT_REMINDER_DAYS];
+}
+
+function buildReminderType(daysUntilDue: number): string {
+  if (daysUntilDue === 0) return 'DUE_ON_DAY';
+  // Keep legacy singular form for idempotent de-dup compatibility.
+  if (daysUntilDue === 1) return 'DUE_IN_1_DAY';
+  return `DUE_IN_${daysUntilDue}_DAYS`;
+}
 
 async function runWithConcurrency<T>(
   items: T[],
@@ -52,14 +80,7 @@ export class PaymentReminderProcessor {
     let remindersSent = 0;
 
     try {
-      // Calculate deterministic MYT windows and target dates once per run
       const reminderDayStart = getMalaysiaStartOfDay(new Date());
-      const threeDaysTarget = addMalaysiaDays(reminderDayStart, 3);
-      const oneDayTarget = addMalaysiaDays(reminderDayStart, 1);
-      const threeDaysEnd = addMalaysiaDays(threeDaysTarget, 1);
-      const oneDayEnd = addMalaysiaDays(oneDayTarget, 1);
-      const threeDaysStr = getMalaysiaDateString(threeDaysTarget);
-      const oneDayStr = getMalaysiaDateString(oneDayTarget);
 
       // Find all tenants with active TrueSend add-on
       const trueSendAddOns = await prisma.tenantAddOn.findMany({
@@ -67,16 +88,32 @@ export class PaymentReminderProcessor {
           addOnType: 'TRUESEND',
           status: 'ACTIVE',
         },
-        select: { tenantId: true },
+        select: {
+          tenantId: true,
+          settings: true,
+        },
       });
 
-      await runWithConcurrency(trueSendAddOns, TENANT_PROCESSING_CONCURRENCY, async ({ tenantId }) => {
+      await runWithConcurrency(trueSendAddOns, TENANT_PROCESSING_CONCURRENCY, async ({ tenantId, settings }) => {
         try {
           // Verify add-on is truly active (subscription check too)
           const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
           if (!isActive) return;
 
           tenantsChecked++;
+          const reminderDays = readPaymentReminderDays(settings);
+          const reminderDateMatches = new Map<string, { daysUntilDue: number; reminderType: string }>();
+          const dueDateFilters = reminderDays.map((daysUntilDue) => {
+            const targetStart = addMalaysiaDays(reminderDayStart, daysUntilDue);
+            const targetEnd = addMalaysiaDays(targetStart, 1);
+            reminderDateMatches.set(getMalaysiaDateString(targetStart), {
+              daysUntilDue,
+              reminderType: buildReminderType(daysUntilDue),
+            });
+            return { dueDate: { gte: targetStart, lt: targetEnd } };
+          });
+
+          if (dueDateFilters.length === 0) return;
 
           // Find active/in-arrears loans for this tenant with relevant upcoming repayments
           const loans = await prisma.loan.findMany({
@@ -88,10 +125,7 @@ export class PaymentReminderProcessor {
                   repayments: {
                     some: {
                       status: { in: ['PENDING', 'PARTIAL'] },
-                      OR: [
-                        { dueDate: { gte: threeDaysTarget, lt: threeDaysEnd } },
-                        { dueDate: { gte: oneDayTarget, lt: oneDayEnd } },
-                      ],
+                      OR: dueDateFilters,
                     },
                   },
                 },
@@ -116,10 +150,7 @@ export class PaymentReminderProcessor {
                   repayments: {
                     where: {
                       status: { in: ['PENDING', 'PARTIAL'] },
-                      OR: [
-                        { dueDate: { gte: threeDaysTarget, lt: threeDaysEnd } },
-                        { dueDate: { gte: oneDayTarget, lt: oneDayEnd } },
-                      ],
+                      OR: dueDateFilters,
                     },
                     orderBy: { dueDate: 'asc' },
                   },
@@ -133,7 +164,7 @@ export class PaymentReminderProcessor {
             repayment: (typeof loans)[number]['scheduleVersions'][number]['repayments'][number];
             milestoneNumber: number;
             daysUntilDue: number;
-            reminderType: 'DUE_IN_3_DAYS' | 'DUE_IN_1_DAY';
+            reminderType: string;
           }> = [];
 
           for (const loan of loans) {
@@ -145,25 +176,14 @@ export class PaymentReminderProcessor {
             for (let i = 0; i < latestVersion.repayments.length; i++) {
               const repayment = latestVersion.repayments[i];
               const dueDateStr = getMalaysiaDateString(repayment.dueDate);
-
-              let daysUntilDue: number | null = null;
-              let reminderType: 'DUE_IN_3_DAYS' | 'DUE_IN_1_DAY' | null = null;
-
-              if (dueDateStr === threeDaysStr) {
-                daysUntilDue = 3;
-                reminderType = 'DUE_IN_3_DAYS';
-              } else if (dueDateStr === oneDayStr) {
-                daysUntilDue = 1;
-                reminderType = 'DUE_IN_1_DAY';
-              }
-
-              if (daysUntilDue === null || reminderType === null) continue;
+              const reminderMatch = reminderDateMatches.get(dueDateStr);
+              if (!reminderMatch) continue;
               reminderJobs.push({
                 loan,
                 repayment,
                 milestoneNumber: i + 1,
-                daysUntilDue,
-                reminderType,
+                daysUntilDue: reminderMatch.daysUntilDue,
+                reminderType: reminderMatch.reminderType,
               });
             }
           }

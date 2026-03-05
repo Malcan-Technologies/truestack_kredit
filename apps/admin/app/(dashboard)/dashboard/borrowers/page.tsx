@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search, User, Building2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Search, User, Building2, ArrowUpDown, ArrowUp, ArrowDown, Fingerprint, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,6 +72,10 @@ interface PaginatedResponse {
   };
 }
 
+interface AddOnStatusResponse {
+  addOns: Array<{ addOnType: string; status: string }>;
+}
+
 const DEFAULT_PAGE_SIZE = 20;
 
 // ============================================
@@ -108,6 +112,7 @@ function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | undef
 export default function BorrowersPage() {
   const router = useRouter();
   const [borrowers, setBorrowers] = useState<Borrower[]>([]);
+  const [trueIdentityActive, setTrueIdentityActive] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -172,6 +177,25 @@ export default function BorrowersPage() {
   useEffect(() => {
     fetchBorrowers();
   }, [fetchBorrowers]);
+
+  useEffect(() => {
+    const fetchAddOnStatus = async () => {
+      try {
+        const res = await api.get<AddOnStatusResponse>("/billing/add-ons");
+        if (!res.success || !res.data?.addOns) {
+          setTrueIdentityActive(false);
+          return;
+        }
+        const active = res.data.addOns.some(
+          (item) => item.addOnType === "TRUEIDENTITY" && item.status === "ACTIVE"
+        );
+        setTrueIdentityActive(active);
+      } catch {
+        setTrueIdentityActive(false);
+      }
+    };
+    fetchAddOnStatus();
+  }, []);
 
   const handleRefresh = async () => {
     await fetchBorrowers();
@@ -244,6 +268,30 @@ export default function BorrowersPage() {
           </Button>
         </Link>
       </div>
+
+      {trueIdentityActive === false && (
+        <Card className="border-dashed border-muted-foreground/30">
+          <CardContent className="py-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-3">
+                <Fingerprint className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">TrueIdentity is not enabled</p>
+                  <p className="text-xs text-muted">
+                    Enable the TrueIdentity add-on on your plan page to verify borrower identities via e-KYC.
+                  </p>
+                </div>
+              </div>
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link href="/dashboard/plan">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Update plan
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">

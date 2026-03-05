@@ -360,6 +360,7 @@ export default function ApplicationDetailPage() {
       fetchApplication();
       fetchTimeline();
       window.dispatchEvent(new CustomEvent("applications-count-changed"));
+      window.dispatchEvent(new CustomEvent("loans-count-changed"));
     } else {
       toast.error(res.error || "Failed to approve application");
     }

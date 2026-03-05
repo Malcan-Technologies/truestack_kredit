@@ -1,6 +1,7 @@
 import { Router, Request } from 'express';
 import { z } from 'zod';
 import path from 'path';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
 import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
@@ -197,6 +198,75 @@ const updateMemberSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+const DEFAULT_PAYMENT_REMINDER_DAYS = [3, 1, 0] as const;
+const DEFAULT_LATE_PAYMENT_NOTICE_DAYS = [3, 7, 10] as const;
+const MAX_REMINDER_FREQUENCY_COUNT = 3;
+const MAX_PAYMENT_REMINDER_DAY = 30;
+const DEFAULT_ARREARS_PERIOD = 14;
+const DEFAULT_DEFAULT_PERIOD = 28;
+
+const updateTrueSendSettingsSchema = z.object({
+  paymentReminderDays: z.array(z.number().int().min(0).max(MAX_PAYMENT_REMINDER_DAY)).min(1).max(MAX_REMINDER_FREQUENCY_COUNT),
+  latePaymentNoticeDays: z.array(z.number().int().min(1)).min(1).max(MAX_REMINDER_FREQUENCY_COUNT),
+});
+
+interface TrueSendSettings {
+  paymentReminderDays: number[];
+  latePaymentNoticeDays: number[];
+}
+
+function dedupeDays(days: number[]): number[] {
+  return [...new Set(days)];
+}
+
+function normalizePaymentReminderDays(days: number[]): number[] {
+  return dedupeDays(days)
+    .sort((a, b) => b - a)
+    .slice(0, MAX_REMINDER_FREQUENCY_COUNT);
+}
+
+function normalizeLatePaymentNoticeDays(days: number[], maxLateDay: number): number[] {
+  return dedupeDays(days)
+    .filter((day) => day <= maxLateDay)
+    .sort((a, b) => a - b)
+    .slice(0, MAX_REMINDER_FREQUENCY_COUNT);
+}
+
+function readTrueSendSettings(rawSettings: unknown, maxLateDay: number): TrueSendSettings {
+  const raw = rawSettings && typeof rawSettings === 'object' ? rawSettings as Record<string, unknown> : {};
+  const paymentReminderDaysRaw = Array.isArray(raw.paymentReminderDays) ? raw.paymentReminderDays : DEFAULT_PAYMENT_REMINDER_DAYS;
+  const latePaymentNoticeDaysRaw = Array.isArray(raw.latePaymentNoticeDays) ? raw.latePaymentNoticeDays : DEFAULT_LATE_PAYMENT_NOTICE_DAYS;
+
+  const paymentReminderDays = normalizePaymentReminderDays(
+    paymentReminderDaysRaw.filter((day): day is number => Number.isInteger(day) && day >= 0 && day <= MAX_PAYMENT_REMINDER_DAY)
+  );
+
+  const latePaymentNoticeDays = normalizeLatePaymentNoticeDays(
+    latePaymentNoticeDaysRaw.filter((day): day is number => Number.isInteger(day) && day >= 1),
+    maxLateDay
+  );
+
+  return {
+    paymentReminderDays: paymentReminderDays.length > 0 ? paymentReminderDays : [...DEFAULT_PAYMENT_REMINDER_DAYS],
+    latePaymentNoticeDays: latePaymentNoticeDays.length > 0 ? latePaymentNoticeDays : normalizeLatePaymentNoticeDays([...DEFAULT_LATE_PAYMENT_NOTICE_DAYS], maxLateDay),
+  };
+}
+
+async function getTenantNoticePeriods(tenantId: string): Promise<{ arrearsPeriod: number; defaultPeriod: number }> {
+  const periods = await prisma.product.aggregate({
+    where: { tenantId, isActive: true },
+    _min: {
+      arrearsPeriod: true,
+      defaultPeriod: true,
+    },
+  });
+
+  return {
+    arrearsPeriod: periods._min.arrearsPeriod ?? DEFAULT_ARREARS_PERIOD,
+    defaultPeriod: periods._min.defaultPeriod ?? DEFAULT_DEFAULT_PERIOD,
+  };
+}
+
 /**
  * Get current tenant details
  * GET /api/tenants/current
@@ -323,6 +393,125 @@ router.patch('/current', requireAdmin, async (req, res, next) => {
         businessAddress: tenant.businessAddress,
         logoUrl: tenant.logoUrl,
         status: tenant.status,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Get TrueSend module settings
+ * GET /api/tenants/modules/truesend
+ */
+router.get('/modules/truesend', requireAdmin, async (req, res, next) => {
+  try {
+    const [trueSendAddOn, periods] = await Promise.all([
+      prisma.tenantAddOn.findUnique({
+        where: { tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' } },
+        select: {
+          status: true,
+          settings: true,
+        },
+      }),
+      getTenantNoticePeriods(req.tenantId!),
+    ]);
+
+    const settings = readTrueSendSettings(trueSendAddOn?.settings, periods.arrearsPeriod);
+
+    res.json({
+      success: true,
+      data: {
+        enabled: trueSendAddOn?.status === 'ACTIVE',
+        settings,
+        constraints: {
+          maxReminderFrequencyCount: MAX_REMINDER_FREQUENCY_COUNT,
+          maxPaymentReminderDay: MAX_PAYMENT_REMINDER_DAY,
+          maxLatePaymentNoticeDay: periods.arrearsPeriod,
+          arrearsPeriod: periods.arrearsPeriod,
+          defaultPeriod: periods.defaultPeriod,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Update TrueSend module settings
+ * PATCH /api/tenants/modules/truesend
+ */
+router.patch('/modules/truesend', requireAdmin, async (req, res, next) => {
+  try {
+    const payload = updateTrueSendSettingsSchema.parse(req.body);
+
+    const [trueSendAddOn, periods] = await Promise.all([
+      prisma.tenantAddOn.findUnique({
+        where: { tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' } },
+        select: {
+          id: true,
+          status: true,
+          settings: true,
+        },
+      }),
+      getTenantNoticePeriods(req.tenantId!),
+    ]);
+
+    if (!trueSendAddOn || trueSendAddOn.status !== 'ACTIVE') {
+      throw new ForbiddenError('TrueSend add-on is not active');
+    }
+
+    const normalizedPaymentReminderDays = normalizePaymentReminderDays(payload.paymentReminderDays);
+    const normalizedLatePaymentNoticeDays = normalizeLatePaymentNoticeDays(payload.latePaymentNoticeDays, periods.arrearsPeriod);
+
+    if (normalizedPaymentReminderDays.length !== payload.paymentReminderDays.length) {
+      throw new BadRequestError('Payment reminder days must be unique values.');
+    }
+
+    if (normalizedLatePaymentNoticeDays.length !== payload.latePaymentNoticeDays.length) {
+      throw new BadRequestError(`Late payment notice days must be unique values and cannot exceed arrears period (${periods.arrearsPeriod} days).`);
+    }
+
+    const settings: TrueSendSettings = {
+      paymentReminderDays: normalizedPaymentReminderDays,
+      latePaymentNoticeDays: normalizedLatePaymentNoticeDays,
+    };
+
+    const updatedAddOn = await prisma.tenantAddOn.update({
+      where: { id: trueSendAddOn.id },
+      data: { settings: settings as unknown as Prisma.InputJsonValue },
+      select: {
+        status: true,
+        settings: true,
+      },
+    });
+
+    await logAdminAction(
+      req.user!.userId,
+      req.tenantId!,
+      'TRUESEND_SETTINGS_UPDATED',
+      req,
+      trueSendAddOn.id,
+      'TENANT_ADD_ON',
+      {
+        previousData: readTrueSendSettings(trueSendAddOn.settings, periods.arrearsPeriod),
+        newData: settings,
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        enabled: updatedAddOn.status === 'ACTIVE',
+        settings,
+        constraints: {
+          maxReminderFrequencyCount: MAX_REMINDER_FREQUENCY_COUNT,
+          maxPaymentReminderDay: MAX_PAYMENT_REMINDER_DAY,
+          maxLatePaymentNoticeDay: periods.arrearsPeriod,
+          arrearsPeriod: periods.arrearsPeriod,
+          defaultPeriod: periods.defaultPeriod,
+        },
       },
     });
   } catch (error) {

@@ -207,10 +207,10 @@ export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) 
                 Automated emails are not enabled
               </p>
               <p className="text-xs text-muted-foreground/70 max-w-[280px] mb-4">
-                Automated emails are part of the <strong>Core+</strong> plan. Upgrade your plan to automatically send payment receipts, reminders, arrears notices, and more to your borrowers.
+                Enable the TrueSend add-on from your plan settings to automatically send payment receipts, reminders, arrears notices, and more to your borrowers.
               </p>
               <Button asChild variant="outline" size="sm" className="gap-1.5">
-                <Link href="/dashboard/billing">
+                <Link href="/dashboard/plan">
                   <Sparkles className="h-3.5 w-3.5" />
                   Update plan
                 </Link>

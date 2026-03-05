@@ -368,7 +368,13 @@ export class TrueSendService {
     const content = `
       <h2>Payment Reminder</h2>
       <p>Dear ${recipientName},</p>
-      <p>This is a friendly reminder that your loan repayment is due ${daysUntilDue === 1 ? '<strong>tomorrow</strong>' : `in <strong>${daysUntilDue} days</strong>`}.</p>
+      <p>This is a friendly reminder that your loan repayment is due ${
+        daysUntilDue === 0
+          ? '<strong>today</strong>'
+          : daysUntilDue === 1
+          ? '<strong>tomorrow</strong>'
+          : `in <strong>${daysUntilDue} days</strong>`
+      }.</p>
       <div class="highlight">
         <table class="details">
           <tr><td>Due Date</td><td>${dueDateFormatted}</td></tr>

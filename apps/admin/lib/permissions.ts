@@ -1,7 +1,7 @@
 export type TenantRole = "OWNER" | "ADMIN" | "STAFF";
 
 // Pages that STAFF cannot access at all (fully blocked)
-const BLOCKED_PAGES = ["/dashboard/billing", "/dashboard/plan", "/dashboard/admin-logs"];
+const BLOCKED_PAGES = ["/dashboard/billing", "/dashboard/plan", "/dashboard/admin-logs", "/dashboard/modules"];
 
 /**
  * Check if a role can access a given page path.

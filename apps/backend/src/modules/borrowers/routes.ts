@@ -602,8 +602,9 @@ router.get('/:borrowerId', async (req, res, next) => {
 });
 
 /**
- * Get cross-tenant borrower insights (anonymized)
- * GET /api/borrowers/:borrowerId/cross-tenant-insights
+ * Get cross-tenant borrower insights (lookup by identifier).
+ * Includes lender names and aggregated risk/payment signals.
+ * GET /api/borrowers/cross-tenant-insights/lookup
  */
 router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
   try {
@@ -850,7 +851,8 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
 });
 
 /**
- * Get cross-tenant borrower insights (anonymized)
+ * Get cross-tenant borrower insights for an existing borrower.
+ * Includes lender names and aggregated risk/payment signals.
  * GET /api/borrowers/:borrowerId/cross-tenant-insights
  */
 router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {

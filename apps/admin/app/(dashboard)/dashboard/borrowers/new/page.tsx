@@ -707,8 +707,8 @@ export default function NewBorrowerPage() {
     }
 
     let cancelled = false;
+    setCrossTenantInsightsLoading(true);
     const timer = setTimeout(async () => {
-      setCrossTenantInsightsLoading(true);
       try {
         const params = new URLSearchParams({
           borrowerType,

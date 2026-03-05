@@ -1965,7 +1965,8 @@ export default function BorrowerDetailPage() {
                         {borrower.borrowerType === "CORPORATE" ? "SSM" : "IC"} number only.
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Data is aggregated across the platform. Exact amounts and lender identities are not disclosed.
+                        Data is aggregated across the platform. Exact loan amounts are not
+                        disclosed.
                       </p>
                     </div>
                   </div>

@@ -17,6 +17,7 @@ const NOTICE_SENDING_CONCURRENCY = 10;
 const DEFAULT_LATE_PAYMENT_NOTICE_DAYS = [3, 7, 10] as const;
 const DEFAULT_ARREARS_PERIOD = 14;
 const MAX_REMINDER_FREQUENCY_COUNT = 3;
+const REPAYMENT_QUERY_BATCH_SIZE = 2000;
 
 function dedupeDays(days: number[]): number[] {
   return [...new Set(days)];
@@ -39,6 +40,15 @@ function readLatePaymentNoticeDays(settings: unknown, maxLateDay: number): numbe
 
 function buildLateNoticeType(daysAfterDue: number): string {
   return `LATE_${daysAfterDue}_DAYS`;
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) return [];
+  const result: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    result.push(items.slice(i, i + size));
+  }
+  return result;
 }
 
 async function runWithConcurrency<T>(
@@ -109,10 +119,72 @@ export class LatePaymentNoticeProcessor {
             return { dueDate: { gte: targetStart, lt: targetEnd } };
           });
 
+          // Step 1: Get latest schedule version per active loan for this tenant only.
+          // Using distinct+orderBy avoids matching older schedule versions while keeping payload small.
+          const latestScheduleVersions = await prisma.loanScheduleVersion.findMany({
+            where: {
+              loan: {
+                tenantId,
+                status: { in: ['ACTIVE', 'IN_ARREARS'] },
+              },
+            },
+            orderBy: [{ loanId: 'asc' }, { version: 'desc' }],
+            distinct: ['loanId'],
+            select: {
+              id: true,
+              loanId: true,
+            },
+          });
+
+          if (latestScheduleVersions.length === 0) return;
+
+          const latestVersionLoanById = new Map(
+            latestScheduleVersions.map((version) => [version.id, version.loanId])
+          );
+
+          // Step 2: Query only repayment rows that can trigger today to avoid scanning all loans.
+          // Batch the IN-list for large tenants to keep query size bounded.
+          const latestVersionIdBatches = chunkArray(
+            latestScheduleVersions.map((version) => version.id),
+            REPAYMENT_QUERY_BATCH_SIZE,
+          );
+          const triggeredNoticeTypesByLoanId = new Map<string, Set<string>>();
+          for (const versionIdBatch of latestVersionIdBatches) {
+            const triggeredRepayments = await prisma.loanRepayment.findMany({
+              where: {
+                scheduleVersionId: { in: versionIdBatch },
+                status: { in: ['PENDING', 'PARTIAL'] },
+                OR: dueDateFilters,
+              },
+              select: {
+                scheduleVersionId: true,
+                dueDate: true,
+              },
+            });
+
+            for (const repayment of triggeredRepayments) {
+              const loanId = latestVersionLoanById.get(repayment.scheduleVersionId);
+              if (!loanId) continue;
+
+              const dueDateKey = getMalaysiaDateString(repayment.dueDate);
+              const matchedDaysAfterDue = dueDateMatchByDay.get(dueDateKey);
+              if (typeof matchedDaysAfterDue !== 'number') continue;
+
+              const noticeType = buildLateNoticeType(matchedDaysAfterDue);
+              const existingTypes = triggeredNoticeTypesByLoanId.get(loanId) ?? new Set<string>();
+              existingTypes.add(noticeType);
+              triggeredNoticeTypesByLoanId.set(loanId, existingTypes);
+            }
+          }
+
+          if (triggeredNoticeTypesByLoanId.size === 0) return;
+
+          // Step 3: Fetch only candidate loans that have a trigger today, with latest schedule for consolidation.
           const loans = await prisma.loan.findMany({
             where: {
               tenantId,
               status: { in: ['ACTIVE', 'IN_ARREARS'] },
+              id: { in: Array.from(triggeredNoticeTypesByLoanId.keys()) },
             },
             include: {
               borrower: { select: { id: true, email: true } },
@@ -130,7 +202,7 @@ export class LatePaymentNoticeProcessor {
 
           const jobs: Array<{
             loanId: string;
-            noticeType: string;
+            noticeTypes: string[];
             overdueMilestones: Array<{ milestoneNumber: number; dueDate: Date; amount: number; daysOverdue: number }>;
           }> = [];
 
@@ -138,9 +210,10 @@ export class LatePaymentNoticeProcessor {
             if (!loan.borrower.email) continue;
             const latestVersion = loan.scheduleVersions[0];
             if (!latestVersion) continue;
+            const triggeredNoticeTypes = triggeredNoticeTypesByLoanId.get(loan.id);
+            if (!triggeredNoticeTypes || triggeredNoticeTypes.size === 0) continue;
 
             const overdueMilestones: Array<{ milestoneNumber: number; dueDate: Date; amount: number; daysOverdue: number }> = [];
-            const triggeredNoticeTypes = new Set<string>();
 
             for (let i = 0; i < latestVersion.repayments.length; i++) {
               const repayment = latestVersion.repayments[i];
@@ -153,49 +226,53 @@ export class LatePaymentNoticeProcessor {
                 amount: toSafeNumber(repayment.totalDue),
                 daysOverdue: calculateDaysOverdueMalaysia(repayment.dueDate, noticeDayStart),
               });
-
-              const dueDateKey = getMalaysiaDateString(repayment.dueDate);
-              const matchedDaysAfterDue = dueDateMatchByDay.get(dueDateKey);
-              if (typeof matchedDaysAfterDue === 'number') {
-                triggeredNoticeTypes.add(buildLateNoticeType(matchedDaysAfterDue));
-              }
             }
 
             if (triggeredNoticeTypes.size === 0 || overdueMilestones.length === 0) continue;
-            for (const noticeType of triggeredNoticeTypes) {
-              jobs.push({
-                loanId: loan.id,
-                noticeType,
-                overdueMilestones,
-              });
-            }
+            jobs.push({
+              loanId: loan.id,
+              noticeTypes: Array.from(triggeredNoticeTypes).sort(),
+              overdueMilestones,
+            });
           }
 
           await runWithConcurrency(jobs, NOTICE_SENDING_CONCURRENCY, async (job) => {
-            let dispatchId: string | null = null;
-            try {
-              const dispatch = await prisma.latePaymentNoticeDispatch.create({
-                data: {
-                  tenantId,
-                  loanId: job.loanId,
-                  noticeType: job.noticeType,
-                  noticeDateMYT: noticeDayStart,
-                },
-              });
-              dispatchId = dispatch.id;
-            } catch (error) {
-              if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-                return;
+            const createdDispatchIds: string[] = [];
+            let hasNewDispatch = false;
+
+            for (const noticeType of job.noticeTypes) {
+              try {
+                const dispatch = await prisma.latePaymentNoticeDispatch.create({
+                  data: {
+                    tenantId,
+                    loanId: job.loanId,
+                    noticeType,
+                    noticeDateMYT: noticeDayStart,
+                  },
+                });
+                createdDispatchIds.push(dispatch.id);
+                hasNewDispatch = true;
+              } catch (error) {
+                if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                  continue;
+                }
+                throw error;
               }
-              throw error;
             }
 
+            if (!hasNewDispatch) return;
+
             try {
-              await TrueSendService.sendLatePaymentNotice(tenantId, job.loanId, job.overdueMilestones);
+              const sent = await TrueSendService.sendLatePaymentNotice(tenantId, job.loanId, job.overdueMilestones);
+              if (!sent) {
+                throw new Error('TrueSend failed to deliver late payment notice');
+              }
               noticesSent++;
             } catch (error) {
-              if (dispatchId) {
-                await prisma.latePaymentNoticeDispatch.delete({ where: { id: dispatchId } }).catch(() => undefined);
+              if (createdDispatchIds.length > 0) {
+                await prisma.latePaymentNoticeDispatch.deleteMany({
+                  where: { id: { in: createdDispatchIds } },
+                }).catch(() => undefined);
               }
               const msg = error instanceof Error ? error.message : 'Unknown error';
               errors.push(`Loan ${job.loanId}: ${msg}`);

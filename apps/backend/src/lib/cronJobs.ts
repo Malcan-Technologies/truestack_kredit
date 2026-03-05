@@ -9,6 +9,7 @@ import cron from 'node-cron';
 import { LateFeeProcessor } from './lateFeeProcessor.js';
 import { PaymentReminderProcessor } from './paymentReminderProcessor.js';
 import { BillingCronService } from './billingCronService.js';
+import { LatePaymentNoticeProcessor } from './latePaymentNoticeProcessor.js';
 
 /**
  * Initialize all cron jobs.

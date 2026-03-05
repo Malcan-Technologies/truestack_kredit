@@ -105,6 +105,28 @@ const normalizeOptionalText = (value: string | undefined): string | null | undef
 const normalizeIdentityNumber = (value: string | null | undefined): string =>
   (value ?? '').replace(/\D/g, '');
 
+/** Predefined buckets for total borrowed range (data privacy). */
+const TOTAL_BORROWED_BUCKETS: Array<{ max: number; label: string }> = [
+  { max: 10_000, label: 'Under RM 10,000' },
+  { max: 50_000, label: 'RM 10,000 - RM 50,000' },
+  { max: 100_000, label: 'RM 50,000 - RM 100,000' },
+  { max: 500_000, label: 'RM 100,000 - RM 500,000' },
+  { max: 1_000_000, label: 'RM 500,000 - RM 1,000,000' },
+  { max: 10_000_000, label: 'RM 1,000,000 - RM 10,000,000' },
+  { max: Infinity, label: 'RM 10,000,000+' },
+];
+
+const getTotalBorrowedBucketLabel = (amount: number): string => {
+  for (const [index, bucket] of TOTAL_BORROWED_BUCKETS.entries()) {
+    // Keep first bucket ("Under RM 10,000") strictly exclusive,
+    // but treat all subsequent bucket maximums as inclusive.
+    if ((index === 0 && amount < bucket.max) || (index > 0 && amount <= bucket.max)) {
+      return bucket.label;
+    }
+  }
+  return TOTAL_BORROWED_BUCKETS[TOTAL_BORROWED_BUCKETS.length - 1].label;
+};
+
 const normalizeCountryCode = (value: string | undefined): string | null | undefined => {
   if (value === undefined) return undefined;
   const trimmed = value.trim().toUpperCase();
@@ -199,6 +221,15 @@ const resolveUpdatedAddressFields = (existing: ExistingAddressData, data: Addres
 };
 
 type BorrowerVerificationSummary = 'FULLY_VERIFIED' | 'PARTIALLY_VERIFIED' | 'UNVERIFIED';
+type CrossTenantPerformanceRating = 'NO_HISTORY' | 'GOOD' | 'WATCH' | 'HIGH_RISK' | 'DEFAULTED';
+
+const CROSS_TENANT_RISK_PRIORITY: Record<CrossTenantPerformanceRating, number> = {
+  NO_HISTORY: 0,
+  GOOD: 1,
+  WATCH: 2,
+  HIGH_RISK: 3,
+  DEFAULTED: 4,
+};
 
 function resolveVerificationStatus(borrower: {
   borrowerType: string;
@@ -219,6 +250,95 @@ function resolveVerificationStatus(borrower: {
     return borrower.verificationStatus;
   }
   return getBorrowerVerificationSummary(borrower);
+}
+
+function resolveCrossTenantRiskRating(
+  riskLevels: Array<string | null | undefined>
+): CrossTenantPerformanceRating {
+  let resolved: CrossTenantPerformanceRating = 'NO_HISTORY';
+
+  for (const level of riskLevels) {
+    if (!level) continue;
+    const normalized = level.toUpperCase();
+    if (!(normalized in CROSS_TENANT_RISK_PRIORITY)) continue;
+
+    const candidate = normalized as CrossTenantPerformanceRating;
+    if (CROSS_TENANT_RISK_PRIORITY[candidate] > CROSS_TENANT_RISK_PRIORITY[resolved]) {
+      resolved = candidate;
+    }
+  }
+
+  return resolved;
+}
+
+function toPercentageRange(value: number | null): string | null {
+  if (value === null || Number.isNaN(value) || !Number.isFinite(value)) return null;
+
+  const clamped = Math.max(0, Math.min(value, 100));
+  const bucketIndex = clamped === 100 ? 9 : Math.floor(clamped / 10);
+  const lower = bucketIndex * 10;
+  const upper = lower + 10;
+  return `${lower}-${upper}%`;
+}
+
+/** Common name particles to exclude when comparing names */
+const NAME_PARTICLES = new Set(['bin', 'binti', 'binte', 'bt', 'ap']);
+
+/**
+ * Name comparison for cross-tenant data consistency alerts.
+ * Requires the first/given name to match (IC identifies the person; name must align).
+ * Margin of error for formats like "Ahmad bin Rahman" vs "Ahmad" or "binti" variants.
+ * "Ivan Chew Ken Yoong" vs "John Chew" = different (given names Ivan vs John).
+ */
+function namesAreSimilar(
+  name1: string | null | undefined,
+  name2: string | null | undefined
+): boolean {
+  const a = name1?.trim() || '';
+  const b = name2?.trim() || '';
+  if (!a || !b) return true;
+
+  const normalize = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (na === nb) return true;
+  if (na.length >= 2 && nb.includes(na)) return true;
+  if (nb.length >= 2 && na.includes(nb)) return true;
+
+  const getSignificantWords = (s: string) =>
+    s.split(/\s+/).filter((w) => w.length >= 2 && !NAME_PARTICLES.has(w));
+  const wordsA = getSignificantWords(na);
+  const wordsB = getSignificantWords(nb);
+  if (wordsA.length === 0 || wordsB.length === 0) return true;
+
+  const firstA = wordsA[0]!;
+  const firstB = wordsB[0]!;
+  const firstNamesMatch =
+    firstA === firstB ||
+    firstA.startsWith(firstB) ||
+    firstB.startsWith(firstA);
+  if (!firstNamesMatch) return false;
+
+  return true;
+}
+
+function phonesAreSimilar(
+  phone1: string | null | undefined,
+  phone2: string | null | undefined
+): boolean {
+  const p1 = phone1?.trim() || '';
+  const p2 = phone2?.trim() || '';
+  if (!p1 || !p2) return true; // No phone to compare, do not reject
+
+  const d1 = p1.replace(/\D/g, '');
+  const d2 = p2.replace(/\D/g, '');
+  if (d1.length < 8 || d2.length < 8) return true;
+
+  return d1 === d2 || d1.endsWith(d2) || d2.endsWith(d1);
 }
 
 // Individual borrower fields schema
@@ -467,6 +587,245 @@ router.get('/:borrowerId', async (req, res, next) => {
         verificationStatus: resolvedVerificationStatus,
         loanSummary,
         guarantorCount,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Get cross-tenant borrower insights (anonymized)
+ * GET /api/borrowers/:borrowerId/cross-tenant-insights
+ */
+router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
+  try {
+    const borrowerId = req.params.borrowerId;
+    const buildEmptyInsights = () => ({
+      hasHistory: false,
+      otherLenderCount: 0,
+      totalLoans: 0,
+      activeLoans: 0,
+      completedLoans: 0,
+      defaultedLoans: 0,
+      latePaymentsCount: 0,
+      totalBorrowedRange: null as string | null,
+      paymentPerformance: {
+        rating: 'NO_HISTORY' as CrossTenantPerformanceRating,
+        onTimeRateRange: null as string | null,
+      },
+      lastActivityAt: null as string | null,
+      nameDiffers: false,
+      phoneDiffers: false,
+    });
+
+    const borrower = await prisma.borrower.findFirst({
+      where: {
+        id: borrowerId,
+        tenantId: req.tenantId,
+      },
+      select: {
+        borrowerType: true,
+        icNumber: true,
+        ssmRegistrationNo: true,
+        name: true,
+        phone: true,
+        companyName: true,
+      },
+    });
+
+    if (!borrower) {
+      throw new NotFoundError('Borrower');
+    }
+
+    const rawMatchValue = borrower.borrowerType === 'CORPORATE'
+      ? (borrower.ssmRegistrationNo?.trim() || borrower.icNumber?.trim() || '')
+      : (borrower.icNumber?.trim() || '');
+    const normalizedMatchValue = normalizeIdentityNumber(rawMatchValue);
+    const matchValuesSet = new Set([rawMatchValue, normalizedMatchValue].filter((v) => v.length > 0));
+    if (normalizedMatchValue.length === 12 && /^\d{12}$/.test(normalizedMatchValue)) {
+      matchValuesSet.add(
+        `${normalizedMatchValue.slice(0, 6)}-${normalizedMatchValue.slice(6, 8)}-${normalizedMatchValue.slice(8)}`
+      );
+    }
+    const matchValues = Array.from(matchValuesSet);
+
+    if (matchValues.length === 0) {
+      res.json({
+        success: true,
+        data: buildEmptyInsights(),
+      });
+      return;
+    }
+
+    const matchWhere: Prisma.BorrowerWhereInput = borrower.borrowerType === 'CORPORATE'
+      ? {
+          tenantId: { not: req.tenantId! },
+          borrowerType: 'CORPORATE',
+          OR: [
+            { ssmRegistrationNo: { in: matchValues } },
+            { icNumber: { in: matchValues } },
+          ],
+        }
+      : {
+          tenantId: { not: req.tenantId! },
+          borrowerType: 'INDIVIDUAL',
+          icNumber: { in: matchValues },
+        };
+
+    const matchedBorrowers = await prisma.borrower.findMany({
+      where: matchWhere,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        companyName: true,
+        performanceProjection: {
+          select: {
+            riskLevel: true,
+            paidOnTimeCount: true,
+            paidLateCount: true,
+            overdueCount: true,
+            lastPaymentAt: true,
+          },
+        },
+      },
+    });
+
+    if (matchedBorrowers.length === 0) {
+      res.json({
+        success: true,
+        data: buildEmptyInsights(),
+      });
+      return;
+    }
+
+    const matchedBorrowerIds = matchedBorrowers.map((item) => item.id);
+
+    const loanWhere = {
+      borrowerId: { in: matchedBorrowerIds },
+      tenantId: { not: req.tenantId! },
+      disbursementDate: { not: null },
+      principalAmount: { gt: 0 },
+    };
+
+    const [loanAggregate, loanStatusGroups, loansByTenant] = await Promise.all([
+      prisma.loan.aggregate({
+        where: loanWhere,
+        _count: { id: true },
+      }),
+      prisma.loan.groupBy({
+        by: ['status'],
+        where: loanWhere,
+        _count: { _all: true },
+      }),
+      prisma.loan.groupBy({
+        by: ['tenantId'],
+        where: loanWhere,
+        _sum: { principalAmount: true },
+      }),
+    ]);
+
+    const totalLoans = loanAggregate._count.id ?? 0;
+    if (totalLoans === 0) {
+      res.json({
+        success: true,
+        data: buildEmptyInsights(),
+      });
+      return;
+    }
+
+    const statusCounts = loanStatusGroups.reduce<Record<string, number>>((acc, row) => {
+      acc[row.status] = row._count._all;
+      return acc;
+    }, {});
+
+    const activeLoans = (statusCounts.ACTIVE ?? 0) + (statusCounts.IN_ARREARS ?? 0);
+    const completedLoans = statusCounts.COMPLETED ?? 0;
+    const defaultedLoans = (statusCounts.DEFAULTED ?? 0) + (statusCounts.WRITTEN_OFF ?? 0);
+
+    const projectionAggregate = matchedBorrowers.reduce(
+      (acc, item) => {
+        const projection = item.performanceProjection;
+        if (!projection) return acc;
+
+        acc.paidOnTime += projection.paidOnTimeCount;
+        acc.paidLate += projection.paidLateCount;
+        acc.overdue += projection.overdueCount;
+        acc.riskLevels.push(projection.riskLevel);
+        if (!acc.lastPaymentAt || (projection.lastPaymentAt && projection.lastPaymentAt > acc.lastPaymentAt)) {
+          acc.lastPaymentAt = projection.lastPaymentAt;
+        }
+        return acc;
+      },
+      {
+        paidOnTime: 0,
+        paidLate: 0,
+        overdue: 0,
+        riskLevels: [] as Array<string | null>,
+        lastPaymentAt: null as Date | null,
+      }
+    );
+
+    const projectionSampleSize =
+      projectionAggregate.paidOnTime + projectionAggregate.paidLate + projectionAggregate.overdue;
+    const onTimeRate = projectionSampleSize > 0
+      ? (projectionAggregate.paidOnTime / projectionSampleSize) * 100
+      : null;
+    let rating = resolveCrossTenantRiskRating(projectionAggregate.riskLevels);
+    if (rating === 'NO_HISTORY' && defaultedLoans > 0) {
+      rating = 'DEFAULTED';
+    }
+
+    const totalBorrowedPerLender = loansByTenant
+      .map((row) => toSafeNumber(row._sum.principalAmount))
+      .filter((v) => v > 0);
+    const totalBorrowedRange =
+      totalBorrowedPerLender.length > 0
+        ? (() => {
+            const minVal = Math.min(...totalBorrowedPerLender);
+            const maxVal = Math.max(...totalBorrowedPerLender);
+            const minLabel = getTotalBorrowedBucketLabel(minVal);
+            const maxLabel = getTotalBorrowedBucketLabel(maxVal);
+            return minLabel === maxLabel ? minLabel : `${minLabel} to ${maxLabel}`;
+          })()
+        : null;
+
+    const currentDisplayName =
+      borrower.borrowerType === 'CORPORATE'
+        ? (borrower.companyName || borrower.name) || ''
+        : (borrower.name || '');
+    const nameDiffers =
+      currentDisplayName.length > 0 &&
+      matchedBorrowers.some((m) => {
+        const matchedName =
+          borrower.borrowerType === 'CORPORATE'
+            ? (m.companyName || m.name) || ''
+            : (m.name || '');
+        return !namesAreSimilar(currentDisplayName, matchedName);
+      });
+    const phoneDiffers =
+      (borrower.phone?.trim()?.length ?? 0) > 0 &&
+      matchedBorrowers.some((m) => !phonesAreSimilar(borrower.phone, m.phone));
+
+    res.json({
+      success: true,
+      data: {
+        hasHistory: true,
+        otherLenderCount: loansByTenant.length,
+        totalLoans,
+        activeLoans,
+        completedLoans,
+        defaultedLoans,
+        latePaymentsCount: projectionAggregate.paidLate,
+        totalBorrowedRange,
+        paymentPerformance: {
+          rating,
+          onTimeRateRange: toPercentageRange(onTimeRate),
+        },
+        lastActivityAt: projectionAggregate.lastPaymentAt?.toISOString() ?? null,
+        nameDiffers,
+        phoneDiffers,
       },
     });
   } catch (error) {

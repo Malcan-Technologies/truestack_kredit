@@ -69,6 +69,7 @@ const CORE_FEATURES = [
   "Jadual J and K generation",
   "KPKT iDeaL export, Lampiran A",
   "Full audit logs",
+  "TrueSight™ cross-tenant insights (free)",
 ];
 
 function LoanUsageBar({ used, limit, truesendActive = false }: { used: number; limit: number; truesendActive?: boolean }) {
@@ -280,7 +281,7 @@ export default function PlanPage() {
                   </h2>
                   <p className="text-muted-foreground mt-2">
                     Subscribe to Core to access loan management, compliance tools,
-                    schedules, and optional add-ons like TrueSend™.
+                    schedules, TrueSight™ (free), and optional add-ons like TrueSend™.
                   </p>
                 </div>
                 <ul className="text-left space-y-3 text-sm text-muted-foreground max-w-sm mx-auto">
@@ -295,6 +296,10 @@ export default function PlanPage() {
                   <li className="flex gap-3 items-start">
                     <Check className="h-5 w-5 shrink-0 text-emerald-500 mt-0.5" />
                     KPKT compliance, Lampiran A, full audit logs
+                  </li>
+                  <li className="flex gap-3 items-start">
+                    <Check className="h-5 w-5 shrink-0 text-emerald-500 mt-0.5" />
+                    TrueSight™ cross-tenant insights (free)
                   </li>
                   <li className="flex gap-3 items-start">
                     <Check className="h-5 w-5 shrink-0 text-emerald-500 mt-0.5" />
@@ -353,7 +358,7 @@ export default function PlanPage() {
                     <p className="text-sm text-muted-foreground mt-1">
                       {planName === "Core"
                         ? isCoreActive
-                          ? "Full loan management, compliance, and schedules. Add TrueSend™ as an add-on for automated emails."
+                          ? "Full loan management, compliance, schedules, and TrueSight™ (free). Add TrueSend™ as an add-on for automated emails."
                           : "Subscription pending. Full access after payment verification."
                         : "Subscribe to Core to unlock the full platform."}
                     </p>
@@ -535,7 +540,7 @@ export default function PlanPage() {
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
                       Full loan management platform with compliance tools, schedules,
-                      and optional add-ons like TrueSend™ for automated emails.
+                      TrueSight™ cross-tenant insights (free), and optional add-ons like TrueSend™ for automated emails.
                     </p>
                     <ul className="text-sm text-muted-foreground space-y-2 mb-4">
                       {CORE_FEATURES.map((feature) => (

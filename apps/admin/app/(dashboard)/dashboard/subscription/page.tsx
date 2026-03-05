@@ -9,6 +9,7 @@ import {
   Send,
   Fingerprint,
   BadgePercent,
+  Loader2,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -42,6 +43,37 @@ const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
 const SST_RATE = 0.08; // 8% SST (Service Tax)
 
+const roundHalfUp2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+const differenceInDays = (start: Date, end: Date) => {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / msPerDay));
+};
+
+/** Days until target date (MYT). Positive = future, negative = past. */
+function getMytDaysUntil(targetIsoDate: string): number {
+  const target = new Date(targetIsoDate);
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const getParts = (d: Date) => {
+    const parts = formatter.formatToParts(d);
+    return {
+      y: parts.find((p) => p.type === "year")?.value ?? "1970",
+      m: parts.find((p) => p.type === "month")?.value ?? "01",
+      d: parts.find((p) => p.type === "day")?.value ?? "01",
+    };
+  };
+  const nowP = getParts(now);
+  const targetP = getParts(target);
+  const nowUtc = Date.UTC(Number(nowP.y), Number(nowP.m) - 1, Number(nowP.d));
+  const targetUtc = Date.UTC(Number(targetP.y), Number(targetP.m) - 1, Number(targetP.d));
+  return Math.ceil((targetUtc - nowUtc) / (1000 * 60 * 60 * 24));
+}
+
 const CORE_FEATURES = [
   "Borrower management",
   "Loan products & applications",
@@ -50,6 +82,10 @@ const CORE_FEATURES = [
   "KPKT iDeaL export, Lampiran A",
   "Full audit logs",
 ];
+
+interface PricingData {
+  truesendMonthlyMyr: number;
+}
 
 // ============================================
 // Page
@@ -65,6 +101,14 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [autoRenew, setAutoRenew] = useState(true);
   const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(null);
+  const [latestUnpaidRenewalInvoice, setLatestUnpaidRenewalInvoice] = useState<{
+    id: string;
+    amount: string;
+    status: string;
+    dueAt: string;
+    billingType?: string;
+    lineItems?: Array<{ itemType: string; description: string; amount: unknown; quantity: number; unitPrice: unknown }>;
+  } | null>(null);
 
   // Local toggle state (drives the UI switches)
   const [wantsTruesend, setWantsTruesend] = useState(true); // all add-ons enabled by default
@@ -72,11 +116,20 @@ export default function SubscriptionPage() {
   const [existingTruesendActive, setExistingTruesendActive] = useState(false);
   const [existingTrueIdentityActive, setExistingTrueIdentityActive] = useState(false);
   const [loanCount, setLoanCount] = useState(0);
+  const [truesendProration, setTruesendProration] = useState<{
+    proratedAmountMyr: number;
+    remainingDays: number;
+    totalDays: number;
+    sstMyr: number;
+    totalAmountMyr: number;
+    monthlyAmountMyr: number;
+  } | null>(null);
   const [pendingAddOnAction, setPendingAddOnAction] = useState<{
     addOnType: "TRUESEND" | "TRUEIDENTITY";
     enable: boolean;
   } | null>(null);
   const [addOnActionLoading, setAddOnActionLoading] = useState(false);
+  const [renewalPaymentLoading, setRenewalPaymentLoading] = useState(false);
 
   // Dialog state
   const [showBackToOnboardingConfirm, setShowBackToOnboardingConfirm] = useState(false);
@@ -103,7 +156,19 @@ export default function SubscriptionPage() {
       setWantsTruesend(newValue);
       return;
     }
-    setPendingAddOnAction({ addOnType: "TRUESEND", enable: newValue });
+    if (newValue) {
+      setWantsTruesend(true);
+      if (!existingTruesendActive) {
+        toast.info("TrueSend selected. Proceed to payment to activate.");
+      }
+      return;
+    }
+
+    if (existingTruesendActive) {
+      setPendingAddOnAction({ addOnType: "TRUESEND", enable: false });
+      return;
+    }
+    setWantsTruesend(false);
   };
 
   const handleTrueIdentityToggle = async (newValue: boolean) => {
@@ -118,42 +183,28 @@ export default function SubscriptionPage() {
     if (!pendingAddOnAction) return;
     setAddOnActionLoading(true);
     try {
-      const { addOnType, enable } = pendingAddOnAction;
-
-      if (addOnType === "TRUESEND") {
-        if (enable) {
-          // Chargeable add-on: selection change only, activation happens after payment.
-          setWantsTruesend(true);
-          toast.info("TrueSend selected. Proceed to payment to activate.");
-        } else {
-          const res = await saveToggle("TRUESEND");
-          if (!res.success) {
-            toast.error(res.error || "Failed to update TrueSend");
-            return;
-          }
-          setWantsTruesend(false);
-          setExistingTruesendActive(false);
-          toast.success("TrueSend disabled. It remains usable until your current period ends.");
+      if (pendingAddOnAction.addOnType === "TRUESEND") {
+        const res = await saveToggle("TRUESEND");
+        if (!res.success) {
+          toast.error(res.error || "Failed to update TrueSend");
+          return;
         }
-      }
-
-      if (addOnType === "TRUEIDENTITY") {
+        setWantsTruesend(false);
+        setExistingTruesendActive(false);
+        toast.success("TrueSend disabled. It remains usable until your current period ends.");
+      } else {
         const res = await saveToggle("TRUEIDENTITY");
         if (!res.success) {
           toast.error(res.error || "Failed to update TrueIdentity");
           return;
         }
-        if (enable) {
-          // No-charge add-on: activate immediately, no payment page needed.
-          setWantsTrueIdentity(true);
-          setExistingTrueIdentityActive(true);
-          toast.success("TrueIdentity activated. Usage-based charges apply per verification call.");
-        } else {
-          // Disable now, but access remains until period-end.
-          setWantsTrueIdentity(false);
-          setExistingTrueIdentityActive(false);
-          toast.success("TrueIdentity disabled. It remains usable until your current period ends.");
-        }
+        setWantsTrueIdentity(pendingAddOnAction.enable);
+        setExistingTrueIdentityActive(pendingAddOnAction.enable);
+        toast.success(
+          pendingAddOnAction.enable
+            ? "TrueIdentity activated. Usage-based charges apply per verification call."
+            : "TrueIdentity disabled immediately."
+        );
       }
     } catch {
       toast.error("Failed to update add-on");
@@ -167,20 +218,67 @@ export default function SubscriptionPage() {
   const totalBlocks = Math.max(1, Math.ceil(loanCount / LOANS_PER_BLOCK));
   const extraBlocks = Math.max(0, totalBlocks - 1);
   const coreExtraBlockCost = safeMultiply(extraBlocks, EXTRA_BLOCK_PRICE);
-  const truesendBaseCost = wantsTruesend ? TRUESEND_PRICE : 0;
+  const truesendBaseCost = wantsTruesend
+    ? (isPaid && !existingTruesendActive && truesendProration
+      ? truesendProration.proratedAmountMyr
+      : TRUESEND_PRICE)
+    : 0;
   const truesendExtraBlockCost = wantsTruesend ? safeMultiply(extraBlocks, TRUESEND_EXTRA_BLOCK_PRICE) : 0;
   const coreMonthlyTotal = safeAdd(CORE_PRICE, coreExtraBlockCost);
-  const truesendMonthlyTotal = safeAdd(truesendBaseCost, truesendExtraBlockCost);
+  const truesendMonthlyTotal = safeAdd(truesendBaseCost, isPaid ? 0 : truesendExtraBlockCost);
   const selectedAddonSubtotal = safeAdd(
     wantsTruesend && !existingTruesendActive ? truesendMonthlyTotal : 0,
     0
   );
   const hasChargeableAddonSelection = wantsTruesend && !existingTruesendActive;
+  const daysUntilPeriodEnd = currentPeriodEnd ? getMytDaysUntil(currentPeriodEnd) : null;
+  const needsRenewalPayment =
+    (subscriptionStatus === "PAID" || subscriptionStatus === "OVERDUE") &&
+    currentPeriodEnd != null &&
+    typeof daysUntilPeriodEnd === "number" &&
+    daysUntilPeriodEnd <= 0 &&
+    latestUnpaidRenewalInvoice != null;
+  const renewalInvoiceAddons = latestUnpaidRenewalInvoice
+    ? (latestUnpaidRenewalInvoice.lineItems ?? []).filter((li) => li.itemType === "ADDON" || li.itemType === "USAGE").reduce((s, li) => s + Number(li.amount), 0)
+    : 0;
+  const renewalMergeTruesend = needsRenewalPayment && wantsTruesend && renewalInvoiceAddons === 0;
+  const renewalDisplaySubtotal = needsRenewalPayment
+    ? (() => {
+        const inv = latestUnpaidRenewalInvoice!;
+        const items = inv.lineItems ?? [];
+        const core = items.filter((li) => li.itemType === "SUBSCRIPTION").reduce((s, li) => s + Number(li.amount), 0);
+        const addons = items.filter((li) => li.itemType === "ADDON" || li.itemType === "USAGE").reduce((s, li) => s + Number(li.amount), 0);
+        const addTruesend = renewalMergeTruesend ? TRUESEND_PRICE : 0;
+        const st = core + addons + addTruesend;
+        return st > 0 ? st : Math.round((Number(inv.amount) / 1.08) * 100) / 100;
+      })()
+    : 0;
+  const renewalDisplaySst = needsRenewalPayment
+    ? (renewalMergeTruesend
+        ? Math.round(renewalDisplaySubtotal * SST_RATE * 100) / 100
+        : (() => {
+            const inv = latestUnpaidRenewalInvoice!;
+            const items = inv.lineItems ?? [];
+            const sst = items.filter((li) => li.itemType === "SST").reduce((s, li) => s + Number(li.amount), 0);
+            if (sst > 0) return sst;
+            const total = Number(inv.amount);
+            return Math.round((total - total / 1.08) * 100) / 100;
+          })())
+    : 0;
+  const renewalDisplayTotal = needsRenewalPayment
+    ? (renewalMergeTruesend
+        ? Math.round((renewalDisplaySubtotal + renewalDisplaySst) * 100) / 100
+        : Number(latestUnpaidRenewalInvoice!.amount))
+    : 0;
   const subtotalMonthly = isPaid
     ? selectedAddonSubtotal
     : safeAdd(coreMonthlyTotal, truesendMonthlyTotal);
-  const sstAmount = Math.round(subtotalMonthly * SST_RATE * 100) / 100;
-  const monthlyTotal = Math.round((subtotalMonthly + sstAmount) * 100) / 100;
+  const sstAmount = isPaid && wantsTruesend && !existingTruesendActive && truesendProration
+    ? truesendProration.sstMyr
+    : Math.round(subtotalMonthly * SST_RATE * 100) / 100;
+  const monthlyTotal = isPaid && wantsTruesend && !existingTruesendActive && truesendProration
+    ? truesendProration.totalAmountMyr
+    : Math.round((subtotalMonthly + sstAmount) * 100) / 100;
 
   // ── fetch ──
   useEffect(() => {
@@ -189,12 +287,16 @@ export default function SubscriptionPage() {
 
   const fetchStatus = async () => {
     try {
-      const [authRes, addOnsRes, tenantRes, billingSubRes] = await Promise.all([
+      const [authRes, addOnsRes, tenantRes, billingSubRes, pricingRes, invoicesRes] = await Promise.all([
         fetch("/api/proxy/auth/me", { credentials: "include" }).then((r) => r.json()),
         api.get<{ addOns: { addOnType: string; status: string }[] }>("/api/billing/add-ons"),
         api.get<{ counts: { loans: number } }>("/api/tenants/current"),
-        api.get<{ autoRenew?: boolean; currentPeriodEnd?: string }>("/api/billing/subscription"),
+        api.get<{ autoRenew?: boolean; currentPeriodStart?: string; currentPeriodEnd?: string }>("/api/billing/subscription"),
+        api.get<PricingData>("/api/billing/pricing"),
+        api.get<Array<{ id: string; amount: string; status: string; dueAt: string; billingType?: string; lineItems?: Array<{ itemType: string; description: string; amount: unknown; quantity: number; unitPrice: unknown }> }>>("/api/billing/invoices"),
       ]);
+      const tenantStatus = authRes.data?.tenant?.subscriptionStatus;
+      let truesendActive = false;
 
       if (authRes.success && authRes.data?.tenant) {
         const status = authRes.data.tenant.subscriptionStatus || "FREE";
@@ -208,6 +310,7 @@ export default function SubscriptionPage() {
         const ti = addOnsRes.data.addOns.some(
           (a) => a.addOnType === "TRUEIDENTITY" && a.status === "ACTIVE"
         );
+        truesendActive = ts;
         setExistingTruesendActive(ts);
         setExistingTrueIdentityActive(ti);
         // Sync local toggles with server for existing subscribers
@@ -230,6 +333,55 @@ export default function SubscriptionPage() {
       if (billingSubRes.success && billingSubRes.data) {
         setAutoRenew(billingSubRes.data.autoRenew ?? true);
         setCurrentPeriodEnd(billingSubRes.data.currentPeriodEnd ?? null);
+        const periodStart = billingSubRes.data.currentPeriodStart;
+        const periodEnd = billingSubRes.data.currentPeriodEnd;
+        const truesendMonthlyMyr = pricingRes.success && pricingRes.data
+          ? pricingRes.data.truesendMonthlyMyr
+          : TRUESEND_PRICE;
+        const canPreviewProration =
+          tenantStatus === "PAID" &&
+          !!periodStart &&
+          !!periodEnd &&
+          !truesendActive;
+        if (canPreviewProration) {
+          const now = new Date();
+          const start = new Date(periodStart);
+          const end = new Date(periodEnd);
+          const totalDays = Math.max(1, differenceInDays(start, end));
+          const remainingDays = Math.max(0, differenceInDays(now, end));
+          if (remainingDays > 0) {
+            const proratedAmountMyr = roundHalfUp2((truesendMonthlyMyr * remainingDays) / totalDays);
+            const previewSstMyr = roundHalfUp2(proratedAmountMyr * SST_RATE);
+            const totalAmountMyr = roundHalfUp2(proratedAmountMyr + previewSstMyr);
+            setTruesendProration({
+              proratedAmountMyr,
+              remainingDays,
+              totalDays,
+              sstMyr: previewSstMyr,
+              totalAmountMyr,
+              monthlyAmountMyr: truesendMonthlyMyr,
+            });
+          } else {
+            setTruesendProration(null);
+          }
+        } else {
+          setTruesendProration(null);
+        }
+      } else {
+        setTruesendProration(null);
+      }
+
+      if (invoicesRes.success && Array.isArray(invoicesRes.data)) {
+        const unpaid = invoicesRes.data
+          .filter(
+            (inv) =>
+              inv.billingType === "RENEWAL" &&
+              ["ISSUED", "PENDING_APPROVAL", "OVERDUE"].includes(inv.status)
+          )
+          .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+        setLatestUnpaidRenewalInvoice(unpaid ?? null);
+      } else {
+        setLatestUnpaidRenewalInvoice(null);
       }
     } catch (error) {
       console.error("Failed to fetch subscription status:", error);
@@ -249,6 +401,35 @@ export default function SubscriptionPage() {
     if (wantsTrueIdentity) params.set("trueidentity", "1");
     if (isOnboardingFlow) params.set("from", "onboarding");
     router.push(`/dashboard/subscription/payment?${params.toString()}`);
+  };
+
+  /** Make payment now (renewal/overdue): update invoice with TrueSend if selected, then redirect */
+  const handleMakePaymentNow = async () => {
+    if (!latestUnpaidRenewalInvoice) return;
+    setRenewalPaymentLoading(true);
+    try {
+      if (renewalMergeTruesend) {
+        const res = await fetch("/api/proxy/billing/overdue/update-invoice-addons", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            invoiceId: latestUnpaidRenewalInvoice.id,
+            addTruesend: true,
+          }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          toast.error(data.error || "Failed to update invoice");
+          return;
+        }
+      }
+      router.push(`/dashboard/subscription/payment?mode=overdue&invoiceId=${latestUnpaidRenewalInvoice.id}`);
+    } catch {
+      toast.error("Failed to proceed to payment");
+    } finally {
+      setRenewalPaymentLoading(false);
+    }
   };
 
   const handleCancelRenewal = async () => {
@@ -459,6 +640,12 @@ export default function SubscriptionPage() {
                 "Keep borrower communication consistent and professional",
               ]}
               priceLabel={`+${formatCurrency(TRUESEND_PRICE)} /mo`}
+              note={
+                isPaid && !existingTruesendActive
+                  ? "This cycle is prorated at checkout. Next billing cycle is RM 50.00/month."
+                  : undefined
+              }
+              showEnabledBadge={existingTruesendActive}
               active={wantsTruesend}
               onToggle={handleTruesendToggle}
             />
@@ -477,6 +664,7 @@ export default function SubscriptionPage() {
               ]}
               priceLabel="Free"
               priceMuted
+              showEnabledBadge={existingTrueIdentityActive}
               active={wantsTrueIdentity}
               onToggle={handleTrueIdentityToggle}
             />
@@ -501,47 +689,90 @@ export default function SubscriptionPage() {
               </h3>
 
               <div className="space-y-2">
-                {!isPaid && (
+                {needsRenewalPayment ? (
+                  (() => {
+                    const inv = latestUnpaidRenewalInvoice!;
+                    const items = inv.lineItems ?? [];
+                    const coreAmount = items
+                      .filter((li) => li.itemType === "SUBSCRIPTION")
+                      .reduce((sum, li) => sum + Number(li.amount), 0);
+                    const addonsAmount = items
+                      .filter((li) => li.itemType === "ADDON" || li.itemType === "USAGE")
+                      .reduce((sum, li) => sum + Number(li.amount), 0);
+                    const sstAmount = items
+                      .filter((li) => li.itemType === "SST")
+                      .reduce((sum, li) => sum + Number(li.amount), 0);
+                    const subtotal = coreAmount + addonsAmount;
+                    const total = Number(inv.amount);
+                    const hasLineItems = subtotal > 0 || sstAmount > 0;
+                    const fallbackSubtotal = hasLineItems ? subtotal : Math.round((total / 1.08) * 100) / 100;
+                    const fallbackSst = hasLineItems ? sstAmount : Math.round((total - fallbackSubtotal) * 100) / 100;
+                    const fallbackCore = hasLineItems ? coreAmount : fallbackSubtotal - addonsAmount;
+                    const invoiceHasTruesend = addonsAmount > 0;
+                    const mergeTruesend = wantsTruesend && !invoiceHasTruesend;
+                    const displayAddons = mergeTruesend ? TRUESEND_PRICE : addonsAmount;
+                    return (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-foreground">Core plan</span>
+                          <span className="tabular-nums">{formatCurrency(fallbackCore)}</span>
+                        </div>
+                        {displayAddons > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-foreground">TrueSend™</span>
+                            <span className="tabular-nums">+{formatCurrency(displayAddons)}</span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()
+                ) : (
                   <>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-foreground">Core Plan</span>
-                      <span className="tabular-nums">{formatCurrency(CORE_PRICE)}/mo</span>
-                    </div>
-                    {extraBlocks > 0 && (
+                    {!isPaid && (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-foreground">Core Plan</span>
+                          <span className="tabular-nums">{formatCurrency(CORE_PRICE)}/mo</span>
+                        </div>
+                        {extraBlocks > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">
+                              Core extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
+                            </span>
+                            <span className="tabular-nums">+{formatCurrency(coreExtraBlockCost)}/mo</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {wantsTruesend && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-foreground">TrueSend™</span>
+                        <span className="tabular-nums">
+                          {isPaid && existingTruesendActive
+                            ? "Already active"
+                            : isPaid && truesendProration
+                              ? `+${formatCurrency(truesendProration.proratedAmountMyr)} (${truesendProration.remainingDays}/${truesendProration.totalDays} days)`
+                              : `+${formatCurrency(TRUESEND_PRICE)}/mo`}
+                        </span>
+                      </div>
+                    )}
+                    {wantsTruesend && truesendExtraBlockCost > 0 && !isPaid && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">
-                          Core extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
+                          TrueSend extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
                         </span>
-                        <span className="tabular-nums">+{formatCurrency(coreExtraBlockCost)}/mo</span>
+                        <span className="tabular-nums">+{formatCurrency(truesendExtraBlockCost)}/mo</span>
+                      </div>
+                    )}
+                    {wantsTrueIdentity && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-foreground">TrueIdentity™</span>
+                        <span className="text-muted-foreground tabular-nums">
+                          {isPaid && existingTrueIdentityActive ? "Already active" : "RM 4/use"}
+                        </span>
                       </div>
                     )}
                   </>
-                )}
-
-                {wantsTruesend && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-foreground">TrueSend™</span>
-                    <span className="tabular-nums">
-                      {isPaid && existingTruesendActive ? "Already active" : `+${formatCurrency(TRUESEND_PRICE)}/mo`}
-                    </span>
-                  </div>
-                )}
-                {wantsTruesend && truesendExtraBlockCost > 0 && (!isPaid || !existingTruesendActive) && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      TrueSend extra blocks ({extraBlocks} × {LOANS_PER_BLOCK} loans)
-                    </span>
-                    <span className="tabular-nums">+{formatCurrency(truesendExtraBlockCost)}/mo</span>
-                  </div>
-                )}
-
-                {wantsTrueIdentity && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-foreground">TrueIdentity™</span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {isPaid && existingTrueIdentityActive ? "Already active" : "RM 4/use"}
-                    </span>
-                  </div>
                 )}
 
                 <Separator />
@@ -549,35 +780,62 @@ export default function SubscriptionPage() {
                 <div className="pt-1 space-y-1">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      {isPaid ? "Subtotal (selected add-ons)" : "Subtotal"}
+                      {isPaid || needsRenewalPayment ? "Subtotal (selected add-ons)" : "Subtotal"}
                     </span>
                     <span className="tabular-nums">
-                      {`${formatCurrency(subtotalMonthly)}${isPaid ? "" : "/mo"}`}
+                      {needsRenewalPayment
+                        ? formatCurrency(renewalDisplaySubtotal)
+                        : `${formatCurrency(subtotalMonthly)}${isPaid ? "" : "/mo"}`}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">SST (8%)</span>
                     <span className="tabular-nums">
-                      {`+${formatCurrency(sstAmount)}`}
+                      {needsRenewalPayment
+                        ? `+${formatCurrency(renewalDisplaySst)}`
+                        : `+${formatCurrency(sstAmount)}`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Total</span>
+                    <span className="tabular-nums">
+                      {needsRenewalPayment
+                        ? formatCurrency(renewalDisplayTotal)
+                        : `${formatCurrency(monthlyTotal)}${!isPaid && !needsRenewalPayment ? "/mo" : ""}`}
                     </span>
                   </div>
                   <div className="flex justify-between items-baseline pt-1">
-                    <span className="font-semibold text-foreground">{isPaid ? "Due now" : "Total"}</span>
+                    <span className="font-semibold text-foreground">{isPaid || needsRenewalPayment ? "Due now" : "Total"}</span>
                     <div className="text-right">
                       <span className="text-2xl font-bold tabular-nums">
-                        {formatCurrency(monthlyTotal)}
+                        {formatCurrency(needsRenewalPayment ? renewalDisplayTotal : monthlyTotal)}
                       </span>
-                      {!isPaid && <span className="text-muted-foreground text-sm">/mo</span>}
+                      {!isPaid && !needsRenewalPayment && <span className="text-muted-foreground text-sm">/mo</span>}
                     </div>
                   </div>
-                  {wantsTrueIdentity && (
+                  {wantsTrueIdentity && !needsRenewalPayment && (
                     <p className="text-xs text-muted-foreground mt-1">+ RM 4 per e-KYC verification</p>
                   )}
                 </div>
               </div>
 
               {/* Action button */}
-              {isPaid && !hasChargeableAddonSelection ? (
+              {needsRenewalPayment ? (
+                <Button
+                  className="w-full mt-5 bg-gradient-accent hover:opacity-90 text-primary-foreground h-11 text-base"
+                  onClick={handleMakePaymentNow}
+                  disabled={renewalPaymentLoading}
+                >
+                  {renewalPaymentLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Updating...
+                    </>
+                  ) : (
+                    "Make payment now"
+                  )}
+                </Button>
+              ) : isPaid && !hasChargeableAddonSelection ? (
                 <div className="mt-5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-center">
                   <p className="text-sm font-medium text-foreground">No payment required right now</p>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -597,28 +855,28 @@ export default function SubscriptionPage() {
                   TrueIdentity activates instantly with no upfront fee. TrueSend changes require payment.
                 </p>
               )}
+              {isPaid && autoRenew && (
+                <button
+                  type="button"
+                  className="text-foreground hover:underline text-sm mt-2 block w-full text-center"
+                  onClick={handleCancelRenewal}
+                >
+                  Cancel subscription
+                </button>
+              )}
               {subscriptionStatus === "OVERDUE" && (
                 <p className="text-xs text-muted-foreground mt-2 text-center">
                   Your subscription has ended. This payment includes Core plan and selected add-ons for reactivation.
                 </p>
               )}
-              {isPaid && autoRenew && (
-                <Button
-                  variant="outline"
-                  className="w-full mt-3"
-                  onClick={handleCancelRenewal}
-                >
-                  Cancel Subscription
-                </Button>
-              )}
               {subscriptionStatus === "OVERDUE" && (
-                <Button
-                  variant="outline"
-                  className="w-full mt-3 border-red-500/50 text-red-500 hover:bg-red-500/10 hover:text-red-400"
+                <button
+                  type="button"
+                  className="text-foreground hover:underline text-sm mt-3 block w-full text-center"
                   onClick={handleCancelOverdueSubscription}
                 >
                   Cancel subscription now
-                </Button>
+                </button>
               )}
               {isPaid && !autoRenew && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 text-center">
@@ -649,36 +907,29 @@ export default function SubscriptionPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pendingAddOnAction?.addOnType === "TRUESEND"
+              {pendingAddOnAction?.addOnType === "TRUEIDENTITY"
                 ? pendingAddOnAction.enable
-                  ? "Enable TrueSend™?"
-                  : "Disable TrueSend™?"
-                : pendingAddOnAction?.enable
                   ? "Activate TrueIdentity™?"
-                  : "Disable TrueIdentity™?"}
+                  : "Disable TrueIdentity™?"
+                : "Disable TrueSend™?"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
-                {pendingAddOnAction?.addOnType === "TRUESEND" ? (
+                {pendingAddOnAction?.addOnType === "TRUEIDENTITY" ? (
                   pendingAddOnAction.enable ? (
                     <>
-                      <p>TrueSend is a paid add-on.</p>
-                      <p>You will need to proceed to payment to complete activation.</p>
+                      <p>TrueIdentity activation has no upfront fee.</p>
+                      <p>It will activate immediately after confirmation.</p>
                     </>
                   ) : (
                     <>
-                      <p>TrueSend will be disabled and no longer renew next cycle.</p>
-                      <p>You can still use it until your current subscription period ends.</p>
+                      <p>TrueIdentity will be disabled immediately after confirmation.</p>
+                      <p>You can activate it again anytime.</p>
                     </>
                   )
-                ) : pendingAddOnAction?.enable ? (
-                  <>
-                    <p>TrueIdentity activation has no upfront fee.</p>
-                    <p>Usage-based charges apply per verification call.</p>
-                  </>
                 ) : (
                   <>
-                    <p>TrueIdentity will be disabled for next cycle.</p>
+                    <p>TrueSend will be disabled and no longer renew next cycle.</p>
                     <p>You can still use it until your current subscription period ends.</p>
                   </>
                 )}
@@ -691,13 +942,11 @@ export default function SubscriptionPage() {
               onClick={handleConfirmAddOnAction}
               disabled={addOnActionLoading}
             >
-              {pendingAddOnAction?.addOnType === "TRUESEND"
-                ? pendingAddOnAction?.enable
-                  ? "Confirm and proceed"
-                  : "Disable at period end"
-                : pendingAddOnAction?.enable
+              {pendingAddOnAction?.addOnType === "TRUEIDENTITY"
+                ? pendingAddOnAction.enable
                   ? "Activate now"
-                  : "Disable at period end"}
+                  : "Disable now"
+                : "Disable at period end"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -806,6 +1055,8 @@ function AddOnCard({
   highlights,
   priceLabel,
   priceMuted = false,
+  note,
+  showEnabledBadge,
   active,
   onToggle,
   recommended = false,
@@ -817,6 +1068,8 @@ function AddOnCard({
   highlights?: string[];
   priceLabel: string;
   priceMuted?: boolean;
+  note?: string;
+  showEnabledBadge?: boolean;
   active: boolean;
   onToggle: (value: boolean) => void;
   recommended?: boolean;
@@ -836,7 +1089,7 @@ function AddOnCard({
           Add on
         </Badge>
       </div>
-      {recommended && active && (
+      {recommended && (showEnabledBadge ?? active) && (
         <Badge
           variant="secondary"
           className="pointer-events-none absolute right-3 top-3 z-10 text-[10px] font-semibold uppercase tracking-wider bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/15 border-0"
@@ -877,6 +1130,7 @@ function AddOnCard({
                 ))}
               </ul>
             )}
+            {note && <p className="text-xs text-muted-foreground mt-2">{note}</p>}
           </div>
         </div>
 

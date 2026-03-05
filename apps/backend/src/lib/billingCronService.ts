@@ -41,6 +41,12 @@ function addMonth(date: Date): Date {
   return next;
 }
 
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
 function roundHalfUp2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -164,7 +170,7 @@ export async function applyApprovedDecision(decision: PaymentDecision): Promise<
         periodStart =
           billingType === 'FIRST_SUBSCRIPTION'
             ? approvedAnchor
-            : existingSub && existingSub.currentPeriodEnd > approvedAnchor
+            : existingSub
               ? existingSub.currentPeriodEnd
               : approvedAnchor;
         periodEnd = addMonth(periodStart);
@@ -304,15 +310,28 @@ export async function applyRejectedDecision(decision: PaymentDecision): Promise<
 
     if (request.invoiceId) {
       if (request.billingType === 'RENEWAL') {
-        // Keep renewal invoice collectible after rejection (do not cancel overdue cycle).
+        // Rejected proof should NOT force immediate overdue.
+        // Keep the renewal invoice collectible during the 14-day due window,
+        // and only mark overdue when dueAt has passed.
+        const renewalInvoice = await tx.invoice.findUnique({
+          where: { id: request.invoiceId },
+          select: { dueAt: true },
+        });
+        const shouldBeOverdue = renewalInvoice ? renewalInvoice.dueAt <= rejectedAt : false;
+
         await tx.invoice.updateMany({
           where: {
             id: request.invoiceId,
             status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
           },
           data: {
-            status: 'OVERDUE',
+            status: shouldBeOverdue ? 'OVERDUE' : 'ISSUED',
           },
+        });
+
+        await tx.tenant.update({
+          where: { id: request.tenantId },
+          data: { subscriptionStatus: shouldBeOverdue ? 'OVERDUE' : 'PAID' },
         });
       } else {
         await tx.invoice.updateMany({
@@ -388,7 +407,7 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
           billingType: 'RENEWAL',
           periodStart: nextPeriodStart,
           periodEnd: nextPeriodEnd,
-          dueAt: nextPeriodStart,
+          dueAt: addDays(nextPeriodStart, 14),
         },
       });
 
@@ -450,6 +469,11 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
   return created;
 }
 
+/**
+ * Mark tenants overdue only when invoice dueAt has passed.
+ * Invoices use dueAt = periodStart + 14 days, so tenants get a 14-day grace period
+ * after the billing period ends before being marked OVERDUE.
+ */
 async function markOverdue(now: Date): Promise<number> {
   const cutoff = new Date(now);
   cutoff.setUTCDate(cutoff.getUTCDate() - 1);
@@ -486,6 +510,47 @@ async function markOverdue(now: Date): Promise<number> {
   }
 
   return overdueInvoices.length;
+}
+
+/**
+ * Safety reconciliation:
+ * If a renewal invoice was marked OVERDUE before dueAt, restore it to ISSUED.
+ * Also restore tenant subscription status to PAID when they have no truly overdue invoices.
+ */
+async function restorePreDueRenewals(now: Date): Promise<number> {
+  const premature = await prisma.invoice.findMany({
+    where: {
+      billingType: 'RENEWAL',
+      status: 'OVERDUE',
+      dueAt: { gt: now },
+    },
+    select: { id: true, tenantId: true },
+  });
+  if (premature.length === 0) return 0;
+
+  const invoiceIds = premature.map((inv) => inv.id);
+  const tenantIds = [...new Set(premature.map((inv) => inv.tenantId))];
+
+  await prisma.invoice.updateMany({
+    where: { id: { in: invoiceIds } },
+    data: { status: 'ISSUED' },
+  });
+
+  await prisma.tenant.updateMany({
+    where: {
+      id: { in: tenantIds },
+      subscriptionStatus: 'OVERDUE',
+      invoices: {
+        none: {
+          status: 'OVERDUE',
+          dueAt: { lte: now },
+        },
+      },
+    },
+    data: { subscriptionStatus: 'PAID' },
+  });
+
+  return invoiceIds.length;
 }
 
 async function sendExpiryReminders(now: Date): Promise<void> {
@@ -667,6 +732,12 @@ export class BillingCronService {
         invoicesCreated += await generateRenewalInvoices(new Date());
       } catch (error) {
         errors.push({ step: 'generate_renewals', message: error instanceof Error ? error.message : 'Unknown error' });
+      }
+
+      try {
+        await restorePreDueRenewals(new Date());
+      } catch (error) {
+        errors.push({ step: 'restore_pre_due', message: error instanceof Error ? error.message : 'Unknown error' });
       }
 
       try {

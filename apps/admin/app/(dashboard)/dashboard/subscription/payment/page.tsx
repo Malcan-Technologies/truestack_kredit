@@ -34,6 +34,12 @@ const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
 const SST_RATE = 0.08; // 8% SST (Service Tax)
 
+const roundHalfUp2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+const differenceInDays = (start: Date, end: Date) => {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / msPerDay));
+};
+
 const BANK_DETAILS = {
   accountName: "Truestack Technologies Sdn Bhd",
   bank: "RHB Bank",
@@ -136,6 +142,16 @@ function PaymentPageContent() {
     rejectionReason?: string | null;
   } | null>(null);
   const [latestOverdueInvoice, setLatestOverdueInvoice] = useState<InvoiceSummary | null>(null);
+  const [truesendPreview, setTruesendPreview] = useState<{
+    proratedAmountMyr: number;
+    remainingDays: number;
+    totalDays: number;
+    sstMyr: number;
+    totalAmountMyr: number;
+    monthlyAmountMyr: number;
+    freeActivation?: boolean;
+    alreadyActive?: boolean;
+  } | null>(null);
 
   // Fetch tenant name, subscription status, and loan usage
   useEffect(() => {
@@ -152,15 +168,53 @@ function PaymentPageContent() {
           api.get<{ addOns: { addOnType: string; status: string }[] }>("/api/billing/add-ons"),
           api.get<InvoiceSummary[]>("/api/billing/invoices"),
         ]);
+        let status: "FREE" | "PAID" | "OVERDUE" | "SUSPENDED" = "FREE";
+        if (authRes.success && authRes.data?.tenant) {
+          const s = authRes.data.tenant.subscriptionStatus || "";
+          if (s === "PAID" || s === "OVERDUE" || s === "SUSPENDED") {
+            status = s;
+          }
+        }
         if (authRes.success && authRes.data?.tenant) {
           const t = authRes.data.tenant;
           setTenantName(t.name || t.companyName || "");
-          const status = t.subscriptionStatus || "FREE";
           if (status === "PAID" || status === "OVERDUE" || status === "SUSPENDED") {
             setSubscriptionStatus(status);
           } else {
             setSubscriptionStatus("FREE");
           }
+        }
+        if (status === "PAID" && searchParams.get("truesend") === "1") {
+          const [subRes, pricingRes] = await Promise.all([
+            api.get<{ currentPeriodStart?: string; currentPeriodEnd?: string }>("/api/billing/subscription"),
+            api.get<{ truesendMonthlyMyr: number }>("/api/billing/pricing"),
+          ]);
+          if (subRes.success && subRes.data?.currentPeriodStart && subRes.data?.currentPeriodEnd) {
+            const now = new Date();
+            const start = new Date(subRes.data.currentPeriodStart);
+            const end = new Date(subRes.data.currentPeriodEnd);
+            const monthlyAmountMyr = pricingRes.success && pricingRes.data
+              ? pricingRes.data.truesendMonthlyMyr
+              : TRUESEND_PRICE;
+            const totalDays = Math.max(1, differenceInDays(start, end));
+            const remainingDays = Math.max(0, differenceInDays(now, end));
+            const proratedAmountMyr = roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays);
+            const sstMyr = roundHalfUp2(proratedAmountMyr * SST_RATE);
+            const totalAmountMyr = roundHalfUp2(proratedAmountMyr + sstMyr);
+            setTruesendPreview({
+              proratedAmountMyr,
+              remainingDays,
+              totalDays,
+              sstMyr,
+              totalAmountMyr,
+              monthlyAmountMyr,
+              freeActivation: totalAmountMyr <= 0,
+            });
+          } else {
+            setTruesendPreview(null);
+          }
+        } else {
+          setTruesendPreview(null);
         }
         if (tenantRes.success && tenantRes.data?.counts) {
           setLoanCount(tenantRes.data.counts.loans ?? 0);
@@ -181,10 +235,14 @@ function PaymentPageContent() {
           setExistingTrueIdentityActive(trueidentityActive);
         }
         if (invoicesRes.success && Array.isArray(invoicesRes.data)) {
-          const overdue = invoicesRes.data
-            .filter((inv) => inv.status === "OVERDUE")
+          const unpaidRenewal = invoicesRes.data
+            .filter(
+              (inv: { status: string; billingType?: string }) =>
+                inv.billingType === "RENEWAL" &&
+                ["ISSUED", "PENDING_APPROVAL", "OVERDUE"].includes(inv.status)
+            )
             .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
-          setLatestOverdueInvoice(overdue ?? null);
+          setLatestOverdueInvoice(unpaidRenewal ?? null);
         } else {
           setLatestOverdueInvoice(null);
         }
@@ -195,7 +253,7 @@ function PaymentPageContent() {
       }
     };
     fetchTenant();
-  }, []);
+  }, [searchParams]);
 
   const autoOverdueMode =
     !isOverdueMode &&
@@ -340,22 +398,37 @@ function PaymentPageContent() {
   const extraBlocks = Math.max(0, totalBlocks - 1);
   const coreExtraBlockCost = safeMultiply(extraBlocks, EXTRA_BLOCK_PRICE);
   const truesendExtraBlockCost = hasTruesend ? safeMultiply(extraBlocks, TRUESEND_EXTRA_BLOCK_PRICE) : 0;
-  const addOnOnlySubtotal = safeAdd(
-    hasTruesend && !existingTruesendActive ? safeAdd(TRUESEND_PRICE, truesendExtraBlockCost) : 0,
-    0
-  );
+  const truesendAddOnAmount =
+    subscriptionStatus === "PAID" && hasTruesend && !existingTruesendActive
+      ? (truesendPreview != null ? truesendPreview.proratedAmountMyr : TRUESEND_PRICE)
+      : 0;
+  const addOnOnlySubtotal = safeAdd(truesendAddOnAmount, 0);
   const subscriptionSubtotal = safeAdd(
     CORE_PRICE,
     coreExtraBlockCost,
     hasTruesend ? safeAdd(TRUESEND_PRICE, truesendExtraBlockCost) : 0
   );
   const treatAsPaidTenant = subscriptionStatus === "PAID";
+  const usePreviewPricing =
+    treatAsPaidTenant &&
+    hasTruesend &&
+    !existingTruesendActive &&
+    truesendPreview != null &&
+    !truesendPreview.alreadyActive;
   const subtotal = treatAsPaidTenant ? addOnOnlySubtotal : subscriptionSubtotal;
   const computedBeforeTax = subtotal > 0 ? subtotal : queryAmount;
-  const sstAmount = effectiveOverdueMode ? 0 : Math.round(computedBeforeTax * SST_RATE * 100) / 100;
-  const amount = effectiveOverdueMode
-    ? effectiveOverdueAmount
-    : Math.round((computedBeforeTax + sstAmount) * 100) / 100;
+  const sstAmount =
+    effectiveOverdueMode
+      ? 0
+      : usePreviewPricing
+        ? truesendPreview!.sstMyr
+        : Math.round(computedBeforeTax * SST_RATE * 100) / 100;
+  const amount =
+    effectiveOverdueMode
+      ? effectiveOverdueAmount
+      : usePreviewPricing
+        ? truesendPreview!.totalAmountMyr
+        : Math.round((computedBeforeTax + sstAmount) * 100) / 100;
 
   // ── Derived pricing breakdown ──
   const lineItems = useMemo(() => {
@@ -370,12 +443,25 @@ function PaymentPageContent() {
       }
     }
     if (hasTruesend) {
+      const amt =
+        treatAsPaidTenant && existingTruesendActive
+          ? 0
+          : treatAsPaidTenant && truesendPreview != null && !truesendPreview.alreadyActive
+            ? truesendPreview.proratedAmountMyr
+            : TRUESEND_PRICE;
+      const prorationLabel =
+        treatAsPaidTenant &&
+        truesendPreview != null &&
+        !truesendPreview.alreadyActive &&
+        truesendPreview.totalDays > 0
+          ? ` (prorated ${truesendPreview.remainingDays}/${truesendPreview.totalDays} days)`
+          : "";
       items.push({
-        label: "TrueSend™ Add-on",
-        amount: treatAsPaidTenant && existingTruesendActive ? 0 : TRUESEND_PRICE,
+        label: `TrueSend™ Add-on${prorationLabel}`,
+        amount: amt,
       });
     }
-    if (hasTruesend && truesendExtraBlockCost > 0 && !(treatAsPaidTenant && existingTruesendActive)) {
+    if (hasTruesend && truesendExtraBlockCost > 0 && !treatAsPaidTenant) {
       items.push({
         label: `TrueSend extra blocks (${extraBlocks} x ${LOANS_PER_BLOCK} loans)`,
         amount: truesendExtraBlockCost,
@@ -391,6 +477,7 @@ function PaymentPageContent() {
   }, [
     treatAsPaidTenant,
     existingTruesendActive,
+    truesendPreview,
     coreExtraBlockCost,
     extraBlocks,
     hasTruesend,

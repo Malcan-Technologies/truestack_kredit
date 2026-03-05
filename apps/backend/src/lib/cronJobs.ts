@@ -68,7 +68,7 @@ export function initCronJobs(): void {
 
   console.log('  ✓ TrueSend payment reminders: 9:00 AM MYT daily');
 
-  // Billing reconciliation + renewal generation: 12:05 AM GMT daily
+  // Billing reconciliation + renewal generation: 12:05 AM Malaysia Time daily
   cron.schedule('5 0 * * *', async () => {
     console.log('[CRON] Starting daily billing reconciliation...');
     try {
@@ -78,8 +78,20 @@ export function initCronJobs(): void {
       console.error('[CRON] Billing reconciliation failed:', error);
     }
   }, {
-    timezone: 'GMT',
+    timezone: 'Asia/Kuala_Lumpur',
   });
 
-  console.log('  ✓ Billing reconciliation: 12:05 AM GMT daily');
+  console.log('  ✓ Billing reconciliation: 12:05 AM MYT daily');
+
+  // Startup catch-up: ensures missed midnight window still gets reconciled
+  // (safe due to advisory lock and idempotent invoice checks).
+  setTimeout(async () => {
+    console.log('[CRON] Startup billing reconciliation catch-up...');
+    try {
+      await BillingCronService.run();
+      console.log('[CRON] Startup billing reconciliation completed');
+    } catch (error) {
+      console.error('[CRON] Startup billing reconciliation failed:', error);
+    }
+  }, 10_000);
 }

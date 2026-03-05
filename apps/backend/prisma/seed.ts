@@ -119,6 +119,31 @@ async function main() {
   });
   console.log('✓ Created tenant:', expiredTenant.name);
 
+  // Create dev tenant: just expired today at 12:04:12 AM MYT (for 12:05 AM cron verification)
+  const justExpiredTenant = await prisma.tenant.upsert({
+    where: { slug: 'dev-expired-0004-myt' },
+    update: {
+      subscriptionStatus: 'PAID',
+      subscriptionAmount: 49900,
+      subscribedAt: new Date(),
+    },
+    create: {
+      name: 'Dev Expired 0004 MYT Sdn Bhd',
+      slug: 'dev-expired-0004-myt',
+      type: 'PPW',
+      licenseNumber: 'PPW/KL/2026/203',
+      registrationNumber: '202600020003',
+      email: 'billing-expired-0004@demo.com',
+      contactNumber: '+60310002003',
+      businessAddress: '203 Jalan Tester, 50450 Kuala Lumpur',
+      status: 'ACTIVE',
+      subscriptionStatus: 'PAID',
+      subscriptionAmount: 49900,
+      subscribedAt: new Date(),
+    },
+  });
+  console.log('✓ Created tenant:', justExpiredTenant.name);
+
   // Hash password using Better Auth's scrypt (same as login verification)
   const passwordHash = await hashPassword('Demo@123');
   
@@ -219,6 +244,21 @@ async function main() {
       isActive: true,
     },
   });
+  await prisma.tenantMember.upsert({
+    where: {
+      userId_tenantId: {
+        userId: owner.id,
+        tenantId: justExpiredTenant.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: owner.id,
+      tenantId: justExpiredTenant.id,
+      role: 'OWNER',
+      isActive: true,
+    },
+  });
   console.log('✓ Created memberships for expiry test tenants');
 
   // Create subscriptions for both tenants (calendar-month cycle)
@@ -279,10 +319,11 @@ async function main() {
     },
   });
 
+  // Overdue tenant: period ended 20 days ago (past 14-day grace) - for testing overdue UI
   const expiredStart = new Date();
-  expiredStart.setDate(expiredStart.getDate() - 31);
+  expiredStart.setDate(expiredStart.getDate() - 51);
   const expiredEnd = new Date();
-  expiredEnd.setDate(expiredEnd.getDate() - 1);
+  expiredEnd.setDate(expiredEnd.getDate() - 21);
 
   await prisma.subscription.upsert({
     where: { tenantId: expiredTenant.id },
@@ -301,6 +342,38 @@ async function main() {
       autoRenew: true,
       currentPeriodStart: expiredStart,
       currentPeriodEnd: expiredEnd,
+      gracePeriodEnd: null,
+    },
+  });
+
+  // Just-expired tenant window: current period ends today at 00:04:12 MYT
+  const mytToday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kuala_Lumpur',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date()); // YYYY-MM-DD in MYT
+  const justExpiredEnd = new Date(`${mytToday}T00:04:12+08:00`);
+  const justExpiredStart = new Date(justExpiredEnd);
+  justExpiredStart.setUTCDate(justExpiredStart.getUTCDate() - 30);
+
+  await prisma.subscription.upsert({
+    where: { tenantId: justExpiredTenant.id },
+    update: {
+      plan: 'standard',
+      status: 'ACTIVE',
+      autoRenew: true,
+      currentPeriodStart: justExpiredStart,
+      currentPeriodEnd: justExpiredEnd,
+      gracePeriodEnd: null,
+    },
+    create: {
+      tenantId: justExpiredTenant.id,
+      plan: 'standard',
+      status: 'ACTIVE',
+      autoRenew: true,
+      currentPeriodStart: justExpiredStart,
+      currentPeriodEnd: justExpiredEnd,
       gracePeriodEnd: null,
     },
   });

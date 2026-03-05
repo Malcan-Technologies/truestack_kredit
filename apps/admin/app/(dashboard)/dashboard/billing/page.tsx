@@ -45,6 +45,7 @@ interface Invoice {
   invoiceNumber: string;
   amount: string;
   status: string;
+  billingType?: string;
   periodStart: string;
   periodEnd: string;
   issuedAt: string;
@@ -82,6 +83,31 @@ const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
 const LOANS_PER_BLOCK = 500;
 const SST_RATE = 0.08; // 8% SST (Service Tax)
+
+/** Days until target date (MYT). Positive = future, negative = past. */
+function getMytDaysUntil(targetIsoDate: string): number {
+  const target = new Date(targetIsoDate);
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const getParts = (d: Date) => {
+    const parts = formatter.formatToParts(d);
+    return {
+      y: parts.find((p) => p.type === "year")?.value ?? "1970",
+      m: parts.find((p) => p.type === "month")?.value ?? "01",
+      d: parts.find((p) => p.type === "day")?.value ?? "01",
+    };
+  };
+  const nowP = getParts(now);
+  const targetP = getParts(target);
+  const nowUtc = Date.UTC(Number(nowP.y), Number(nowP.m) - 1, Number(nowP.d));
+  const targetUtc = Date.UTC(Number(targetP.y), Number(targetP.m) - 1, Number(targetP.d));
+  return Math.ceil((targetUtc - nowUtc) / (1000 * 60 * 60 * 24));
+}
 
 export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -135,7 +161,24 @@ export default function BillingPage() {
   const isPaidTenant =
     subscription?.tenantSubscriptionStatus === "PAID" ||
     subscription?.tenantSubscriptionStatus === "OVERDUE";
-  const isOverdueTenant = subscription?.tenantSubscriptionStatus === "OVERDUE";
+
+  // Within 14-day grace: period ended, payment due, not yet overdue (backend marks overdue only after invoice dueAt)
+  const daysUntilPeriodEnd = subscription?.currentPeriodEnd
+    ? getMytDaysUntil(subscription.currentPeriodEnd)
+    : null;
+  const latestRenewalInvoice = invoices
+    .filter((inv) => inv.billingType === "RENEWAL")
+    .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+  const isWithinDueWindow =
+    typeof daysUntilPeriodEnd === "number" &&
+    daysUntilPeriodEnd <= 0 &&
+    daysUntilPeriodEnd >= -14;
+  const isPaymentDueWithinGrace =
+    isWithinDueWindow &&
+    latestPaymentRequest?.status !== "PENDING";
+  const isOverdueTenant =
+    (subscription?.tenantSubscriptionStatus === "OVERDUE" && !isWithinDueWindow) ||
+    (typeof daysUntilPeriodEnd === "number" && daysUntilPeriodEnd < -14);
 
   // Calculate monthly subscription: Core + TrueSend add-on (billed with Core) + extra blocks
   const totalBlocks = Math.max(1, Math.ceil(loanCount / LOANS_PER_BLOCK));
@@ -221,6 +264,26 @@ export default function BillingPage() {
         </div>
       )}
 
+      {/* Payment due within 14-day grace (period ended, pay before overdue) */}
+      {isPaymentDueWithinGrace && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+          </div>
+          <div>
+            <p className="text-base font-medium text-amber-600 dark:text-amber-400">
+              Payment due before account becomes overdue
+            </p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Your subscription period ended. Please pay within the 14-day due period to avoid overdue status.
+            </p>
+          </div>
+          <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-amber-500/50 hover:bg-amber-500/10">
+            <Link href="/dashboard/subscription/payment">Go to payment</Link>
+          </Button>
+        </div>
+      )}
+
       {isOverdueTenant && (
         <div className="flex items-center gap-3 p-3 rounded-lg border border-red-500/30 bg-red-500/5">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-red-500/10">
@@ -231,11 +294,11 @@ export default function BillingPage() {
               Your subscription is overdue
             </p>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Reactivate by updating your plan. Payment will include Core plan plus selected add-ons.
+              Reactivate by making payment. Payment will include Core plan plus selected add-ons.
             </p>
           </div>
           <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-red-500/50 hover:bg-red-500/10">
-            <Link href="/dashboard/plan">Update plan</Link>
+            <Link href="/dashboard/subscription/payment">Go to payment</Link>
           </Button>
         </div>
       )}

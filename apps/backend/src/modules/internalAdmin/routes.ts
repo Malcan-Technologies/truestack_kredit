@@ -857,6 +857,28 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
     }
 
     await prisma.$transaction(async (tx) => {
+      await tx.subscriptionPaymentRequest.updateMany({
+        where: {
+          tenantId,
+          status: 'PENDING',
+        },
+        data: {
+          status: 'REJECTED',
+          rejectedAt: now,
+          rejectionReason: 'REVOKED_BY_ADMIN',
+        },
+      });
+
+      await tx.invoice.updateMany({
+        where: {
+          tenantId,
+          status: { in: ['PENDING_APPROVAL', 'ISSUED', 'OVERDUE'] },
+        },
+        data: {
+          status: 'CANCELLED',
+        },
+      });
+
       await tx.tenant.update({
         where: { id: tenantId },
         data: {
@@ -892,6 +914,7 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
           tenantId,
           eventType: 'CANCELLATION_PROCESSED',
           metadata: {
+            status: 'REVOKED',
             reason,
             revokedBy,
             revokedAt: now.toISOString(),

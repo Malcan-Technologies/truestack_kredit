@@ -40,6 +40,11 @@ const overduePaymentSchema = z.object({
   paymentReference: z.string().trim().min(3).max(120),
 });
 
+const updateInvoiceAddonsSchema = z.object({
+  invoiceId: z.string(),
+  addTruesend: z.boolean().optional().default(false),
+});
+
 const cancelSubscriptionSchema = z.object({
   immediate: z.boolean().optional().default(false),
 });
@@ -101,6 +106,7 @@ router.get('/invoices', async (req, res, next) => {
       orderBy: { issuedAt: 'desc' },
       include: {
         receipts: true,
+        lineItems: true,
       },
     });
 
@@ -111,12 +117,20 @@ router.get('/invoices', async (req, res, next) => {
         invoiceNumber: inv.invoiceNumber,
         amount: inv.amount,
         status: inv.status,
+        billingType: inv.billingType,
         periodStart: inv.periodStart,
         periodEnd: inv.periodEnd,
         issuedAt: inv.issuedAt,
         dueAt: inv.dueAt,
         paidAt: inv.paidAt,
         receipts: inv.receipts,
+        lineItems: inv.lineItems.map((li) => ({
+          itemType: li.itemType,
+          description: li.description,
+          amount: Number(li.amount),
+          quantity: li.quantity,
+          unitPrice: Number(li.unitPrice),
+        })),
       })),
     });
   } catch (error) {
@@ -236,6 +250,7 @@ router.get('/invoices/:invoiceId/download', async (req, res, next) => {
         quantity: Number(item.quantity ?? 1),
         unitPrice: Number(item.unitPrice ?? item.amount ?? 0),
         amount: Number(item.amount ?? 0),
+        itemType: item.itemType,
       })),
     });
 
@@ -413,6 +428,12 @@ function getMytCycleDates(now: Date) {
   const periodEnd = new Date(periodStart);
   periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
   return { periodStart, periodEnd };
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
 }
 
 function differenceInDays(start: Date, end: Date): number {
@@ -602,7 +623,7 @@ router.post('/subscribe', async (req, res, next) => {
           billingType,
           periodStart,
           periodEnd,
-          dueAt: periodStart,
+          dueAt: addDays(requestedAt, 14),
         },
       });
 
@@ -887,6 +908,72 @@ router.get('/pricing', async (_req, res, next) => {
 });
 
 /**
+ * Preview prorated add-on purchase (same logic as purchase, no side effects)
+ * GET /api/billing/add-ons/purchase-preview?addOnType=TRUESEND
+ */
+router.get('/add-ons/purchase-preview', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const addOnType = req.query.addOnType as string | undefined;
+    if (!addOnType || !['TRUESEND', 'TRUEIDENTITY'].includes(addOnType)) {
+      throw new BadRequestError('addOnType must be TRUESEND or TRUEIDENTITY');
+    }
+
+    const [subscription, existingAddOn] = await Promise.all([
+      prisma.subscription.findUnique({ where: { tenantId } }),
+      prisma.tenantAddOn.findUnique({
+        where: { tenantId_addOnType: { tenantId, addOnType } },
+      }),
+    ]);
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { subscriptionStatus: true },
+    });
+    if (!tenant || tenant.subscriptionStatus !== 'PAID' || !subscription) {
+      return res.json({
+        success: true,
+        data: { addOnType, proratedAmountMyr: 0, remainingDays: 0, totalDays: 0, sstMyr: 0, totalAmountMyr: 0, freeActivation: true },
+      });
+    }
+    if (existingAddOn?.status === 'ACTIVE') {
+      return res.json({
+        success: true,
+        data: { addOnType, proratedAmountMyr: 0, remainingDays: 0, totalDays: 0, sstMyr: 0, totalAmountMyr: 0, alreadyActive: true },
+      });
+    }
+
+    const monthlyAmountMyr = addOnType === 'TRUESEND'
+      ? Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50')
+      : 0;
+
+    const now = new Date();
+    const totalDays = Math.max(1, differenceInDays(subscription.currentPeriodStart, subscription.currentPeriodEnd));
+    const remainingDays = Math.max(0, differenceInDays(now, subscription.currentPeriodEnd));
+    const proratedAmount = roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays);
+    const sstMyr = roundHalfUp2(proratedAmount * SST_RATE);
+    const totalAmountMyr = roundHalfUp2(proratedAmount + sstMyr);
+    const amountCents = Math.round(totalAmountMyr * 100);
+
+    res.json({
+      success: true,
+      data: {
+        addOnType,
+        proratedAmountMyr: proratedAmount,
+        remainingDays,
+        totalDays,
+        sstMyr,
+        totalAmountMyr,
+        monthlyAmountMyr,
+        freeActivation: amountCents <= 0,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Purchase add-on for active subscription (prorated)
  * POST /api/billing/add-ons/purchase
  */
@@ -968,7 +1055,7 @@ router.post('/add-ons/purchase', async (req, res, next) => {
           billingType: 'ADDON_PURCHASE',
           periodStart: subscription.currentPeriodStart,
           periodEnd: subscription.currentPeriodEnd,
-          dueAt: now,
+          dueAt: addDays(now, 14),
         },
       });
 
@@ -1116,7 +1203,89 @@ router.post('/add-ons/purchase', async (req, res, next) => {
 });
 
 /**
- * Submit payment proof for an overdue renewal invoice.
+ * Update a renewal invoice to add TrueSend add-on when user selects it on the subscription page.
+ * Used when the invoice was created without TrueSend (e.g. tenant didn't have it when expired).
+ * POST /api/billing/overdue/update-invoice-addons
+ */
+router.post('/overdue/update-invoice-addons', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { invoiceId, addTruesend } = updateInvoiceAddonsSchema.parse(req.body);
+
+    if (!addTruesend) {
+      return res.json({ success: true, data: { updated: false, invoiceId } });
+    }
+
+    const truesendMonthlyMyr = Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50');
+    const invoice = await prisma.invoice.findFirst({
+      where: {
+        id: invoiceId,
+        tenantId,
+        billingType: 'RENEWAL',
+        status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+      },
+      include: { lineItems: true },
+    });
+
+    if (!invoice) throw new BadRequestError('Renewal invoice not found');
+
+    const hasTruesend = invoice.lineItems.some(
+      (li) => li.itemType === 'ADDON' && li.description?.toLowerCase().includes('truesend')
+    );
+    if (hasTruesend) {
+      return res.json({ success: true, data: { updated: false, invoiceId } });
+    }
+
+    const coreAmount = invoice.lineItems
+      .filter((li) => li.itemType === 'SUBSCRIPTION')
+      .reduce((s, li) => s + Number(li.amount), 0);
+    const existingAddons = invoice.lineItems
+      .filter((li) => li.itemType === 'ADDON' || li.itemType === 'USAGE')
+      .reduce((s, li) => s + Number(li.amount), 0);
+    const existingSst = invoice.lineItems
+      .filter((li) => li.itemType === 'SST')
+      .reduce((s, li) => s + Number(li.amount), 0);
+
+    const newSubtotal = roundHalfUp2(coreAmount + existingAddons + truesendMonthlyMyr);
+    const newSst = roundHalfUp2(newSubtotal * SST_RATE);
+    const newTotal = roundHalfUp2(newSubtotal + newSst);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.invoiceLineItem.create({
+        data: {
+          invoiceId: invoice.id,
+          itemType: 'ADDON',
+          description: 'TrueSend add-on',
+          unitPrice: truesendMonthlyMyr,
+          quantity: 1,
+          amount: truesendMonthlyMyr,
+        },
+      });
+      const sstItem = invoice.lineItems.find((li) => li.itemType === 'SST');
+      if (sstItem) {
+        await tx.invoiceLineItem.update({
+          where: { id: sstItem.id },
+          data: { unitPrice: newSst, amount: newSst },
+        });
+      }
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { amount: newTotal },
+      });
+    });
+
+    res.json({
+      success: true,
+      data: { updated: true, invoiceId, amount: newTotal },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Submit payment proof for a renewal invoice (payment due or overdue).
+ * Accepts ISSUED, PENDING_APPROVAL, or OVERDUE renewal invoices.
  * POST /api/billing/overdue/submit-payment
  */
 router.post('/overdue/submit-payment', async (req, res, next) => {
@@ -1133,14 +1302,15 @@ router.post('/overdue/submit-payment', async (req, res, next) => {
         where: {
           id: invoiceId,
           tenantId,
-          status: 'OVERDUE',
+          billingType: 'RENEWAL',
+          status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
         },
         include: { lineItems: true },
       }),
     ]);
 
     if (!tenant) throw new NotFoundError('Tenant');
-    if (!invoice) throw new BadRequestError('Overdue invoice not found');
+    if (!invoice) throw new BadRequestError('Renewal invoice not found');
 
     const existingPending = await prisma.subscriptionPaymentRequest.findFirst({
       where: {

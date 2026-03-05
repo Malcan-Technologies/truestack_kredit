@@ -1,4 +1,6 @@
 import PDFDocument from 'pdfkit';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export interface InvoicePdfTenant {
   name: string;
@@ -11,6 +13,7 @@ export interface InvoicePdfLineItem {
   quantity: number;
   unitPrice: number;
   amount: number;
+  itemType?: string;
 }
 
 export interface InvoicePdfPayload {
@@ -62,11 +65,29 @@ function formatDateMY(date: Date): string {
   }).format(date);
 }
 
+function resolveLogoPath(): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), 'apps/admin/public/logo-light.png'),
+    path.resolve(process.cwd(), '../admin/public/logo-light.png'),
+    path.resolve(process.cwd(), '../../apps/admin/public/logo-light.png'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 export async function generateInvoicePdf(payload: InvoicePdfPayload): Promise<Buffer> {
   return createPdfBuffer((doc) => {
     const left = 50;
     const right = 545;
     let y = 50;
+
+    const logoPath = resolveLogoPath();
+    if (logoPath) {
+      doc.image(logoPath, left, y, { fit: [130, 42] });
+      y += 48;
+    }
 
     doc.font('Helvetica-Bold').fontSize(20).text('INVOICE', left, y);
     y += 30;
@@ -94,6 +115,21 @@ export async function generateInvoicePdf(payload: InvoicePdfPayload): Promise<Bu
       y += 10;
     }
 
+    doc.font('Helvetica-Bold').text('From', left, y);
+    y += 22; // gap between From heading and company details
+    doc.font('Helvetica').text('Truestack Technologies Sdn. Bhd.', left, y);
+    y += 14;
+    doc.text('Registration No. 202501058714 (1660120-X)', left, y);
+    y += 14;
+    doc.text('Lot C-13-3, KL Trillion', left, y);
+    y += 14;
+    doc.text('No 338 Jalan Tun Razak', left, y);
+    y += 14;
+    doc.text('50400 Kuala Lumpur', left, y);
+    y += 28; // gap between address and email
+    doc.text('hello@truestack.my', left, y);
+    y += 28; // gap between email and Description heading
+
     const tableTop = y;
     const colDesc = left;
     const colQty = 345;
@@ -111,7 +147,11 @@ export async function generateInvoicePdf(payload: InvoicePdfPayload): Promise<Bu
     doc.strokeColor('#000000');
     doc.font('Helvetica');
 
-    for (const item of payload.lineItems) {
+    const displayLineItems = payload.lineItems.filter(
+      (item) => item.itemType !== 'SST' && !item.description.toUpperCase().includes('SST')
+    );
+
+    for (const item of displayLineItems) {
       doc.text(item.description, colDesc, y, { width: 280 });
       doc.text(String(item.quantity), colQty, y, { width: 45, align: 'right' });
       doc.text(formatCurrency(item.unitPrice), colUnit, y, { width: 70, align: 'right' });
@@ -139,7 +179,17 @@ export async function generateInvoicePdf(payload: InvoicePdfPayload): Promise<Bu
     doc.text('Total', colUnit - 30, y, { width: 100, align: 'right' });
     doc.text(formatCurrency(payload.total), colAmount, y, { width: 60, align: 'right' });
 
-    y += 36;
+    y += 30;
+    doc.font('Helvetica-Bold').fontSize(10).text('Payment Instructions', left, y);
+    y += 14;
+    doc.font('Helvetica').fontSize(10);
+    doc.text('Account Name: Truestack Technologies Sdn Bhd', left, y);
+    y += 13;
+    doc.text('Bank: RHB Bank', left, y);
+    y += 13;
+    doc.text('Account number: 26409400034271', left, y);
+
+    y += 22;
     doc.font('Helvetica').fontSize(10);
     doc.text('This is a system-generated invoice.', left, y);
   });

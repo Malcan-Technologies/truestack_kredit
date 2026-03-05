@@ -31,7 +31,8 @@ interface Membership {
   tenantSlug: string;
   tenantStatus: string;
   tenantLogoUrl: string | null;
-  tenantSubscriptionStatus?: "FREE" | "PAID";
+  tenantSubscriptionStatus?: "FREE" | "PAID" | "OVERDUE" | "SUSPENDED";
+  subscription?: { currentPeriodEnd: string } | null;
   role: string;
 }
 
@@ -70,17 +71,55 @@ function TenantLogo({ logoUrl, name, size = "md" }: TenantLogoProps) {
   );
 }
 
-function SubscriptionStatusDot({ status }: { status?: "FREE" | "PAID" }) {
-  if (!status) return null;
+/** Days until target date (MYT). Positive = future, negative = past. */
+function getMytDaysUntil(targetIsoDate: string): number {
+  const target = new Date(targetIsoDate);
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const getParts = (d: Date) => {
+    const parts = formatter.formatToParts(d);
+    return {
+      y: parts.find((p) => p.type === "year")?.value ?? "1970",
+      m: parts.find((p) => p.type === "month")?.value ?? "01",
+      d: parts.find((p) => p.type === "day")?.value ?? "01",
+    };
+  };
+  const nowP = getParts(now);
+  const targetP = getParts(target);
+  const nowUtc = Date.UTC(Number(nowP.y), Number(nowP.m) - 1, Number(nowP.d));
+  const targetUtc = Date.UTC(Number(targetP.y), Number(targetP.m) - 1, Number(targetP.d));
+  return Math.ceil((targetUtc - nowUtc) / (1000 * 60 * 60 * 24));
+}
+
+type DotStatus = "paid" | "expired" | "overdue" | "free";
+
+function getSubscriptionDotStatus(m: Membership): DotStatus {
+  const subStatus = m.tenantSubscriptionStatus;
+  if (subStatus === "FREE" || subStatus === "SUSPENDED") return "free";
+  const periodEnd = m.subscription?.currentPeriodEnd;
+  if (!periodEnd) return subStatus === "PAID" ? "paid" : "free";
+  const daysUntil = getMytDaysUntil(periodEnd);
+  if (daysUntil > 0) return "paid";
+  if (daysUntil >= -14) return "expired";
+  return "overdue";
+}
+
+function SubscriptionStatusDot({ status }: { status: DotStatus }) {
+  const config = {
+    paid: { className: "bg-emerald-500", title: "Subscribed" },
+    expired: { className: "bg-amber-500", title: "Payment due" },
+    overdue: { className: "bg-red-500", title: "Overdue" },
+    free: { className: "bg-amber-500", title: "Pending" },
+  }[status];
   return (
     <span
-      className={cn(
-        "inline-block w-1.5 h-1.5 rounded-full shrink-0",
-        status === "PAID"
-          ? "bg-emerald-500"
-          : "bg-amber-500"
-      )}
-      title={status === "PAID" ? "Subscribed" : "Pending"}
+      className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", config.className)}
+      title={config.title}
     />
   );
 }
@@ -207,7 +246,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
               <TooltipContent side="right">
                 <p>{activeMembership?.tenantName || "Select tenant"}</p>
                 <p className="flex items-center gap-1.5 opacity-70 text-xs mt-0.5">
-                  <SubscriptionStatusDot status={activeMembership?.tenantSubscriptionStatus} />
+                  <SubscriptionStatusDot status={activeMembership ? getSubscriptionDotStatus(activeMembership) : "free"} />
                   {activeMembership?.tenantSlug || ""}
                   {memberships.length > 1 ? " · Click to switch" : " · Click for options"}
                 </p>
@@ -247,7 +286,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
                     </p>
                     <div className="flex items-center justify-between gap-2 w-full min-w-0">
                       <span className="text-xs text-muted min-w-0 flex items-center gap-1.5">
-                        <SubscriptionStatusDot status={membership.tenantSubscriptionStatus} />
+                        <SubscriptionStatusDot status={getSubscriptionDotStatus(membership)} />
                         <span className="truncate">{membership.tenantSlug}</span>
                       </span>
                       <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
@@ -286,7 +325,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
                 {activeMembership?.tenantName || "Select tenant"}
               </p>
               <p className="text-xs text-muted flex items-center gap-1.5 min-w-0">
-                <SubscriptionStatusDot status={activeMembership?.tenantSubscriptionStatus} />
+                <SubscriptionStatusDot status={activeMembership ? getSubscriptionDotStatus(activeMembership) : "free"} />
                 <span className="truncate">{activeMembership?.tenantSlug || ""}</span>
               </p>
             </div>
@@ -328,7 +367,7 @@ export function TenantSwitcher({ className, collapsed = false }: TenantSwitcherP
                 </p>
                 <div className="flex items-center justify-between gap-2 w-full min-w-0">
                   <span className="text-xs text-muted min-w-0 flex items-center gap-1.5">
-                    <SubscriptionStatusDot status={membership.tenantSubscriptionStatus} />
+                    <SubscriptionStatusDot status={getSubscriptionDotStatus(membership)} />
                     <span className="truncate">{membership.tenantSlug}</span>
                   </span>
                   <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">

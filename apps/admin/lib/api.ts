@@ -53,8 +53,18 @@ export async function fetchApi<T>(
       headers,
       credentials: "include", // Include cookies for session auth
     });
-
-    const data = await response.json();
+    const rawBody = await response.text();
+    let data: Record<string, unknown> = {};
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody) as Record<string, unknown>;
+      } catch {
+        return {
+          success: false,
+          error: `Unexpected response from server (status ${response.status}).`,
+        };
+      }
+    }
 
     // Check for grace period header
     const gracePeriod = response.headers.get("X-Grace-Period");
@@ -75,11 +85,11 @@ export async function fetchApi<T>(
       }
       return {
         success: false,
-        error: data?.error ?? "Session expired. Please log in again.",
+        error: typeof data?.error === "string" ? data.error : "Session expired. Please log in again.",
       };
     }
 
-    return data;
+    return data as unknown as ApiResponse<T>;
   } catch (error) {
     console.error("API request failed:", error);
     return {

@@ -84,7 +84,8 @@ Go to **Loans** and select a loan to:
 | **Applications** | Create and review loan applications |
 | **Loans** | View active loans and record payments |
 | **Compliance** | Export data for KPKT regulatory compliance |
-| **Billing** | Manage your subscription and invoices (Admin/Owner) |
+| **Billing** | Manage subscription, invoices, and add-ons (Admin/Owner) |
+| **Plan** | View plan overview and loan usage (Admin/Owner) |
 | **Admin Logs** | Track administrative actions (Admin/Owner) |
 | **Settings** | Manage team members and tenant settings |
 | **Help** | Access documentation (you are here!) |
@@ -115,5 +116,6 @@ For a detailed breakdown, see [Roles & Permissions](?doc=getting-started/roles-a
 
 ## Next Steps
 
-- [Roles & Permissions](?doc=getting-started/roles-and-permissions) - Understand what each role can do
-- [Creating Loan Products](?doc=loan-management/creating-loan-products) - Learn how to configure loan products
+- [Roles & Permissions](?doc=getting-started/roles-and-permissions) — Understand what each role can do
+- [Billing & Subscription](?doc=administration/billing-and-subscription) — Manage your subscription and add-ons
+- [Creating Loan Products](?doc=loan-management/creating-loan-products) — Learn how to configure loan products

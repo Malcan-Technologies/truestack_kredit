@@ -351,11 +351,14 @@ export async function applyRejectedDecision(decision: PaymentDecision): Promise<
 async function generateRenewalInvoices(now: Date): Promise<number> {
   let created = 0;
   const truesendMonthly = Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50');
+  // Compare by MYT day boundary so renewal invoices are generated on the
+  // intended calendar day (e.g. periodEnd day at 12:05 AM MYT cron run).
+  const renewalCutoff = startOfMytDayUtc(now);
   const subs = await prisma.subscription.findMany({
     where: {
       autoRenew: true,
       status: 'ACTIVE',
-      currentPeriodEnd: { lte: now },
+      currentPeriodEnd: { lte: renewalCutoff },
     },
     include: {
       tenant: true,

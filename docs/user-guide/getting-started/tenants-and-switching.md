@@ -109,6 +109,7 @@ Each tenant has its own subscription and billing cycle.
 - **Separate invoices** for each tenant
 - **Independent subscription status** (one tenant's expired subscription doesn't affect others)
 - **Grace period** applies per tenant
+- Billing periods use same-day boundaries (e.g. 3 Mar – 3 Apr); payment is due on the renewal date
 
 ### Managing Multiple Tenants
 
@@ -116,7 +117,9 @@ If you own multiple tenants:
 
 1. Switch to each tenant individually
 2. Navigate to **Billing** in the sidebar
-3. Manage that tenant's subscription
+3. Manage that tenant's subscription (invoices, add-ons, payment)
+
+For full billing details, see [Billing & Subscription](?doc=administration/billing-and-subscription).
 
 ---
 

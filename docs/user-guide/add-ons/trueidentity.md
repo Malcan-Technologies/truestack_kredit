@@ -83,7 +83,9 @@ Yes. You can generate a verification QR code for any borrower at any time, not j
 
 ### How do I subscribe to TrueIdentity?
 
-Contact your TrueKredit account manager or visit the billing section in your admin dashboard to enable the add-on.
+Go to **Billing** in the sidebar, then click **Choose plan** (or open **Subscription** from the Plan page). On the Subscription page, toggle TrueIdentity™ on and click **Proceed to payment** or **Make payment now**. The add-on switch reflects your backend status — if TrueIdentity is active in the system, the switch shows as on. TrueIdentity is pay-per-use (RM 4 per verification) with no monthly fee.
+
+For full billing details, see [Billing & Subscription](?doc=administration/billing-and-subscription).
 
 ---
 

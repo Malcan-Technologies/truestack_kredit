@@ -120,7 +120,7 @@ function PaymentPageContent() {
   const isOnboardingFlow = searchParams.get("from") === "onboarding";
   const mode = searchParams.get("mode");
   const overdueInvoiceId = searchParams.get("invoiceId");
-  const isOverdueMode = mode === "overdue" && !!overdueInvoiceId;
+  const isOverdueMode = mode === "overdue";
 
   // Parse query params from subscription page
   const queryAmount = Number(searchParams.get("amount")) || CORE_PRICE;
@@ -151,6 +151,7 @@ function PaymentPageContent() {
     monthlyAmountMyr: number;
     freeActivation?: boolean;
     alreadyActive?: boolean;
+    isFirstTimeSubscription?: boolean;
   } | null>(null);
 
   // Fetch tenant name, subscription status, and loan usage
@@ -185,30 +186,27 @@ function PaymentPageContent() {
           }
         }
         if (status === "PAID" && searchParams.get("truesend") === "1") {
-          const [subRes, pricingRes] = await Promise.all([
-            api.get<{ currentPeriodStart?: string; currentPeriodEnd?: string }>("/api/billing/subscription"),
-            api.get<{ truesendMonthlyMyr: number }>("/api/billing/pricing"),
-          ]);
-          if (subRes.success && subRes.data?.currentPeriodStart && subRes.data?.currentPeriodEnd) {
-            const now = new Date();
-            const start = new Date(subRes.data.currentPeriodStart);
-            const end = new Date(subRes.data.currentPeriodEnd);
-            const monthlyAmountMyr = pricingRes.success && pricingRes.data
-              ? pricingRes.data.truesendMonthlyMyr
-              : TRUESEND_PRICE;
-            const totalDays = Math.max(1, differenceInDays(start, end));
-            const remainingDays = Math.max(0, differenceInDays(now, end));
-            const proratedAmountMyr = roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays);
-            const sstMyr = roundHalfUp2(proratedAmountMyr * SST_RATE);
-            const totalAmountMyr = roundHalfUp2(proratedAmountMyr + sstMyr);
+          const previewRes = await api.get<{
+            proratedAmountMyr: number;
+            remainingDays: number;
+            totalDays: number;
+            sstMyr: number;
+            totalAmountMyr: number;
+            monthlyAmountMyr: number;
+            freeActivation?: boolean;
+            alreadyActive?: boolean;
+            isFirstTimeSubscription?: boolean;
+          }>("/api/billing/add-ons/purchase-preview?addOnType=TRUESEND");
+          if (previewRes.success && previewRes.data && !previewRes.data.alreadyActive) {
             setTruesendPreview({
-              proratedAmountMyr,
-              remainingDays,
-              totalDays,
-              sstMyr,
-              totalAmountMyr,
-              monthlyAmountMyr,
-              freeActivation: totalAmountMyr <= 0,
+              proratedAmountMyr: previewRes.data.proratedAmountMyr,
+              remainingDays: previewRes.data.remainingDays,
+              totalDays: previewRes.data.totalDays,
+              sstMyr: previewRes.data.sstMyr,
+              totalAmountMyr: previewRes.data.totalAmountMyr,
+              monthlyAmountMyr: previewRes.data.monthlyAmountMyr,
+              freeActivation: previewRes.data.freeActivation ?? false,
+              isFirstTimeSubscription: previewRes.data.isFirstTimeSubscription ?? true,
             });
           } else {
             setTruesendPreview(null);
@@ -300,6 +298,9 @@ function PaymentPageContent() {
           toast.success("Overdue payment submitted. Awaiting admin verification.");
         }
         window.location.href = "/dashboard/billing";
+      } else if (effectiveOverdueMode && !effectiveOverdueInvoiceId) {
+        toast.error("Renewal invoice is still being prepared. Please try again in a moment.");
+        return;
       } else if (subscriptionStatus !== "PAID") {
         // Subscribe with plan; CORE_TRUESEND enables TrueSend
         const plan = hasTruesend ? "CORE_TRUESEND" : "CORE";
@@ -453,7 +454,9 @@ function PaymentPageContent() {
         treatAsPaidTenant &&
         truesendPreview != null &&
         !truesendPreview.alreadyActive &&
-        truesendPreview.totalDays > 0
+        truesendPreview.isFirstTimeSubscription !== false &&
+        truesendPreview.totalDays > 0 &&
+        truesendPreview.remainingDays < truesendPreview.totalDays
           ? ` (prorated ${truesendPreview.remainingDays}/${truesendPreview.totalDays} days)`
           : "";
       items.push({

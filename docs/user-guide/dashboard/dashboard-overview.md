@@ -29,9 +29,13 @@ The KPI summary cards always show **all-time totals** regardless of the date fil
 
 The billing card shows your current subscription:
 
-- **Plan name** and **status badge** (Active, Grace Period, or Blocked)
-- **Loan usage** -- how many of your plan's 500-loan limit you have used, with a colour-coded progress bar (blue under 80%, amber 80-99%, red at 100%)
-- **Days remaining** until your next billing renewal or grace period end
+- **Plan name** and **status badge** (PAID, OVERDUE, FREE, or SUSPENDED)
+- **Loan usage** — how many of your plan's 500-loan limit you have used, with a colour-coded progress bar (blue under 80%, amber 80-99%, red at 100%)
+- **Days remaining** until your next billing renewal (or period end)
+
+Billing periods use same-day boundaries (e.g. 3 Mar – 3 Apr). The last day of your subscription is the day before the renewal date; payment is due on the renewal date.
+
+For full details on billing, invoices, add-ons, and payment, see [Billing & Subscription](?doc=administration/billing-and-subscription).
 
 ---
 
@@ -157,6 +161,7 @@ Each entry shows the borrower name, date, amount, and current status badge.
 
 ## Related Documentation
 
+- [Billing & Subscription](?doc=administration/billing-and-subscription) — Manage your subscription, add-ons, and invoices
 - [Compliance & Exports Overview](?doc=compliance/compliance-overview) — Download portfolio, overdue, and collection reports as CSV files
 - [Reports](?doc=compliance/reports) — Detailed downloadable reports that complement the dashboard's real-time metrics
 - [Late Fees, Arrears & Default](?doc=loans/late-fees-arrears-default) — Understanding the arrears and default metrics shown on the dashboard

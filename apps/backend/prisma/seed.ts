@@ -224,7 +224,7 @@ async function main() {
     update: {},
     create: {
       userId: owner.id,
-      tenantId: expiringTenant.id,
+      tenantId: expiringTenant.id, 
       role: 'OWNER',
       isActive: true,
     },

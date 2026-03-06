@@ -950,7 +950,14 @@ router.get('/add-ons/purchase-preview', async (req, res, next) => {
     const now = new Date();
     const totalDays = Math.max(1, differenceInDays(subscription.currentPeriodStart, subscription.currentPeriodEnd));
     const remainingDays = Math.max(0, differenceInDays(now, subscription.currentPeriodEnd));
-    const proratedAmount = roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays);
+
+    // Proration only on first-time subscription. Re-subscribing (existingAddOn exists) = full price.
+    const isFirstTimeSubscription = existingAddOn === null;
+    const proratedAmount = isFirstTimeSubscription
+      ? roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays)
+      : monthlyAmountMyr;
+    const effectiveRemainingDays = isFirstTimeSubscription ? remainingDays : totalDays;
+
     const sstMyr = roundHalfUp2(proratedAmount * SST_RATE);
     const totalAmountMyr = roundHalfUp2(proratedAmount + sstMyr);
     const amountCents = Math.round(totalAmountMyr * 100);
@@ -960,12 +967,13 @@ router.get('/add-ons/purchase-preview', async (req, res, next) => {
       data: {
         addOnType,
         proratedAmountMyr: proratedAmount,
-        remainingDays,
+        remainingDays: effectiveRemainingDays,
         totalDays,
         sstMyr,
         totalAmountMyr,
         monthlyAmountMyr,
         freeActivation: amountCents <= 0,
+        isFirstTimeSubscription,
       },
     });
   } catch (error) {
@@ -1010,7 +1018,14 @@ router.post('/add-ons/purchase', async (req, res, next) => {
     const now = new Date();
     const totalDays = Math.max(1, differenceInDays(subscription.currentPeriodStart, subscription.currentPeriodEnd));
     const remainingDays = Math.max(0, differenceInDays(now, subscription.currentPeriodEnd));
-    const proratedAmount = roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays);
+
+    // Proration only on first-time subscription. Re-subscribing (existingAddOn exists) = full price.
+    const isFirstTimeSubscription = existingAddOn === null;
+    const proratedAmount = isFirstTimeSubscription
+      ? roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays)
+      : monthlyAmountMyr;
+    const effectiveRemainingDays = isFirstTimeSubscription ? remainingDays : totalDays;
+
     const sstMyr = roundHalfUp2(proratedAmount * SST_RATE);
     const totalAmountMyr = roundHalfUp2(proratedAmount + sstMyr);
     const amountCents = Math.round(totalAmountMyr * 100);
@@ -1062,8 +1077,10 @@ router.post('/add-ons/purchase', async (req, res, next) => {
       await tx.invoiceLineItem.create({
         data: {
           invoiceId: invoice.id,
-          itemType: 'PRORATION',
-          description: `${addOnType} Add-on Prorated (${remainingDays}/${totalDays} days)`,
+          itemType: isFirstTimeSubscription ? 'PRORATION' : 'ADDON',
+          description: isFirstTimeSubscription
+            ? `${addOnType} Add-on Prorated (${effectiveRemainingDays}/${totalDays} days)`
+            : `${addOnType} add-on`,
           quantity: 1,
           unitPrice: proratedAmount,
           amount: proratedAmount,
@@ -1095,10 +1112,10 @@ router.post('/add-ons/purchase', async (req, res, next) => {
           requestedAddOns: [addOnType],
           lineItems: [
             {
-              type: 'PRORATION',
+              type: isFirstTimeSubscription ? 'PRORATION' : 'ADDON',
               addOnType,
               amountMyr: proratedAmount,
-              remainingDays,
+              remainingDays: effectiveRemainingDays,
               totalDays,
             },
             {
@@ -1145,10 +1162,10 @@ router.post('/add-ons/purchase', async (req, res, next) => {
         requestedAddOns: [addOnType],
         lineItems: [
           {
-            type: 'PRORATION',
+            type: isFirstTimeSubscription ? 'PRORATION' : 'ADDON',
             addOnType,
             amountMyr: proratedAmount,
-            remainingDays,
+            remainingDays: effectiveRemainingDays,
             totalDays,
           },
           {

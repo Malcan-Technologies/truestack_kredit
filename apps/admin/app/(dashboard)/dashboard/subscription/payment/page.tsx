@@ -34,12 +34,6 @@ const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
 const SST_RATE = 0.08; // 8% SST (Service Tax)
 
-const roundHalfUp2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-const differenceInDays = (start: Date, end: Date) => {
-  const msPerDay = 24 * 60 * 60 * 1000;
-  return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / msPerDay));
-};
-
 const BANK_DETAILS = {
   accountName: "Truestack Technologies Sdn Bhd",
   bank: "RHB Bank",

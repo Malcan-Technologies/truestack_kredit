@@ -226,8 +226,7 @@ router.get('/invoices/:invoiceId/download', async (req, res, next) => {
         .filter((item) => !(item.itemType === 'SST' || item.description.toUpperCase().includes('SST')))
         .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
     );
-    const sstRate = 0.08;
-    const sstAmount = sstAmountFromLineItems > 0 ? sstAmountFromLineItems : roundHalfUp2(subtotal * sstRate);
+    const sstAmount = sstAmountFromLineItems > 0 ? sstAmountFromLineItems : roundHalfUp2(subtotal * SST_RATE);
     const total = roundHalfUp2(subtotal + sstAmount);
 
     const pdfBuffer = await generateInvoicePdf({
@@ -237,7 +236,7 @@ router.get('/invoices/:invoiceId/download', async (req, res, next) => {
       periodStart: invoice.periodStart,
       periodEnd: invoice.periodEnd,
       subtotal,
-      sstRate,
+      sstRate: SST_RATE,
       sstAmount,
       total,
       tenant: {
@@ -404,9 +403,6 @@ router.get('/events', async (req, res, next) => {
   }
 });
 
-const CORE_TRUESEND_AMOUNT_CENTS = CORE_PLUS_AMOUNT_CENTS;
-const TRUESEND_ADDON_AMOUNT_CENTS = 5000;
-
 function roundHalfUp2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -446,6 +442,25 @@ function toDateOnly(value: Date): string {
 }
 
 const SST_RATE = 0.08;
+
+/** Compute add-on purchase amount: prorated for first-time, full price for re-subscribe. */
+function computeAddOnPurchaseAmount(
+  monthlyAmountMyr: number,
+  periodStart: Date,
+  periodEnd: Date,
+  existingAddOn: { id: string } | null
+): { proratedAmount: number; effectiveRemainingDays: number; totalDays: number; sstMyr: number; totalAmountMyr: number; isFirstTimeSubscription: boolean } {
+  const totalDays = Math.max(1, differenceInDays(periodStart, periodEnd));
+  const remainingDays = Math.max(0, differenceInDays(new Date(), periodEnd));
+  const isFirstTimeSubscription = existingAddOn === null;
+  const proratedAmount = isFirstTimeSubscription
+    ? roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays)
+    : monthlyAmountMyr;
+  const effectiveRemainingDays = isFirstTimeSubscription ? remainingDays : totalDays;
+  const sstMyr = roundHalfUp2(proratedAmount * SST_RATE);
+  const totalAmountMyr = roundHalfUp2(proratedAmount + sstMyr);
+  return { proratedAmount, effectiveRemainingDays, totalDays, sstMyr, totalAmountMyr, isFirstTimeSubscription };
+}
 
 function serializeSubscriptionPaymentRequest(
   request: {
@@ -550,14 +565,14 @@ router.post('/subscribe', async (req, res, next) => {
       throw new NotFoundError('Tenant');
     }
 
-    const subscriptionAmount = plan === 'CORE_TRUESEND' ? CORE_TRUESEND_AMOUNT_CENTS : CORE_AMOUNT_CENTS;
+    const subscriptionAmount = plan === 'CORE_TRUESEND' ? CORE_PLUS_AMOUNT_CENTS : CORE_AMOUNT_CENTS;
     const currentAmount = tenant.subscriptionAmount ?? CORE_AMOUNT_CENTS;
     const isUpgradeToCorePlus = plan === 'CORE_TRUESEND' && subscriptionAmount !== currentAmount;
 
     if (tenant.subscriptionStatus === 'PAID' && !isUpgradeToCorePlus) {
       throw new BadRequestError('Tenant is already subscribed');
     }
-    if (tenant.subscriptionStatus === 'PAID' && currentAmount === CORE_TRUESEND_AMOUNT_CENTS && plan === 'CORE') {
+    if (tenant.subscriptionStatus === 'PAID' && currentAmount === CORE_PLUS_AMOUNT_CENTS && plan === 'CORE') {
       throw new BadRequestError('To downgrade from Core+, please contact support');
     }
 
@@ -899,7 +914,7 @@ router.get('/pricing', async (_req, res, next) => {
         truesendMonthlyMyr,
         trueidentityUnitMyr,
         trueidentityUnitCredits,
-        sstRate: 0.08,
+        sstRate: SST_RATE,
       },
     });
   } catch (error) {
@@ -947,33 +962,26 @@ router.get('/add-ons/purchase-preview', async (req, res, next) => {
       ? Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50')
       : 0;
 
-    const now = new Date();
-    const totalDays = Math.max(1, differenceInDays(subscription.currentPeriodStart, subscription.currentPeriodEnd));
-    const remainingDays = Math.max(0, differenceInDays(now, subscription.currentPeriodEnd));
-
-    // Proration only on first-time subscription. Re-subscribing (existingAddOn exists) = full price.
-    const isFirstTimeSubscription = existingAddOn === null;
-    const proratedAmount = isFirstTimeSubscription
-      ? roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays)
-      : monthlyAmountMyr;
-    const effectiveRemainingDays = isFirstTimeSubscription ? remainingDays : totalDays;
-
-    const sstMyr = roundHalfUp2(proratedAmount * SST_RATE);
-    const totalAmountMyr = roundHalfUp2(proratedAmount + sstMyr);
-    const amountCents = Math.round(totalAmountMyr * 100);
+    const computed = computeAddOnPurchaseAmount(
+      monthlyAmountMyr,
+      subscription.currentPeriodStart,
+      subscription.currentPeriodEnd,
+      existingAddOn
+    );
+    const amountCents = Math.round(computed.totalAmountMyr * 100);
 
     res.json({
       success: true,
       data: {
         addOnType,
-        proratedAmountMyr: proratedAmount,
-        remainingDays: effectiveRemainingDays,
-        totalDays,
-        sstMyr,
-        totalAmountMyr,
+        proratedAmountMyr: computed.proratedAmount,
+        remainingDays: computed.effectiveRemainingDays,
+        totalDays: computed.totalDays,
+        sstMyr: computed.sstMyr,
+        totalAmountMyr: computed.totalAmountMyr,
         monthlyAmountMyr,
         freeActivation: amountCents <= 0,
-        isFirstTimeSubscription,
+        isFirstTimeSubscription: computed.isFirstTimeSubscription,
       },
     });
   } catch (error) {
@@ -1015,20 +1023,15 @@ router.post('/add-ons/purchase', async (req, res, next) => {
       ? Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50')
       : 0;
 
-    const now = new Date();
-    const totalDays = Math.max(1, differenceInDays(subscription.currentPeriodStart, subscription.currentPeriodEnd));
-    const remainingDays = Math.max(0, differenceInDays(now, subscription.currentPeriodEnd));
-
-    // Proration only on first-time subscription. Re-subscribing (existingAddOn exists) = full price.
-    const isFirstTimeSubscription = existingAddOn === null;
-    const proratedAmount = isFirstTimeSubscription
-      ? roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays)
-      : monthlyAmountMyr;
-    const effectiveRemainingDays = isFirstTimeSubscription ? remainingDays : totalDays;
-
-    const sstMyr = roundHalfUp2(proratedAmount * SST_RATE);
-    const totalAmountMyr = roundHalfUp2(proratedAmount + sstMyr);
+    const computed = computeAddOnPurchaseAmount(
+      monthlyAmountMyr,
+      subscription.currentPeriodStart,
+      subscription.currentPeriodEnd,
+      existingAddOn
+    );
+    const { proratedAmount, effectiveRemainingDays, totalDays, sstMyr, totalAmountMyr, isFirstTimeSubscription } = computed;
     const amountCents = Math.round(totalAmountMyr * 100);
+    const now = new Date();
 
     if (amountCents <= 0) {
       const updated = await prisma.tenantAddOn.upsert({
@@ -1206,7 +1209,7 @@ router.post('/add-ons/purchase', async (req, res, next) => {
         request: serializeSubscriptionPaymentRequest(request),
         proration: {
           monthlyAmountMyr,
-          remainingDays,
+          remainingDays: effectiveRemainingDays,
           totalDays,
           amountMyr: proratedAmount,
           sstMyr,

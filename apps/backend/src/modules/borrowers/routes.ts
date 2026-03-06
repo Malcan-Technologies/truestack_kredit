@@ -412,6 +412,19 @@ function computeAddressConsistency(
   return 'NOT_MATCHING';
 }
 
+/**
+ * Aggregate consistency across multiple matched borrowers.
+ * Uses the strictest comparable level so conflicting records are surfaced.
+ */
+function aggregateConsistency(levels: DataConsistencyLevel[]): DataConsistencyLevel {
+  const comparable = levels.filter((level) => level !== 'NOT_AVAILABLE');
+  if (comparable.length === 0) return 'NOT_AVAILABLE';
+  if (comparable.includes('NOT_MATCHING')) return 'NOT_MATCHING';
+  if (comparable.includes('PARTIAL_MATCH')) return 'PARTIAL_MATCH';
+  if (comparable.includes('ALMOST_FULL_MATCH')) return 'ALMOST_FULL_MATCH';
+  return 'EXACT_MATCH';
+}
+
 // Individual borrower fields schema
 const individualFieldsSchema = z.object({
   // Compliance fields (mandatory for regulatory reporting - Individual borrowers)
@@ -972,23 +985,19 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
       state,
       postcode,
     });
-    const consistencyOrder: DataConsistencyLevel[] = ['EXACT_MATCH', 'ALMOST_FULL_MATCH', 'PARTIAL_MATCH', 'NOT_MATCHING', 'NOT_AVAILABLE'];
-    const bestConsistency = (levels: DataConsistencyLevel[]) =>
-      consistencyOrder.find((l) => levels.includes(l)) ?? 'NOT_AVAILABLE';
-
-    const nameConsistency = bestConsistency(
+    const nameConsistency = aggregateConsistency(
       matchedBorrowers.map((m) => {
         const matchedName = borrowerType === 'CORPORATE' ? (m.companyName || m.name) || '' : (m.name || '');
         return computeNameConsistency(currentDisplayName, matchedName);
       })
     );
-    const phoneConsistency = bestConsistency(
+    const phoneConsistency = aggregateConsistency(
       matchedBorrowers.map((m) => {
-        const matchedPhone = borrowerType === 'CORPORATE' ? m.companyPhone : m.phone;
+        const matchedPhone = borrowerType === 'CORPORATE' ? (m.companyPhone || m.phone) : m.phone;
         return computePhoneConsistency(currentPhone, matchedPhone);
       })
     );
-    const addressConsistency = bestConsistency(
+    const addressConsistency = aggregateConsistency(
       matchedBorrowers.map((m) =>
         computeAddressConsistency(currentAddress, buildAddressString(m))
       )
@@ -1346,23 +1355,19 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
         ? (borrower.companyPhone || borrower.phone)
         : borrower.phone;
     const currentAddress = buildAddressString(borrower);
-    const consistencyOrder: DataConsistencyLevel[] = ['EXACT_MATCH', 'ALMOST_FULL_MATCH', 'PARTIAL_MATCH', 'NOT_MATCHING', 'NOT_AVAILABLE'];
-    const bestConsistency = (levels: DataConsistencyLevel[]) =>
-      consistencyOrder.find((l) => levels.includes(l)) ?? 'NOT_AVAILABLE';
-
-    const nameConsistency = bestConsistency(
+    const nameConsistency = aggregateConsistency(
       matchedBorrowers.map((m) => {
         const matchedName = borrower.borrowerType === 'CORPORATE' ? (m.companyName || m.name) || '' : (m.name || '');
         return computeNameConsistency(currentDisplayName, matchedName);
       })
     );
-    const phoneConsistency = bestConsistency(
+    const phoneConsistency = aggregateConsistency(
       matchedBorrowers.map((m) => {
-        const matchedPhone = borrower.borrowerType === 'CORPORATE' ? m.companyPhone : m.phone;
+        const matchedPhone = borrower.borrowerType === 'CORPORATE' ? (m.companyPhone || m.phone) : m.phone;
         return computePhoneConsistency(currentPhone, matchedPhone);
       })
     );
-    const addressConsistency = bestConsistency(
+    const addressConsistency = aggregateConsistency(
       matchedBorrowers.map((m) => computeAddressConsistency(currentAddress, buildAddressString(m)))
     );
 

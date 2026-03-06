@@ -127,6 +127,8 @@ const getTotalBorrowedBucketLabel = (amount: number): string => {
   return TOTAL_BORROWED_BUCKETS[TOTAL_BORROWED_BUCKETS.length - 1].label;
 };
 
+const CROSS_TENANT_RECENT_LOANS_LIMIT = 5;
+
 const normalizeCountryCode = (value: string | undefined): string | null | undefined => {
   if (value === undefined) return undefined;
   const trimmed = value.trim().toUpperCase();
@@ -281,64 +283,146 @@ function toPercentageRange(value: number | null): string | null {
   return `${lower}-${upper}%`;
 }
 
+/** Consistency match levels for cross-tenant data comparison */
+export type DataConsistencyLevel = 'EXACT_MATCH' | 'ALMOST_FULL_MATCH' | 'PARTIAL_MATCH' | 'NOT_MATCHING' | 'NOT_AVAILABLE';
+
 /** Common name particles to exclude when comparing names */
 const NAME_PARTICLES = new Set(['bin', 'binti', 'binte', 'bt', 'ap']);
 
-/**
- * Name comparison for cross-tenant data consistency alerts.
- * Requires the first/given name to match (IC identifies the person; name must align).
- * Margin of error for formats like "Ahmad bin Rahman" vs "Ahmad" or "binti" variants.
- * "Ivan Chew Ken Yoong" vs "John Chew" = different (given names Ivan vs John).
- */
-function namesAreSimilar(
-  name1: string | null | undefined,
-  name2: string | null | undefined
-): boolean {
-  const a = name1?.trim() || '';
-  const b = name2?.trim() || '';
-  if (!a || !b) return true;
-
-  const normalize = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .trim();
-  const na = normalize(a);
-  const nb = normalize(b);
-  if (na === nb) return true;
-  if (na.length >= 2 && nb.includes(na)) return true;
-  if (nb.length >= 2 && na.includes(nb)) return true;
-
-  const getSignificantWords = (s: string) =>
-    s.split(/\s+/).filter((w) => w.length >= 2 && !NAME_PARTICLES.has(w));
-  const wordsA = getSignificantWords(na);
-  const wordsB = getSignificantWords(nb);
-  if (wordsA.length === 0 || wordsB.length === 0) return true;
-
-  const firstA = wordsA[0]!;
-  const firstB = wordsB[0]!;
-  const firstNamesMatch =
-    firstA === firstB ||
-    firstA.startsWith(firstB) ||
-    firstB.startsWith(firstA);
-  if (!firstNamesMatch) return false;
-
-  return true;
+function normalizeForCompare(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function phonesAreSimilar(
+function getSignificantNameWords(s: string): string[] {
+  return normalizeForCompare(s)
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !NAME_PARTICLES.has(w));
+}
+
+/**
+ * Name consistency: EXACT_MATCH, ALMOST_FULL_MATCH, PARTIAL_MATCH, NOT_MATCHING, NOT_AVAILABLE.
+ * Considers full name with multiple words, particles (bin/binti), and given-name alignment.
+ */
+function computeNameConsistency(
+  name1: string | null | undefined,
+  name2: string | null | undefined
+): DataConsistencyLevel {
+  const a = name1?.trim() || '';
+  const b = name2?.trim() || '';
+  if (!a || !b) return 'NOT_AVAILABLE';
+
+  const na = normalizeForCompare(a);
+  const nb = normalizeForCompare(b);
+  if (na === nb) return 'EXACT_MATCH';
+  if (na.length >= 2 && nb.includes(na)) return 'ALMOST_FULL_MATCH';
+  if (nb.length >= 2 && na.includes(nb)) return 'ALMOST_FULL_MATCH';
+
+  const wordsA = getSignificantNameWords(a);
+  const wordsB = getSignificantNameWords(b);
+  if (wordsA.length === 0 || wordsB.length === 0) return 'NOT_AVAILABLE';
+
+  const setB = new Set(wordsB);
+  const matchCount = wordsA.filter((w) => setB.has(w) || wordsB.some((bw) => w.startsWith(bw) || bw.startsWith(w))).length;
+  const firstA = wordsA[0]!;
+  const firstB = wordsB[0]!;
+  const firstNamesMatch = firstA === firstB || firstA.startsWith(firstB) || firstB.startsWith(firstA);
+
+  if (!firstNamesMatch) return 'NOT_MATCHING';
+  if (matchCount >= Math.min(wordsA.length, wordsB.length)) return 'ALMOST_FULL_MATCH';
+  if (matchCount >= 1) return 'PARTIAL_MATCH';
+  return 'NOT_MATCHING';
+}
+
+/**
+ * Phone consistency: EXACT_MATCH only (digits must match exactly), NOT_MATCHING, or NOT_AVAILABLE.
+ */
+function computePhoneConsistency(
   phone1: string | null | undefined,
   phone2: string | null | undefined
-): boolean {
+): DataConsistencyLevel {
   const p1 = phone1?.trim() || '';
   const p2 = phone2?.trim() || '';
-  if (!p1 || !p2) return true; // No phone to compare, do not reject
+  if (!p1 || !p2) return 'NOT_AVAILABLE';
 
   const d1 = p1.replace(/\D/g, '');
   const d2 = p2.replace(/\D/g, '');
-  if (d1.length < 8 || d2.length < 8) return true;
+  if (d1.length < 8 || d2.length < 8) return 'NOT_AVAILABLE';
 
-  return d1 === d2 || d1.endsWith(d2) || d2.endsWith(d1);
+  return d1 === d2 ? 'EXACT_MATCH' : 'NOT_MATCHING';
+}
+
+function tokenizeAddress(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/[.,#'"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length >= 2);
+}
+
+/**
+ * Build canonical address string from borrower-style fields.
+ */
+function buildAddressString(fields: {
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postcode?: string | null;
+  address?: string | null;
+  businessAddress?: string | null;
+}): string {
+  const parts: string[] = [];
+  const line1 = fields.addressLine1 || fields.businessAddress || fields.address;
+  if (line1) parts.push(line1);
+  if (fields.addressLine2) parts.push(fields.addressLine2);
+  if (fields.city) parts.push(fields.city);
+  if (fields.state) parts.push(fields.state);
+  if (fields.postcode) parts.push(fields.postcode);
+  return parts.join(' ').trim();
+}
+
+/**
+ * Address consistency: EXACT_MATCH, ALMOST_FULL_MATCH, PARTIAL_MATCH, NOT_MATCHING, NOT_AVAILABLE.
+ */
+function computeAddressConsistency(
+  addr1: string | null | undefined,
+  addr2: string | null | undefined
+): DataConsistencyLevel {
+  const a = addr1?.trim() || '';
+  const b = addr2?.trim() || '';
+  if (!a || !b) return 'NOT_AVAILABLE';
+
+  const tokensA = tokenizeAddress(a);
+  const tokensB = tokenizeAddress(b);
+  if (tokensA.length === 0 || tokensB.length === 0) return 'NOT_AVAILABLE';
+
+  const normalizedAddressA = tokensA.join(' ');
+  const normalizedAddressB = tokensB.join(' ');
+  if (normalizedAddressA === normalizedAddressB) return 'EXACT_MATCH';
+
+  const setB = new Set(tokensB);
+  const matching = tokensA.filter((t) => setB.has(t) || tokensB.some((tb) => t === tb || t.startsWith(tb) || tb.startsWith(t)));
+  const overlap = matching.length / Math.max(tokensA.length, tokensB.length, 1);
+
+  if (overlap >= 0.9) return 'ALMOST_FULL_MATCH';
+  if (overlap >= 0.4) return 'PARTIAL_MATCH';
+  if (overlap >= 0.1) return 'PARTIAL_MATCH';
+  return 'NOT_MATCHING';
+}
+
+/**
+ * Aggregate consistency across multiple matched borrowers.
+ * Uses the strictest comparable level so conflicting records are surfaced.
+ */
+function aggregateConsistency(levels: DataConsistencyLevel[]): DataConsistencyLevel {
+  const comparable = levels.filter((level) => level !== 'NOT_AVAILABLE');
+  if (comparable.length === 0) return 'NOT_AVAILABLE';
+  if (comparable.includes('NOT_MATCHING')) return 'NOT_MATCHING';
+  if (comparable.includes('PARTIAL_MATCH')) return 'PARTIAL_MATCH';
+  if (comparable.includes('ALMOST_FULL_MATCH')) return 'ALMOST_FULL_MATCH';
+  return 'EXACT_MATCH';
 }
 
 // Individual borrower fields schema
@@ -425,6 +509,12 @@ const crossTenantLookupQuerySchema = z.object({
   identifier: z.string().trim().min(3).max(64),
   name: z.string().trim().max(200).optional(),
   phone: z.string().trim().max(32).optional(),
+  address: z.string().trim().max(500).optional(),
+  addressLine1: z.string().trim().max(200).optional(),
+  addressLine2: z.string().trim().max(200).optional(),
+  city: z.string().trim().max(100).optional(),
+  state: z.string().trim().max(100).optional(),
+  postcode: z.string().trim().max(20).optional(),
 });
 
 /**
@@ -613,11 +703,36 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
       throw new BadRequestError(query.error.issues[0]?.message || 'Invalid lookup query');
     }
 
-    const { borrowerType, identifier, name, phone } = query.data;
+    const {
+      borrowerType,
+      identifier,
+      name,
+      phone,
+      address,
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      postcode,
+    } = query.data;
     const buildEmptyInsights = () => ({
       hasHistory: false,
       otherLenderCount: 0,
       lenderNames: [] as string[],
+      recentLoans: [] as Array<{
+        id: string;
+        lenderName: string | null;
+        loanAmountRange: string | null;
+        status: string;
+        paymentPerformance: {
+          onTimeRateRange: string | null;
+        };
+        agreementDate: string | null;
+        disbursementDate: string | null;
+        createdAt: string;
+        updatedAt: string;
+        lastActivityAt: string | null;
+      }>,
       totalLoans: 0,
       activeLoans: 0,
       completedLoans: 0,
@@ -630,8 +745,9 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
       },
       lastBorrowedAt: null as string | null,
       lastActivityAt: null as string | null,
-      nameDiffers: false,
-      phoneDiffers: false,
+      nameConsistency: 'NOT_AVAILABLE' as DataConsistencyLevel,
+      phoneConsistency: 'NOT_AVAILABLE' as DataConsistencyLevel,
+      addressConsistency: 'NOT_AVAILABLE' as DataConsistencyLevel,
     });
 
     const isCorporate = borrowerType === 'CORPORATE';
@@ -683,6 +799,13 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
         phone: true,
         companyPhone: true,
         companyName: true,
+        address: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        postcode: true,
+        businessAddress: true,
         performanceProjection: {
           select: {
             riskLevel: true,
@@ -711,10 +834,10 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
       principalAmount: { gt: 0 },
     };
 
-    const [loanAggregate, loanStatusGroups, loansByTenant] = await Promise.all([
+    const [loanAggregate, loanStatusGroups, loansByTenant, recentLoans] = await Promise.all([
       prisma.loan.aggregate({
         where: loanWhere,
-        _max: { agreementDate: true },
+        _max: { disbursementDate: true },
         _count: { id: true },
       }),
       prisma.loan.groupBy({
@@ -726,6 +849,26 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
         by: ['tenantId'],
         where: loanWhere,
         _sum: { principalAmount: true },
+      }),
+      prisma.loan.findMany({
+        where: loanWhere,
+        orderBy: [
+          { disbursementDate: 'desc' },
+          { agreementDate: 'desc' },
+          { createdAt: 'desc' },
+        ],
+        take: CROSS_TENANT_RECENT_LOANS_LIMIT,
+        select: {
+          id: true,
+          tenantId: true,
+          principalAmount: true,
+          repaymentRate: true,
+          status: true,
+          agreementDate: true,
+          disbursementDate: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       }),
     ]);
 
@@ -802,26 +945,63 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
       .map((row) => lenderNameById.get(row.tenantId))
       .filter((v): v is string => Boolean(v))
       .sort((a, b) => a.localeCompare(b));
+    const recentLoanLastPaymentRows = recentLoans.length > 0
+      ? await prisma.paymentTransaction.groupBy({
+          by: ['loanId'],
+          where: {
+            tenantId: { not: req.tenantId! },
+            loanId: { in: recentLoans.map((loan) => loan.id) },
+          },
+          _max: { paymentDate: true },
+        })
+      : [];
+    const recentLoanLastPaymentByLoanId = new Map(
+      recentLoanLastPaymentRows.map((row) => [row.loanId, row._max.paymentDate ?? null])
+    );
+
+    const recentLoanDetails = recentLoans.map((loan) => ({
+      id: loan.id,
+      lenderName: lenderNameById.get(loan.tenantId) ?? null,
+      loanAmountRange: getTotalBorrowedBucketLabel(toSafeNumber(loan.principalAmount)),
+      status: loan.status,
+      paymentPerformance: {
+        onTimeRateRange: toPercentageRange(
+          loan.repaymentRate === null ? null : toSafeNumber(loan.repaymentRate)
+        ),
+      },
+      agreementDate: loan.agreementDate?.toISOString() ?? null,
+      disbursementDate: loan.disbursementDate?.toISOString() ?? null,
+      createdAt: loan.createdAt.toISOString(),
+      updatedAt: loan.updatedAt.toISOString(),
+      lastActivityAt: recentLoanLastPaymentByLoanId.get(loan.id)?.toISOString() ?? null,
+    }));
     const currentDisplayName = name?.trim() || '';
-    const nameDiffers =
-      currentDisplayName.length > 0 &&
-      matchedBorrowers.some((m) => {
-        const matchedName =
-          borrowerType === 'CORPORATE'
-            ? (m.companyName || m.name) || ''
-            : (m.name || '');
-        return !namesAreSimilar(currentDisplayName, matchedName);
-      });
     const currentPhone = phone?.trim() || '';
-    const phoneDiffers =
-      currentPhone.length > 0 &&
-      matchedBorrowers.some((m) => {
-        const matchedPhone =
-          borrowerType === 'CORPORATE'
-            ? (m.companyPhone || m.phone)
-            : m.phone;
-        return !phonesAreSimilar(currentPhone, matchedPhone);
-      });
+    const currentAddress = buildAddressString({
+      address,
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      postcode,
+    });
+    const nameConsistency = aggregateConsistency(
+      matchedBorrowers.map((m) => {
+        const matchedName = borrowerType === 'CORPORATE' ? (m.companyName || m.name) || '' : (m.name || '');
+        return computeNameConsistency(currentDisplayName, matchedName);
+      })
+    );
+    const phoneConsistency = aggregateConsistency(
+      matchedBorrowers.map((m) => {
+        const matchedPhone = borrowerType === 'CORPORATE' ? (m.companyPhone || m.phone) : m.phone;
+        return computePhoneConsistency(currentPhone, matchedPhone);
+      })
+    );
+    const addressConsistency = aggregateConsistency(
+      matchedBorrowers.map((m) =>
+        computeAddressConsistency(currentAddress, buildAddressString(m))
+      )
+    );
 
     res.json({
       success: true,
@@ -829,6 +1009,7 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
         hasHistory: true,
         otherLenderCount: loansByTenant.length,
         lenderNames,
+        recentLoans: recentLoanDetails,
         totalLoans,
         activeLoans,
         completedLoans,
@@ -839,10 +1020,11 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
           rating,
           onTimeRateRange: toPercentageRange(onTimeRate),
         },
-        lastBorrowedAt: loanAggregate._max.agreementDate?.toISOString() ?? null,
+        lastBorrowedAt: loanAggregate._max.disbursementDate?.toISOString() ?? null,
         lastActivityAt: projectionAggregate.lastPaymentAt?.toISOString() ?? null,
-        nameDiffers,
-        phoneDiffers,
+        nameConsistency,
+        phoneConsistency,
+        addressConsistency,
       },
     });
   } catch (error) {
@@ -862,6 +1044,20 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
       hasHistory: false,
       otherLenderCount: 0,
       lenderNames: [] as string[],
+      recentLoans: [] as Array<{
+        id: string;
+        lenderName: string | null;
+        loanAmountRange: string | null;
+        status: string;
+        paymentPerformance: {
+          onTimeRateRange: string | null;
+        };
+        agreementDate: string | null;
+        disbursementDate: string | null;
+        createdAt: string;
+        updatedAt: string;
+        lastActivityAt: string | null;
+      }>,
       totalLoans: 0,
       activeLoans: 0,
       completedLoans: 0,
@@ -874,8 +1070,9 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
       },
       lastBorrowedAt: null as string | null,
       lastActivityAt: null as string | null,
-      nameDiffers: false,
-      phoneDiffers: false,
+      nameConsistency: 'NOT_AVAILABLE' as DataConsistencyLevel,
+      phoneConsistency: 'NOT_AVAILABLE' as DataConsistencyLevel,
+      addressConsistency: 'NOT_AVAILABLE' as DataConsistencyLevel,
     });
 
     const borrower = await prisma.borrower.findFirst({
@@ -891,6 +1088,13 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
         phone: true,
         companyPhone: true,
         companyName: true,
+        address: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        postcode: true,
+        businessAddress: true,
       },
     });
 
@@ -964,6 +1168,13 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
         phone: true,
         companyPhone: true,
         companyName: true,
+        address: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        postcode: true,
+        businessAddress: true,
         performanceProjection: {
           select: {
             riskLevel: true,
@@ -993,10 +1204,10 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
       principalAmount: { gt: 0 },
     };
 
-    const [loanAggregate, loanStatusGroups, loansByTenant] = await Promise.all([
+    const [loanAggregate, loanStatusGroups, loansByTenant, recentLoans] = await Promise.all([
       prisma.loan.aggregate({
         where: loanWhere,
-        _max: { agreementDate: true },
+        _max: { disbursementDate: true },
         _count: { id: true },
       }),
       prisma.loan.groupBy({
@@ -1008,6 +1219,26 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
         by: ['tenantId'],
         where: loanWhere,
         _sum: { principalAmount: true },
+      }),
+      prisma.loan.findMany({
+        where: loanWhere,
+        orderBy: [
+          { disbursementDate: 'desc' },
+          { agreementDate: 'desc' },
+          { createdAt: 'desc' },
+        ],
+        take: CROSS_TENANT_RECENT_LOANS_LIMIT,
+        select: {
+          id: true,
+          tenantId: true,
+          principalAmount: true,
+          repaymentRate: true,
+          status: true,
+          agreementDate: true,
+          disbursementDate: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       }),
     ]);
 
@@ -1084,33 +1315,61 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
       .map((row) => lenderNameById.get(row.tenantId))
       .filter((v): v is string => Boolean(v))
       .sort((a, b) => a.localeCompare(b));
+    const recentLoanLastPaymentRows = recentLoans.length > 0
+      ? await prisma.paymentTransaction.groupBy({
+          by: ['loanId'],
+          where: {
+            tenantId: { not: req.tenantId! },
+            loanId: { in: recentLoans.map((loan) => loan.id) },
+          },
+          _max: { paymentDate: true },
+        })
+      : [];
+    const recentLoanLastPaymentByLoanId = new Map(
+      recentLoanLastPaymentRows.map((row) => [row.loanId, row._max.paymentDate ?? null])
+    );
+
+    const recentLoanDetails = recentLoans.map((loan) => ({
+      id: loan.id,
+      lenderName: lenderNameById.get(loan.tenantId) ?? null,
+      loanAmountRange: getTotalBorrowedBucketLabel(toSafeNumber(loan.principalAmount)),
+      status: loan.status,
+      paymentPerformance: {
+        onTimeRateRange: toPercentageRange(
+          loan.repaymentRate === null ? null : toSafeNumber(loan.repaymentRate)
+        ),
+      },
+      agreementDate: loan.agreementDate?.toISOString() ?? null,
+      disbursementDate: loan.disbursementDate?.toISOString() ?? null,
+      createdAt: loan.createdAt.toISOString(),
+      updatedAt: loan.updatedAt.toISOString(),
+      lastActivityAt: recentLoanLastPaymentByLoanId.get(loan.id)?.toISOString() ?? null,
+    }));
 
     const currentDisplayName =
       borrower.borrowerType === 'CORPORATE'
         ? (borrower.companyName || borrower.name) || ''
         : (borrower.name || '');
-    const nameDiffers =
-      currentDisplayName.length > 0 &&
-      matchedBorrowers.some((m) => {
-        const matchedName =
-          borrower.borrowerType === 'CORPORATE'
-            ? (m.companyName || m.name) || ''
-            : (m.name || '');
-        return !namesAreSimilar(currentDisplayName, matchedName);
-      });
     const currentPhone =
       borrower.borrowerType === 'CORPORATE'
         ? (borrower.companyPhone || borrower.phone)
         : borrower.phone;
-    const phoneDiffers =
-      (currentPhone?.trim()?.length ?? 0) > 0 &&
-      matchedBorrowers.some((m) => {
-        const matchedPhone =
-          borrower.borrowerType === 'CORPORATE'
-            ? (m.companyPhone || m.phone)
-            : m.phone;
-        return !phonesAreSimilar(currentPhone, matchedPhone);
-      });
+    const currentAddress = buildAddressString(borrower);
+    const nameConsistency = aggregateConsistency(
+      matchedBorrowers.map((m) => {
+        const matchedName = borrower.borrowerType === 'CORPORATE' ? (m.companyName || m.name) || '' : (m.name || '');
+        return computeNameConsistency(currentDisplayName, matchedName);
+      })
+    );
+    const phoneConsistency = aggregateConsistency(
+      matchedBorrowers.map((m) => {
+        const matchedPhone = borrower.borrowerType === 'CORPORATE' ? (m.companyPhone || m.phone) : m.phone;
+        return computePhoneConsistency(currentPhone, matchedPhone);
+      })
+    );
+    const addressConsistency = aggregateConsistency(
+      matchedBorrowers.map((m) => computeAddressConsistency(currentAddress, buildAddressString(m)))
+    );
 
     res.json({
       success: true,
@@ -1118,6 +1377,7 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
         hasHistory: true,
         otherLenderCount: loansByTenant.length,
         lenderNames,
+        recentLoans: recentLoanDetails,
         totalLoans,
         activeLoans,
         completedLoans,
@@ -1128,10 +1388,11 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
           rating,
           onTimeRateRange: toPercentageRange(onTimeRate),
         },
-        lastBorrowedAt: loanAggregate._max.agreementDate?.toISOString() ?? null,
+        lastBorrowedAt: loanAggregate._max.disbursementDate?.toISOString() ?? null,
         lastActivityAt: projectionAggregate.lastPaymentAt?.toISOString() ?? null,
-        nameDiffers,
-        phoneDiffers,
+        nameConsistency,
+        phoneConsistency,
+        addressConsistency,
       },
     });
   } catch (error) {

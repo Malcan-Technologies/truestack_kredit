@@ -76,6 +76,14 @@ import { TrueIdentityBox } from "@/components/trueidentity-box";
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   InstagramIcon,
   TikTokIcon,
   FacebookIcon,
@@ -221,6 +229,8 @@ interface TimelineEvent {
 
 type BorrowerPerformanceRiskLevel = "NO_HISTORY" | "GOOD" | "WATCH" | "HIGH_RISK" | "DEFAULTED";
 
+type DataConsistencyLevel = "EXACT_MATCH" | "ALMOST_FULL_MATCH" | "PARTIAL_MATCH" | "NOT_MATCHING" | "NOT_AVAILABLE";
+
 interface CrossTenantInsights {
   hasHistory: boolean;
   otherLenderCount: number;
@@ -237,8 +247,30 @@ interface CrossTenantInsights {
   };
   lastBorrowedAt: string | null;
   lastActivityAt: string | null;
-  nameDiffers?: boolean;
-  phoneDiffers?: boolean;
+  nameConsistency?: DataConsistencyLevel;
+  phoneConsistency?: DataConsistencyLevel;
+  addressConsistency?: DataConsistencyLevel;
+  loanDetails?: CrossTenantLoanInsight[];
+  recentLoans?: CrossTenantLoanInsight[];
+  loans?: CrossTenantLoanInsight[];
+}
+
+interface CrossTenantLoanInsight {
+  id?: string;
+  lenderName?: string | null;
+  tenantName?: string | null;
+  loanAmountRange?: string | null;
+  principalAmountRange?: string | null;
+  amountRange?: string | null;
+  status?: string | null;
+  paymentPerformance?: {
+    onTimeRateRange?: string | null;
+  };
+  agreementDate?: string | null;
+  disbursementDate?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  lastActivityAt?: string | null;
 }
 
 interface FormData {
@@ -517,6 +549,89 @@ function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | null 
     default:
       return { label: "No History", variant: "outline" as const };
   }
+}
+
+function formatLoanStatusLabel(status: string | null | undefined) {
+  if (!status) return null;
+
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getCrossTenantLoanTimestamp(loan: CrossTenantLoanInsight) {
+  const candidate =
+    loan.disbursementDate ??
+    loan.agreementDate ??
+    loan.createdAt ??
+    loan.updatedAt ??
+    loan.lastActivityAt;
+
+  if (!candidate) return null;
+
+  const timestamp = new Date(candidate).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function getCrossTenantLoanItems(insights: CrossTenantInsights | null | undefined) {
+  const loanItems =
+    insights?.loanDetails ??
+    insights?.recentLoans ??
+    insights?.loans ??
+    [];
+
+  return [...loanItems].sort((a, b) => {
+    const aTime = getCrossTenantLoanTimestamp(a) ?? 0;
+    const bTime = getCrossTenantLoanTimestamp(b) ?? 0;
+    return bTime - aTime;
+  });
+}
+
+function getCrossTenantLoanLenderName(loan: CrossTenantLoanInsight) {
+  return loan.lenderName?.trim() || loan.tenantName?.trim() || "Other lender";
+}
+
+function getCrossTenantLoanAmountRange(loan: CrossTenantLoanInsight) {
+  return (
+    loan.loanAmountRange?.trim() ||
+    loan.principalAmountRange?.trim() ||
+    loan.amountRange?.trim() ||
+    null
+  );
+}
+
+function getConsistencyMeta(level: DataConsistencyLevel | null | undefined): {
+  label: string;
+  variant: "success" | "warning" | "destructive" | "outline" | "info";
+  showAlert: boolean;
+} {
+  switch (level) {
+    case "EXACT_MATCH":
+      return { label: "Exact match", variant: "success", showAlert: false };
+    case "ALMOST_FULL_MATCH":
+      return { label: "Almost full match", variant: "success", showAlert: false };
+    case "PARTIAL_MATCH":
+      return { label: "Partial match", variant: "warning", showAlert: true };
+    case "NOT_MATCHING":
+      return { label: "Not matching", variant: "destructive", showAlert: true };
+    default:
+      return { label: "Not available", variant: "outline", showAlert: false };
+  }
+}
+
+/** Maps on-time rate range (e.g. "80-90%") to Badge variant for color. */
+function getPaymentPerformanceBadgeVariant(
+  onTimeRateRange: string | null | undefined
+): "success" | "warning" | "destructive" | "outline" {
+  if (!onTimeRateRange?.trim()) return "outline";
+  const match = onTimeRateRange.match(/^(\d+)/);
+  const lower = match ? parseInt(match[1], 10) : NaN;
+  if (Number.isNaN(lower)) return "outline";
+  if (lower >= 80) return "success";
+  if (lower >= 50) return "warning";
+  return "destructive";
 }
 
 function getOnTimeRateDonutColor(rate: number): string {
@@ -1827,9 +1942,13 @@ export default function BorrowerDetailPage() {
               ) : (() => {
                 const ratingMeta = getPerformanceBadgeMeta(crossTenantInsights.paymentPerformance.rating);
                 const rangeLabel = crossTenantInsights.totalBorrowedRange ?? "Not available";
+                const crossTenantLoanItems = getCrossTenantLoanItems(crossTenantInsights);
+                const visibleCrossTenantLoanItems = crossTenantLoanItems.slice(0, 5);
 
-                const showDiffersAlert =
-                  crossTenantInsights.nameDiffers || crossTenantInsights.phoneDiffers;
+                const nameMeta = getConsistencyMeta(crossTenantInsights.nameConsistency);
+                const phoneMeta = getConsistencyMeta(crossTenantInsights.phoneConsistency);
+                const addressMeta = getConsistencyMeta(crossTenantInsights.addressConsistency);
+                const showConsistencyAlert = nameMeta.showAlert || phoneMeta.showAlert || addressMeta.showAlert;
 
                 return (
                   <div className="space-y-4">
@@ -1851,55 +1970,42 @@ export default function BorrowerDetailPage() {
                       </p>
                       <div className="flex flex-wrap gap-4">
                         <div className="flex items-center gap-2">
-                          <span
-                            className={
-                              crossTenantInsights.nameDiffers
-                                ? "text-amber-600 dark:text-amber-400"
-                                : "text-emerald-600 dark:text-emerald-400"
-                            }
-                          >
-                            {crossTenantInsights.nameDiffers ? (
-                              <AlertTriangle className="h-4 w-4" />
-                            ) : (
-                              <ShieldCheck className="h-4 w-4" />
-                            )}
-                          </span>
-                          <span className="text-sm">
-                            Name:{" "}
-                            {crossTenantInsights.nameDiffers ? (
-                              <span className="text-amber-600 dark:text-amber-400">Different</span>
-                            ) : (
-                              <span className="text-emerald-600 dark:text-emerald-400">Matches</span>
-                            )}
-                          </span>
+                          {nameMeta.variant === "success" ? (
+                            <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                          )}
+                          <div className="flex items-center gap-2 text-sm">
+                            <span>Name:</span>
+                            <Badge variant={nameMeta.variant} className="text-xs">{nameMeta.label}</Badge>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span
-                            className={
-                              crossTenantInsights.phoneDiffers
-                                ? "text-amber-600 dark:text-amber-400"
-                                : "text-emerald-600 dark:text-emerald-400"
-                            }
-                          >
-                            {crossTenantInsights.phoneDiffers ? (
-                              <AlertTriangle className="h-4 w-4" />
-                            ) : (
-                              <ShieldCheck className="h-4 w-4" />
-                            )}
-                          </span>
-                          <span className="text-sm">
-                            Phone:{" "}
-                            {crossTenantInsights.phoneDiffers ? (
-                              <span className="text-amber-600 dark:text-amber-400">Different</span>
-                            ) : (
-                              <span className="text-emerald-600 dark:text-emerald-400">Matches</span>
-                            )}
-                          </span>
+                          {phoneMeta.variant === "success" ? (
+                            <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                          )}
+                          <div className="flex items-center gap-2 text-sm">
+                            <span>Phone (exact):</span>
+                            <Badge variant={phoneMeta.variant} className="text-xs">{phoneMeta.label}</Badge>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {addressMeta.variant === "success" ? (
+                            <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                          )}
+                          <div className="flex items-center gap-2 text-sm">
+                            <span>Address:</span>
+                            <Badge variant={addressMeta.variant} className="text-xs">{addressMeta.label}</Badge>
+                          </div>
                         </div>
                       </div>
-                      {showDiffersAlert && (
+                      {showConsistencyAlert && (
                         <p className="text-xs text-muted-foreground mt-2">
-                          Differences may be due to formatting (e.g. binti, missing last name) or data entry. Verify if
+                          Name and address allow partial/almost-full matching. Phone requires an exact match. Verify if
                           needed.
                         </p>
                       )}
@@ -1911,12 +2017,15 @@ export default function BorrowerDetailPage() {
                         <p className="text-sm font-medium mt-1">{rangeLabel}</p>
                       </div>
                       <div className="rounded-lg border border-border px-3 py-2.5">
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Payment Performance</p>
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Overall risk (all-time)</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Includes defaults and late payments across all matched loans. Recent behaviour may differ.
+                        </p>
                         <div className="flex items-center gap-2 mt-1">
                           <Badge variant={ratingMeta.variant}>{ratingMeta.label}</Badge>
                           {crossTenantInsights.paymentPerformance.onTimeRateRange && (
                             <span className="text-sm text-muted-foreground">
-                              On-time {crossTenantInsights.paymentPerformance.onTimeRateRange}
+                              On-time {crossTenantInsights.paymentPerformance.onTimeRateRange} (all loans)
                             </span>
                           )}
                         </div>
@@ -1946,6 +2055,83 @@ export default function BorrowerDetailPage() {
                       <span className="text-muted-foreground"> Late payments</span>
                     </p>
 
+                    {visibleCrossTenantLoanItems.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                            Latest loans across other lenders
+                          </p>
+                          {crossTenantLoanItems.length > visibleCrossTenantLoanItems.length && (
+                            <p className="text-xs text-muted-foreground">
+                              Showing latest {visibleCrossTenantLoanItems.length} of {crossTenantLoanItems.length}
+                            </p>
+                          )}
+                        </div>
+                        <div className="rounded-lg border border-border overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Lender</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Borrowed</TableHead>
+                                <TableHead>Loan Amount</TableHead>
+                                <TableHead>On-time (this loan)</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {visibleCrossTenantLoanItems.map((loan, index) => {
+                                const loanDate =
+                                  loan.disbursementDate ??
+                                  loan.agreementDate ??
+                                  loan.createdAt ??
+                                  loan.updatedAt;
+                                const statusLabel = formatLoanStatusLabel(loan.status);
+
+                                return (
+                                  <TableRow
+                                    key={loan.id ?? `${getCrossTenantLoanLenderName(loan)}-${loanDate ?? "unknown"}-${index}`}
+                                  >
+                                    <TableCell className="font-medium">
+                                      {getCrossTenantLoanLenderName(loan)}
+                                    </TableCell>
+                                    <TableCell>
+                                      {statusLabel ? (
+                                        <Badge variant="outline" className="text-xs">
+                                          {statusLabel}
+                                        </Badge>
+                                      ) : (
+                                        <span className="text-muted-foreground">-</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="text-sm text-muted-foreground">
+                                      {loanDate ? formatRelativeTime(loanDate) : "Not available"}
+                                    </TableCell>
+                                    <TableCell className="text-sm">
+                                      {getCrossTenantLoanAmountRange(loan) ?? "Not available"}
+                                    </TableCell>
+                                    <TableCell className="text-sm">
+                                      {loan.paymentPerformance?.onTimeRateRange ? (
+                                        <Badge
+                                          variant={getPaymentPerformanceBadgeVariant(loan.paymentPerformance.onTimeRateRange)}
+                                          className="text-xs"
+                                        >
+                                          {loan.paymentPerformance.onTimeRateRange}
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="text-xs">
+                                          Not available
+                                        </Badge>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="text-xs text-muted-foreground space-y-1">
                       <p>
                         {crossTenantInsights.lastBorrowedAt
@@ -1965,8 +2151,8 @@ export default function BorrowerDetailPage() {
                         {borrower.borrowerType === "CORPORATE" ? "SSM" : "IC"} number only.
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Data is aggregated across the platform. Exact loan amounts are not
-                        disclosed.
+                        Data is aggregated across the platform. Loan amounts remain bucketed into
+                        ranges, and TrueSight may show only the latest 5 matched loans.
                       </p>
                     </div>
                   </div>

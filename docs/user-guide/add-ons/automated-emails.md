@@ -147,7 +147,7 @@ No configuration is needed beyond subscribing to the add-on. Emails are sent usi
 |------|-------|----------|
 | Per block | **RM 50/month** | Up to 500 active loans |
 
-TrueSend™ covers all automated email sending for up to **500 active loans**. If you have more than 500 loans, simply add another block at the same rate. The pricing scales alongside your TrueKredit subscription.
+TrueSend™ covers all automated email sending for up to **500 active loans**. If you have more than 500 loans, simply add another block at the same rate (RM 50 per extra block). The pricing scales alongside your TrueKredit subscription. See [Billing & Subscription](?doc=administration/billing-and-subscription) for subscription and add-on management.
 
 ---
 
@@ -171,4 +171,6 @@ Yes. From the loan detail page, you can click "Resend" on any failed, bounced, o
 
 ### How do I subscribe to TrueSend™?
 
-Visit the **Add-ons** page in your admin dashboard to enable TrueSend™. The add-on is tied to your base subscription — it remains active as long as your TrueKredit subscription is valid.
+Go to **Billing** in the sidebar, then click **Choose plan** (or **Subscription** from the Plan page). On the Subscription page, toggle TrueSend™ on and click **Proceed to payment** or **Make payment now**. The add-on switch reflects your backend status — if TrueSend is active in the system, the switch shows as on. The add-on is tied to your base subscription and remains active as long as your TrueKredit subscription is valid.
+
+For full billing details, see [Billing & Subscription](?doc=administration/billing-and-subscription).

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, Receipt, AlertTriangle, Shield, ExternalLink, Zap, Clock, Rocket } from "lucide-react";
+import { Download, Receipt, AlertTriangle, Shield, ExternalLink, Zap, Clock, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -26,7 +26,7 @@ interface Subscription {
   currentPeriodStart: string;
   currentPeriodEnd: string;
   gracePeriodEnd: string | null;
-  tenantSubscriptionStatus?: "FREE" | "PAID";
+  tenantSubscriptionStatus?: "FREE" | "PAID" | "OVERDUE" | "SUSPENDED";
 }
 
 interface AddOnStatus {
@@ -45,6 +45,7 @@ interface Invoice {
   invoiceNumber: string;
   amount: string;
   status: string;
+  billingType?: string;
   periodStart: string;
   periodEnd: string;
   issuedAt: string;
@@ -60,6 +61,7 @@ interface Invoice {
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   ACTIVE: "success",
   PENDING: "warning",
+  PENDING_APPROVAL: "warning",
   GRACE_PERIOD: "warning",
   BLOCKED: "destructive",
   CANCELLED: "destructive",
@@ -67,6 +69,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   ISSUED: "info",
   PAID: "success",
   OVERDUE: "destructive",
+  SUSPENDED: "destructive",
 };
 
 const ADD_ON_LABELS: Record<string, string> = {
@@ -81,6 +84,31 @@ const EXTRA_BLOCK_PRICE = 200;
 const TRUESEND_EXTRA_BLOCK_PRICE = 50;
 const LOANS_PER_BLOCK = 500;
 const SST_RATE = 0.08; // 8% SST (Service Tax)
+
+/** Days until target date (MYT). Positive = future, negative = past. */
+function getMytDaysUntil(targetIsoDate: string): number {
+  const target = new Date(targetIsoDate);
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const getParts = (d: Date) => {
+    const parts = formatter.formatToParts(d);
+    return {
+      y: parts.find((p) => p.type === "year")?.value ?? "1970",
+      m: parts.find((p) => p.type === "month")?.value ?? "01",
+      d: parts.find((p) => p.type === "day")?.value ?? "01",
+    };
+  };
+  const nowP = getParts(now);
+  const targetP = getParts(target);
+  const nowUtc = Date.UTC(Number(nowP.y), Number(nowP.m) - 1, Number(nowP.d));
+  const targetUtc = Date.UTC(Number(targetP.y), Number(targetP.m) - 1, Number(targetP.d));
+  return Math.ceil((targetUtc - nowUtc) / (1000 * 60 * 60 * 24));
+}
 
 export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -131,7 +159,35 @@ export default function BillingPage() {
 
   const enabledAddOns = addOns.filter((a) => a.status === "ACTIVE");
   const truesendActive = addOns.some((a) => a.addOnType === "TRUESEND" && a.status === "ACTIVE");
-  const isPaidTenant = subscription?.tenantSubscriptionStatus === "PAID";
+  const isPaidTenant =
+    subscription?.tenantSubscriptionStatus === "PAID" ||
+    subscription?.tenantSubscriptionStatus === "OVERDUE";
+
+  // Within 14-day grace: period ended, payment due, not yet overdue (backend marks overdue only after invoice dueAt)
+  const daysUntilPeriodEnd = subscription?.currentPeriodEnd
+    ? getMytDaysUntil(subscription.currentPeriodEnd)
+    : null;
+  const latestRenewalInvoice = invoices
+    .filter((inv) => inv.billingType === "RENEWAL")
+    .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+  const latestUnpaidRenewalInvoice = invoices
+    .filter(
+      (inv) =>
+        inv.billingType === "RENEWAL" &&
+        ["ISSUED", "PENDING_APPROVAL", "OVERDUE"].includes(inv.status)
+    )
+    .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+  const isWithinDueWindow =
+    typeof daysUntilPeriodEnd === "number" &&
+    daysUntilPeriodEnd <= 0 &&
+    daysUntilPeriodEnd >= -14;
+  const isPaymentDueWithinGrace =
+    isWithinDueWindow &&
+    latestPaymentRequest?.status !== "PENDING" &&
+    subscription?.tenantSubscriptionStatus !== "FREE"; // Don't show when revoked to free
+  const isOverdueTenant =
+    (subscription?.tenantSubscriptionStatus === "OVERDUE" && !isWithinDueWindow) ||
+    (typeof daysUntilPeriodEnd === "number" && daysUntilPeriodEnd < -14);
 
   // Calculate monthly subscription: Core + TrueSend add-on (billed with Core) + extra blocks
   const totalBlocks = Math.max(1, Math.ceil(loanCount / LOANS_PER_BLOCK));
@@ -147,14 +203,14 @@ export default function BillingPage() {
     fetchData();
   }, []);
 
-  const handleGenerateInvoice = async () => {
-    const res = await api.post<Invoice>("/billing/invoices/generate", {});
-    if (res.success) {
-      toast.success("Invoice generated successfully");
-      fetchData();
-    } else {
-      toast.error(res.error || "Failed to generate invoice");
-    }
+  const handleDownloadInvoice = (invoiceId: string, invoiceNumber: string) => {
+    const url = `/api/proxy/billing/invoices/${invoiceId}/download`;
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${invoiceNumber}.pdf`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
   };
 
   if (loading) {
@@ -198,7 +254,7 @@ export default function BillingPage() {
       )}
 
       {/* Not subscribed notification */}
-      {(!subscription || !isPaidTenant) && latestPaymentRequest?.status !== "PENDING" && (
+      {(!subscription || (!isPaidTenant && !isOverdueTenant)) && latestPaymentRequest?.status !== "PENDING" && (
         <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
             <Rocket className="h-4 w-4 text-amber-500" />
@@ -213,6 +269,61 @@ export default function BillingPage() {
           </div>
           <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-amber-500/50 hover:bg-amber-500/10">
             <Link href="/dashboard/subscription">Choose plan</Link>
+          </Button>
+        </div>
+      )}
+
+      {/* Payment due within 14-day grace (period ended, pay before overdue) */}
+      {isPaymentDueWithinGrace && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+          </div>
+          <div>
+            <p className="text-base font-medium text-amber-600 dark:text-amber-400">
+              Payment due before account becomes overdue
+            </p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Your subscription period ended. Please pay within the 14-day due period to avoid overdue status.
+            </p>
+          </div>
+          <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-amber-500/50 hover:bg-amber-500/10">
+            <Link
+              href={
+                latestUnpaidRenewalInvoice
+                  ? `/dashboard/subscription/payment?mode=overdue&invoiceId=${latestUnpaidRenewalInvoice.id}`
+                  : "/dashboard/subscription/payment?mode=overdue"
+              }
+            >
+              Go to payment
+            </Link>
+          </Button>
+        </div>
+      )}
+
+      {isOverdueTenant && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-red-500/30 bg-red-500/5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-red-500/10">
+            <AlertTriangle className="h-4 w-4 text-red-500" />
+          </div>
+          <div>
+            <p className="text-base font-medium text-red-600 dark:text-red-400">
+              Your subscription is overdue
+            </p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Reactivate by making payment. Payment will include Core plan plus selected add-ons.
+            </p>
+          </div>
+          <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-red-500/50 hover:bg-red-500/10">
+            <Link
+              href={
+                latestUnpaidRenewalInvoice
+                  ? `/dashboard/subscription/payment?mode=overdue&invoiceId=${latestUnpaidRenewalInvoice.id}`
+                  : "/dashboard/subscription/payment?mode=overdue"
+              }
+            >
+              Go to payment
+            </Link>
           </Button>
         </div>
       )}
@@ -279,7 +390,7 @@ export default function BillingPage() {
       )}
 
       {/* Monthly subscription breakdown */}
-      {subscription && isPaidTenant && (subscription.status === "ACTIVE" || subscription.status === "GRACE_PERIOD") && latestPaymentRequest?.status !== "PENDING" && (
+      {subscription && isPaidTenant && (subscription.status === "ACTIVE" || subscription.status === "GRACE_PERIOD" || subscription.status === "OVERDUE") && latestPaymentRequest?.status !== "PENDING" && (
         <Card>
           <CardHeader>
             <CardTitle>Monthly subscription</CardTitle>
@@ -343,10 +454,6 @@ export default function BillingPage() {
             <CardTitle>Invoices</CardTitle>
             <CardDescription>Your billing history</CardDescription>
           </div>
-          <Button onClick={handleGenerateInvoice} variant="outline" size="sm">
-            <FileText className="h-4 w-4 mr-2" />
-            Generate Invoice
-          </Button>
         </CardHeader>
         <CardContent className="p-0">
           {invoices.length === 0 ? (
@@ -365,6 +472,7 @@ export default function BillingPage() {
                   <TableHead>Issued</TableHead>
                   <TableHead>Due</TableHead>
                   <TableHead>Paid</TableHead>
+                  <TableHead>Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -376,14 +484,24 @@ export default function BillingPage() {
                     </TableCell>
                     <TableCell>{formatCurrency(Number(invoice.amount))}</TableCell>
                     <TableCell>
-                      <Badge variant={statusColors[invoice.status]}>
-                        {invoice.status}
+                      <Badge variant={statusColors[invoice.status] ?? "default"}>
+                        {invoice.status.replace(/_/g, " ")}
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDate(invoice.issuedAt)}</TableCell>
                     <TableCell>{formatDate(invoice.dueAt)}</TableCell>
                     <TableCell>
                       {invoice.paidAt ? formatDate(invoice.paidAt) : "-"}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}

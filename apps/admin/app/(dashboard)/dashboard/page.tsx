@@ -23,6 +23,7 @@ import {
   Info,
   TrendingUp,
   Clock,
+  X,
 } from "lucide-react";
 import {
   Bar,
@@ -76,7 +77,7 @@ interface TenantStats {
     status: string;
     currentPeriodEnd: string;
     gracePeriodEnd?: string;
-    tenantSubscriptionStatus?: "FREE" | "PAID";
+    tenantSubscriptionStatus?: "FREE" | "PAID" | "OVERDUE" | "SUSPENDED";
   } | null;
   counts: {
     users: number;
@@ -290,12 +291,50 @@ interface LatestPaymentRequest {
   rejectionReason?: string | null;
 }
 
+interface InvoiceSummary {
+  id: string;
+  status: string;
+  billingType: string;
+  dueAt: string;
+}
+
+const EXPIRY_WARNING_DAYS = 3;
+
+function getMytDateKey(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  const d = parts.find((p) => p.type === "day")?.value ?? "01";
+  return `${y}-${m}-${d}`;
+}
+
+function getMytDaysUntil(targetIsoDate: string): number {
+  const target = new Date(targetIsoDate);
+  const now = new Date();
+  const nowKey = getMytDateKey(now);
+  const targetKey = getMytDateKey(target);
+  const [nowY, nowM, nowD] = nowKey.split("-").map(Number);
+  const [targetY, targetM, targetD] = targetKey.split("-").map(Number);
+  const nowUtcMidnight = Date.UTC(nowY, nowM - 1, nowD);
+  const targetUtcMidnight = Date.UTC(targetY, targetM - 1, targetD);
+  const daysDiff = (targetUtcMidnight - nowUtcMidnight) / (1000 * 60 * 60 * 24);
+  return Math.ceil(daysDiff);
+}
+
 export default function DashboardPage() {
   const { hasTenants } = useTenantContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [tenant, setTenant] = useState<TenantStats | null>(null);
   const [addOns, setAddOns] = useState<AddOnStatus[]>([]);
   const [latestPaymentRequest, setLatestPaymentRequest] = useState<LatestPaymentRequest | null>(null);
+  const [latestRenewalInvoice, setLatestRenewalInvoice] = useState<InvoiceSummary | null>(null);
+  const [expiryWarningDismissedToday, setExpiryWarningDismissedToday] = useState(false);
+  const [overdueWarningDismissedToday, setOverdueWarningDismissedToday] = useState(false);
   const [loading, setLoading] = useState(true);
   const [datePreset, setDatePreset] = useState<DatePreset>("3m");
   const hasInitialFetched = useRef(false);
@@ -327,12 +366,21 @@ export default function DashboardPage() {
       api.get<DashboardStats>(`/api/dashboard/stats?${params}`),
       api.get<{ addOns: AddOnStatus[] }>("/api/billing/add-ons"),
       api.get<LatestPaymentRequest | null>("/api/billing/subscription-payment-request/latest"),
+      api.get<InvoiceSummary[]>("/api/billing/invoices"),
     ])
-      .then(([tenantRes, dashRes, addOnsRes, paymentReqRes]) => {
+      .then(([tenantRes, dashRes, addOnsRes, paymentReqRes, invoicesRes]) => {
         if (tenantRes.success && tenantRes.data) setTenant(tenantRes.data);
         if (dashRes.success && dashRes.data) setStats(dashRes.data);
         if (addOnsRes.success && addOnsRes.data) setAddOns(addOnsRes.data.addOns);
         if (paymentReqRes.success) setLatestPaymentRequest(paymentReqRes.data ?? null);
+        if (invoicesRes.success && Array.isArray(invoicesRes.data)) {
+          const latest = invoicesRes.data
+            .filter((inv) => inv.billingType === "RENEWAL")
+            .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+          setLatestRenewalInvoice(latest ?? null);
+        } else {
+          setLatestRenewalInvoice(null);
+        }
       })
       .catch((err) => console.error("Failed to refresh:", err))
       .finally(() => setLoading(false));
@@ -402,6 +450,31 @@ export default function DashboardPage() {
     return config;
   }, [loanStatusData]);
 
+  const expiryWarningStorageKey = tenant?.id
+    ? `dashboard.expiry-warning-dismissed-${tenant.id}`
+    : null;
+  const overdueWarningStorageKey = tenant?.id
+    ? `dashboard.overdue-warning-dismissed-${tenant.id}`
+    : null;
+
+  useEffect(() => {
+    if (!expiryWarningStorageKey || typeof window === "undefined") {
+      setExpiryWarningDismissedToday(false);
+      return;
+    }
+    const dismissedOn = window.localStorage.getItem(expiryWarningStorageKey);
+    setExpiryWarningDismissedToday(dismissedOn === getMytDateKey(new Date()));
+  }, [expiryWarningStorageKey]);
+
+  useEffect(() => {
+    if (!overdueWarningStorageKey || typeof window === "undefined") {
+      setOverdueWarningDismissedToday(false);
+      return;
+    }
+    const dismissedOn = window.localStorage.getItem(overdueWarningStorageKey);
+    setOverdueWarningDismissedToday(dismissedOn === getMytDateKey(new Date()));
+  }, [overdueWarningStorageKey]);
+
   // ============================================
   // No tenant: show create-tenant prompt (no API calls made)
   if (!hasTenants) {
@@ -414,6 +487,45 @@ export default function DashboardPage() {
   }
 
   const dateRangeLabel = DATE_PRESETS.find((p) => p.value === datePreset)?.label ?? "Period";
+  const daysUntilExpiry = tenant?.subscription?.currentPeriodEnd
+    ? getMytDaysUntil(tenant.subscription.currentPeriodEnd)
+    : null;
+  const shouldShowExpiryWarning =
+    tenant?.subscription?.tenantSubscriptionStatus === "PAID" &&
+    tenant?.subscription?.status === "ACTIVE" &&
+    typeof daysUntilExpiry === "number" &&
+    daysUntilExpiry > 0 &&
+    daysUntilExpiry <= EXPIRY_WARNING_DAYS &&
+    !expiryWarningDismissedToday;
+  const isWithinDueWindow =
+    typeof daysUntilExpiry === "number" &&
+    daysUntilExpiry <= 0 &&
+    daysUntilExpiry >= -14;
+  const shouldShowPaymentDueWarning =
+    isWithinDueWindow &&
+    latestPaymentRequest?.status !== "PENDING" &&
+    !overdueWarningDismissedToday &&
+    tenant?.subscription?.tenantSubscriptionStatus !== "FREE"; // Don't show when revoked to free
+  const isOverdueTenant =
+    (tenant?.subscription?.tenantSubscriptionStatus === "OVERDUE" && !isWithinDueWindow) ||
+    (typeof daysUntilExpiry === "number" && daysUntilExpiry < -14);
+  const shouldShowOverdueWarning =
+    isOverdueTenant &&
+    latestPaymentRequest?.status !== "PENDING" &&
+    !shouldShowPaymentDueWarning &&
+    !overdueWarningDismissedToday;
+
+  const handleDismissExpiryWarning = () => {
+    if (!expiryWarningStorageKey || typeof window === "undefined") return;
+    window.localStorage.setItem(expiryWarningStorageKey, getMytDateKey(new Date()));
+    setExpiryWarningDismissedToday(true);
+  };
+
+  const handleDismissOverdueWarning = () => {
+    if (!overdueWarningStorageKey || typeof window === "undefined") return;
+    window.localStorage.setItem(overdueWarningStorageKey, getMytDateKey(new Date()));
+    setOverdueWarningDismissedToday(true);
+  };
 
   return (
     <TooltipProvider>
@@ -470,11 +582,100 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {shouldShowExpiryWarning && (
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+              <Info className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-base font-medium">
+                Subscription renewing soon
+              </p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Your tenant subscription expires in {daysUntilExpiry} day{daysUntilExpiry === 1 ? "" : "s"} ({formatDate(tenant!.subscription!.currentPeriodEnd)}).
+              </p>
+            </div>
+            <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto">
+              <Link href="/dashboard/billing">Go to billing</Link>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={handleDismissExpiryWarning}
+              aria-label="Dismiss expiry warning"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
+        {shouldShowPaymentDueWarning && (
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+            </div>
+            <div>
+              <p className="text-base font-medium text-amber-600 dark:text-amber-400">
+                Payment due before account becomes overdue
+              </p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Your subscription period ended. Please pay within the 14-day due period to avoid overdue status.
+              </p>
+            </div>
+            <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-amber-500/50 hover:bg-amber-500/10">
+              <Link href="/dashboard/subscription/payment">Go to payment</Link>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={handleDismissOverdueWarning}
+              aria-label="Dismiss payment due warning"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
+        {shouldShowOverdueWarning && (
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-red-500/30 bg-red-500/5">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-red-500/10">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+            </div>
+            <div>
+              <p className="text-base font-medium text-red-600 dark:text-red-400">
+                Overdue payment required
+              </p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Your tenant subscription is overdue. Please make payment now to reactivate your plan.
+              </p>
+            </div>
+            <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-red-500/50 hover:bg-red-500/10">
+              <Link href="/dashboard/subscription/payment">Go to payment</Link>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={handleDismissOverdueWarning}
+              aria-label="Dismiss overdue payment warning"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
         {/* ============================================ */}
         {/* Row 2b: Not Subscribed (tenant registered, no plan) */}
         {/* ============================================ */}
         {((tenant?.subscription?.tenantSubscriptionStatus === "FREE") ||
-          (tenant?.subscription?.tenantSubscriptionStatus !== "PAID" && getPlanName(tenant?.subscription?.plan) !== "Core")) &&
+          (tenant?.subscription?.tenantSubscriptionStatus !== "PAID" &&
+            tenant?.subscription?.tenantSubscriptionStatus !== "OVERDUE" &&
+            getPlanName(tenant?.subscription?.plan) !== "Core")) &&
           latestPaymentRequest?.status !== "PENDING" && (
           <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
@@ -1479,12 +1680,7 @@ function BillingCountdown({
   date: string;
   isGrace: boolean;
 }) {
-  const daysRemaining = Math.max(
-    0,
-    Math.ceil(
-      (new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-    )
-  );
+  const daysRemaining = Math.max(0, getMytDaysUntil(date));
 
   return (
     <div className="text-right">
@@ -1493,7 +1689,9 @@ function BillingCountdown({
       >
         {daysRemaining}
       </p>
-      <p className="text-xs text-muted">days remaining</p>
+      <p className="text-xs text-muted">
+        {daysRemaining === 0 && !isGrace ? "billing day" : "days remaining"}
+      </p>
     </div>
   );
 }

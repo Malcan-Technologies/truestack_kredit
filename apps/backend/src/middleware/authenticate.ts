@@ -4,6 +4,40 @@ import { auth } from '../lib/auth.js';
 import { prisma } from '../lib/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../lib/errors.js';
 
+function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(';');
+  for (const part of parts) {
+    const [rawKey, ...rawVal] = part.trim().split('=');
+    if (rawKey === 'better-auth.session_token') {
+      return rawVal.join('=');
+    }
+  }
+  return null;
+}
+
+async function resolveCurrentSession(userId: string, cookieHeader: string | undefined) {
+  const sessionToken = getSessionTokenFromCookie(cookieHeader);
+  if (sessionToken) {
+    const byToken = await prisma.session.findFirst({
+      where: {
+        token: sessionToken,
+        userId,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (byToken) return byToken;
+  }
+
+  return prisma.session.findFirst({
+    where: {
+      userId,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+}
+
 // User payload structure from Better Auth session with membership
 export interface SessionUser {
   userId: string;
@@ -43,13 +77,7 @@ export async function authenticateToken(req: Request, _res: Response, next: Next
 
     // Get the active tenant from the session
     // Better Auth stores this in the session table
-    const dbSession = await prisma.session.findFirst({
-      where: { 
-        userId: session.user.id,
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const dbSession = await resolveCurrentSession(session.user.id, req.headers.cookie);
 
     if (!dbSession) {
       throw new UnauthorizedError('Session not found');
@@ -125,13 +153,7 @@ export async function requireSession(req: Request, _res: Response, next: NextFun
       throw new UnauthorizedError('Invalid or expired session');
     }
 
-    const dbSession = await prisma.session.findFirst({
-      where: {
-        userId: session.user.id,
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const dbSession = await resolveCurrentSession(session.user.id, req.headers.cookie);
 
     if (!dbSession) {
       throw new UnauthorizedError('Session not found');
@@ -191,13 +213,7 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
     });
 
     if (session?.user) {
-      const dbSession = await prisma.session.findFirst({
-        where: { 
-          userId: session.user.id,
-          expiresAt: { gt: new Date() },
-        },
-        orderBy: { updatedAt: 'desc' },
-      });
+      const dbSession = await resolveCurrentSession(session.user.id, req.headers.cookie);
 
       if (dbSession?.activeTenantId) {
         const membership = await prisma.tenantMember.findUnique({

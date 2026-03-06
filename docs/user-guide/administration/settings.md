@@ -75,7 +75,7 @@ The logo updates immediately across the application after upload or removal.
 
 Manage users who have access to your organization. Each organization can have a **maximum of 5 team members** including the Owner. The current usage is displayed (e.g., "3/5 members used").
 
-For full details on adding members, roles, and ownership transfer, see [Team Management](?doc=administration/team-management).
+For full details on adding members, roles, and ownership transfer, see [Team Management](?doc=administration/team-management). For subscription and add-on management, see [Billing & Subscription](?doc=administration/billing-and-subscription).
 
 ### Quick Reference
 

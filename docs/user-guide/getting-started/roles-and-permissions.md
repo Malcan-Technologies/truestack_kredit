@@ -24,14 +24,14 @@ The Owner is the primary account holder for the tenant. Each tenant has exactly 
 
 ### Admin
 
-Admins have broad management access but cannot manage billing or transfer ownership.
+Admins have broad management access but cannot transfer ownership.
 
 - Approve and reject loan applications
 - Create, edit, and delete loan products
 - Manage team members (add users, but cannot transfer ownership)
 - Edit organization information and logo
 - Access admin logs
-- View and manage billing
+- View and manage billing and subscription
 
 ### Staff
 
@@ -128,4 +128,5 @@ Role changes are recorded in [Admin Logs](?doc=administration/admin-logs). If yo
 ## Next Steps
 
 - [Team Management](?doc=administration/team-management) — Learn how to add and manage team members
+- [Billing & Subscription](?doc=administration/billing-and-subscription) — Manage your subscription and add-ons
 - [Settings](?doc=administration/settings) — Configure your organization

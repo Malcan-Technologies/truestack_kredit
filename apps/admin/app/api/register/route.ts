@@ -109,8 +109,7 @@ export async function POST(request: NextRequest) {
           referrerUserId: referrerId,
           referredUserId: signUpResult.user.id,
           rewardAmount: 49900, // RM499 in cents
-          isEligible: true,
-          eligibleAt: new Date(),
+          isEligible: false, // becomes true only after first approved subscription payment
         },
       });
     }

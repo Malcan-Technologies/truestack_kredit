@@ -4,8 +4,9 @@
  */
 
 import { config } from '../../lib/config.js';
+import { signRequestBody } from './signature.js';
 
-const ENDPOINT = '/api/internal/kredit/usage';
+const ENDPOINT = '/api/webhooks/kredit/usage-query';
 
 export interface AdminUsageResponse {
   tenant_id: string;
@@ -25,18 +26,27 @@ export async function fetchAdminUsage(
   const baseUrl = config.trueIdentity.adminBaseUrl?.replace(/\/$/, '') || '';
   if (!baseUrl) return null;
 
-  const secret = config.trueIdentity.kreditInternalSecret;
+  const secret = config.trueIdentity.kreditWebhookSecret;
   if (!secret) return null;
 
   const periodStartStr = periodStart.toISOString().slice(0, 10);
   const periodEndStr = periodEnd.toISOString().slice(0, 10);
-  const url = `${baseUrl}${ENDPOINT}?tenant_id=${encodeURIComponent(tenantId)}&period_start=${encodeURIComponent(periodStartStr)}&period_end=${encodeURIComponent(periodEndStr)}`;
+  const url = `${baseUrl}${ENDPOINT}`;
+  const rawBody = JSON.stringify({
+    tenant_id: tenantId,
+    period_start: periodStartStr,
+    period_end: periodEndStr,
+  });
+  const { signature, timestamp } = signRequestBody(rawBody, secret);
 
   const res = await fetch(url, {
-    method: 'GET',
+    method: 'POST',
     headers: {
-      Authorization: `Bearer ${secret}`,
+      'Content-Type': 'application/json',
+      'x-kredit-signature': signature,
+      'x-kredit-timestamp': timestamp,
     },
+    body: rawBody,
   });
 
   if (!res.ok) return null;

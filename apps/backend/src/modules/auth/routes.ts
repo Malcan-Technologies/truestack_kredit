@@ -16,6 +16,40 @@ const BANK_VALUES = [
   'CITIBANK', 'BSN', 'AGROBANK', 'MUAMALAT', 'MBSB', 'OTHER'
 ] as const;
 
+function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(';');
+  for (const part of parts) {
+    const [rawKey, ...rawVal] = part.trim().split('=');
+    if (rawKey === 'better-auth.session_token') {
+      return rawVal.join('=');
+    }
+  }
+  return null;
+}
+
+async function resolveCurrentSession(userId: string, cookieHeader: string | undefined) {
+  const sessionToken = getSessionTokenFromCookie(cookieHeader);
+  if (sessionToken) {
+    const byToken = await prisma.session.findFirst({
+      where: {
+        token: sessionToken,
+        userId,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (byToken) return byToken;
+  }
+
+  return prisma.session.findFirst({
+    where: {
+      userId,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+}
+
 // Helper to parse device type from user agent
 function parseDeviceType(userAgent: string | undefined): string {
   if (!userAgent) return 'Unknown';
@@ -64,13 +98,7 @@ router.get('/memberships', async (req, res, next) => {
     }
 
     // Get the database session to find activeTenantId
-    const dbSession = await prisma.session.findFirst({
-      where: { 
-        userId: session.user.id,
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const dbSession = await resolveCurrentSession(session.user.id, req.headers.cookie);
 
     // Get all active memberships for this user (with subscription and add-ons for profile)
     const memberships = await prisma.tenantMember.findMany({
@@ -152,13 +180,7 @@ router.post('/switch-tenant', async (req, res, next) => {
     const { tenantId } = z.object({ tenantId: z.string() }).parse(req.body);
 
     // Get the database session
-    const dbSession = await prisma.session.findFirst({
-      where: { 
-        userId: session.user.id,
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const dbSession = await resolveCurrentSession(session.user.id, req.headers.cookie);
 
     if (!dbSession) {
       throw new UnauthorizedError('Session not found');

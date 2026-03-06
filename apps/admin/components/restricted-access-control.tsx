@@ -14,7 +14,7 @@ interface RestrictedAccessControlProps {
 export function RestrictedAccessControl({ children }: RestrictedAccessControlProps) {
   const { subscriptionStatus } = useTenantContext();
 
-  if (subscriptionStatus === "FREE") {
+  if (subscriptionStatus === "FREE" || subscriptionStatus === "SUSPENDED") {
     notFound();
   }
 

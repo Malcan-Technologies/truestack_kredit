@@ -2,6 +2,8 @@
 
 This document describes the webhook and API contracts between TrueStack Admin (TrueIdentity) and TrueStack Kredit.
 
+> Billing sync update: subscription payment decisions are now synchronized via internal DB mirror + daily cron pull (`00:05 GMT`) using `GET /api/internal/kredit/payment-decisions`. Billing webhooks for approve/reject are deprecated.
+
 ## Environment Variables
 
 | Variable | Purpose |

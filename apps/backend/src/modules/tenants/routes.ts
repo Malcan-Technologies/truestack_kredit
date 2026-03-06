@@ -31,6 +31,18 @@ const createTenantSchema = z.object({
   businessAddress: z.string().min(1).max(500),
 });
 
+function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(';');
+  for (const part of parts) {
+    const [rawKey, ...rawVal] = part.trim().split('=');
+    if (rawKey === 'better-auth.session_token') {
+      return rawVal.join('=');
+    }
+  }
+  return null;
+}
+
 /**
  * Create a new tenant (allowed when user has no tenant - first-time setup)
  * POST /api/tenants/create
@@ -77,18 +89,18 @@ router.post('/create', requireSession, async (req, res, next) => {
         },
       });
 
-      // Create Subscription record (for billing tracking)
+      // Create a baseline subscription record.
+      // New tenants start as FREE (no active paid period) until first approved payment.
       const now = new Date();
-      const periodEnd = new Date(now);
-      periodEnd.setDate(periodEnd.getDate() + 30); // 30-day trial period
 
       await tx.subscription.create({
         data: {
           tenantId: newTenant.id,
-          plan: "trial",
-          status: "ACTIVE",
+          plan: "free",
+          status: "CANCELLED",
+          autoRenew: false,
           currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
+          currentPeriodEnd: now,
         },
       });
 
@@ -96,13 +108,22 @@ router.post('/create', requireSession, async (req, res, next) => {
     });
 
     // Set activeTenantId on session
-    const dbSession = await prisma.session.findFirst({
-      where: { 
-        userId: userId,
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const sessionToken = getSessionTokenFromCookie(req.headers.cookie);
+    const dbSession = sessionToken
+      ? await prisma.session.findFirst({
+          where: {
+            token: sessionToken,
+            userId,
+            expiresAt: { gt: new Date() },
+          },
+        })
+      : await prisma.session.findFirst({
+          where: {
+            userId,
+            expiresAt: { gt: new Date() },
+          },
+          orderBy: { updatedAt: 'desc' },
+        });
 
     if (dbSession) {
       await prisma.session.update({

@@ -181,7 +181,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { data: session, isPending } = useSession();
   const [membership, setMembership] = useState<Membership | null>(null);
-  const [subscriptionStatus, setSubscriptionStatus] = useState<'FREE' | 'PAID'>('FREE');
+  const [subscriptionStatus, setSubscriptionStatus] = useState<'FREE' | 'PAID' | 'OVERDUE' | 'SUSPENDED'>('FREE');
   const [hasTenants, setHasTenants] = useState<boolean>(true);
   const [membershipCheckComplete, setMembershipCheckComplete] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -227,7 +227,7 @@ export default function DashboardLayout({
   }, [pathname]);
 
   const fetchApplicationsPendingCount = useCallback(async () => {
-    if (!hasTenants || subscriptionStatus !== "PAID") {
+    if (!hasTenants || subscriptionStatus === "FREE" || subscriptionStatus === "SUSPENDED") {
       setApplicationsPendingCount(0);
       return;
     }
@@ -347,7 +347,11 @@ export default function DashboardLayout({
               activeMembership?.tenantName || data.data.user.tenantName,
           });
           const status = data.data.tenant?.subscriptionStatus;
-          setSubscriptionStatus(status === "PAID" ? "PAID" : "FREE");
+          if (status === "PAID" || status === "OVERDUE" || status === "SUSPENDED") {
+            setSubscriptionStatus(status);
+          } else {
+            setSubscriptionStatus("FREE");
+          }
         }
       }
     } catch (error) {
@@ -395,7 +399,7 @@ export default function DashboardLayout({
   if (!hasTenants && pathRequiresMembershipCheck) {
     notFound();
   }
-  if (subscriptionStatus === "FREE" && pathRequiresPaidCheck) {
+  if ((subscriptionStatus === "FREE" || subscriptionStatus === "SUSPENDED") && pathRequiresPaidCheck) {
     notFound();
   }
 
@@ -626,7 +630,8 @@ export default function DashboardLayout({
                         const requiresMembership = pathRequiresMembership(item.href);
                         const requiresPaid = pathRequiresPaid(item.href);
                         const disabledNoMembership = !hasTenants && requiresMembership;
-                        const disabledFreeSubscription = subscriptionStatus === "FREE" && requiresPaid;
+                        const disabledFreeSubscription =
+                          (subscriptionStatus === "FREE" || subscriptionStatus === "SUSPENDED") && requiresPaid;
 
                         if (!hasAccess || disabledNoMembership || disabledFreeSubscription) {
                           const lockedContent = (

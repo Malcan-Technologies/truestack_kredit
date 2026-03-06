@@ -144,7 +144,13 @@ function LoanUsageBar({ used, limit, truesendActive = false }: { used: number; l
 
 interface SubscriptionData {
   plan: string;
-  tenantSubscriptionStatus?: "FREE" | "PAID";
+  tenantSubscriptionStatus?: "FREE" | "PAID" | "OVERDUE" | "SUSPENDED";
+}
+
+interface PricingData {
+  coreAmountCents: number;
+  truesendMonthlyMyr: number;
+  trueidentityUnitMyr: number;
 }
 
 export default function PlanPage() {
@@ -155,18 +161,20 @@ export default function PlanPage() {
   const [loading, setLoading] = useState(true);
   const [selectedDetail, setSelectedDetail] = useState<DetailSelection>("CORE");
   const [loanCount, setLoanCount] = useState<number>(0);
+  const [pricing, setPricing] = useState<PricingData | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [addOnsRes, subRes, tenantRes] = await Promise.all([
+      const [addOnsRes, subRes, tenantRes, pricingRes] = await Promise.all([
         api.get<{
           addOns: AddOnStatus[];
           emailStats?: EmailStats;
           verificationStats?: VerificationStats;
         }>("/api/billing/add-ons"),
-        api.get<{ plan: string; tenantSubscriptionStatus?: "FREE" | "PAID" }>("/api/billing/subscription"),
+        api.get<{ plan: string; tenantSubscriptionStatus?: "FREE" | "PAID" | "OVERDUE" | "SUSPENDED" }>("/api/billing/subscription"),
         api.get<{ counts: { loans: number } }>("/api/tenants/current"),
+        api.get<PricingData>("/api/billing/pricing"),
       ]);
       if (addOnsRes.success && addOnsRes.data) {
         setAddOns(addOnsRes.data.addOns || []);
@@ -182,6 +190,9 @@ export default function PlanPage() {
         setLoanCount(tenantRes.data.counts.loans);
       } else {
         setLoanCount(0);
+      }
+      if (pricingRes.success && pricingRes.data) {
+        setPricing(pricingRes.data);
       }
     } catch {
       // Silently handle
@@ -200,7 +211,8 @@ export default function PlanPage() {
   const isTrueSendActive = getAddOnStatus("TRUESEND")?.status === "ACTIVE";
   const isTrueIdentityActive = getAddOnStatus("TRUEIDENTITY")?.status === "ACTIVE";
 
-  const isCoreActive = subscription?.tenantSubscriptionStatus === "PAID";
+  const tenantSubscriptionStatus = subscription?.tenantSubscriptionStatus;
+  const isCoreActive = tenantSubscriptionStatus === "PAID";
 
   const planName =
     subscription?.plan === "Core+"
@@ -208,6 +220,11 @@ export default function PlanPage() {
       : subscription?.plan === "Core"
         ? "Core"
         : "Free";
+
+  const effectiveCorePrice = pricing ? pricing.coreAmountCents / 100 : CORE_PRICE;
+  const effectiveTrueSendPrice = pricing ? pricing.truesendMonthlyMyr : 50;
+  const effectiveTrueIdentityUnit = pricing ? pricing.trueidentityUnitMyr : 4;
+  const updatePlanHref = "/dashboard/subscription";
 
   if (loading) {
     return (
@@ -240,7 +257,7 @@ export default function PlanPage() {
               asChild
               className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
             >
-              <Link href="/dashboard/subscription" className="inline-flex items-center">
+              <Link href={updatePlanHref} className="inline-flex items-center">
                 <Sparkles className="h-4 w-4 mr-2" />
                 {planName === "Free" ? "Choose plan" : "Update plan"}
               </Link>
@@ -414,7 +431,7 @@ export default function PlanPage() {
                           <p className="text-sm text-muted-foreground mt-0.5">
                             {isTrueSendActive
                               ? "Auto-sends receipts, reminders, arrears & default notices. Billed with your Core plan."
-                              : "RM 50/month — billed with your Core plan cycle. Automated email delivery."}
+                              : `RM ${effectiveTrueSendPrice}/month — billed with your Core plan cycle. Automated email delivery.`}
                           </p>
                           {isTrueSendActive && emailStats && (
                             <p className="text-xs text-muted-foreground mt-2">
@@ -469,7 +486,7 @@ export default function PlanPage() {
                           </span>
                         </div>
                         <p className="text-sm text-muted-foreground mt-0.5">
-                          e-KYC via QR code. RM 4 per verification.
+                          e-KYC via QR code. RM {effectiveTrueIdentityUnit} per verification.
                         </p>
                         {isTrueIdentityActive && verificationStats && (
                           <p className="text-xs text-muted-foreground mt-2">
@@ -535,7 +552,7 @@ export default function PlanPage() {
                     </ul>
                     <Separator className="my-4" />
                     <p className="text-sm font-medium text-foreground">
-                      {formatCurrency(CORE_PRICE)}/month{" "}
+                      {formatCurrency(effectiveCorePrice)}/month{" "}
                       <span className="text-muted-foreground line-through font-normal">
                         {formatCurrency(CORE_ORIGINAL_PRICE)}/mo
                       </span>{" "}
@@ -582,7 +599,7 @@ export default function PlanPage() {
                     </ul>
                     <Separator className="my-4" />
                     <p className="text-sm font-medium text-foreground">
-                      RM 50/month — billed with your Core plan cycle. +RM 50/month per extra block of 500 loans.
+                      RM {effectiveTrueSendPrice}/month — billed with your Core plan cycle. +RM 50/month per extra block of 500 loans.
                     </p>
                     <Link
                       href="/dashboard/help?doc=add-ons/automated-emails"
@@ -632,7 +649,7 @@ export default function PlanPage() {
                     </ul>
                     <Separator className="my-4" />
                     <p className="text-sm font-medium text-foreground">
-                      RM 4 per verification · No monthly fee
+                      RM {effectiveTrueIdentityUnit} per verification · No monthly fee
                     </p>
                     <a
                       href="https://www.truestack.my/trueidentity"

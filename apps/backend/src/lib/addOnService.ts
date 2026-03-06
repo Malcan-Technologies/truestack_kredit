@@ -3,7 +3,7 @@
  *
  * Checks whether a tenant has an active add-on AND a valid base subscription.
  * An add-on is considered valid only when:
- *   1. TenantAddOn.status === 'ACTIVE'
+ *   1. TenantAddOn.status === 'ACTIVE', OR status === 'CANCELLED' with cancelledAt in future (period-end cancellation)
  *   2. Subscription.status is ACTIVE or GRACE_PERIOD
  */
 
@@ -59,7 +59,10 @@ export class AddOnService {
         return false;
       }
 
-      if (addOn.status !== 'ACTIVE') {
+      const now = new Date();
+      const activeUntilPeriodEnd =
+        addOn.status === 'CANCELLED' && !!addOn.cancelledAt && addOn.cancelledAt > now;
+      if (addOn.status !== 'ACTIVE' && !activeUntilPeriodEnd) {
         console.log(`[AddOnService] ${addOnType} check failed: addOn=${addOn.status} for tenant ${tenantId}`);
         return false;
       }
@@ -76,10 +79,17 @@ export class AddOnService {
    */
   static async getActiveAddOns(tenantId: string): Promise<string[]> {
     try {
+      const now = new Date();
       const addOns = await prisma.tenantAddOn.findMany({
         where: {
           tenantId,
-          status: 'ACTIVE',
+          OR: [
+            { status: 'ACTIVE' },
+            {
+              status: 'CANCELLED',
+              cancelledAt: { gt: now },
+            },
+          ],
         },
         select: { addOnType: true },
       });

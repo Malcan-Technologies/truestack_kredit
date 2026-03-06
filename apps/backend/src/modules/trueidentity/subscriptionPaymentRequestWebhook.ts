@@ -13,14 +13,16 @@ export interface SubscriptionPaymentRequestPayload {
   tenantId: string;
   tenantSlug: string;
   tenantName: string;
-  plan: 'CORE' | 'CORE_TRUESEND';
+  plan: string;
   amountCents: number;
   amountMyr: number;
+  billingType: string;
   paymentReference: string;
   periodStart: string;
   periodEnd: string;
   requestedAt: string;
   requestedAddOns?: string[];
+  lineItems?: unknown[];
   decisionWebhookUrl?: string;
 }
 
@@ -46,11 +48,13 @@ export async function notifySubscriptionPaymentRequested(
     plan: payload.plan,
     amount_cents: payload.amountCents,
     amount_myr: payload.amountMyr,
+    billing_type: payload.billingType,
     payment_reference: payload.paymentReference,
     period_start: payload.periodStart,
     period_end: payload.periodEnd,
     requested_at: payload.requestedAt,
     requested_add_ons: payload.requestedAddOns ?? [],
+    line_items: payload.lineItems ?? [],
     decision_webhook_url: payload.decisionWebhookUrl ?? '/api/webhooks/kredit/subscription-payment-decision',
   };
 

@@ -8,6 +8,7 @@
 import cron from 'node-cron';
 import { LateFeeProcessor } from './lateFeeProcessor.js';
 import { PaymentReminderProcessor } from './paymentReminderProcessor.js';
+import { BillingCronService } from './billingCronService.js';
 import { LatePaymentNoticeProcessor } from './latePaymentNoticeProcessor.js';
 
 /**
@@ -68,24 +69,30 @@ export function initCronJobs(): void {
 
   console.log('  ✓ TrueSend payment reminders: 9:00 AM MYT daily');
 
-  // TrueSend late payment notices: 9:30 AM Malaysia Time daily
-  cron.schedule('30 9 * * *', async () => {
-    console.log('[CRON] Starting TrueSend late payment notices...');
+  // Billing reconciliation + renewal generation: 12:05 AM Malaysia Time daily
+  cron.schedule('5 0 * * *', async () => {
+    console.log('[CRON] Starting daily billing reconciliation...');
     try {
-      const result = await LatePaymentNoticeProcessor.processNotices();
-      console.log(
-        `[CRON] Late payment notices complete: ` +
-        `${result.tenantsChecked} tenants, ${result.noticesSent} notices sent`
-      );
-      if (result.errors.length > 0) {
-        console.error(`[CRON] Late payment notice errors:`, result.errors);
-      }
+      await BillingCronService.run();
+      console.log('[CRON] Billing reconciliation completed');
     } catch (error) {
-      console.error('[CRON] Late payment notices failed:', error);
+      console.error('[CRON] Billing reconciliation failed:', error);
     }
   }, {
     timezone: 'Asia/Kuala_Lumpur',
   });
 
-  console.log('  ✓ TrueSend late payment notices: 9:30 AM MYT daily');
+  console.log('  ✓ Billing reconciliation: 12:05 AM MYT daily');
+
+  // Startup catch-up: ensures missed midnight window still gets reconciled
+  // (safe due to advisory lock and idempotent invoice checks).
+  setTimeout(async () => {
+    console.log('[CRON] Startup billing reconciliation catch-up...');
+    try {
+      await BillingCronService.run();
+      console.log('[CRON] Startup billing reconciliation completed');
+    } catch (error) {
+      console.error('[CRON] Startup billing reconciliation failed:', error);
+    }
+  }, 10_000);
 }

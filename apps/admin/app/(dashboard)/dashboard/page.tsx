@@ -504,7 +504,8 @@ export default function DashboardPage() {
   const shouldShowPaymentDueWarning =
     isWithinDueWindow &&
     latestPaymentRequest?.status !== "PENDING" &&
-    !overdueWarningDismissedToday;
+    !overdueWarningDismissedToday &&
+    tenant?.subscription?.tenantSubscriptionStatus !== "FREE"; // Don't show when revoked to free
   const isOverdueTenant =
     (tenant?.subscription?.tenantSubscriptionStatus === "OVERDUE" && !isWithinDueWindow) ||
     (typeof daysUntilExpiry === "number" && daysUntilExpiry < -14);

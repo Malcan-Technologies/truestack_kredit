@@ -848,18 +848,26 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
     const revokedBy = typeof req.body?.revokedBy === 'string' ? req.body.revokedBy : null;
     const now = new Date();
 
-    const tenant = await prisma.tenant.findUnique({
+    // Look up by id first, then by slug (in case Admin passes slug)
+    let tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { id: true },
     });
     if (!tenant) {
+      tenant = await prisma.tenant.findUnique({
+        where: { slug: tenantId },
+        select: { id: true },
+      });
+    }
+    if (!tenant) {
       return res.status(404).json({ success: false, error: 'Tenant not found' });
     }
+    const resolvedTenantId = tenant.id;
 
     await prisma.$transaction(async (tx) => {
       await tx.subscriptionPaymentRequest.updateMany({
         where: {
-          tenantId,
+          tenantId: resolvedTenantId,
           status: 'PENDING',
         },
         data: {
@@ -871,7 +879,7 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
 
       await tx.invoice.updateMany({
         where: {
-          tenantId,
+          tenantId: resolvedTenantId,
           status: { in: ['PENDING_APPROVAL', 'ISSUED', 'OVERDUE'] },
         },
         data: {
@@ -889,7 +897,7 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
       });
 
       await tx.subscription.updateMany({
-        where: { tenantId },
+        where: { tenantId: resolvedTenantId },
         data: {
           status: 'CANCELLED',
           autoRenew: false,
@@ -900,7 +908,7 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
 
       await tx.tenantAddOn.updateMany({
         where: {
-          tenantId,
+          tenantId: resolvedTenantId,
           status: 'ACTIVE',
         },
         data: {
@@ -911,7 +919,7 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
 
       await tx.billingEvent.create({
         data: {
-          tenantId,
+          tenantId: resolvedTenantId,
           eventType: 'CANCELLATION_PROCESSED',
           metadata: {
             status: 'REVOKED',
@@ -924,7 +932,7 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
       });
     });
 
-    res.json({ success: true, data: { tenantId, subscriptionStatus: 'FREE' } });
+    res.json({ success: true, data: { tenantId: resolvedTenantId, subscriptionStatus: 'FREE' } });
   } catch (error) {
     next(error);
   }

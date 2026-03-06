@@ -437,8 +437,10 @@ function differenceInDays(start: Date, end: Date): number {
   return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / msPerDay));
 }
 
+/** Format date as YYYY-MM-DD in Malaysia timezone (not UTC). */
 function toDateOnly(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  const { year, month, day } = getMytDateParts(value);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 const SST_RATE = 0.08;

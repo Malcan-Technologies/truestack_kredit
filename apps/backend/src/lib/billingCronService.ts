@@ -146,8 +146,13 @@ export async function applyApprovedDecision(decision: PaymentDecision): Promise<
         status: 'APPROVED',
       },
     });
+    // Prefer request/decision billing type when it's RENEWAL (e.g. overdue payment)
+    // so we use the invoice period instead of approval date
+    const requestedBillingType = toBillingType(request.billingType ?? decisionBillingType);
     const billingType =
-      priorApprovedCount === 0 ? 'FIRST_SUBSCRIPTION' : toBillingType(request.billingType ?? decisionBillingType);
+      requestedBillingType === 'RENEWAL' || priorApprovedCount > 0
+        ? requestedBillingType
+        : 'FIRST_SUBSCRIPTION';
     const approvedAnchor = startOfMytDayUtc(approvedAt);
 
     // FIRST_SUBSCRIPTION: anchor strictly to admin approval date (MYT day boundary).
@@ -410,6 +415,7 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
           billingType: 'RENEWAL',
           periodStart: nextPeriodStart,
           periodEnd: nextPeriodEnd,
+          issuedAt: nextPeriodStart, // Use expiration date, not cron run time
           dueAt: addDays(nextPeriodStart, 14),
         },
       });

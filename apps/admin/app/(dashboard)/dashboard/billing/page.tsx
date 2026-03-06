@@ -175,7 +175,8 @@ export default function BillingPage() {
     daysUntilPeriodEnd >= -14;
   const isPaymentDueWithinGrace =
     isWithinDueWindow &&
-    latestPaymentRequest?.status !== "PENDING";
+    latestPaymentRequest?.status !== "PENDING" &&
+    subscription?.tenantSubscriptionStatus !== "FREE"; // Don't show when revoked to free
   const isOverdueTenant =
     (subscription?.tenantSubscriptionStatus === "OVERDUE" && !isWithinDueWindow) ||
     (typeof daysUntilPeriodEnd === "number" && daysUntilPeriodEnd < -14);

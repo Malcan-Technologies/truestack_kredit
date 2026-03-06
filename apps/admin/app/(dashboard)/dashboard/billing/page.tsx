@@ -61,6 +61,7 @@ interface Invoice {
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   ACTIVE: "success",
   PENDING: "warning",
+  PENDING_APPROVAL: "warning",
   GRACE_PERIOD: "warning",
   BLOCKED: "destructive",
   CANCELLED: "destructive",
@@ -168,6 +169,13 @@ export default function BillingPage() {
     : null;
   const latestRenewalInvoice = invoices
     .filter((inv) => inv.billingType === "RENEWAL")
+    .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+  const latestUnpaidRenewalInvoice = invoices
+    .filter(
+      (inv) =>
+        inv.billingType === "RENEWAL" &&
+        ["ISSUED", "PENDING_APPROVAL", "OVERDUE"].includes(inv.status)
+    )
     .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
   const isWithinDueWindow =
     typeof daysUntilPeriodEnd === "number" &&
@@ -280,7 +288,15 @@ export default function BillingPage() {
             </p>
           </div>
           <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-amber-500/50 hover:bg-amber-500/10">
-            <Link href="/dashboard/subscription/payment">Go to payment</Link>
+            <Link
+              href={
+                latestUnpaidRenewalInvoice
+                  ? `/dashboard/subscription/payment?mode=overdue&invoiceId=${latestUnpaidRenewalInvoice.id}`
+                  : "/dashboard/subscription/payment?mode=overdue"
+              }
+            >
+              Go to payment
+            </Link>
           </Button>
         </div>
       )}
@@ -299,7 +315,15 @@ export default function BillingPage() {
             </p>
           </div>
           <Button asChild size="sm" variant="outline" className="shrink-0 ml-auto border-red-500/50 hover:bg-red-500/10">
-            <Link href="/dashboard/subscription/payment">Go to payment</Link>
+            <Link
+              href={
+                latestUnpaidRenewalInvoice
+                  ? `/dashboard/subscription/payment?mode=overdue&invoiceId=${latestUnpaidRenewalInvoice.id}`
+                  : "/dashboard/subscription/payment?mode=overdue"
+              }
+            >
+              Go to payment
+            </Link>
           </Button>
         </div>
       )}
@@ -460,8 +484,8 @@ export default function BillingPage() {
                     </TableCell>
                     <TableCell>{formatCurrency(Number(invoice.amount))}</TableCell>
                     <TableCell>
-                      <Badge variant={statusColors[invoice.status]}>
-                        {invoice.status}
+                      <Badge variant={statusColors[invoice.status] ?? "default"}>
+                        {invoice.status.replace(/_/g, " ")}
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDate(invoice.issuedAt)}</TableCell>

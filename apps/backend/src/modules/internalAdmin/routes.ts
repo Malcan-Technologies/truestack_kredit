@@ -448,10 +448,40 @@ router.get('/tenants', async (req, res, next) => {
     ]);
 
     const tenantIds = tenants.map((t) => t.id);
-    const financialsByTenant = await computeTenantFinancials(tenantIds);
+
+    const [financialsByTenant, latestInvoices] = await Promise.all([
+      computeTenantFinancials(tenantIds),
+      prisma.invoice.findMany({
+        where: {
+          tenantId: { in: tenantIds },
+          billingType: 'RENEWAL',
+        },
+        orderBy: { issuedAt: 'desc' },
+        distinct: ['tenantId'],
+        select: {
+          tenantId: true,
+          amount: true,
+          status: true,
+          periodStart: true,
+          periodEnd: true,
+          lineItems: {
+            select: {
+              itemType: true,
+              description: true,
+              amount: true,
+              quantity: true,
+              unitPrice: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const invoiceByTenant = new Map(latestInvoices.map((inv) => [inv.tenantId, inv]));
 
     const rows = tenants.map((tenant) => {
       const financials = financialsByTenant.get(tenant.id) ?? { totalDisbursed: 0, totalProfit: 0 };
+      const inv = invoiceByTenant.get(tenant.id);
       return {
         tenantId: tenant.id,
         tenantName: tenant.name,
@@ -484,6 +514,19 @@ router.get('/tenants', async (req, res, next) => {
         totalProfit: financials.totalProfit,
         createdAt: tenant.createdAt,
         updatedAt: tenant.updatedAt,
+        latestInvoice: inv
+          ? {
+              amount: Number(inv.amount),
+              status: inv.status,
+              periodStart: inv.periodStart,
+              periodEnd: inv.periodEnd,
+              lineItems: inv.lineItems.map((li) => ({
+                itemType: li.itemType,
+                description: li.description,
+                amount: Number(li.amount),
+              })),
+            }
+          : null,
       };
     });
 

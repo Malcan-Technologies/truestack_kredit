@@ -40,6 +40,14 @@ interface LatestPaymentRequest {
   rejectionReason?: string | null;
 }
 
+interface InvoiceLineItem {
+  itemType: string;
+  description: string;
+  amount: number;
+  quantity: number;
+  unitPrice: number;
+}
+
 interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -56,6 +64,7 @@ interface Invoice {
     amount: string;
     paidAt: string;
   }>;
+  lineItems?: InvoiceLineItem[];
 }
 
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
@@ -195,7 +204,17 @@ export default function BillingPage() {
   const basePlanPrice = CORE_PLAN_PRICE;
   const extraBlockCost = extraBlocks * EXTRA_BLOCK_PRICE;
   const truesendCost = truesendActive ? TRUESEND_ADDON_PRICE + extraBlocks * TRUESEND_EXTRA_BLOCK_PRICE : 0;
-  const subtotalMonthly = basePlanPrice + extraBlockCost + truesendCost;
+
+  // TrueIdentity usage from latest renewal invoice line items
+  const latestRenewalWithLines = invoices
+    .filter((inv) => inv.billingType === "RENEWAL" && inv.lineItems && inv.lineItems.length > 0)
+    .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())[0];
+  const trueidentityUsageLine = latestRenewalWithLines?.lineItems?.find(
+    (li) => li.itemType === "USAGE"
+  );
+  const trueidentityUsageCost = trueidentityUsageLine?.amount ?? 0;
+
+  const subtotalMonthly = basePlanPrice + extraBlockCost + truesendCost + trueidentityUsageCost;
   const sstAmount = Math.round(subtotalMonthly * SST_RATE * 100) / 100;
   const totalMonthlySubscription = Math.round((subtotalMonthly + sstAmount) * 100) / 100;
 
@@ -420,6 +439,14 @@ export default function BillingPage() {
                   <span>+{formatCurrency(extraBlockCost)}</span>
                 </div>
               )}
+              {trueidentityUsageCost > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    TrueIdentity™ usage
+                  </span>
+                  <span>+{formatCurrency(trueidentityUsageCost)}</span>
+                </div>
+              )}
               <div className="border-t pt-2 mt-2 space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
@@ -436,11 +463,12 @@ export default function BillingPage() {
               </div>
             </div>
 
-            {/* Usage-based charges (placeholder) */}
             <div className="border-t pt-4">
               <h4 className="text-sm font-medium mb-2">Usage-based charges</h4>
               <p className="text-xs text-muted-foreground">
-                TrueIdentity™ verifications and other usage-based charges appear on your monthly invoice.
+                {trueidentityUsageCost > 0
+                  ? "TrueIdentity™ usage from the latest billing period is included in the totals above."
+                  : "TrueIdentity™ verifications and other usage-based charges appear on your monthly invoice."}
               </p>
             </div>
           </CardContent>

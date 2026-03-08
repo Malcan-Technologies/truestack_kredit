@@ -40,11 +40,20 @@ const BANK_DETAILS = {
   accountNumber: "26409400034271",
 };
 
+interface InvoiceLineItem {
+  itemType: string;
+  description: string;
+  amount: number;
+  quantity: number;
+  unitPrice: number;
+}
+
 interface InvoiceSummary {
   id: string;
   amount: string;
   status: string;
   dueAt: string;
+  lineItems?: InvoiceLineItem[];
 }
 
 // ============================================
@@ -253,11 +262,10 @@ function PaymentPageContent() {
     (subscriptionStatus === "PAID" || subscriptionStatus === "OVERDUE");
   const effectiveOverdueMode = isOverdueMode || autoOverdueMode;
   const effectiveOverdueInvoiceId = isOverdueMode ? overdueInvoiceId : latestOverdueInvoice?.id;
-  const effectiveOverdueAmount = isOverdueMode
-    ? queryAmount
-    : latestOverdueInvoice
-      ? Number(latestOverdueInvoice.amount)
-      : queryAmount;
+  const effectiveOverdueAmount = latestOverdueInvoice
+    ? Number(latestOverdueInvoice.amount)
+    : queryAmount;
+  const effectiveOverdueLineItems = latestOverdueInvoice?.lineItems ?? [];
 
   /** I've Made the Transfer — activate subscription/add-ons (testing only) */
   const handleMadeTransfer = async () => {
@@ -730,19 +738,25 @@ function PaymentPageContent() {
 
               <div className="space-y-2.5">
                 {effectiveOverdueMode ? (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Overdue invoice amount</span>
-                    <span className="font-medium">{formatCurrency(effectiveOverdueAmount)}</span>
-                  </div>
+                  effectiveOverdueLineItems.length > 0 ? (
+                    effectiveOverdueLineItems
+                      .filter((li) => li.itemType !== "SST")
+                      .map((li, idx) => (
+                        <div key={idx} className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">{li.description}</span>
+                          <span className="font-medium">{formatCurrency(li.amount)}</span>
+                        </div>
+                      ))
+                  ) : (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Overdue invoice amount</span>
+                      <span className="font-medium">{formatCurrency(effectiveOverdueAmount)}</span>
+                    </div>
+                  )
                 ) : lineItems.map((item) => (
                   <div key={item.label} className="flex justify-between text-sm">
                     <span className="text-muted-foreground inline-flex items-center gap-2">
                       {item.label}
-                      {/* {item.isCore && (
-                        <Badge className="bg-black text-white hover:bg-black text-[10px] font-semibold border-0 px-1.5 py-0.5">
-                          Save {CORE_DISCOUNT_PCT}%
-                        </Badge>
-                      )} */}
                     </span>
                     <span className="font-medium">
                       {item.amount === 0 ? (
@@ -763,18 +777,41 @@ function PaymentPageContent() {
               <Separator />
 
               <div className="space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    {effectiveOverdueMode ? "Subtotal (overdue period)" : treatAsPaidTenant ? "Subtotal (selected add-ons)" : "Subtotal"}
-                  </span>
-                  <span>{formatCurrency(effectiveOverdueMode ? effectiveOverdueAmount : (subtotal > 0 ? subtotal : queryAmount))}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{effectiveOverdueMode ? "SST" : "SST (8%)"}</span>
-                  <span>{effectiveOverdueMode ? "Included in invoice total" : `+${formatCurrency(sstAmount)}`}</span>
-                </div>
+                {effectiveOverdueMode ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Subtotal (overdue period)</span>
+                      <span>{formatCurrency(
+                        effectiveOverdueLineItems.length > 0
+                          ? effectiveOverdueLineItems
+                              .filter((li) => li.itemType !== "SST")
+                              .reduce((sum, li) => sum + li.amount, 0)
+                          : effectiveOverdueAmount
+                      )}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">SST (8%)</span>
+                      <span>+{formatCurrency(
+                        effectiveOverdueLineItems.find((li) => li.itemType === "SST")?.amount ?? 0
+                      )}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        {treatAsPaidTenant ? "Subtotal (selected add-ons)" : "Subtotal"}
+                      </span>
+                      <span>{formatCurrency(subtotal > 0 ? subtotal : queryAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">SST (8%)</span>
+                      <span>+{formatCurrency(sstAmount)}</span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between font-semibold pt-1">
-                  <span>{treatAsPaidTenant ? "Due Now" : "Monthly Total"}</span>
+                  <span>{effectiveOverdueMode || treatAsPaidTenant ? "Due Now" : "Monthly Total"}</span>
                   <span className="text-lg">{formatCurrency(amount)}</span>
                 </div>
               </div>

@@ -27,6 +27,7 @@ import trueIdentityWebhookRoutes from './modules/webhooks/trueIdentityWebhook.js
 import trueIdentityPaymentWebhookRoutes from './modules/webhooks/trueIdentityPaymentWebhook.js';
 import kreditReferralPaidWebhookRoutes from './modules/webhooks/kreditReferralPaidWebhook.js';
 import kreditSubscriptionPaymentDecisionWebhookRoutes from './modules/webhooks/kreditSubscriptionPaymentDecisionWebhook.js';
+import kreditSubscriptionDatesWebhookRoutes from './modules/webhooks/kreditSubscriptionDatesWebhook.js';
 import internalAdminRoutes from './modules/internalAdmin/routes.js';
 
 validateConfig();
@@ -46,6 +47,7 @@ app.use(cors({
 app.use('/api/webhooks/resend', express.raw({ type: 'application/json' }), resendWebhookRoutes);
 app.use('/api/webhooks/kredit/referral-paid', express.raw({ type: 'application/json' }), kreditReferralPaidWebhookRoutes);
 app.use('/api/webhooks/kredit/subscription-payment-decision', express.raw({ type: 'application/json' }), kreditSubscriptionPaymentDecisionWebhookRoutes);
+app.use('/api/webhooks/kredit/subscription-dates', express.raw({ type: 'application/json' }), kreditSubscriptionDatesWebhookRoutes);
 app.use('/api/webhooks/trueidentity/payment', express.raw({ type: 'application/json' }), trueIdentityPaymentWebhookRoutes);
 app.use('/api/webhooks/trueidentity', express.raw({ type: 'application/json' }), trueIdentityWebhookRoutes);
 

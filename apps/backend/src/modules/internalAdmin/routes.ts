@@ -420,6 +420,16 @@ router.get('/tenants', async (req, res, next) => {
           subscriptionAmount: true,
           subscribedAt: true,
           trueIdentityTenantSyncedAt: true,
+          subscription: {
+            select: {
+              plan: true,
+              status: true,
+              autoRenew: true,
+              currentPeriodStart: true,
+              currentPeriodEnd: true,
+              gracePeriodEnd: true,
+            },
+          },
           createdAt: true,
           updatedAt: true,
           _count: {
@@ -456,6 +466,16 @@ router.get('/tenants', async (req, res, next) => {
         subscriptionStatus: tenant.subscriptionStatus,
         subscriptionAmount: tenant.subscriptionAmount,
         subscribedAt: tenant.subscribedAt,
+        subscription: tenant.subscription
+          ? {
+              plan: tenant.subscription.plan,
+              status: tenant.subscription.status,
+              autoRenew: tenant.subscription.autoRenew,
+              currentPeriodStart: tenant.subscription.currentPeriodStart,
+              currentPeriodEnd: tenant.subscription.currentPeriodEnd,
+              gracePeriodEnd: tenant.subscription.gracePeriodEnd,
+            }
+          : null,
         trueIdentityTenantSyncedAt: tenant.trueIdentityTenantSyncedAt,
         borrowerCount: tenant._count.borrowers,
         applicationCount: tenant._count.applications,

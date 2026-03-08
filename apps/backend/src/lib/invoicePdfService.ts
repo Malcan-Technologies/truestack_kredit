@@ -66,10 +66,11 @@ function formatDateMY(date: Date): string {
 }
 
 function resolveLogoPath(): string | null {
+  // Same pattern as admin-truestack: logo in public/ relative to cwd (backend has public/ in Docker)
   const candidates = [
+    path.join(process.cwd(), 'public', 'logo-light.png'),
     path.resolve(process.cwd(), 'apps/admin/public/logo-light.png'),
     path.resolve(process.cwd(), '../admin/public/logo-light.png'),
-    path.resolve(process.cwd(), '../../apps/admin/public/logo-light.png'),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
@@ -116,7 +117,7 @@ export async function generateInvoicePdf(payload: InvoicePdfPayload): Promise<Bu
     }
 
     doc.font('Helvetica-Bold').text('From', left, y);
-    y += 22; // gap between From heading and company details
+    y += 15; // gap between From heading and company details
     doc.font('Helvetica').text('Truestack Technologies Sdn. Bhd.', left, y);
     y += 14;
     doc.text('Registration No. 202501058714 (1660120-X)', left, y);
@@ -163,7 +164,7 @@ export async function generateInvoicePdf(payload: InvoicePdfPayload): Promise<Bu
       }
     }
 
-    y += 8;
+    y += 4;
     doc.moveTo(left, y).lineTo(right, y).strokeColor('#cccccc').stroke();
     doc.strokeColor('#000000');
     y += 10;

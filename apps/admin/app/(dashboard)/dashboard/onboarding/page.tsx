@@ -55,6 +55,13 @@ export default function TenantOnboardingPage() {
     formData.contactNumber.trim() !== "" &&
     formData.businessAddress.trim() !== "";
 
+  const redirectToSubscription = () => {
+    toast.success("Tenant created successfully");
+    // Use replace to avoid back-button returning to the form; full reload ensures
+    // layout fetches fresh membership data with the new tenant
+    window.location.replace("/dashboard/subscription?from=onboarding");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -67,13 +74,27 @@ export default function TenantOnboardingPage() {
         body: JSON.stringify(formData),
       });
 
-      const data = await response.json();
+      let data: { success?: boolean; error?: string };
+      try {
+        data = await response.json();
+      } catch {
+        // Backend returned non-JSON (e.g. HTML error page); treat 2xx as success
+        if (response.ok) {
+          redirectToSubscription();
+          return;
+        }
+        throw new Error("Failed to create tenant");
+      }
+
       if (!response.ok) {
         throw new Error(data.error || "Failed to create tenant");
       }
 
-      toast.success("Tenant created successfully");
-      window.location.href = "/dashboard/subscription?from=onboarding";
+      if (data.success === false) {
+        throw new Error(data.error || "Failed to create tenant");
+      }
+
+      redirectToSubscription();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to create tenant");
     } finally {

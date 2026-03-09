@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UserCircle, Share2, Users, Shield, Eye, EyeOff, Building2, Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -116,11 +116,11 @@ export default function ProfilePage() {
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const currentUser = session?.user;
+  const hasLoadedOnce = useRef(false);
 
   const fetchData = async () => {
     if (!session) return;
-    
-    setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
     try {
       const [meRes, passwordInfoRes, loginLogsRes] = await Promise.all([
         fetch("/api/proxy/auth/me", { credentials: "include" }),
@@ -156,6 +156,7 @@ export default function ProfilePage() {
       console.error("Failed to fetch profile data:", error);
     }
     setLoading(false);
+    hasLoadedOnce.current = true;
   };
 
   const fetchReferralCode = async () => {
@@ -212,14 +213,18 @@ export default function ProfilePage() {
     setLoadingTenants(false);
   };
 
+  // Depend on user id only so tab focus / session refetch doesn't retrigger full load
+  const userId = session?.user?.id;
   useEffect(() => {
-    if (session) {
+    if (userId) {
       fetchData();
       fetchReferralCode();
       fetchReferrals();
       fetchTenants();
+    } else {
+      hasLoadedOnce.current = false;
     }
-  }, [session]);
+  }, [userId]);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -920,9 +925,9 @@ Sign up here: ${referralLink}`
           ) : referrals ? (
             <>
               {/* Summary stats - sub-cards with hierarchy */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Primary: Total Rewards */}
-                <div className="sm:col-span-3 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+                <div className="sm:col-span-2 lg:col-span-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
                     Total rewards
                   </p>
@@ -945,10 +950,19 @@ Sign up here: ${referralLink}`
                 </div>
                 <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
+                    Pending
+                  </p>
+                  <p className="text-xl font-heading font-bold tabular-nums text-foreground">
+                    {referrals.total - referrals.eligible}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">awaiting subscription</p>
+                </div>
+                <div className="rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 p-4">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1">
                     Eligible
                   </p>
                   <p className="text-xl font-heading font-bold tabular-nums text-foreground">
-                    {referrals.eligible}
+                    {referrals.unpaid}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">awaiting payout</p>
                 </div>
@@ -997,9 +1011,11 @@ Sign up here: ${referralLink}`
                           <TableCell className="font-heading tabular-nums">{formatCurrency(referral.rewardAmount / 100)}</TableCell>
                           <TableCell>
                             {referral.isPaid ? (
-                              <Badge variant="info">Paid</Badge>
+                              <Badge variant="outline-info">Paid</Badge>
+                            ) : referral.isEligible ? (
+                              <Badge variant="outline-success">Eligible</Badge>
                             ) : (
-                              <Badge variant="success">Eligible</Badge>
+                              <Badge variant="outline">Pending</Badge>
                             )}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">

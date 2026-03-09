@@ -15,6 +15,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { RoleGate } from "@/components/role-gate";
@@ -65,6 +72,9 @@ interface Invoice {
     paidAt: string;
   }>;
   lineItems?: InvoiceLineItem[];
+  latestPaymentRequestStatus?: "PENDING" | "APPROVED" | "REJECTED" | null;
+  latestPaymentRequestRejectionReason?: string | null;
+  latestPaymentRequestRejectedAt?: string | null;
 }
 
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
@@ -78,6 +88,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   ISSUED: "info",
   PAID: "success",
   OVERDUE: "destructive",
+  REJECTED: "destructive",
   SUSPENDED: "destructive",
 };
 
@@ -126,6 +137,7 @@ export default function BillingPage() {
   const [loanCount, setLoanCount] = useState(0);
   const [latestPaymentRequest, setLatestPaymentRequest] = useState<LatestPaymentRequest | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -505,15 +517,27 @@ export default function BillingPage() {
               </TableHeader>
               <TableBody>
                 {invoices.map((invoice) => (
-                  <TableRow key={invoice.id}>
+                  <TableRow
+                    key={invoice.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => setSelectedInvoice(invoice)}
+                  >
                     <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
                     <TableCell>
                       {formatDate(invoice.periodStart)} - {formatDate(invoice.periodEnd)}
                     </TableCell>
                     <TableCell>{formatCurrency(Number(invoice.amount))}</TableCell>
                     <TableCell>
-                      <Badge variant={statusColors[invoice.status] ?? "default"}>
-                        {invoice.status.replace(/_/g, " ")}
+                      <Badge
+                        variant={
+                          invoice.latestPaymentRequestStatus === "REJECTED"
+                            ? "destructive"
+                            : (statusColors[invoice.status] ?? "default")
+                        }
+                      >
+                        {invoice.status === "REJECTED" || invoice.latestPaymentRequestStatus === "REJECTED"
+                          ? "REJECTED"
+                          : invoice.status}
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDate(invoice.issuedAt)}</TableCell>
@@ -521,7 +545,7 @@ export default function BillingPage() {
                     <TableCell>
                       {invoice.paidAt ? formatDate(invoice.paidAt) : "-"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <Button
                         size="sm"
                         variant="outline"
@@ -551,6 +575,98 @@ export default function BillingPage() {
           </Link>
         </Button>
       </div>
+
+      {/* Invoice details dialog */}
+      <Dialog open={!!selectedInvoice} onOpenChange={(open) => !open && setSelectedInvoice(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Invoice details</DialogTitle>
+            <DialogDescription>
+              {selectedInvoice?.invoiceNumber}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedInvoice && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="text-muted-foreground">Period</div>
+                <div>
+                  {formatDate(selectedInvoice.periodStart)} – {formatDate(selectedInvoice.periodEnd)}
+                </div>
+                <div className="text-muted-foreground">Amount</div>
+                <div>
+                  {formatCurrency(Number(selectedInvoice.amount))}
+                </div>
+                <div className="text-muted-foreground">Status</div>
+                <div>
+                  <Badge
+                    variant={
+                      selectedInvoice.status === "REJECTED" ||
+                      selectedInvoice.latestPaymentRequestStatus === "REJECTED"
+                        ? "destructive"
+                        : (statusColors[selectedInvoice.status] ?? "default")
+                    }
+                  >
+                    {selectedInvoice.status === "REJECTED" ||
+                    selectedInvoice.latestPaymentRequestStatus === "REJECTED"
+                      ? "REJECTED"
+                      : selectedInvoice.status}
+                  </Badge>
+                </div>
+              </div>
+
+              {selectedInvoice.lineItems && selectedInvoice.lineItems.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-sm mb-2">Line items</h4>
+                  <div className="border rounded-md divide-y">
+                    {selectedInvoice.lineItems.map((item, i) => (
+                      <div
+                        key={i}
+                        className="flex justify-between items-center px-3 py-2 text-sm"
+                      >
+                        <span>{item.description}</span>
+                        <span>{formatCurrency(item.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(selectedInvoice.status === "REJECTED" ||
+                selectedInvoice.latestPaymentRequestStatus === "REJECTED") && (
+                  <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4">
+                    <h4 className="font-medium text-sm text-destructive flex items-center gap-2 mb-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      Rejection reason
+                    </h4>
+                    <p className="text-sm text-black">
+                      {selectedInvoice.latestPaymentRequestRejectionReason?.trim() ||
+                        "No reason was provided."}
+                    </p>
+                    {selectedInvoice.latestPaymentRequestRejectedAt && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Rejected on {formatDate(selectedInvoice.latestPaymentRequestRejectedAt)}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    selectedInvoice &&
+                    handleDownloadInvoice(selectedInvoice.id, selectedInvoice.invoiceNumber)
+                  }
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
     </RoleGate>
   );

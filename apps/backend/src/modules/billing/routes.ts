@@ -107,31 +107,49 @@ router.get('/invoices', async (req, res, next) => {
       include: {
         receipts: true,
         lineItems: true,
+        subscriptionPaymentRequests: {
+          orderBy: { requestedAt: 'desc' },
+          select: { status: true, rejectionReason: true, rejectedAt: true },
+        },
       },
     });
 
     res.json({
       success: true,
-      data: invoices.map(inv => ({
-        id: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        amount: inv.amount,
-        status: inv.status,
-        billingType: inv.billingType,
-        periodStart: inv.periodStart,
-        periodEnd: inv.periodEnd,
-        issuedAt: inv.issuedAt,
-        dueAt: inv.dueAt,
-        paidAt: inv.paidAt,
-        receipts: inv.receipts,
-        lineItems: inv.lineItems.map((li) => ({
-          itemType: li.itemType,
-          description: li.description,
-          amount: Number(li.amount),
-          quantity: li.quantity,
-          unitPrice: Number(li.unitPrice),
-        })),
-      })),
+      data: invoices.map(inv => {
+        const latestRequest = inv.subscriptionPaymentRequests[0];
+        const rejectedRequest = inv.subscriptionPaymentRequests
+          .filter((r) => r.status === 'REJECTED')
+          .sort((a, b) => {
+            const aTime = new Date(a.rejectedAt ?? 0).getTime();
+            const bTime = new Date(b.rejectedAt ?? 0).getTime();
+            return bTime - aTime;
+          })[0];
+        const requestToUse = (inv.status === 'REJECTED' && rejectedRequest) ? rejectedRequest : latestRequest;
+        return {
+          id: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          amount: inv.amount,
+          status: inv.status,
+          billingType: inv.billingType,
+          periodStart: inv.periodStart,
+          periodEnd: inv.periodEnd,
+          issuedAt: inv.issuedAt,
+          dueAt: inv.dueAt,
+          paidAt: inv.paidAt,
+          receipts: inv.receipts,
+          latestPaymentRequestStatus: requestToUse?.status ?? latestRequest?.status ?? null,
+          latestPaymentRequestRejectionReason: requestToUse?.rejectionReason ?? latestRequest?.rejectionReason ?? null,
+          latestPaymentRequestRejectedAt: requestToUse?.rejectedAt ?? latestRequest?.rejectedAt ?? null,
+          lineItems: inv.lineItems.map((li) => ({
+            itemType: li.itemType,
+            description: li.description,
+            amount: Number(li.amount),
+            quantity: li.quantity,
+            unitPrice: Number(li.unitPrice),
+          })),
+        };
+      }),
     });
   } catch (error) {
     next(error);
@@ -198,6 +216,10 @@ router.get('/invoices/:invoiceId/download', async (req, res, next) => {
 
     if (!invoice) {
       throw new NotFoundError('Invoice');
+    }
+
+    if (invoice.status === 'CANCELLED' || invoice.status === 'REJECTED') {
+      throw new BadRequestError(invoice.status === 'REJECTED' ? 'Cannot download rejected invoice' : 'Cannot download cancelled invoice');
     }
 
     const effectiveLineItems = invoice.status === 'PAID' && Array.isArray(invoice.lineItemsSnapshot)
@@ -286,8 +308,8 @@ router.post('/payments', requireAdmin, async (req, res, next) => {
       throw new BadRequestError('Invoice is already paid');
     }
 
-    if (invoice.status === 'CANCELLED') {
-      throw new BadRequestError('Invoice is cancelled');
+    if (invoice.status === 'CANCELLED' || invoice.status === 'REJECTED') {
+      throw new BadRequestError(invoice.status === 'REJECTED' ? 'Invoice was rejected' : 'Invoice is cancelled');
     }
 
     // Create receipt and update invoice in a transaction

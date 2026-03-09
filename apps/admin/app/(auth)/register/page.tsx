@@ -17,6 +17,7 @@ function RegisterForm() {
   const [formData, setFormData] = useState({
     email: "",
     password: "",
+    confirmPassword: "",
     name: "",
     referralCode: "",
   });
@@ -32,14 +33,19 @@ function RegisterForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.password !== formData.confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
     setLoading(true);
 
     try {
       // Call our custom registration API that creates tenant + user
+      const { confirmPassword: _, ...payload } = formData;
       const response = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -112,6 +118,20 @@ function RegisterForm() {
               <p className="text-xs text-muted">
                 Min 8 characters, 1 uppercase, 1 lowercase, 1 number
               </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                placeholder="••••••••"
+                value={formData.confirmPassword}
+                onChange={(e) =>
+                  setFormData({ ...formData, confirmPassword: e.target.value })
+                }
+                minLength={8}
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="referralCode">Referral code (optional)</Label>

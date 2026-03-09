@@ -298,7 +298,26 @@ export async function applyRejectedDecision(decision: PaymentDecision): Promise<
     where: { requestId: decision.request_id },
   });
   if (!request) return;
-  if (request.status === 'REJECTED') return;
+  if (request.status === 'REJECTED') {
+    const incomingReason = decision.rejection_reason?.trim() || null;
+    const storedReason = request.rejectionReason?.trim() || null;
+    const incomingRejectedAt = decision.rejected_at ? new Date(decision.rejected_at) : null;
+
+    // Backfill reason/timestamp for already-rejected requests when the webhook/cron
+    // arrives later with richer decision details.
+    if (incomingReason && (!storedReason || !request.rejectedAt)) {
+      await prisma.subscriptionPaymentRequest.update({
+        where: { id: request.id },
+        data: {
+          rejectionReason: storedReason ?? incomingReason,
+          rejectedAt: request.rejectedAt ?? incomingRejectedAt ?? new Date(),
+          decisionReceivedAt: new Date(),
+          decisionMetadata: decision as unknown as object,
+        },
+      });
+    }
+    return;
+  }
 
   const rejectedAt = decision.rejected_at ? new Date(decision.rejected_at) : new Date();
   await prisma.$transaction(async (tx) => {
@@ -345,7 +364,7 @@ export async function applyRejectedDecision(decision: PaymentDecision): Promise<
             status: { in: ['ISSUED', 'PENDING_APPROVAL'] },
           },
           data: {
-            status: 'CANCELLED',
+            status: 'REJECTED',
           },
         });
       }

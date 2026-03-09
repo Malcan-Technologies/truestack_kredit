@@ -49,6 +49,7 @@ enum InvoiceStatus {
   PAID
   OVERDUE
   CANCELLED
+  REJECTED
 }
 
 enum BillingType {

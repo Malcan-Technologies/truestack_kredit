@@ -239,19 +239,27 @@ export default function SubscriptionPage() {
     typeof daysUntilPeriodEnd === "number" &&
     daysUntilPeriodEnd <= 0;
   const needsRenewalPayment = isRenewalDueNow;
-  const renewalInvoiceAddons = latestUnpaidRenewalInvoice
-    ? (latestUnpaidRenewalInvoice.lineItems ?? []).filter((li) => li.itemType === "ADDON" || li.itemType === "USAGE").reduce((s, li) => s + Number(li.amount), 0)
+  const renewalInvoiceTruesend = latestUnpaidRenewalInvoice
+    ? (latestUnpaidRenewalInvoice.lineItems ?? [])
+        .filter((li) => li.itemType === "ADDON")
+        .reduce((s, li) => s + Number(li.amount), 0)
     : 0;
-  const renewalMergeTruesend = needsRenewalPayment && wantsTruesend && renewalInvoiceAddons === 0;
+  const renewalInvoiceUsage = latestUnpaidRenewalInvoice
+    ? (latestUnpaidRenewalInvoice.lineItems ?? [])
+        .filter((li) => li.itemType === "USAGE")
+        .reduce((s, li) => s + Number(li.amount), 0)
+    : 0;
+  const renewalMergeTruesend = needsRenewalPayment && wantsTruesend && renewalInvoiceTruesend === 0;
   const renewalDisplaySubtotal = needsRenewalPayment
     ? (latestUnpaidRenewalInvoice
         ? (() => {
             const inv = latestUnpaidRenewalInvoice;
             const items = inv.lineItems ?? [];
             const core = items.filter((li) => li.itemType === "SUBSCRIPTION").reduce((s, li) => s + Number(li.amount), 0);
-            const addons = items.filter((li) => li.itemType === "ADDON" || li.itemType === "USAGE").reduce((s, li) => s + Number(li.amount), 0);
+            const addons = items.filter((li) => li.itemType === "ADDON").reduce((s, li) => s + Number(li.amount), 0);
+            const usage = items.filter((li) => li.itemType === "USAGE").reduce((s, li) => s + Number(li.amount), 0);
             const addTruesend = renewalMergeTruesend ? TRUESEND_PRICE : 0;
-            const st = core + addons + addTruesend;
+            const st = core + addons + usage + addTruesend;
             if (st > 0) return st;
             return Math.round((Number(inv.amount) / 1.08) * 100) / 100;
           })()
@@ -267,18 +275,19 @@ export default function SubscriptionPage() {
           })()
         : CORE_PRICE)
     : 0;
-  const renewalDisplayAddon = needsRenewalPayment
+  const renewalDisplayTruesend = needsRenewalPayment
     ? (latestUnpaidRenewalInvoice
         ? (() => {
             const inv = latestUnpaidRenewalInvoice;
             const items = inv.lineItems ?? [];
-            const addons = items.filter((li) => li.itemType === "ADDON" || li.itemType === "USAGE").reduce((s, li) => s + Number(li.amount), 0);
+            const addons = items.filter((li) => li.itemType === "ADDON").reduce((s, li) => s + Number(li.amount), 0);
             const invoiceHasTruesend = addons > 0;
             const mergeTruesendAddon = wantsTruesend && !invoiceHasTruesend;
             return mergeTruesendAddon ? TRUESEND_PRICE : addons;
           })()
         : (wantsTruesend ? TRUESEND_PRICE : 0))
     : 0;
+  const renewalDisplayUsage = needsRenewalPayment ? renewalInvoiceUsage : 0;
   const renewalDisplaySst = needsRenewalPayment
     ? (renewalMergeTruesend
         ? Math.round(renewalDisplaySubtotal * SST_RATE * 100) / 100
@@ -738,10 +747,16 @@ export default function SubscriptionPage() {
                       <span className="text-foreground">Core plan</span>
                       <span className="tabular-nums">{formatCurrency(renewalDisplayCore)}</span>
                     </div>
-                    {renewalDisplayAddon > 0 && (
+                    {renewalDisplayTruesend > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-foreground">TrueSend™</span>
-                        <span className="tabular-nums">+{formatCurrency(renewalDisplayAddon)}</span>
+                        <span className="tabular-nums">+{formatCurrency(renewalDisplayTruesend)}</span>
+                      </div>
+                    )}
+                    {renewalDisplayUsage > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-foreground">TrueIdentity™ usage</span>
+                        <span className="tabular-nums">+{formatCurrency(renewalDisplayUsage)}</span>
                       </div>
                     )}
                     <Separator />

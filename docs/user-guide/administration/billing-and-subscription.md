@@ -166,6 +166,7 @@ Go to **Billing** or **Subscription**. You'll see an overdue notice with a **Go 
 
 ## Related Documentation
 
+- [Payment Approval & Late Renewals](?doc=administration/payment-approval-and-renewals) — How approval, overdue renewals, and billing-cycle timing work
 - [TrueSend™](?doc=add-ons/automated-emails) — Automated email delivery
 - [TrueIdentity](?doc=add-ons/trueidentity) — e-KYC verification
 - [Dashboard Overview](?doc=dashboard/dashboard-overview) — Billing status card

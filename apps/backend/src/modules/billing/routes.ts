@@ -9,7 +9,7 @@ import { AddOnService } from '../../lib/addOnService.js';
 import { derivePlanName, CORE_AMOUNT_CENTS, CORE_PLUS_AMOUNT_CENTS } from '../../lib/subscription.js';
 import { generateInvoiceNumber } from '../../lib/invoiceNumberService.js';
 import { generateInvoicePdf } from '../../lib/invoicePdfService.js';
-import { config } from '../../lib/config.js';
+import { addMonthsClamped, safeAdd, safeDivide, safeMultiply, safeRound, toSafeNumber } from '../../lib/math.js';
 import { notifySubscriptionPaymentRequested } from '../trueidentity/subscriptionPaymentRequestWebhook.js';
 
 const router = Router();
@@ -238,18 +238,18 @@ router.get('/invoices/:invoiceId/download', async (req, res, next) => {
           itemType: item.itemType,
         }));
 
-    const sstAmountFromLineItems = roundHalfUp2(
+    const sstAmountFromLineItems = safeRound(
       effectiveLineItems
         .filter((item) => item.itemType === 'SST' || item.description.toUpperCase().includes('SST'))
-        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+        .reduce((sum, item) => safeAdd(sum, toSafeNumber(item.amount)), 0)
     );
-    const subtotal = roundHalfUp2(
+    const subtotal = safeRound(
       effectiveLineItems
         .filter((item) => !(item.itemType === 'SST' || item.description.toUpperCase().includes('SST')))
-        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+        .reduce((sum, item) => safeAdd(sum, toSafeNumber(item.amount)), 0)
     );
-    const sstAmount = sstAmountFromLineItems > 0 ? sstAmountFromLineItems : roundHalfUp2(subtotal * SST_RATE);
-    const total = roundHalfUp2(subtotal + sstAmount);
+    const sstAmount = sstAmountFromLineItems > 0 ? sstAmountFromLineItems : safeMultiply(subtotal, SST_RATE);
+    const total = safeAdd(subtotal, sstAmount);
 
     const pdfBuffer = await generateInvoicePdf({
       invoiceNumber: invoice.invoiceNumber,
@@ -268,9 +268,9 @@ router.get('/invoices/:invoiceId/download', async (req, res, next) => {
       },
       lineItems: effectiveLineItems.map((item) => ({
         description: item.description,
-        quantity: Number(item.quantity ?? 1),
-        unitPrice: Number(item.unitPrice ?? item.amount ?? 0),
-        amount: Number(item.amount ?? 0),
+        quantity: toSafeNumber(item.quantity ?? 1),
+        unitPrice: toSafeNumber(item.unitPrice ?? item.amount ?? 0),
+        amount: toSafeNumber(item.amount ?? 0),
         itemType: item.itemType,
       })),
     });
@@ -312,6 +312,12 @@ router.post('/payments', requireAdmin, async (req, res, next) => {
       throw new BadRequestError(invoice.status === 'REJECTED' ? 'Invoice was rejected' : 'Invoice is cancelled');
     }
 
+    const invoiceAmount = toSafeNumber(invoice.amount);
+    const paymentAmount = safeRound(data.amount, 2);
+    if (paymentAmount < invoiceAmount) {
+      throw new BadRequestError(`Payment amount cannot be less than invoice total of RM ${invoiceAmount.toFixed(2)}`);
+    }
+
     // Create receipt and update invoice in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create receipt
@@ -319,7 +325,7 @@ router.post('/payments', requireAdmin, async (req, res, next) => {
         data: {
           tenantId: req.tenantId!,
           invoiceId: invoice.id,
-          amount: data.amount,
+          amount: paymentAmount,
           reference: data.reference,
         },
       });
@@ -353,8 +359,7 @@ router.post('/payments', requireAdmin, async (req, res, next) => {
       if (subscription && (subscription.status === 'GRACE_PERIOD' || subscription.status === 'BLOCKED')) {
         // Extend subscription period
         const newPeriodStart = new Date();
-        const newPeriodEnd = new Date(newPeriodStart);
-        newPeriodEnd.setMonth(newPeriodEnd.getMonth() + 1);
+        const newPeriodEnd = addMonthsClamped(newPeriodStart, 1);
 
         await tx.subscription.update({
           where: { tenantId: req.tenantId },
@@ -387,7 +392,7 @@ router.post('/payments', requireAdmin, async (req, res, next) => {
           metadata: {
             invoiceId: invoice.id,
             receiptId: receipt.id,
-            amount: data.amount,
+            amount: paymentAmount,
           },
         },
       });
@@ -425,10 +430,6 @@ router.get('/events', async (req, res, next) => {
   }
 });
 
-function roundHalfUp2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
 function getMytDateParts(date: Date) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Kuala_Lumpur',
@@ -443,8 +444,7 @@ function getMytDateParts(date: Date) {
 function getMytCycleDates(now: Date) {
   const { year, month, day } = getMytDateParts(now);
   const periodStart = new Date(Date.UTC(year, month - 1, day));
-  const periodEnd = new Date(periodStart);
-  periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
+  const periodEnd = addMonthsClamped(periodStart, 1);
   return { periodStart, periodEnd };
 }
 
@@ -478,11 +478,11 @@ function computeAddOnPurchaseAmount(
   const remainingDays = Math.max(0, differenceInDays(new Date(), periodEnd));
   const isFirstTimeSubscription = existingAddOn === null;
   const proratedAmount = isFirstTimeSubscription
-    ? roundHalfUp2((monthlyAmountMyr * remainingDays) / totalDays)
+    ? safeRound(safeMultiply(monthlyAmountMyr, safeDivide(remainingDays, totalDays, 8)))
     : monthlyAmountMyr;
   const effectiveRemainingDays = isFirstTimeSubscription ? remainingDays : totalDays;
-  const sstMyr = roundHalfUp2(proratedAmount * SST_RATE);
-  const totalAmountMyr = roundHalfUp2(proratedAmount + sstMyr);
+  const sstMyr = safeMultiply(proratedAmount, SST_RATE);
+  const totalAmountMyr = safeAdd(proratedAmount, sstMyr);
   return { proratedAmount, effectiveRemainingDays, totalDays, sstMyr, totalAmountMyr, isFirstTimeSubscription };
 }
 
@@ -509,7 +509,7 @@ function serializeSubscriptionPaymentRequest(
     status: request.status,
     plan: request.plan,
     amountCents: request.amountCents,
-    amountMyr: Number(request.amountMyr),
+    amountMyr: toSafeNumber(request.amountMyr),
     paymentReference: request.paymentReference,
     periodStart: request.periodStart,
     periodEnd: request.periodEnd,
@@ -640,9 +640,9 @@ router.post('/subscribe', async (req, res, next) => {
     const { periodStart, periodEnd } = getMytCycleDates(requestedAt);
 
     const requestId = `SPR-${nanoid(10).toUpperCase()}`;
-    const subtotalMyr = Number((subscriptionAmount / 100).toFixed(2));
-    const sstMyr = roundHalfUp2(subtotalMyr * SST_RATE);
-    const totalMyr = roundHalfUp2(subtotalMyr + sstMyr);
+    const subtotalMyr = safeDivide(subscriptionAmount, 100);
+    const sstMyr = safeMultiply(subtotalMyr, SST_RATE);
+    const totalMyr = safeAdd(subtotalMyr, sstMyr);
     const totalCents = Math.round(totalMyr * 100);
     const normalizedAddOns = [...new Set(requestedAddOns)].sort();
     const invoiceMeta = await generateInvoiceNumber(tenant.id, tenant.slug, requestedAt);
@@ -1282,17 +1282,14 @@ router.post('/overdue/update-invoice-addons', async (req, res, next) => {
 
     const coreAmount = invoice.lineItems
       .filter((li) => li.itemType === 'SUBSCRIPTION')
-      .reduce((s, li) => s + Number(li.amount), 0);
+      .reduce((sum, li) => safeAdd(sum, toSafeNumber(li.amount)), 0);
     const existingAddons = invoice.lineItems
       .filter((li) => li.itemType === 'ADDON' || li.itemType === 'USAGE')
-      .reduce((s, li) => s + Number(li.amount), 0);
-    const existingSst = invoice.lineItems
-      .filter((li) => li.itemType === 'SST')
-      .reduce((s, li) => s + Number(li.amount), 0);
+      .reduce((sum, li) => safeAdd(sum, toSafeNumber(li.amount)), 0);
 
-    const newSubtotal = roundHalfUp2(coreAmount + existingAddons + truesendMonthlyMyr);
-    const newSst = roundHalfUp2(newSubtotal * SST_RATE);
-    const newTotal = roundHalfUp2(newSubtotal + newSst);
+    const newSubtotal = safeAdd(coreAmount, existingAddons, truesendMonthlyMyr);
+    const newSst = safeMultiply(newSubtotal, SST_RATE);
+    const newTotal = safeAdd(newSubtotal, newSst);
 
     await prisma.$transaction(async (tx) => {
       await tx.invoiceLineItem.create({
@@ -1393,14 +1390,14 @@ router.post('/overdue/submit-payment', async (req, res, next) => {
     }
 
     const requestId = `SPR-${nanoid(10).toUpperCase()}`;
-    const amountMyr = Number(invoice.amount);
+    const amountMyr = toSafeNumber(invoice.amount);
     const amountCents = Math.round(amountMyr * 100);
     const lineItems = invoice.lineItems.map((item) => ({
       type: item.itemType,
       description: item.description,
-      amountMyr: Number(item.amount),
+      amountMyr: toSafeNumber(item.amount),
       quantity: item.quantity,
-      unitPrice: Number(item.unitPrice),
+      unitPrice: toSafeNumber(item.unitPrice),
     }));
 
     const request = await prisma.$transaction(async (tx) => {
@@ -1562,7 +1559,7 @@ router.post('/cancel', requireAdmin, async (req, res, next) => {
 
       const trueIdentityUsageCount = trueIdentityUsageRows.reduce((sum, row) => sum + row.count, 0);
       const trueIdentityUnitMyr = Number(process.env.TRUEIDENTITY_UNIT_PRICE_MYR || '4');
-      const trueIdentityUsageAmountMyr = roundHalfUp2(trueIdentityUsageCount * trueIdentityUnitMyr);
+      const trueIdentityUsageAmountMyr = safeMultiply(trueIdentityUsageCount, trueIdentityUnitMyr);
 
       if (trueIdentityUsageCount > 0 || trueSendUsageCount > 0) {
         return res.status(409).json({

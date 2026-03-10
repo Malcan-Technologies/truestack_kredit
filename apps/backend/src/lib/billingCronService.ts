@@ -3,6 +3,7 @@ import { prisma } from './prisma.js';
 import { config } from './config.js';
 import { CORE_AMOUNT_CENTS } from './subscription.js';
 import { generateInvoiceNumber } from './invoiceNumberService.js';
+import { addMonthsClamped, safeAdd, safeMultiply, safeSubtract, toSafeNumber } from './math.js';
 import { NotificationService } from '../modules/notifications/service.js';
 import { fetchAdminUsage } from '../modules/trueidentity/adminUsageClient.js';
 import { signRequestBody } from '../modules/trueidentity/signature.js';
@@ -35,20 +36,10 @@ function startOfMytDayUtc(date: Date): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-function addMonth(date: Date): Date {
-  const next = new Date(date);
-  next.setUTCMonth(next.getUTCMonth() + 1);
-  return next;
-}
-
 function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
-}
-
-function roundHalfUp2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 function toBillingType(value?: string | null): 'FIRST_SUBSCRIPTION' | 'ADDON_PURCHASE' | 'RENEWAL' {
@@ -178,7 +169,7 @@ export async function applyApprovedDecision(decision: PaymentDecision): Promise<
             : existingSub
               ? existingSub.currentPeriodEnd
               : approvedAnchor;
-        periodEnd = addMonth(periodStart);
+        periodEnd = addMonthsClamped(periodStart, 1);
       }
 
       if (existingSub) {
@@ -341,7 +332,9 @@ export async function applyRejectedDecision(decision: PaymentDecision): Promise<
           where: { id: request.invoiceId },
           select: { dueAt: true },
         });
-        const shouldBeOverdue = renewalInvoice ? renewalInvoice.dueAt <= rejectedAt : false;
+        const shouldBeOverdue = renewalInvoice
+          ? renewalInvoice.dueAt < startOfMytDayUtc(rejectedAt)
+          : false;
 
         await tx.invoice.updateMany({
           where: {
@@ -401,9 +394,9 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
     if (existing) continue;
 
     const nextPeriodStart = sub.currentPeriodEnd;
-    const nextPeriodEnd = addMonth(nextPeriodStart);
+    const nextPeriodEnd = addMonthsClamped(nextPeriodStart, 1);
     // Always renew from the core plan base price; add-ons and tax are added as separate line items.
-    const baseAmount = Number(CORE_AMOUNT_CENTS / 100);
+    const baseAmount = CORE_AMOUNT_CENTS / 100;
 
     const [truesendAddOn, usage] = await Promise.all([
       prisma.tenantAddOn.findUnique({
@@ -418,10 +411,10 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
     ]);
 
     const truesendAmount = truesendAddOn?.status === 'ACTIVE' ? truesendMonthly : 0;
-    const usageAmount = Number(usage?.usage_amount_myr ?? 0);
-    const subtotal = roundHalfUp2(baseAmount + truesendAmount + usageAmount);
-    const sstAmount = roundHalfUp2(subtotal * 0.08);
-    const totalAmount = roundHalfUp2(subtotal + sstAmount);
+    const usageAmount = toSafeNumber(usage?.usage_amount_myr ?? 0);
+    const subtotal = safeAdd(baseAmount, truesendAmount, usageAmount);
+    const sstAmount = safeMultiply(subtotal, 0.08);
+    const totalAmount = safeAdd(subtotal, sstAmount);
     const invoiceMeta = await generateInvoiceNumber(sub.tenantId, sub.tenant.slug, now);
 
     await prisma.$transaction(async (tx) => {
@@ -504,13 +497,14 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
  * after the billing period ends before being marked OVERDUE.
  */
 async function markOverdue(now: Date): Promise<number> {
-  const cutoff = new Date(now);
-  cutoff.setUTCDate(cutoff.getUTCDate() - 1);
+  const overdueBefore = startOfMytDayUtc(now);
 
   const overdueInvoices = await prisma.invoice.findMany({
     where: {
       status: { in: ['ISSUED', 'PENDING_APPROVAL'] },
-      dueAt: { lte: cutoff },
+      // dueAt is stored as the start of the MYT due date, so an invoice becomes
+      // overdue only once the next MYT day begins.
+      dueAt: { lt: overdueBefore },
     },
     select: { id: true, tenantId: true },
   });
@@ -547,11 +541,12 @@ async function markOverdue(now: Date): Promise<number> {
  * Also restore tenant subscription status to PAID when they have no truly overdue invoices.
  */
 async function restorePreDueRenewals(now: Date): Promise<number> {
+  const overdueBefore = startOfMytDayUtc(now);
   const premature = await prisma.invoice.findMany({
     where: {
       billingType: 'RENEWAL',
       status: 'OVERDUE',
-      dueAt: { gt: now },
+      dueAt: { gte: overdueBefore },
     },
     select: { id: true, tenantId: true },
   });
@@ -572,7 +567,7 @@ async function restorePreDueRenewals(now: Date): Promise<number> {
       invoices: {
         none: {
           status: 'OVERDUE',
-          dueAt: { lte: now },
+          dueAt: { lt: overdueBefore },
         },
       },
     },
@@ -673,7 +668,7 @@ async function applyCreditNotes(): Promise<void> {
     });
     if (!invoice) continue;
 
-    const amount = Number(note.amount);
+    const amount = toSafeNumber(note.amount);
     await prisma.$transaction(async (tx) => {
       await tx.invoiceLineItem.create({
         data: {
@@ -686,7 +681,7 @@ async function applyCreditNotes(): Promise<void> {
         },
       });
 
-      const newAmount = Math.max(0, Number(invoice.amount) - amount);
+      const newAmount = Math.max(0, safeSubtract(toSafeNumber(invoice.amount), amount));
       await tx.invoice.update({
         where: { id: invoice.id },
         data: { amount: newAmount },

@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
+import { addMonthsClamped } from '../../lib/math.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
 
 const router = Router();
@@ -159,8 +160,7 @@ router.post('/', async (req, res) => {
         });
         if (subscription && (subscription.status === 'GRACE_PERIOD' || subscription.status === 'BLOCKED')) {
           const newPeriodStart = new Date();
-          const newPeriodEnd = new Date(newPeriodStart);
-          newPeriodEnd.setMonth(newPeriodEnd.getMonth() + 1);
+          const newPeriodEnd = addMonthsClamped(newPeriodStart, 1);
           await prisma.subscription.update({
             where: { tenantId },
             data: {

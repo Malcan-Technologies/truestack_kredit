@@ -217,11 +217,9 @@ export default function BillingPage() {
   const extraBlockCost = extraBlocks * EXTRA_BLOCK_PRICE;
   const truesendCost = truesendActive ? TRUESEND_ADDON_PRICE + extraBlocks * TRUESEND_EXTRA_BLOCK_PRICE : 0;
 
-  // TrueIdentity usage from latest renewal invoice line items
-  const latestRenewalWithLines = invoices
-    .filter((inv) => inv.billingType === "RENEWAL" && inv.lineItems && inv.lineItems.length > 0)
-    .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())[0];
-  const trueidentityUsageLine = latestRenewalWithLines?.lineItems?.find(
+  // TrueIdentity usage should reflect the current payable renewal cycle only.
+  // Do not pull usage from already-paid renewal invoices.
+  const trueidentityUsageLine = latestUnpaidRenewalInvoice?.lineItems?.find(
     (li) => li.itemType === "USAGE"
   );
   const trueidentityUsageCost = trueidentityUsageLine?.amount ?? 0;
@@ -479,8 +477,11 @@ export default function BillingPage() {
               <h4 className="text-sm font-medium mb-2">Usage-based charges</h4>
               <p className="text-xs text-muted-foreground">
                 {trueidentityUsageCost > 0
-                  ? "TrueIdentity™ usage from the latest billing period is included in the totals above."
+                  ? "TrueIdentity™ usage from the current unpaid renewal invoice is included in the totals above."
                   : "TrueIdentity™ verifications and other usage-based charges appear on your monthly invoice."}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Usage shown here only reflects the current payable renewal cycle.
               </p>
             </div>
           </CardContent>

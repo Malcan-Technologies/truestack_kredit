@@ -853,6 +853,8 @@ model Loan {
   principalAmount  Decimal    @db.Decimal(12, 2)
   interestRate     Decimal    @db.Decimal(5, 2)
   term             Int // in months
+  actualInterestRate Decimal? @db.Decimal(5, 2) // Optional internal schedule annual rate for alternate operational view
+  actualTerm       Int? // Optional internal schedule term in months for alternate operational view
   disbursementDate DateTime?
   status           LoanStatus @default(PENDING_DISBURSEMENT)
   createdAt        DateTime   @default(now())

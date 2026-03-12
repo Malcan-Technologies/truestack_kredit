@@ -131,6 +131,10 @@ export default function SubscriptionPage() {
   } | null>(null);
   const [addOnActionLoading, setAddOnActionLoading] = useState(false);
   const [renewalPaymentLoading, setRenewalPaymentLoading] = useState(false);
+  const [liveTrueIdentityUsage, setLiveTrueIdentityUsage] = useState<{
+    verificationCount: number;
+    usageAmountMyr: number;
+  } | null>(null);
 
   // Dialog state
   const [showBackToOnboardingConfirm, setShowBackToOnboardingConfirm] = useState(false);
@@ -258,8 +262,9 @@ export default function SubscriptionPage() {
             const core = items.filter((li) => li.itemType === "SUBSCRIPTION").reduce((s, li) => s + Number(li.amount), 0);
             const addons = items.filter((li) => li.itemType === "ADDON").reduce((s, li) => s + Number(li.amount), 0);
             const usage = items.filter((li) => li.itemType === "USAGE").reduce((s, li) => s + Number(li.amount), 0);
+            const usageFallback = usage === 0 ? (liveTrueIdentityUsage?.usageAmountMyr ?? 0) : 0;
             const addTruesend = renewalMergeTruesend ? TRUESEND_PRICE : 0;
-            const st = core + addons + usage + addTruesend;
+            const st = core + addons + usage + usageFallback + addTruesend;
             if (st > 0) return st;
             return Math.round((Number(inv.amount) / 1.08) * 100) / 100;
           })()
@@ -287,9 +292,12 @@ export default function SubscriptionPage() {
           })()
         : (wantsTruesend ? TRUESEND_PRICE : 0))
     : 0;
-  const renewalDisplayUsage = needsRenewalPayment ? renewalInvoiceUsage : 0;
+  const renewalDisplayUsage = needsRenewalPayment
+    ? (renewalInvoiceUsage > 0 ? renewalInvoiceUsage : (liveTrueIdentityUsage?.usageAmountMyr ?? 0))
+    : 0;
+  const hasUsageFallback = needsRenewalPayment && renewalInvoiceUsage === 0 && (liveTrueIdentityUsage?.usageAmountMyr ?? 0) > 0;
   const renewalDisplaySst = needsRenewalPayment
-    ? (renewalMergeTruesend
+    ? (renewalMergeTruesend || hasUsageFallback
         ? Math.round(renewalDisplaySubtotal * SST_RATE * 100) / 100
         : (() => {
             if (!latestUnpaidRenewalInvoice) {
@@ -304,15 +312,17 @@ export default function SubscriptionPage() {
           })())
     : 0;
   const renewalDisplayTotal = needsRenewalPayment
-    ? (renewalMergeTruesend
+    ? (renewalMergeTruesend || hasUsageFallback
         ? Math.round((renewalDisplaySubtotal + renewalDisplaySst) * 100) / 100
         : latestUnpaidRenewalInvoice
           ? Number(latestUnpaidRenewalInvoice.amount)
           : Math.round((renewalDisplaySubtotal + renewalDisplaySst) * 100) / 100)
     : 0;
+  const paidTrueIdentityUsage = liveTrueIdentityUsage?.usageAmountMyr ?? 0;
   const paidRecurringSubtotal = safeAdd(
     coreMonthlyTotal,
-    wantsTruesend ? safeAdd(TRUESEND_PRICE, truesendExtraBlockCost) : 0
+    wantsTruesend ? safeAdd(TRUESEND_PRICE, truesendExtraBlockCost) : 0,
+    paidTrueIdentityUsage
   );
   const paidRecurringSst = Math.round(paidRecurringSubtotal * SST_RATE * 100) / 100;
   const paidRecurringTotal = Math.round((paidRecurringSubtotal + paidRecurringSst) * 100) / 100;
@@ -413,6 +423,41 @@ export default function SubscriptionPage() {
         }
       } else {
         setTruesendProration(null);
+      }
+
+      // Fetch live TrueIdentity usage for PAID/OVERDUE tenants (current period)
+      if (
+        (tenantStatus === "PAID" || tenantStatus === "OVERDUE") &&
+        billingSubRes.success &&
+        billingSubRes.data?.currentPeriodStart &&
+        billingSubRes.data?.currentPeriodEnd
+      ) {
+        const from = new Date(billingSubRes.data.currentPeriodStart);
+        const to = new Date(billingSubRes.data.currentPeriodEnd);
+        const fromDate = Number.isNaN(from.getTime()) ? null : from.toISOString().slice(0, 10);
+        const toDate = Number.isNaN(to.getTime()) ? null : to.toISOString().slice(0, 10);
+        if (fromDate && toDate) {
+          try {
+            const usageRes = await api.get<{
+              verificationCount: number;
+              usageAmountMyr: number;
+            }>(`/api/billing/trueidentity-usage?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`);
+            if (usageRes.success && usageRes.data) {
+              setLiveTrueIdentityUsage({
+                verificationCount: usageRes.data.verificationCount ?? 0,
+                usageAmountMyr: usageRes.data.usageAmountMyr ?? 0,
+              });
+            } else {
+              setLiveTrueIdentityUsage(null);
+            }
+          } catch {
+            setLiveTrueIdentityUsage(null);
+          }
+        } else {
+          setLiveTrueIdentityUsage(null);
+        }
+      } else {
+        setLiveTrueIdentityUsage(null);
       }
 
       if (invoicesRes.success && Array.isArray(invoicesRes.data)) {
@@ -831,8 +876,14 @@ export default function SubscriptionPage() {
                   </>
                 ) : isPaid ? (
                   /* Already paid for current period – no amounts to pay until renewal */
-                  <div className="py-2">
+                  <div className="py-2 space-y-2">
                     <p className="text-sm font-medium text-foreground">No payment required right now</p>
+                    {paidTrueIdentityUsage > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-foreground">TrueIdentity™ usage</span>
+                        <span className="tabular-nums">+{formatCurrency(paidTrueIdentityUsage)}</span>
+                      </div>
+                    )}
                     <p className="text-xs text-muted-foreground mt-1">
                       Your subscription is active. Next billing: {formatCurrency(paidRecurringTotal)}/mo
                       {currentPeriodEnd && ` (renews ${new Date(currentPeriodEnd).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" })})`}

@@ -267,6 +267,19 @@ function PaymentPageContent() {
     : queryAmount;
   const effectiveOverdueLineItems = latestOverdueInvoice?.lineItems ?? [];
 
+  // When invoice has no line items, derive subtotal and SST from total (amount includes SST)
+  const overdueSubtotal =
+    effectiveOverdueLineItems.length > 0
+      ? effectiveOverdueLineItems
+          .filter((li) => li.itemType !== "SST")
+          .reduce((sum, li) => sum + li.amount, 0)
+      : Math.round((effectiveOverdueAmount / (1 + SST_RATE)) * 100) / 100;
+  const overdueSst =
+    effectiveOverdueLineItems.length > 0
+      ? (effectiveOverdueLineItems.find((li) => li.itemType === "SST")?.amount ?? 0) ||
+        Math.round(overdueSubtotal * SST_RATE * 100) / 100
+      : Math.round((effectiveOverdueAmount - overdueSubtotal) * 100) / 100;
+
   /** I've Made the Transfer — activate subscription/add-ons (testing only) */
   const handleMadeTransfer = async () => {
     setSubmitting(true);
@@ -781,19 +794,11 @@ function PaymentPageContent() {
                   <>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Subtotal (overdue period)</span>
-                      <span>{formatCurrency(
-                        effectiveOverdueLineItems.length > 0
-                          ? effectiveOverdueLineItems
-                              .filter((li) => li.itemType !== "SST")
-                              .reduce((sum, li) => sum + li.amount, 0)
-                          : effectiveOverdueAmount
-                      )}</span>
+                      <span>{formatCurrency(overdueSubtotal)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">SST (8%)</span>
-                      <span>+{formatCurrency(
-                        effectiveOverdueLineItems.find((li) => li.itemType === "SST")?.amount ?? 0
-                      )}</span>
+                      <span>+{formatCurrency(overdueSst)}</span>
                     </div>
                   </>
                 ) : (

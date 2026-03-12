@@ -535,7 +535,43 @@ async function reconcileUsageWithAdmin(now: Date): Promise<number> {
     if (!adminUsage) continue;
 
     const adminCount = Math.max(0, adminUsage.verification_count);
-    if (adminCount <= localCount) continue;
+    const periodStart = startOfDayUtc(sub.currentPeriodStart);
+    const periodEnd = startOfDayUtc(sub.currentPeriodEnd);
+    if (adminCount < localCount) {
+      let excess = localCount - adminCount;
+      const rowsToTrim = await prisma.trueIdentityUsageDaily.findMany({
+        where: {
+          tenantId: sub.tenantId,
+          usageDate: { gte: periodStart, lt: periodEnd },
+        },
+        orderBy: { usageDate: 'desc' },
+        select: {
+          id: true,
+          count: true,
+        },
+      });
+      if (rowsToTrim.length === 0) continue;
+
+      await prisma.$transaction(async (tx) => {
+        for (const row of rowsToTrim) {
+          if (excess <= 0) break;
+          const deduction = Math.min(excess, row.count);
+          const nextCount = row.count - deduction;
+          excess -= deduction;
+
+          if (nextCount <= 0) {
+            await tx.trueIdentityUsageDaily.delete({ where: { id: row.id } });
+          } else {
+            await tx.trueIdentityUsageDaily.update({
+              where: { id: row.id },
+              data: { count: nextCount },
+            });
+          }
+        }
+      });
+      continue;
+    }
+    if (adminCount === localCount) continue;
 
     const missing = adminCount - localCount;
     // Store backfill on the last day of the period so generateRenewalInvoices (which queries

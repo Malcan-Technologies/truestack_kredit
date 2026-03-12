@@ -186,10 +186,15 @@ export default function BillingPage() {
         const usagePath = fromDate && toDate
           ? `/billing/trueidentity-usage?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`
           : "/billing/trueidentity-usage";
-        const usageRes = await api.get<TrueIdentityUsageSummary>(usagePath);
-        if (usageRes.success && usageRes.data) {
-          setLiveUsage(usageRes.data);
-        } else {
+        try {
+          const usageRes = await api.get<TrueIdentityUsageSummary>(usagePath);
+          if (usageRes.success && usageRes.data) {
+            setLiveUsage(usageRes.data);
+          } else {
+            setLiveUsage(null);
+          }
+        } catch (error) {
+          console.warn("Failed to fetch trueidentity usage:", error);
           setLiveUsage(null);
         }
       } else {

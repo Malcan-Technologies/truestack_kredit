@@ -408,7 +408,7 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
           },
         },
       }),
-      getUsageForTenant(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd, { toDateExclusive: true }),
+      getUsageForTenant(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd),
     ]);
 
     const truesendAmount = truesendAddOn?.status === 'ACTIVE' ? truesendMonthly : 0;
@@ -499,7 +499,7 @@ function startOfDayUtc(date: Date): Date {
   return d;
 }
 
-async function reconcileUsageWithAdmin(): Promise<number> {
+async function reconcileUsageWithAdmin(now: Date): Promise<number> {
   let backfilled = 0;
   const subscriptions = await prisma.subscription.findMany({
     where: {
@@ -541,9 +541,8 @@ async function reconcileUsageWithAdmin(): Promise<number> {
     // Store backfill on the last day of the period so generateRenewalInvoices (which queries
     // [currentPeriodStart, currentPeriodEnd) exclusive) will include it. currentPeriodEnd is
     // the start of the next period, so last day = currentPeriodEnd - 1 day.
-    const periodStartDay = startOfDayUtc(sub.currentPeriodStart);
-    const lastDayOfPeriod = startOfDayUtc(addDays(sub.currentPeriodEnd, -1));
-    const usageDate = lastDayOfPeriod < periodStartDay ? periodStartDay : lastDayOfPeriod;
+    const lastDayOfPeriod = addDays(sub.currentPeriodEnd, -1);
+    const usageDate = startOfDayUtc(lastDayOfPeriod);
     await prisma.trueIdentityUsageDaily.upsert({
       where: {
         tenantId_usageDate: {
@@ -828,7 +827,7 @@ export class BillingCronService {
       }
 
       try {
-        await reconcileUsageWithAdmin();
+        await reconcileUsageWithAdmin(new Date());
       } catch (error) {
         errors.push({ step: 'reconcile_usage', message: error instanceof Error ? error.message : 'Unknown error' });
       }

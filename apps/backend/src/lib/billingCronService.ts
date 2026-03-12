@@ -493,12 +493,6 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
   return created;
 }
 
-function startOfDayUtc(date: Date): Date {
-  const d = new Date(date);
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
-}
-
 async function reconcileUsageWithAdmin(now: Date): Promise<number> {
   let backfilled = 0;
   const subscriptions = await prisma.subscription.findMany({
@@ -535,8 +529,9 @@ async function reconcileUsageWithAdmin(now: Date): Promise<number> {
     if (!adminUsage) continue;
 
     const adminCount = Math.max(0, adminUsage.verification_count);
-    const periodStart = startOfDayUtc(sub.currentPeriodStart);
-    const periodEnd = startOfDayUtc(sub.currentPeriodEnd);
+    // Period boundaries are MYT-anchored; usage rows use MYT day boundaries
+    const periodStart = sub.currentPeriodStart;
+    const periodEnd = sub.currentPeriodEnd;
     if (adminCount < localCount) {
       let excess = localCount - adminCount;
       const rowsToTrim = await prisma.trueIdentityUsageDaily.findMany({
@@ -576,9 +571,8 @@ async function reconcileUsageWithAdmin(now: Date): Promise<number> {
     const missing = adminCount - localCount;
     // Store backfill on the last day of the period so generateRenewalInvoices (which queries
     // [currentPeriodStart, currentPeriodEnd) exclusive) will include it. currentPeriodEnd is
-    // the start of the next period, so last day = currentPeriodEnd - 1 day.
-    const lastDayOfPeriod = addDays(sub.currentPeriodEnd, -1);
-    const usageDate = startOfDayUtc(lastDayOfPeriod);
+    // the start of the next period (MYT), so last day = currentPeriodEnd - 1 day.
+    const usageDate = addDays(sub.currentPeriodEnd, -1);
     await prisma.trueIdentityUsageDaily.upsert({
       where: {
         tenantId_usageDate: {

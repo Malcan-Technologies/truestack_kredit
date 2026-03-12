@@ -399,7 +399,14 @@ router.post('/', async (req, res) => {
       }
 
       if (event === 'kyc.session.completed' && status === 'completed' && result === 'approved') {
-        await recordVerificationComplete(tenantId);
+        // Atomically claim the right to record usage so retries don't double-count
+        const claimed = await prisma.trueIdentityWebhookEvent.updateMany({
+          where: { idempotencyKey, usageRecordedAt: null },
+          data: { usageRecordedAt: new Date(), tenantId },
+        });
+        if (claimed.count > 0) {
+          await recordVerificationComplete(tenantId);
+        }
       }
     }
 

@@ -766,6 +766,8 @@ model LoanApplication {
   term       Int // in months
   status     ApplicationStatus @default(DRAFT)
   notes      String?
+  actualInterestRate Decimal?  @db.Decimal(5, 2) // Optional internal schedule annual rate captured during raising
+  actualTerm         Int? // Optional internal schedule term in months captured during raising
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
 

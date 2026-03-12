@@ -96,6 +96,7 @@ import {
   safeDivide,
   safeAdd,
   safeSubtract,
+  safeRound,
   safePercentage,
   formatSmartDateTime,
   formatDateForInput,
@@ -712,7 +713,7 @@ export default function LoanDetailPage() {
   const [showEarlySettlementDialog, setShowEarlySettlementDialog] = useState(false);
 
   // Payment dialog state
-  const [paymentAmount, setPaymentAmount] = useState<number | "">("");
+  const [paymentAmount, setPaymentAmount] = useState<number | "" | string>("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
@@ -954,7 +955,7 @@ export default function LoanDetailPage() {
   };
 
   const handleRecordPayment = async () => {
-    const amount = paymentAmount === "" ? NaN : paymentAmount;
+    const amount = paymentAmount === "" ? NaN : Number(paymentAmount);
     if (Number.isNaN(amount) || amount <= 0) {
       toast.error("Please enter a valid amount");
       return;
@@ -2806,7 +2807,7 @@ export default function LoanDetailPage() {
                       <CardDescription className="mt-2">
                         {scheduleView === "internal" && internalSchedule ? (
                           <>
-                            Simulation • {internalSchedule.interestModel === "RULE_78" ? "Rule 78" : internalSchedule.interestModel.replace(/_/g, " ")}
+                            Risk-Adjusted • {internalSchedule.interestModel === "RULE_78" ? "Rule 78" : internalSchedule.interestModel.replace(/_/g, " ")}
                             {loan.disbursementDate && ` • Disbursed ${formatDate(loan.disbursementDate)}`}
                           </>
                         ) : (
@@ -2824,7 +2825,7 @@ export default function LoanDetailPage() {
                             <p className="text-xs text-muted-foreground mb-2">Schedule View</p>
                             <TabsList>
                               <TabsTrigger value="standard">Compliant</TabsTrigger>
-                              <TabsTrigger value="internal">Simulation</TabsTrigger>
+                              <TabsTrigger value="internal">Risk-Adjusted</TabsTrigger>
                             </TabsList>
                           </div>
                         )}
@@ -2865,6 +2866,18 @@ export default function LoanDetailPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
+                  {hasInternalSchedule && internalSchedule && (() => {
+                    const prefix = loan.id.slice(-8);
+                    const term = internalSchedule.term;
+                    const monthlyRiskIndex = safeRound(safeDivide(internalSchedule.interestRate, 12, 8), 1);
+                    const monthlyPayment = internalSchedule.repayments[0]?.totalDue ?? safeRound(safeDivide(internalSchedule.totalPayable, term, 8), 2);
+                    const loanIdCode = `${prefix}00${term}00${safeRound(monthlyRiskIndex, 1).toFixed(1)}00${safeRound(monthlyPayment, 2).toFixed(2)}`;
+                    return (
+                      <div className="px-4 py-3 border-b border-border">
+                        <CopyField label="Loan ID" value={loanIdCode} />
+                      </div>
+                    );
+                  })()}
                   <TabsContent value="standard" className="mt-0">
                     <div className="px-4 py-2.5 border-b border-border bg-slate-100 dark:bg-slate-800/60">
                       <div className="flex items-center gap-5 text-xs">
@@ -3092,9 +3105,9 @@ export default function LoanDetailPage() {
                   {internalSchedule && (
                     <TabsContent value="internal" className="mt-0">
                       <div className="px-4 py-3 border-b border-border">
-                        <p className="text-sm font-medium">Simulated schedule view</p>
+                        <p className="text-sm font-medium">Risk-adjusted schedule view</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          This simulated schedule is provided solely for internal reference and scenario analysis at {internalSchedule.interestRate}% p.a. Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. For this loan, the applicable cap is {loan.product.loanScheduleType === "JADUAL_K" ? "12% p.a." : "18% p.a."}. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements, and this simulated view does not amend, replace, validate, or supersede the official repayment schedule, contractual terms, or compliance record. Payment actions continue to follow the compliant schedule.
+                          This risk-adjusted schedule is provided solely for internal reference and scenario analysis. Risk index and risk term are for internal planning purposes only; their meaning and interpretation are determined by the lender. Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements. This risk-adjusted view does not amend, replace, validate, or supersede the official repayment schedule, contractual terms, or compliance record. Payment actions continue to follow the compliant schedule.
                         </p>
                       </div>
                       <Table>

@@ -37,7 +37,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -93,6 +92,8 @@ interface Application {
   term: number;
   status: string;
   notes: string | null;
+  actualInterestRate: string | null;
+  actualTerm: number | null;
   createdAt: string;
   updatedAt: string;
   collateralType: string | null;
@@ -191,6 +192,18 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 
 function supportsInternalScheduleOptions(interestModel: string): boolean {
   return interestModel === "FLAT" || interestModel === "RULE_78";
+}
+
+function annualizeRiskLevel(monthlyRiskLevel: number): number {
+  return safeRound(safeMultiply(monthlyRiskLevel, 12, 8), 2);
+}
+
+function monthlyRiskLevelFromAnnualized(annualizedRiskLevel: number): number {
+  return safeRound(safeDivide(annualizedRiskLevel, 12, 8), 1);
+}
+
+function formatRiskCodeNumber(value: number, decimals = 2): string {
+  return safeRound(value, decimals).toFixed(decimals);
 }
 
 function deriveCompliantStructure(params: {
@@ -348,9 +361,8 @@ export default function ApplicationDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [useInternalSchedule, setUseInternalSchedule] = useState(false);
-  const [internalInterestRate, setInternalInterestRate] = useState<number | "">("");
+  const [internalInterestRate, setInternalInterestRate] = useState<number | "" | string>("");
   const [internalTerm, setInternalTerm] = useState<number | "">("");
-  const [previewMode, setPreviewMode] = useState<"standard" | "internal">("standard");
 
   // Dialog states
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
@@ -422,11 +434,21 @@ export default function ApplicationDetailPage() {
 
   useEffect(() => {
     if (!application) return;
-    setUseInternalSchedule(false);
-    setInternalInterestRate("");
-    setInternalTerm(application.term);
-    setPreviewMode("standard");
-  }, [application?.id, application?.term]);
+    const hasPersistedInternalSchedule =
+      application.actualInterestRate !== null && application.actualTerm !== null;
+
+    setUseInternalSchedule(hasPersistedInternalSchedule);
+    setInternalInterestRate(
+      hasPersistedInternalSchedule
+        ? monthlyRiskLevelFromAnnualized(toSafeNumber(application.actualInterestRate))
+        : ""
+    );
+    setInternalTerm(
+      hasPersistedInternalSchedule
+        ? (application.actualTerm ?? application.term)
+        : application.term
+    );
+  }, [application?.id, application?.term, application?.actualInterestRate, application?.actualTerm]);
 
   const handleSubmitClick = () => {
     if (!canSubmit) {
@@ -439,7 +461,59 @@ export default function ApplicationDetailPage() {
   const handleSubmitConfirm = async () => {
     setShowSubmitDialog(false);
     setActionLoading("submit");
-    const res = await api.post(`/api/loans/applications/${applicationId}/submit`, {});
+    if (!application) {
+      setActionLoading(null);
+      return;
+    }
+
+    const productRateCap = toSafeNumber(application.product.interestRate);
+    const annualizedInternalInterestRate = internalInterestRate === ""
+      ? null
+      : annualizeRiskLevel(Number(internalInterestRate));
+    const compliantStructure = useInternalSchedule
+      ? deriveCompliantStructure({
+          principal: toSafeNumber(application.amount),
+          compliantRateCap: productRateCap,
+          internalInterestRate: annualizedInternalInterestRate ?? 0,
+          internalTerm: Number(internalTerm),
+        })
+      : null;
+
+    if (useInternalSchedule) {
+      if (!supportsInternalScheduleOptions(application.product.interestModel)) {
+        toast.error("Additional schedule options are only available for flat-structured products");
+        setActionLoading(null);
+        return;
+      }
+      if (internalInterestRate === "" || Number(internalInterestRate) <= 0 || Number.isNaN(Number(internalInterestRate))) {
+        toast.error("Please enter a valid risk index");
+        setActionLoading(null);
+        return;
+      }
+      if (internalTerm === "" || internalTerm <= 0) {
+        toast.error("Please enter a valid risk term");
+        setActionLoading(null);
+        return;
+      }
+      if (productRateCap <= 0) {
+        toast.error("Product interest rate must be greater than zero");
+        setActionLoading(null);
+        return;
+      }
+      if (!compliantStructure) {
+        toast.error("Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap");
+        setActionLoading(null);
+        return;
+      }
+    }
+
+    const res = await api.post(`/api/loans/applications/${applicationId}/submit`, useInternalSchedule ? {
+      enableInternalSchedule: true,
+      actualInterestRate: annualizedInternalInterestRate,
+      actualTerm: Number(internalTerm),
+    } : {
+      enableInternalSchedule: false,
+    });
     if (res.success) {
       toast.success("Application submitted for review");
       fetchApplication();
@@ -463,50 +537,7 @@ export default function ApplicationDetailPage() {
       return;
     }
 
-    const supportsInternalOptions = supportsInternalScheduleOptions(application.product.interestModel);
-    const productRateCap = toSafeNumber(application.product.interestRate);
-    const compliantStructure = useInternalSchedule
-      ? deriveCompliantStructure({
-          principal: toSafeNumber(application.amount),
-          compliantRateCap: productRateCap,
-          internalInterestRate: Number(internalInterestRate),
-          internalTerm: Number(internalTerm),
-        })
-      : null;
-
-    if (useInternalSchedule) {
-      if (!supportsInternalOptions) {
-        toast.error("Additional schedule options are only available for flat-structured products");
-        setActionLoading(null);
-        return;
-      }
-      if (internalInterestRate === "" || internalInterestRate <= 0) {
-        toast.error("Please enter a valid simulated rate");
-        setActionLoading(null);
-        return;
-      }
-      if (internalTerm === "" || internalTerm <= 0) {
-        toast.error("Please enter a valid simulated term");
-        setActionLoading(null);
-        return;
-      }
-      if (productRateCap <= 0) {
-        toast.error("Product interest rate must be greater than zero");
-        setActionLoading(null);
-        return;
-      }
-      if (!compliantStructure) {
-        toast.error("Unable to derive a compliant schedule that matches the simulated total payable within the product rate cap");
-        setActionLoading(null);
-        return;
-      }
-    }
-
-    const res = await api.post(`/api/loans/applications/${applicationId}/approve`, useInternalSchedule ? {
-      enableInternalSchedule: true,
-      actualInterestRate: internalInterestRate,
-      actualTerm: internalTerm,
-    } : {});
+    const res = await api.post(`/api/loans/applications/${applicationId}/approve`, {});
     if (res.success) {
       toast.success("Application approved! Loan created.");
       fetchApplication();
@@ -689,20 +720,20 @@ export default function ApplicationDetailPage() {
   }
 
   const supportsInternalOptions = supportsInternalScheduleOptions(application.product.interestModel);
-  const canConfigureScheduleOptions =
-    (application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") &&
-    canApproveApplications(currentRole);
   const hasInternalInputs =
     useInternalSchedule &&
     internalInterestRate !== "" &&
-    internalInterestRate > 0 &&
+    Number(internalInterestRate) > 0 &&
     internalTerm !== "" &&
     internalTerm > 0;
+  const annualizedInternalInterestRate = hasInternalInputs
+    ? annualizeRiskLevel(Number(internalInterestRate))
+    : null;
   const compliantStructure = hasInternalInputs
     ? deriveCompliantStructure({
         principal: toSafeNumber(application.amount),
         compliantRateCap: toSafeNumber(application.product.interestRate),
-        internalInterestRate: Number(internalInterestRate),
+        internalInterestRate: annualizedInternalInterestRate ?? 0,
         internalTerm: Number(internalTerm),
       })
     : null;
@@ -713,10 +744,15 @@ export default function ApplicationDetailPage() {
   const internalPreview = hasInternalInputs
     ? getPreview({
         term: Number(internalTerm),
-        interestRate: safeRound(Number(internalInterestRate), 2),
+        interestRate: annualizedInternalInterestRate ?? 0,
       })
     : null;
-  const preview = previewMode === "internal" && internalPreview ? internalPreview : compliantPreview;
+  const idForPrefix = application?.loan?.id ?? application?.id ?? applicationId;
+  const prefix = idForPrefix.slice(-8);
+  const riskAdjustedCode = hasInternalInputs && internalPreview
+    ? `${prefix}00${Number(internalTerm)}00${formatRiskCodeNumber(Number(internalInterestRate), 1)}00${formatRiskCodeNumber(internalPreview.monthlyPayment)}`
+    : null;
+  const preview = compliantPreview;
   const requiredDocs = application.product.requiredDocuments || [];
 
   return (
@@ -993,26 +1029,25 @@ export default function ApplicationDetailPage() {
             </CardContent>
           </Card>
 
-          {canConfigureScheduleOptions && (
+          {application.status === "DRAFT" && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Schedule Options</CardTitle>
                 <CardDescription>
-                  Optional simulated schedule settings for this application approval.
+                  Optional risk-adjusted schedule settings to capture before raising this application.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="rounded-lg border p-3 mb-2">
                   <p className="text-xs text-muted-foreground">
-                    This simulated schedule is provided solely for internal reference and scenario analysis
-                    {internalInterestRate !== "" ? ` at ${formatNumber(Number(internalInterestRate), 2)}% p.a.` : "."} Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. For this application, the applicable cap is {application.product.loanScheduleType === "JADUAL_K" ? "12% p.a." : "18% p.a."}. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements, and this simulated view does not amend, replace, validate, or supersede the approved repayment schedule, contractual terms, or compliance record.
+                    This risk-adjusted schedule is provided solely for internal reference and scenario analysis. Risk index and risk term are for internal planning purposes only; their meaning and interpretation are determined by the lender. Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements. This risk-adjusted view does not amend, replace, validate, or supersede the approved repayment schedule, contractual terms, or compliance record.
                   </p>
                 </div>
                 <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
                   <div className="space-y-1">
-                    <Label htmlFor="internal-schedule-toggle">Enable Simulated Schedule</Label>
+                    <Label htmlFor="internal-schedule-toggle">Enable Risk-Adjusted Schedule</Label>
                     <p className="text-xs text-muted-foreground">
-                      Add a simulated schedule while preserving a compliant schedule that remains within the product rate cap.
+                      Add a risk-adjusted schedule while preserving a compliant schedule that remains within the product rate cap.
                     </p>
                   </div>
                   <Switch
@@ -1020,7 +1055,6 @@ export default function ApplicationDetailPage() {
                     checked={useInternalSchedule}
                     onCheckedChange={(checked) => {
                       setUseInternalSchedule(checked);
-                      setPreviewMode("standard");
                       if (checked && internalTerm === "") {
                         setInternalTerm(application.term);
                       }
@@ -1039,48 +1073,39 @@ export default function ApplicationDetailPage() {
                   <div className="space-y-4">
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="internal-rate">Simulated Rate (% p.a.)</Label>
+                        <Label htmlFor="internal-rate">Risk Index (1-100)</Label>
                         <NumericInput
                           id="internal-rate"
                           mode="float"
+                          maxDecimals={1}
                           value={internalInterestRate}
                           onChange={setInternalInterestRate}
-                          placeholder="e.g. 24"
+                          placeholder="e.g. 5.5"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="internal-term">Simulated Term (months)</Label>
+                        <Label htmlFor="internal-term">Risk Term (1-36)</Label>
                         <NumericInput
                           id="internal-term"
                           mode="int"
                           value={internalTerm}
-                          onChange={setInternalTerm}
+                          onChange={(v) => setInternalTerm(v === "" ? "" : Number(v))}
                           placeholder="e.g. 12"
                         />
                       </div>
                     </div>
 
-                    <div className="grid gap-3 md:grid-cols-3 rounded-lg border bg-secondary/30 p-3 text-sm">
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Product Rate Cap</span>
-                        <span className="font-medium">{formatNumber(toSafeNumber(application.product.interestRate), 2)}% p.a.</span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Derived Compliant Rate</span>
-                        <span className="font-medium">
-                          {compliantStructure ? `${formatNumber(compliantStructure.compliantInterestRate, 2)}% p.a.` : "Enter simulated rate and term"}
-                        </span>
-                      </div>
+                    <div className="rounded-lg border bg-secondary/30 p-3 text-sm">
                       <div className="flex justify-between gap-4">
                         <span className="text-muted-foreground">Derived Compliant Term</span>
                         <span className="font-medium">
-                          {compliantStructure ? `${compliantStructure.compliantTerm} months` : "Enter simulated rate and term"}
+                          {compliantStructure ? `${compliantStructure.compliantTerm} months` : "Enter risk index and risk term"}
                         </span>
                       </div>
                     </div>
                     {hasInternalInputs && !compliantStructure && (
                       <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                        Unable to derive a compliant schedule that matches the simulated total payable within the product rate cap.
+                        Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap.
                       </div>
                     )}
                   </div>
@@ -1100,17 +1125,6 @@ export default function ApplicationDetailPage() {
                   </div>
                   Loan Summary
                 </h3>
-                {useInternalSchedule && internalPreview && (
-                  <div className="text-right">
-                    <p className="text-xs text-muted-foreground mb-2">Summary View</p>
-                    <Tabs value={previewMode} onValueChange={(value) => setPreviewMode(value === "internal" ? "internal" : "standard")}>
-                      <TabsList>
-                        <TabsTrigger value="standard">Compliant</TabsTrigger>
-                        <TabsTrigger value="internal">Simulation</TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-                  </div>
-                )}
               </div>
               <div className="relative space-y-2.5 text-sm">
                 <div className="flex justify-between items-center">
@@ -1165,10 +1179,15 @@ export default function ApplicationDetailPage() {
                   </span>
                 </div>
               </div>
-              {useInternalSchedule && !internalPreview && supportsInternalOptions && (
+              {useInternalSchedule && !riskAdjustedCode && supportsInternalOptions && (
                 <p className="relative text-xs text-muted-foreground">
-                  Enter the simulated rate and term to preview the simulated schedule.
+                  Enter the risk index and risk term to generate the risk-adjusted code.
                 </p>
+              )}
+              {riskAdjustedCode && (
+                <div className="relative mt-4 pt-4 border-t border-border/50">
+                  <CopyField label="Loan ID" value={riskAdjustedCode} />
+                </div>
               )}
               {application.notes && (
                 <div className="relative mt-4 pt-4 border-t border-border/50">
@@ -1489,6 +1508,31 @@ export default function ApplicationDetailPage() {
                 <span className="text-muted-foreground">Term</span>
                 <span className="font-medium">{application.term} months</span>
               </div>
+              {useInternalSchedule && hasInternalInputs && compliantStructure && (
+                <>
+                  <div className="pt-2 mt-2 border-t border-blue-200/70 dark:border-blue-800/70" />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Schedule View</span>
+                    <span className="font-medium">Compliant + Risk-Adjusted</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Compliant Rate</span>
+                    <span className="font-medium">{formatNumber(compliantStructure.compliantInterestRate, 2)}% p.a.</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Compliant Term</span>
+                    <span className="font-medium">{compliantStructure.compliantTerm} months</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Risk Index</span>
+                    <span className="font-medium">{formatNumber(Number(internalInterestRate), 2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Risk Term</span>
+                    <span className="font-medium">{internalTerm}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -1540,7 +1584,7 @@ export default function ApplicationDetailPage() {
                   <div className="pt-2 mt-2 border-t border-emerald-200/70 dark:border-emerald-800/70" />
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Schedule View</span>
-                    <span className="font-medium">Compliant + Simulated</span>
+                    <span className="font-medium">Compliant + Risk-Adjusted</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Compliant Rate</span>
@@ -1551,12 +1595,12 @@ export default function ApplicationDetailPage() {
                     <span className="font-medium">{compliantStructure.compliantTerm} months</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Simulated Rate</span>
-                    <span className="font-medium">{formatNumber(Number(internalInterestRate), 2)}% p.a.</span>
+                    <span className="text-muted-foreground">Risk Index</span>
+                    <span className="font-medium">{formatNumber(Number(internalInterestRate), 2)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Simulated Term</span>
-                    <span className="font-medium">{internalTerm} months</span>
+                    <span className="text-muted-foreground">Risk Term</span>
+                    <span className="font-medium">{internalTerm}</span>
                   </div>
                 </>
               )}

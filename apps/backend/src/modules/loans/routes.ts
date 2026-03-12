@@ -68,7 +68,7 @@ function resolveVerificationStatus(borrower: {
   return getBorrowerVerificationSummary(borrower);
 }
 
-const approveApplicationSchema = z.object({
+const submitApplicationSchema = z.object({
   enableInternalSchedule: z.boolean().optional().default(false),
   actualInterestRate: z.number().positive().max(100).optional(),
   actualTerm: z.number().int().positive().optional(),
@@ -489,6 +489,9 @@ const createApplicationSchema = z.object({
   collateralType: z.string().max(200).optional(),
   collateralValue: z.number().positive().optional(),
   guarantorIds: z.array(z.string()).max(5).optional(),
+  enableInternalSchedule: z.boolean().optional().default(false),
+  actualInterestRate: z.number().positive().max(100).optional(),
+  actualTerm: z.number().int().positive().optional(),
 });
 
 const updateApplicationSchema = z.object({
@@ -821,7 +824,30 @@ router.post('/applications', async (req, res, next) => {
       );
     }
 
-    if (data.term < product.minTerm || data.term > product.maxTerm) {
+    let actualInterestRate: number | null = null;
+    let actualTerm: number | null = null;
+    let applicationTerm = data.term;
+
+    if (data.enableInternalSchedule) {
+      if (!supportsInternalScheduleView(product.interestModel as 'FLAT' | 'RULE_78')) {
+        throw new BadRequestError('Additional schedule options are only supported for flat-structured products');
+      }
+
+      if (data.actualInterestRate == null || data.actualTerm == null) {
+        throw new BadRequestError('Risk-adjusted schedule rate and term are required');
+      }
+
+      actualInterestRate = safeRound(data.actualInterestRate, 2);
+      actualTerm = data.actualTerm;
+
+      const compliantStructure = deriveCompliantStructureFromInternal({
+        principal: data.amount,
+        compliantRateCap: toSafeNumber(product.interestRate),
+        actualInterestRate,
+        actualTerm,
+      });
+      applicationTerm = compliantStructure.compliantTerm;
+    } else if (data.term < product.minTerm || data.term > product.maxTerm) {
       throw new BadRequestError(
         `Term must be between ${product.minTerm} and ${product.maxTerm} months`
       );
@@ -833,9 +859,11 @@ router.post('/applications', async (req, res, next) => {
         borrowerId: data.borrowerId,
         productId: data.productId,
         amount: data.amount,
-        term: data.term,
+        term: applicationTerm,
         notes: data.notes,
         status: 'DRAFT',
+        actualInterestRate,
+        actualTerm,
         collateralType: data.collateralType,
         collateralValue: data.collateralValue,
         guarantors: guarantors.length > 0
@@ -1139,10 +1167,14 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
  */
 router.post('/applications/:applicationId/submit', async (req, res, next) => {
   try {
+    const submitData = submitApplicationSchema.parse(req.body);
     const application = await prisma.loanApplication.findFirst({
       where: {
         id: req.params.applicationId,
         tenantId: req.tenantId,
+      },
+      include: {
+        product: true,
       },
     });
 
@@ -1154,9 +1186,36 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
       throw new BadRequestError('Can only submit draft applications');
     }
 
+    let actualInterestRate: number | null = null;
+    let actualTerm: number | null = null;
+
+    if (submitData.enableInternalSchedule) {
+      if (!supportsInternalScheduleView(application.product.interestModel as 'FLAT' | 'RULE_78')) {
+        throw new BadRequestError('Additional schedule options are only supported for flat-structured products');
+      }
+
+      if (submitData.actualInterestRate == null || submitData.actualTerm == null) {
+        throw new BadRequestError('Risk-adjusted schedule rate and term are required');
+      }
+
+      actualInterestRate = safeRound(submitData.actualInterestRate, 2);
+      actualTerm = submitData.actualTerm;
+
+      deriveCompliantStructureFromInternal({
+        principal: toSafeNumber(application.amount),
+        compliantRateCap: toSafeNumber(application.product.interestRate),
+        actualInterestRate,
+        actualTerm,
+      });
+    }
+
     const updated = await prisma.loanApplication.update({
       where: { id: req.params.applicationId },
-      data: { status: 'SUBMITTED' },
+      data: {
+        status: 'SUBMITTED',
+        actualInterestRate,
+        actualTerm,
+      },
     });
 
     // Log to audit trail
@@ -1166,8 +1225,16 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
       action: 'SUBMIT',
       entityType: 'LoanApplication',
       entityId: application.id,
-      previousData: { status: 'DRAFT' },
-      newData: { status: 'SUBMITTED' },
+      previousData: {
+        status: 'DRAFT',
+        actualInterestRate: application.actualInterestRate,
+        actualTerm: application.actualTerm,
+      },
+      newData: {
+        status: 'SUBMITTED',
+        actualInterestRate,
+        actualTerm,
+      },
       ipAddress: req.ip,
     });
 
@@ -1186,7 +1253,6 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
  */
 router.post('/applications/:applicationId/approve', requireAdmin, async (req, res, next) => {
   try {
-    const approvalData = approveApplicationSchema.parse(req.body);
     const applicationId = req.params.applicationId as string;
     const application = await prisma.loanApplication.findFirst({
       where: {
@@ -1227,22 +1293,19 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
     const previousStatus = application.status;
     const productRateCap = toSafeNumber(application.product.interestRate);
     const principalAmount = toSafeNumber(application.amount);
+    const hasRiskAdjustedSchedule = application.actualInterestRate != null && application.actualTerm != null;
     let compliantInterestRate = productRateCap;
     let derivedTerm = application.term;
     let actualInterestRate: number | null = null;
     let actualTerm: number | null = null;
 
-    if (approvalData.enableInternalSchedule) {
+    if (hasRiskAdjustedSchedule) {
       if (!supportsInternalScheduleView(application.product.interestModel as 'FLAT' | 'RULE_78')) {
         throw new BadRequestError('Additional schedule options are only supported for flat-structured products');
       }
 
-      if (approvalData.actualInterestRate == null || approvalData.actualTerm == null) {
-        throw new BadRequestError('Simulated schedule rate and term are required');
-      }
-
-      actualInterestRate = safeRound(approvalData.actualInterestRate, 2);
-      actualTerm = approvalData.actualTerm;
+      actualInterestRate = safeRound(toSafeNumber(application.actualInterestRate), 2);
+      actualTerm = application.actualTerm;
       const compliantStructure = deriveCompliantStructureFromInternal({
         principal: principalAmount,
         compliantRateCap: productRateCap,

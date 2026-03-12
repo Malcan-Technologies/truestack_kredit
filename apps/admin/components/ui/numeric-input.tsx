@@ -4,10 +4,13 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
+/** Value type passed to NumericInput onChange (number, empty string, or intermediate string e.g. "5.") */
+export type NumericInputValue = number | "" | string;
+
 export interface NumericInputProps
   extends Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "type"> {
-  value: number | "" | string;
-  onChange: (value: number | "" | string) => void;
+  value: NumericInputValue;
+  onChange: (value: NumericInputValue) => void;
   /** "int" for whole numbers, "float" for decimals */
   mode?: "int" | "float";
   /** Max decimal places (float mode only). Enables typing intermediates like "5." */
@@ -29,8 +32,9 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value;
+      const fireChange = (val: NumericInputValue) => (onChange as (v: NumericInputValue) => void)(val);
       if (raw === "") {
-        onChange("");
+        fireChange("");
         return;
       }
       if (mode === "float" && FLOAT_PARTIAL.test(raw)) {
@@ -38,21 +42,21 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         if (maxDecimals != null && decimalPart.length > maxDecimals) return;
         // Preserve "5." so user can type "5.5" without decimal snapping away
         if (raw.endsWith(".")) {
-          onChange(raw);
+          fireChange(raw);
           return;
         }
         const parsed = parseFloat(raw);
         // Preserve raw when parseFloat would strip trailing zeros (e.g. "10000.0" -> 10000),
         // so user can type "10000.01" without losing the decimal context
         if (raw.includes(".") && !Number.isNaN(parsed) && String(parsed) !== raw) {
-          onChange(raw);
+          fireChange(raw);
           return;
         }
-        onChange(Number.isNaN(parsed) ? fallback : parsed);
+        fireChange(Number.isNaN(parsed) ? fallback : parsed);
         return;
       }
       const parsed = mode === "int" ? parseInt(raw, 10) : parseFloat(raw);
-      onChange(Number.isNaN(parsed) ? fallback : parsed);
+      fireChange(Number.isNaN(parsed) ? fallback : parsed);
     };
 
     return (

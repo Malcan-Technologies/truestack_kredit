@@ -975,7 +975,7 @@ export default function NewApplicationPage() {
                         </label>
                         <NumericInput
                           value={amount}
-                          onChange={setAmount}
+                          onChange={(v: number | "" | string) => setAmount(v === "" ? "" : typeof v === "number" ? v : 0)}
                           min={minAmount}
                           max={maxAmount}
                           className={`mt-1 ${isAmountInvalid ? "border-red-500 focus:ring-red-500" : ""}`}
@@ -1008,7 +1008,7 @@ export default function NewApplicationPage() {
                         </label>
                         <NumericInput
                           value={displayedCompliantTerm}
-                          onChange={setTerm}
+                          onChange={(v: number | "" | string) => setTerm(v === "" ? "" : typeof v === "number" ? v : 0)}
                           min={minTerm}
                           max={maxTerm}
                           disabled={useInternalSchedule}
@@ -1069,7 +1069,7 @@ export default function NewApplicationPage() {
                         <NumericInput
                           mode="float"
                           value={collateralValue}
-                          onChange={setCollateralValue}
+                          onChange={(v: number | "" | string) => setCollateralValue(v === "" ? "" : typeof v === "number" ? v : 0)}
                           placeholder="0.00"
                           min={0}
                           className="mt-1"
@@ -1144,7 +1144,7 @@ export default function NewApplicationPage() {
                               id="new-application-internal-term"
                               mode="int"
                               value={internalTerm}
-                              onChange={(v) => setInternalTerm(v === "" ? "" : Number(v))}
+                              onChange={(v: number | "" | string) => setInternalTerm(v === "" ? "" : typeof v === "number" ? v : Number(v))}
                               placeholder="e.g. 12"
                             />
                           </div>

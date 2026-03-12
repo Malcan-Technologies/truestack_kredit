@@ -24,7 +24,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NumericInput } from "@/components/ui/numeric-input";
+import { NumericInput, type NumericInputValue } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -70,6 +70,10 @@ interface Product {
 }
 
 type NumericValue = number | "";
+
+function toNumericValue(v: NumericInputValue): NumericValue {
+  return v === "" ? "" : typeof v === "number" ? v : (Number(v) || 0);
+}
 
 interface ProductFormData {
   name: string;
@@ -605,7 +609,7 @@ export default function EditProductPage() {
                     max={100}
                     step="0.01"
                     value={formData.interestRate}
-                    onChange={(v) => setFormData({ ...formData, interestRate: v })}
+                    onChange={(v: NumericInputValue) => setFormData({ ...formData, interestRate: toNumericValue(v) })}
                   />
                   {formData.loanScheduleType === "JADUAL_K" && formData.interestRate !== "" && formData.interestRate !== 12 && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -621,7 +625,7 @@ export default function EditProductPage() {
                     max={100}
                     step="0.01"
                     value={formData.latePaymentRate}
-                    onChange={(v) => setFormData({ ...formData, latePaymentRate: v })}
+                    onChange={(v: NumericInputValue) => setFormData({ ...formData, latePaymentRate: toNumericValue(v) })}
                   />
                 </div>
               </div>
@@ -653,7 +657,7 @@ export default function EditProductPage() {
                       min={0}
                       step="0.01"
                       value={formData.legalFeeValue}
-                      onChange={(v) => setFormData({ ...formData, legalFeeValue: v })}
+                      onChange={(v: NumericInputValue) => setFormData({ ...formData, legalFeeValue: toNumericValue(v) })}
                     />
                     <span className="text-sm text-muted-foreground">
                       {formData.legalFeeType === "PERCENTAGE" ? "%" : "RM"}
@@ -686,7 +690,7 @@ export default function EditProductPage() {
                       min={0}
                       step="0.01"
                       value={formData.stampingFeeValue}
-                      onChange={(v) => setFormData({ ...formData, stampingFeeValue: v })}
+                      onChange={(v: NumericInputValue) => setFormData({ ...formData, stampingFeeValue: toNumericValue(v) })}
                     />
                     <span className="text-sm text-muted-foreground">
                       {formData.stampingFeeType === "PERCENTAGE" ? "%" : "RM"}
@@ -720,7 +724,7 @@ export default function EditProductPage() {
                         min={0}
                         max={120}
                         value={formData.earlySettlementLockInMonths}
-                        onChange={(v) => setFormData({ ...formData, earlySettlementLockInMonths: v })}
+                        onChange={(v: NumericInputValue) => setFormData({ ...formData, earlySettlementLockInMonths: toNumericValue(v) })}
                       />
                       <p className="text-xs text-muted-foreground">
                         Minimum months before a loan is eligible for early settlement. Set to 0 for no lock-in.
@@ -787,7 +791,7 @@ export default function EditProductPage() {
                           max={formData.earlySettlementDiscountType === "PERCENTAGE" ? 100 : undefined}
                           step="0.01"
                           value={formData.earlySettlementDiscountValue}
-                          onChange={(v) => setFormData({ ...formData, earlySettlementDiscountValue: v })}
+                          onChange={(v: NumericInputValue) => setFormData({ ...formData, earlySettlementDiscountValue: toNumericValue(v) })}
                         />
                         {formData.earlySettlementDiscountType === "PERCENTAGE" && (
                           <span className="text-sm text-muted-foreground">%</span>
@@ -819,7 +823,7 @@ export default function EditProductPage() {
                     <NumericInput
                       min={0}
                       value={formData.minAmount}
-                      onChange={(v) => setFormData({ ...formData, minAmount: v })}
+                      onChange={(v: NumericInputValue) => setFormData({ ...formData, minAmount: toNumericValue(v) })}
                     />
                   </div>
                   <div className="space-y-2">
@@ -827,7 +831,7 @@ export default function EditProductPage() {
                     <NumericInput
                       min={0}
                       value={formData.maxAmount}
-                      onChange={(v) => setFormData({ ...formData, maxAmount: v })}
+                      onChange={(v: NumericInputValue) => setFormData({ ...formData, maxAmount: toNumericValue(v) })}
                     />
                   </div>
                 </div>
@@ -842,7 +846,7 @@ export default function EditProductPage() {
                     <NumericInput
                       min={1}
                       value={formData.minTerm}
-                      onChange={(v) => setFormData({ ...formData, minTerm: v })}
+                      onChange={(v: NumericInputValue) => setFormData({ ...formData, minTerm: toNumericValue(v) })}
                       fallback={1}
                     />
                   </div>
@@ -851,7 +855,7 @@ export default function EditProductPage() {
                     <NumericInput
                       min={1}
                       value={formData.maxTerm}
-                      onChange={(v) => setFormData({ ...formData, maxTerm: v })}
+                      onChange={(v: NumericInputValue) => setFormData({ ...formData, maxTerm: toNumericValue(v) })}
                       fallback={1}
                     />
                   </div>
@@ -868,7 +872,7 @@ export default function EditProductPage() {
                       min={1}
                       max={365}
                       value={formData.arrearsPeriod}
-                      onChange={(v) => setFormData({ ...formData, arrearsPeriod: v })}
+                      onChange={(v: NumericInputValue) => setFormData({ ...formData, arrearsPeriod: toNumericValue(v) })}
                       fallback={14}
                     />
                     <p className="text-xs text-muted-foreground">Days after missed payment before loan is flagged as at-risk. Arrears notice will be auto-generated.</p>
@@ -879,7 +883,7 @@ export default function EditProductPage() {
                       min={1}
                       max={365}
                       value={formData.defaultPeriod}
-                      onChange={(v) => setFormData({ ...formData, defaultPeriod: v })}
+                      onChange={(v: NumericInputValue) => setFormData({ ...formData, defaultPeriod: toNumericValue(v) })}
                       fallback={28}
                     />
                     <p className="text-xs text-muted-foreground">Days after missed payment before loan is flagged to be marked as defaulted</p>

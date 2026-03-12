@@ -2943,7 +2943,7 @@ export default function BorrowerDetailPage() {
                         <NumericInput
                           mode="float"
                           value={noMonthlyIncome ? 0 : (formData.monthlyIncome === "" ? "" : (parseFloat(formData.monthlyIncome) || 0))}
-                          onChange={(v) => {
+                          onChange={(v: number | "" | string) => {
                             setFormData((prev) => ({ ...prev, monthlyIncome: v === "" ? "" : String(v) }));
                             if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
                           }}

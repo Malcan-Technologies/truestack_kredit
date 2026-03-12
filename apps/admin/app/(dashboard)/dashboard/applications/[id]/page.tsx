@@ -1089,7 +1089,7 @@ export default function ApplicationDetailPage() {
                           id="internal-term"
                           mode="int"
                           value={internalTerm}
-                          onChange={(v) => setInternalTerm(v === "" ? "" : Number(v))}
+                          onChange={(v: number | "" | string) => setInternalTerm(v === "" ? "" : typeof v === "number" ? v : Number(v))}
                           placeholder="e.g. 12"
                         />
                       </div>

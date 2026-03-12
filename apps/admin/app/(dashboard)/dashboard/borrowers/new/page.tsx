@@ -508,7 +508,7 @@ function Field({
         <NumericInput
           mode={numberMode}
           value={numValue}
-          onChange={(v) => onChange(v === "" ? "" : String(v))}
+          onChange={(v: import("@/components/ui/numeric-input").NumericInputValue) => onChange(v === "" ? "" : String(v))}
           placeholder={placeholder}
           disabled={disabled}
           className={error ? "border-red-500" : ""}
@@ -1119,7 +1119,7 @@ export default function NewBorrowerPage() {
                       <NumericInput
                         mode="float"
                         value={noMonthlyIncome ? 0 : (individualFormData.monthlyIncome === "" ? "" : (parseFloat(individualFormData.monthlyIncome) || 0))}
-                        onChange={(v) => {
+                        onChange={(v: import("@/components/ui/numeric-input").NumericInputValue) => {
                           setIndividualFormData((prev) => ({ ...prev, monthlyIncome: v === "" ? "" : String(v) }));
                           if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
                         }}

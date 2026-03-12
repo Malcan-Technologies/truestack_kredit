@@ -843,8 +843,8 @@ router.post('/applications', async (req, res, next) => {
       const compliantStructure = deriveCompliantStructureFromInternal({
         principal: data.amount,
         compliantRateCap: toSafeNumber(product.interestRate),
-        actualInterestRate,
-        actualTerm,
+        actualInterestRate: actualInterestRate!,
+        actualTerm: actualTerm!,
       });
       applicationTerm = compliantStructure.compliantTerm;
     } else if (data.term < product.minTerm || data.term > product.maxTerm) {
@@ -1204,8 +1204,8 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
       deriveCompliantStructureFromInternal({
         principal: toSafeNumber(application.amount),
         compliantRateCap: toSafeNumber(application.product.interestRate),
-        actualInterestRate,
-        actualTerm,
+        actualInterestRate: actualInterestRate!,
+        actualTerm: actualTerm!,
       });
     }
 
@@ -1304,13 +1304,15 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
         throw new BadRequestError('Additional schedule options are only supported for flat-structured products');
       }
 
-      actualInterestRate = safeRound(toSafeNumber(application.actualInterestRate), 2);
-      actualTerm = application.actualTerm;
+      const rate = safeRound(toSafeNumber(application.actualInterestRate), 2);
+      const term = application.actualTerm!;
+      actualInterestRate = rate;
+      actualTerm = term;
       const compliantStructure = deriveCompliantStructureFromInternal({
         principal: principalAmount,
         compliantRateCap: productRateCap,
-        actualInterestRate,
-        actualTerm,
+        actualInterestRate: rate,
+        actualTerm: term,
       });
       compliantInterestRate = compliantStructure.compliantInterestRate;
       derivedTerm = compliantStructure.compliantTerm;

@@ -1332,16 +1332,17 @@ model TrueIdentitySession {
 }
 
 model TrueIdentityWebhookEvent {
-  id              String    @id @default(cuid())
-  tenantId        String?
-  idempotencyKey  String    @unique
-  rawPayload      Json
+  id               String    @id @default(cuid())
+  tenantId         String?
+  idempotencyKey   String    @unique
+  rawPayload       Json
   signatureHeader String?
   timestampHeader String?
-  status          String    @default("PENDING")
-  processedAt     DateTime?
-  errorMessage    String?
-  createdAt       DateTime  @default(now())
+  status           String    @default("PENDING")
+  processedAt      DateTime?
+  usageRecordedAt  DateTime?  // Set before recordVerificationComplete to make usage increment idempotent on retry
+  errorMessage     String?
+  createdAt        DateTime  @default(now())
 
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 

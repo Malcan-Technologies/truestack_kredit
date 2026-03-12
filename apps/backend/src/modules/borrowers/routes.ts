@@ -12,7 +12,6 @@ import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocume
 import { ensureBorrowerPerformanceProjections } from './performanceProjectionService.js';
 import { AddOnService } from '../../lib/addOnService.js';
 import { requestVerificationSession } from '../trueidentity/adminWebhookClient.js';
-import { recordVerificationStart } from '../trueidentity/usageService.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 
 const router = Router();
@@ -1584,8 +1583,6 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
     });
 
     const expiresAt = adminRes.expires_at ? new Date(adminRes.expires_at) : new Date(Date.now() + 15 * 60 * 1000);
-
-    await recordVerificationStart(req.tenantId!);
 
     const sessionPayload = {
       tenantId: req.tenantId!,

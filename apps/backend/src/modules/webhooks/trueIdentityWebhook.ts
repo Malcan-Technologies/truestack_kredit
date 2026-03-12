@@ -16,6 +16,7 @@ import { config } from '../../lib/config.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
 import { AuditService } from '../compliance/auditService.js';
+import { recordVerificationComplete } from '../trueidentity/usageService.js';
 import {
   processCorporateDirectorDocumentUrls,
   processDocumentImagesFromWebhook,
@@ -395,6 +396,17 @@ router.post('/', async (req, res) => {
           },
           ipAddress: req.ip,
         });
+      }
+
+      if (event === 'kyc.session.completed' && status === 'completed' && result === 'approved') {
+        // Atomically claim the right to record usage so retries don't double-count
+        const claimed = await prisma.trueIdentityWebhookEvent.updateMany({
+          where: { idempotencyKey, usageRecordedAt: null },
+          data: { usageRecordedAt: new Date(), tenantId },
+        });
+        if (claimed.count > 0) {
+          await recordVerificationComplete(tenantId);
+        }
       }
     }
 

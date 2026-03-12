@@ -47,6 +47,11 @@ interface LatestPaymentRequest {
   rejectionReason?: string | null;
 }
 
+interface TrueIdentityUsageSummary {
+  verificationCount: number;
+  usageAmountMyr: number;
+}
+
 interface InvoiceLineItem {
   itemType: string;
   description: string;
@@ -136,6 +141,7 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loanCount, setLoanCount] = useState(0);
   const [latestPaymentRequest, setLatestPaymentRequest] = useState<LatestPaymentRequest | null>(null);
+  const [liveUsage, setLiveUsage] = useState<TrueIdentityUsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
@@ -171,9 +177,33 @@ export default function BillingPage() {
       if (paymentReqRes.success) {
         setLatestPaymentRequest(paymentReqRes.data ?? null);
       }
+
+      if (subRes.success && subRes.data?.currentPeriodStart && subRes.data?.currentPeriodEnd) {
+        const from = new Date(subRes.data.currentPeriodStart);
+        const to = new Date(subRes.data.currentPeriodEnd);
+        const fromDate = Number.isNaN(from.getTime()) ? null : from.toISOString().slice(0, 10);
+        const toDate = Number.isNaN(to.getTime()) ? null : to.toISOString().slice(0, 10);
+        const usagePath = fromDate && toDate
+          ? `/billing/trueidentity-usage?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`
+          : "/billing/trueidentity-usage";
+        try {
+          const usageRes = await api.get<TrueIdentityUsageSummary>(usagePath);
+          if (usageRes.success && usageRes.data) {
+            setLiveUsage(usageRes.data);
+          } else {
+            setLiveUsage(null);
+          }
+        } catch (error) {
+          console.warn("Failed to fetch trueidentity usage:", error);
+          setLiveUsage(null);
+        }
+      } else {
+        setLiveUsage(null);
+      }
     } catch (error) {
       console.error("Failed to fetch billing data:", error);
       setInvoices([]);
+      setLiveUsage(null);
     }
     setLoading(false);
   };
@@ -222,7 +252,7 @@ export default function BillingPage() {
   const trueidentityUsageLine = latestUnpaidRenewalInvoice?.lineItems?.find(
     (li) => li.itemType === "USAGE"
   );
-  const trueidentityUsageCost = trueidentityUsageLine?.amount ?? 0;
+  const trueidentityUsageCost = trueidentityUsageLine?.amount ?? liveUsage?.usageAmountMyr ?? 0;
 
   const subtotalMonthly = basePlanPrice + extraBlockCost + truesendCost + trueidentityUsageCost;
   const sstAmount = Math.round(subtotalMonthly * SST_RATE * 100) / 100;
@@ -476,9 +506,11 @@ export default function BillingPage() {
             <div className="border-t pt-4">
               <h4 className="text-sm font-medium mb-2">Usage-based charges</h4>
               <p className="text-xs text-muted-foreground">
-                {trueidentityUsageCost > 0
+                {trueidentityUsageLine
                   ? "TrueIdentity™ usage from the current unpaid renewal invoice is included in the totals above."
-                  : "TrueIdentity™ verifications and other usage-based charges appear on your monthly invoice."}
+                  : trueidentityUsageCost > 0
+                    ? "Estimated from current cycle usage. Final amount will appear on your renewal invoice."
+                    : "TrueIdentity™ verifications and other usage-based charges appear on your monthly invoice."}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Usage shown here only reflects the current payable renewal cycle.

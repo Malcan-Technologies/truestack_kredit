@@ -408,7 +408,7 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
           },
         },
       }),
-      getUsageForTenant(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd),
+      getUsageForTenant(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd, { toDateExclusive: true }),
     ]);
 
     const truesendAmount = truesendAddOn?.status === 'ACTIVE' ? truesendMonthly : 0;

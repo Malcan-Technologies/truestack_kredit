@@ -877,7 +877,7 @@ router.get('/trueidentity-usage', async (req, res, next) => {
 
     const { getUsageForTenant, computeUsageAmount } = await import('../trueidentity/usageService.js');
 
-    const usage = await getUsageForTenant(tenantId, from, to);
+    const usage = await getUsageForTenant(tenantId, from, to, { toDateExclusive: true });
     const verificationCount = usage.reduce((sum, r) => sum + r.count, 0);
     const { usageAmountMyr } = computeUsageAmount(verificationCount);
 

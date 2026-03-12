@@ -7,6 +7,7 @@ import { addMonthsClamped, safeAdd, safeMultiply, safeSubtract, toSafeNumber } f
 import { NotificationService } from '../modules/notifications/service.js';
 import { fetchAdminUsage } from '../modules/trueidentity/adminUsageClient.js';
 import { signRequestBody } from '../modules/trueidentity/signature.js';
+import { computeUsageAmount, getUsageForTenant } from '../modules/trueidentity/usageService.js';
 
 export type PaymentDecision = {
   id: string;
@@ -398,7 +399,7 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
     // Always renew from the core plan base price; add-ons and tax are added as separate line items.
     const baseAmount = CORE_AMOUNT_CENTS / 100;
 
-    const [truesendAddOn, usage] = await Promise.all([
+    const [truesendAddOn, usageRows] = await Promise.all([
       prisma.tenantAddOn.findUnique({
         where: {
           tenantId_addOnType: {
@@ -407,11 +408,12 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
           },
         },
       }),
-      fetchAdminUsage(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd).catch(() => null),
+      getUsageForTenant(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd, { toDateExclusive: true }),
     ]);
 
     const truesendAmount = truesendAddOn?.status === 'ACTIVE' ? truesendMonthly : 0;
-    const usageAmount = toSafeNumber(usage?.usage_amount_myr ?? 0);
+    const verificationCount = usageRows.reduce((sum, row) => sum + row.count, 0);
+    const { usageAmountMyr: usageAmount, unitPriceMyr } = computeUsageAmount(verificationCount);
     const subtotal = safeAdd(baseAmount, truesendAmount, usageAmount);
     const sstAmount = safeMultiply(subtotal, 0.08);
     const totalAmount = safeAdd(subtotal, sstAmount);
@@ -457,9 +459,9 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
             ? [{
                 invoiceId: invoice.id,
                 itemType: 'USAGE',
-                description: 'TrueIdentity usage carry-forward',
-                unitPrice: usageAmount,
-                quantity: 1,
+                description: `TrueIdentity usage (${verificationCount} verifications)`,
+                unitPrice: unitPriceMyr,
+                quantity: verificationCount,
                 amount: usageAmount,
               }]
             : []),
@@ -489,6 +491,79 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
     created++;
   }
   return created;
+}
+
+function startOfDayUtc(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+async function reconcileUsageWithAdmin(): Promise<number> {
+  let backfilled = 0;
+  const subscriptions = await prisma.subscription.findMany({
+    where: {
+      status: { in: ['ACTIVE', 'GRACE_PERIOD', 'BLOCKED'] },
+    },
+    select: {
+      tenantId: true,
+      currentPeriodStart: true,
+      currentPeriodEnd: true,
+      tenant: {
+        select: {
+          addOns: {
+            where: { addOnType: 'TRUEIDENTITY', status: 'ACTIVE' },
+            select: { id: true },
+          },
+        },
+      },
+    },
+  });
+
+  for (const sub of subscriptions) {
+    if (sub.tenant.addOns.length === 0) continue;
+
+    const localRows = await getUsageForTenant(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd, { toDateExclusive: true });
+    const localCount = localRows.reduce((sum, row) => sum + row.count, 0);
+
+    let adminUsage: Awaited<ReturnType<typeof fetchAdminUsage>> = null;
+    try {
+      adminUsage = await fetchAdminUsage(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd);
+    } catch {
+      continue;
+    }
+    if (!adminUsage) continue;
+
+    const adminCount = Math.max(0, adminUsage.verification_count);
+    if (adminCount <= localCount) continue;
+
+    const missing = adminCount - localCount;
+    // Store backfill on the last day of the period so generateRenewalInvoices (which queries
+    // [currentPeriodStart, currentPeriodEnd) exclusive) will include it. currentPeriodEnd is
+    // the start of the next period, so last day = currentPeriodEnd - 1 day.
+    const periodStartDay = startOfDayUtc(sub.currentPeriodStart);
+    const lastDayOfPeriod = startOfDayUtc(addDays(sub.currentPeriodEnd, -1));
+    const usageDate = lastDayOfPeriod < periodStartDay ? periodStartDay : lastDayOfPeriod;
+    await prisma.trueIdentityUsageDaily.upsert({
+      where: {
+        tenantId_usageDate: {
+          tenantId: sub.tenantId,
+          usageDate,
+        },
+      },
+      create: {
+        tenantId: sub.tenantId,
+        usageDate,
+        count: missing,
+      },
+      update: {
+        count: { increment: missing },
+      },
+    });
+    backfilled += missing;
+  }
+
+  return backfilled;
 }
 
 /**
@@ -750,6 +825,12 @@ export class BillingCronService {
             message: error instanceof Error ? error.message : 'Unknown error',
           });
         }
+      }
+
+      try {
+        await reconcileUsageWithAdmin();
+      } catch (error) {
+        errors.push({ step: 'reconcile_usage', message: error instanceof Error ? error.message : 'Unknown error' });
       }
 
       try {

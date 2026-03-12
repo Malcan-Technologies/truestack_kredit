@@ -34,6 +34,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -51,10 +54,12 @@ import {
   formatCurrency,
   formatDate,
   formatRelativeTime,
+  formatNumber,
   toSafeNumber,
   safeMultiply,
   safeDivide,
   safeAdd,
+  safeRound,
   safeSubtract,
 } from "@/lib/utils";
 import { useCurrentRole } from "@/components/tenant-context";
@@ -87,6 +92,8 @@ interface Application {
   term: number;
   status: string;
   notes: string | null;
+  actualInterestRate: string | null;
+  actualTerm: number | null;
   createdAt: string;
   updatedAt: string;
   collateralType: string | null;
@@ -161,6 +168,19 @@ interface TimelineEvent {
   } | null;
 }
 
+interface LoanPreview {
+  loanAmount: number;
+  term: number;
+  interestRate: number;
+  legalFee: number;
+  stampingFee: number;
+  totalFees: number;
+  netDisbursement: number;
+  monthlyPayment: number;
+  totalInterest: number;
+  totalPayable: number;
+}
+
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   DRAFT: "secondary" as "default",
   SUBMITTED: "info",
@@ -169,6 +189,91 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   REJECTED: "destructive",
   CANCELLED: "destructive",
 };
+
+function supportsInternalScheduleOptions(interestModel: string): boolean {
+  return interestModel === "FLAT" || interestModel === "RULE_78";
+}
+
+function annualizeRiskLevel(monthlyRiskLevel: number): number {
+  return safeRound(safeMultiply(monthlyRiskLevel, 12, 8), 2);
+}
+
+function monthlyRiskLevelFromAnnualized(annualizedRiskLevel: number): number {
+  return safeRound(safeDivide(annualizedRiskLevel, 12, 8), 1);
+}
+
+function formatRiskCodeNumber(value: number, decimals = 2): string {
+  return safeRound(value, decimals).toFixed(decimals);
+}
+
+function deriveCompliantStructure(params: {
+  principal: number;
+  compliantRateCap: number;
+  internalInterestRate: number;
+  internalTerm: number;
+}): {
+  compliantInterestRate: number;
+  compliantTerm: number;
+} | null {
+  const { principal, compliantRateCap, internalInterestRate, internalTerm } = params;
+  if (principal <= 0 || compliantRateCap <= 0) return null;
+
+  const normalizedInternalRate = safeRound(internalInterestRate, 2);
+  const normalizedRateCap = safeRound(compliantRateCap, 2);
+  const targetTotalInterest = safeRound(
+    safeMultiply(
+      safeMultiply(principal, safeDivide(normalizedInternalRate, 100, 8), 8),
+      safeDivide(internalTerm, 12, 8),
+      8,
+    ),
+    2,
+  );
+  const targetTotalPayable = safeAdd(principal, targetTotalInterest);
+  const minCompliantTerm = Math.max(
+    1,
+    Math.ceil(
+      safeDivide(
+        safeMultiply(targetTotalInterest, 1200, 8),
+        safeMultiply(principal, normalizedRateCap, 8),
+        8,
+      ),
+    ),
+  );
+
+  for (let compliantTerm = minCompliantTerm; compliantTerm <= 600; compliantTerm++) {
+    const compliantInterestRate = safeRound(
+      safeDivide(
+        safeMultiply(targetTotalInterest, 1200, 8),
+        safeMultiply(principal, compliantTerm, 8),
+        8,
+      ),
+      2,
+    );
+
+    if (compliantInterestRate <= 0 || compliantInterestRate > normalizedRateCap) {
+      continue;
+    }
+
+    const compliantTotalInterest = safeRound(
+      safeMultiply(
+        safeMultiply(principal, safeDivide(compliantInterestRate, 100, 8), 8),
+        safeDivide(compliantTerm, 12, 8),
+        8,
+      ),
+      2,
+    );
+    const compliantTotalPayable = safeAdd(principal, compliantTotalInterest);
+
+    if (Math.abs(compliantTotalPayable - targetTotalPayable) <= 0.001) {
+      return {
+        compliantInterestRate,
+        compliantTerm,
+      };
+    }
+  }
+
+  return null;
+}
 
 // ============================================
 // Timeline Component
@@ -255,6 +360,9 @@ export default function ApplicationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [useInternalSchedule, setUseInternalSchedule] = useState(false);
+  const [internalInterestRate, setInternalInterestRate] = useState<number | "" | string>("");
+  const [internalTerm, setInternalTerm] = useState<number | "">("");
 
   // Dialog states
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
@@ -324,6 +432,24 @@ export default function ApplicationDetailPage() {
     loadData();
   }, [fetchApplication, fetchTimeline]);
 
+  useEffect(() => {
+    if (!application) return;
+    const hasPersistedInternalSchedule =
+      application.actualInterestRate !== null && application.actualTerm !== null;
+
+    setUseInternalSchedule(hasPersistedInternalSchedule);
+    setInternalInterestRate(
+      hasPersistedInternalSchedule
+        ? monthlyRiskLevelFromAnnualized(toSafeNumber(application.actualInterestRate))
+        : ""
+    );
+    setInternalTerm(
+      hasPersistedInternalSchedule
+        ? (application.actualTerm ?? application.term)
+        : application.term
+    );
+  }, [application?.id, application?.term, application?.actualInterestRate, application?.actualTerm]);
+
   const handleSubmitClick = () => {
     if (!canSubmit) {
       toast.error(`Please upload all required documents before submitting`);
@@ -335,7 +461,59 @@ export default function ApplicationDetailPage() {
   const handleSubmitConfirm = async () => {
     setShowSubmitDialog(false);
     setActionLoading("submit");
-    const res = await api.post(`/api/loans/applications/${applicationId}/submit`, {});
+    if (!application) {
+      setActionLoading(null);
+      return;
+    }
+
+    const productRateCap = toSafeNumber(application.product.interestRate);
+    const annualizedInternalInterestRate = internalInterestRate === ""
+      ? null
+      : annualizeRiskLevel(Number(internalInterestRate));
+    const compliantStructure = useInternalSchedule
+      ? deriveCompliantStructure({
+          principal: toSafeNumber(application.amount),
+          compliantRateCap: productRateCap,
+          internalInterestRate: annualizedInternalInterestRate ?? 0,
+          internalTerm: Number(internalTerm),
+        })
+      : null;
+
+    if (useInternalSchedule) {
+      if (!supportsInternalScheduleOptions(application.product.interestModel)) {
+        toast.error("Additional schedule options are only available for flat-structured products");
+        setActionLoading(null);
+        return;
+      }
+      if (internalInterestRate === "" || Number(internalInterestRate) <= 0 || Number.isNaN(Number(internalInterestRate))) {
+        toast.error("Please enter a valid risk index");
+        setActionLoading(null);
+        return;
+      }
+      if (internalTerm === "" || internalTerm <= 0) {
+        toast.error("Please enter a valid risk term");
+        setActionLoading(null);
+        return;
+      }
+      if (productRateCap <= 0) {
+        toast.error("Product interest rate must be greater than zero");
+        setActionLoading(null);
+        return;
+      }
+      if (!compliantStructure) {
+        toast.error("Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap");
+        setActionLoading(null);
+        return;
+      }
+    }
+
+    const res = await api.post(`/api/loans/applications/${applicationId}/submit`, useInternalSchedule ? {
+      enableInternalSchedule: true,
+      actualInterestRate: annualizedInternalInterestRate,
+      actualTerm: Number(internalTerm),
+    } : {
+      enableInternalSchedule: false,
+    });
     if (res.success) {
       toast.success("Application submitted for review");
       fetchApplication();
@@ -354,6 +532,11 @@ export default function ApplicationDetailPage() {
   const handleApproveConfirm = async () => {
     setShowApproveDialog(false);
     setActionLoading("approve");
+    if (!application) {
+      setActionLoading(null);
+      return;
+    }
+
     const res = await api.post(`/api/loans/applications/${applicationId}/approve`, {});
     if (res.success) {
       toast.success("Application approved! Loan created.");
@@ -451,12 +634,12 @@ export default function ApplicationDetailPage() {
   };
 
   // Calculate loan preview
-  const getPreview = () => {
+  const getPreview = (options?: { term?: number; interestRate?: number }): LoanPreview | null => {
     if (!application) return null;
 
     const loanAmount = toSafeNumber(application.amount);
-    const term = application.term;
-    const interestRate = toSafeNumber(application.product.interestRate);
+    const term = options?.term ?? application.term;
+    const interestRate = options?.interestRate ?? toSafeNumber(application.product.interestRate);
 
     const legalFeeValue = toSafeNumber(application.product.legalFeeValue);
     const stampingFeeValue = toSafeNumber(application.product.stampingFeeValue);
@@ -479,8 +662,15 @@ export default function ApplicationDetailPage() {
     let totalPayable: number;
 
     if (application.product.interestModel === "FLAT" || application.product.interestModel === "RULE_78") {
-      const annualRate = safeDivide(interestRate, 100);
-      totalInterest = safeMultiply(safeMultiply(loanAmount, annualRate), safeDivide(term, 12));
+      const annualRate = safeDivide(interestRate, 100, 8);
+      totalInterest = safeRound(
+        safeMultiply(
+          safeMultiply(loanAmount, annualRate, 8),
+          safeDivide(term, 12, 8),
+          8,
+        ),
+        2,
+      );
       totalPayable = safeAdd(loanAmount, totalInterest);
       monthlyPayment = safeDivide(totalPayable, term);
     } else {
@@ -529,7 +719,40 @@ export default function ApplicationDetailPage() {
     );
   }
 
-  const preview = getPreview();
+  const supportsInternalOptions = supportsInternalScheduleOptions(application.product.interestModel);
+  const hasInternalInputs =
+    useInternalSchedule &&
+    internalInterestRate !== "" &&
+    Number(internalInterestRate) > 0 &&
+    internalTerm !== "" &&
+    internalTerm > 0;
+  const annualizedInternalInterestRate = hasInternalInputs
+    ? annualizeRiskLevel(Number(internalInterestRate))
+    : null;
+  const compliantStructure = hasInternalInputs
+    ? deriveCompliantStructure({
+        principal: toSafeNumber(application.amount),
+        compliantRateCap: toSafeNumber(application.product.interestRate),
+        internalInterestRate: annualizedInternalInterestRate ?? 0,
+        internalTerm: Number(internalTerm),
+      })
+    : null;
+  const compliantPreview = getPreview({
+    term: compliantStructure?.compliantTerm ?? application.term,
+    interestRate: compliantStructure?.compliantInterestRate ?? toSafeNumber(application.product.interestRate),
+  });
+  const internalPreview = hasInternalInputs
+    ? getPreview({
+        term: Number(internalTerm),
+        interestRate: annualizedInternalInterestRate ?? 0,
+      })
+    : null;
+  const idForPrefix = application?.loan?.id ?? application?.id ?? applicationId;
+  const prefix = idForPrefix.slice(-8);
+  const riskAdjustedCode = hasInternalInputs && internalPreview
+    ? `${prefix}00${Number(internalTerm)}00${formatRiskCodeNumber(Number(internalInterestRate), 1)}00${formatRiskCodeNumber(internalPreview.monthlyPayment)}`
+    : null;
+  const preview = compliantPreview;
   const requiredDocs = application.product.requiredDocuments || [];
 
   return (
@@ -806,17 +1029,103 @@ export default function ApplicationDetailPage() {
             </CardContent>
           </Card>
 
+          {application.status === "DRAFT" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Schedule Options</CardTitle>
+                <CardDescription>
+                  Optional risk-adjusted schedule settings to capture before raising this application.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-lg border p-3 mb-2">
+                  <p className="text-xs text-muted-foreground">
+                    This risk-adjusted schedule is provided solely for internal reference and scenario analysis. Risk index and risk term are for internal planning purposes only; their meaning and interpretation are determined by the lender. Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements. This risk-adjusted view does not amend, replace, validate, or supersede the approved repayment schedule, contractual terms, or compliance record.
+                  </p>
+                </div>
+                <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="internal-schedule-toggle">Enable Risk-Adjusted Schedule</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Add a risk-adjusted schedule while preserving a compliant schedule that remains within the product rate cap.
+                    </p>
+                  </div>
+                  <Switch
+                    id="internal-schedule-toggle"
+                    checked={useInternalSchedule}
+                    onCheckedChange={(checked) => {
+                      setUseInternalSchedule(checked);
+                      if (checked && internalTerm === "") {
+                        setInternalTerm(application.term);
+                      }
+                    }}
+                    disabled={!supportsInternalOptions}
+                  />
+                </div>
+
+                {!supportsInternalOptions && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    Additional schedule options are currently available for flat-structured products only.
+                  </div>
+                )}
+
+                {useInternalSchedule && supportsInternalOptions && (
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="internal-rate">Risk Index (1-100)</Label>
+                        <NumericInput
+                          id="internal-rate"
+                          mode="float"
+                          maxDecimals={1}
+                          value={internalInterestRate}
+                          onChange={setInternalInterestRate}
+                          placeholder="e.g. 5.5"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="internal-term">Risk Term (1-36)</Label>
+                        <NumericInput
+                          id="internal-term"
+                          mode="int"
+                          value={internalTerm}
+                          onChange={(v) => setInternalTerm(v === "" ? "" : Number(v))}
+                          placeholder="e.g. 12"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border bg-secondary/30 p-3 text-sm">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">Derived Compliant Term</span>
+                        <span className="font-medium">
+                          {compliantStructure ? `${compliantStructure.compliantTerm} months` : "Enter risk index and risk term"}
+                        </span>
+                      </div>
+                    </div>
+                    {hasInternalInputs && !compliantStructure && (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                        Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Loan Summary */}
           {preview && (
             <div className="relative overflow-hidden rounded-xl border border-border bg-secondary p-5 space-y-3">
-              {/* Subtle accent glow */}
               <div className="absolute -top-12 -right-12 w-32 h-32 bg-foreground/5 rounded-full blur-3xl" />
-              <h3 className="relative text-lg font-semibold flex items-center gap-2 text-foreground">
-                <div className="p-1.5 rounded-md bg-foreground/10">
-                  <Calculator className="h-5 w-5 text-muted-foreground" />
-                </div>
-                Loan Summary
-              </h3>
+              <div className="relative flex items-start justify-between gap-4">
+                <h3 className="text-lg font-semibold flex items-center gap-2 text-foreground">
+                  <div className="p-1.5 rounded-md bg-foreground/10">
+                    <Calculator className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  Loan Summary
+                </h3>
+              </div>
               <div className="relative space-y-2.5 text-sm">
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Loan Amount</span>
@@ -851,7 +1160,7 @@ export default function ApplicationDetailPage() {
                 <div className="border-t border-border/50 pt-2.5" />
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Interest Rate</span>
-                  <span className="text-foreground">{preview.interestRate}% p.a.</span>
+                  <span className="text-foreground">{formatNumber(preview.interestRate, 2)}% p.a.</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Total Interest</span>
@@ -863,7 +1172,6 @@ export default function ApplicationDetailPage() {
                     {formatCurrency(preview.totalPayable)}
                   </span>
                 </div>
-                {/* Monthly Payment Highlight */}
                 <div className="flex justify-between items-center bg-foreground/5 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-border">
                   <span className="font-semibold text-foreground">Monthly Payment</span>
                   <span className="font-bold text-xl text-foreground">
@@ -871,6 +1179,16 @@ export default function ApplicationDetailPage() {
                   </span>
                 </div>
               </div>
+              {useInternalSchedule && !riskAdjustedCode && supportsInternalOptions && (
+                <p className="relative text-xs text-muted-foreground">
+                  Enter the risk index and risk term to generate the risk-adjusted code.
+                </p>
+              )}
+              {riskAdjustedCode && (
+                <div className="relative mt-4 pt-4 border-t border-border/50">
+                  <CopyField label="Loan ID" value={riskAdjustedCode} />
+                </div>
+              )}
               {application.notes && (
                 <div className="relative mt-4 pt-4 border-t border-border/50">
                   <p className="text-sm text-muted-foreground">Notes</p>
@@ -1190,6 +1508,31 @@ export default function ApplicationDetailPage() {
                 <span className="text-muted-foreground">Term</span>
                 <span className="font-medium">{application.term} months</span>
               </div>
+              {useInternalSchedule && hasInternalInputs && compliantStructure && (
+                <>
+                  <div className="pt-2 mt-2 border-t border-blue-200/70 dark:border-blue-800/70" />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Schedule View</span>
+                    <span className="font-medium">Compliant + Risk-Adjusted</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Compliant Rate</span>
+                    <span className="font-medium">{formatNumber(compliantStructure.compliantInterestRate, 2)}% p.a.</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Compliant Term</span>
+                    <span className="font-medium">{compliantStructure.compliantTerm} months</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Risk Index</span>
+                    <span className="font-medium">{formatNumber(Number(internalInterestRate), 2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Risk Term</span>
+                    <span className="font-medium">{internalTerm}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -1236,6 +1579,31 @@ export default function ApplicationDetailPage() {
                 <span className="text-muted-foreground">Product</span>
                 <span className="font-medium">{application.product.name}</span>
               </div>
+              {useInternalSchedule && hasInternalInputs && compliantStructure && (
+                <>
+                  <div className="pt-2 mt-2 border-t border-emerald-200/70 dark:border-emerald-800/70" />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Schedule View</span>
+                    <span className="font-medium">Compliant + Risk-Adjusted</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Compliant Rate</span>
+                    <span className="font-medium">{formatNumber(compliantStructure.compliantInterestRate, 2)}% p.a.</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Compliant Term</span>
+                    <span className="font-medium">{compliantStructure.compliantTerm} months</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Risk Index</span>
+                    <span className="font-medium">{formatNumber(Number(internalInterestRate), 2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Risk Term</span>
+                    <span className="font-medium">{internalTerm}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <DialogFooter>

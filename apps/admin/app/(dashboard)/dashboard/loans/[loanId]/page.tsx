@@ -79,10 +79,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyField } from "@/components/ui/copy-field";
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
+import { useCurrentRole } from "@/components/tenant-context";
 import { api } from "@/lib/api";
 import {
   cn,
@@ -94,6 +96,7 @@ import {
   safeDivide,
   safeAdd,
   safeSubtract,
+  safeRound,
   safePercentage,
   formatSmartDateTime,
   formatDateForInput,
@@ -289,6 +292,35 @@ interface LoanMetrics {
     settlementAmount: number | null;
     discountAmount: number | null;
   } | null;
+}
+
+interface InternalScheduleRepayment {
+  id: string;
+  installmentNumber: number;
+  dueDate: string;
+  principal: number;
+  interest: number;
+  totalDue: number;
+  paidAmount: number;
+  remainingAmount: number;
+  status: "PENDING" | "PARTIAL" | "PAID";
+}
+
+interface InternalScheduleView {
+  interestModel: string;
+  interestRate: number;
+  term: number;
+  baseDate: string;
+  totalInterest: number;
+  totalPayable: number;
+  totalPaid: number;
+  totalRemaining: number;
+  repayments: InternalScheduleRepayment[];
+}
+
+interface InternalScheduleResponse {
+  enabled: boolean;
+  schedule?: InternalScheduleView;
 }
 
 interface TimelineEvent {
@@ -656,10 +688,14 @@ export default function LoanDetailPage() {
   const params = useParams();
   const router = useRouter();
   const loanId = params.loanId as string;
+  const currentRole = useCurrentRole();
+  const canViewInternalSchedule = currentRole === "OWNER" || currentRole === "ADMIN";
 
   // State
   const [loan, setLoan] = useState<Loan | null>(null);
   const [metrics, setMetrics] = useState<LoanMetrics | null>(null);
+  const [internalSchedule, setInternalSchedule] = useState<InternalScheduleView | null>(null);
+  const [scheduleView, setScheduleView] = useState<"standard" | "internal">("standard");
   const [schedulePreview, setSchedulePreview] = useState<SchedulePreview | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [timelineCursor, setTimelineCursor] = useState<string | null>(null);
@@ -677,7 +713,7 @@ export default function LoanDetailPage() {
   const [showEarlySettlementDialog, setShowEarlySettlementDialog] = useState(false);
 
   // Payment dialog state
-  const [paymentAmount, setPaymentAmount] = useState<number | "">("");
+  const [paymentAmount, setPaymentAmount] = useState<number | "" | string>("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
@@ -774,12 +810,30 @@ export default function LoanDetailPage() {
   // Data Fetching
   // ============================================
 
+  const fetchInternalSchedule = useCallback(async () => {
+    if (!canViewInternalSchedule) {
+      setInternalSchedule(null);
+      setScheduleView("standard");
+      return;
+    }
+
+    const res = await api.get<InternalScheduleResponse>(`/api/loans/${loanId}/schedule/internal`);
+    if (res.success && res.data?.enabled && res.data.schedule) {
+      setInternalSchedule(res.data.schedule);
+      return;
+    }
+
+    setInternalSchedule(null);
+    setScheduleView("standard");
+  }, [canViewInternalSchedule, loanId]);
+
   const fetchLoan = useCallback(async () => {
     const res = await api.get<Loan>(`/api/loans/${loanId}`);
     if (res.success && res.data) {
       setLoan(res.data);
     }
-  }, [loanId]);
+    await fetchInternalSchedule();
+  }, [fetchInternalSchedule, loanId]);
 
   const fetchMetrics = useCallback(async () => {
     const res = await api.get<LoanMetrics>(`/api/loans/${loanId}/metrics`);
@@ -901,7 +955,7 @@ export default function LoanDetailPage() {
   };
 
   const handleRecordPayment = async () => {
-    const amount = paymentAmount === "" ? NaN : paymentAmount;
+    const amount = paymentAmount === "" ? NaN : Number(paymentAmount);
     if (Number.isNaN(amount) || amount <= 0) {
       toast.error("Please enter a valid amount");
       return;
@@ -1543,6 +1597,7 @@ export default function LoanDetailPage() {
   }
 
   const currentSchedule = loan.scheduleVersions[0];
+  const hasInternalSchedule = canViewInternalSchedule && !!internalSchedule;
   const isCorporate = loan.borrower.borrowerType === "CORPORATE";
   const borrowerDisplayName = isCorporate && loan.borrower.companyName
     ? loan.borrower.companyName
@@ -2738,275 +2793,409 @@ export default function LoanDetailPage() {
           {/* Repayment Schedule (after disbursement) */}
           {currentSchedule && loan.status !== "PENDING_DISBURSEMENT" && (
             <Card>
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Calendar className="h-5 w-5 text-muted-foreground" />
-                      Repayment Schedule
-                    </CardTitle>
-                    <CardDescription className="mt-2">
-                      Version {currentSchedule.version} • {currentSchedule.interestModel === "RULE_78" ? "Rule 78" : currentSchedule.interestModel.replace(/_/g, " ")}
-                      {loan.disbursementDate && ` • Disbursed ${formatDate(loan.disbursementDate)}`}
-                    </CardDescription>
+              <Tabs
+                value={hasInternalSchedule ? scheduleView : "standard"}
+                onValueChange={(value) => setScheduleView(value === "internal" && hasInternalSchedule ? "internal" : "standard")}
+              >
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Calendar className="h-5 w-5 text-muted-foreground" />
+                        Repayment Schedule
+                      </CardTitle>
+                      <CardDescription className="mt-2">
+                        {scheduleView === "internal" && internalSchedule ? (
+                          <>
+                            Risk-Adjusted • {internalSchedule.interestModel === "RULE_78" ? "Rule 78" : internalSchedule.interestModel.replace(/_/g, " ")}
+                            {loan.disbursementDate && ` • Disbursed ${formatDate(loan.disbursementDate)}`}
+                          </>
+                        ) : (
+                          <>
+                            Version {currentSchedule.version} • {currentSchedule.interestModel === "RULE_78" ? "Rule 78" : currentSchedule.interestModel.replace(/_/g, " ")}
+                            {loan.disbursementDate && ` • Disbursed ${formatDate(loan.disbursementDate)}`}
+                          </>
+                        )}
+                      </CardDescription>
+                    </div>
+                    {(hasInternalSchedule || (loan.status !== "COMPLETED" && loan.status !== "WRITTEN_OFF")) && (
+                      <div className="flex flex-col items-end gap-3">
+                        {hasInternalSchedule && (
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground mb-2">Schedule View</p>
+                            <TabsList>
+                              <TabsTrigger value="standard">Compliant</TabsTrigger>
+                              <TabsTrigger value="internal">Risk-Adjusted</TabsTrigger>
+                            </TabsList>
+                          </div>
+                        )}
+                        {loan.status !== "COMPLETED" && loan.status !== "WRITTEN_OFF" && (() => {
+                          const unpaidRepayments = currentSchedule.repayments.filter(r => r.status !== "PAID");
+                          if (unpaidRepayments.length === 0) return null;
+
+                          const nextRepayment = unpaidRepayments[0];
+                          const paid = nextRepayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
+                          const remaining = safeSubtract(toSafeNumber(nextRepayment.totalDue), paid);
+                          const outstandingLateFees = Math.max(0, safeSubtract(toSafeNumber(nextRepayment.lateFeeAccrued), toSafeNumber(nextRepayment.lateFeesPaid)));
+                          const totalRemaining = safeAdd(remaining, outstandingLateFees);
+                          const isOverdue = new Date(nextRepayment.dueDate) < new Date();
+
+                          return (
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="text-right text-sm">
+                                <p className="text-muted-foreground">Next Payment Due</p>
+                                <p className={`font-semibold ${isOverdue ? "text-destructive" : ""}`}>
+                                  {formatCurrency(totalRemaining)} on {formatDate(nextRepayment.dueDate)}
+                                  {isOverdue && " (Overdue)"}
+                                </p>
+                                {outstandingLateFees > 0 && (
+                                  <p className="text-xs text-amber-600">
+                                    incl. {formatCurrency(outstandingLateFees)} late fees
+                                  </p>
+                                )}
+                              </div>
+                              <Button onClick={() => openPaymentDialog()} size="sm">
+                                <CreditCard className="h-4 w-4 mr-2" />
+                                Record Payment
+                              </Button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
-                  {loan.status !== "COMPLETED" && loan.status !== "WRITTEN_OFF" && (() => {
-                    const unpaidRepayments = currentSchedule.repayments.filter(r => r.status !== "PAID");
-                    if (unpaidRepayments.length === 0) return null;
-                    
-                    const nextRepayment = unpaidRepayments[0];
-                    const paid = nextRepayment.allocations.reduce((sum, a) => sum + toSafeNumber(a.amount), 0);
-                    const remaining = safeSubtract(toSafeNumber(nextRepayment.totalDue), paid);
-                    const outstandingLateFees = Math.max(0, safeSubtract(toSafeNumber(nextRepayment.lateFeeAccrued), toSafeNumber(nextRepayment.lateFeesPaid)));
-                    const totalRemaining = safeAdd(remaining, outstandingLateFees);
-                    const isOverdue = new Date(nextRepayment.dueDate) < new Date();
-                    
+                </CardHeader>
+                <CardContent className="p-0">
+                  {hasInternalSchedule && internalSchedule && (() => {
+                    const prefix = loan.id.slice(-8);
+                    const term = internalSchedule.term;
+                    const monthlyRiskIndex = safeRound(safeDivide(internalSchedule.interestRate, 12, 8), 1);
+                    const monthlyPayment = internalSchedule.repayments[0]?.totalDue ?? safeRound(safeDivide(internalSchedule.totalPayable, term, 8), 2);
+                    const loanIdCode = `${prefix}00${term}00${safeRound(monthlyRiskIndex, 1).toFixed(1)}00${safeRound(monthlyPayment, 2).toFixed(2)}`;
                     return (
-                      <div className="flex flex-col items-end gap-2">
-                        <div className="text-right text-sm">
-                          <p className="text-muted-foreground">Next Payment Due</p>
-                          <p className={`font-semibold ${isOverdue ? "text-destructive" : ""}`}>
-                            {formatCurrency(totalRemaining)} on {formatDate(nextRepayment.dueDate)}
-                            {isOverdue && " (Overdue)"}
-                          </p>
-                          {outstandingLateFees > 0 && (
-                            <p className="text-xs text-amber-600">
-                              incl. {formatCurrency(outstandingLateFees)} late fees
-                            </p>
-                          )}
-                        </div>
-                        <Button onClick={() => openPaymentDialog()} size="sm">
-                          <CreditCard className="h-4 w-4 mr-2" />
-                          Record Payment
-                        </Button>
+                      <div className="px-4 py-3 border-b border-border">
+                        <CopyField label="Loan ID" value={loanIdCode} />
                       </div>
                     );
                   })()}
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                {/* Legend */}
-                <div className="px-4 py-2.5 border-b border-border bg-slate-100 dark:bg-slate-800/60">
-                  <div className="flex items-center gap-5 text-xs">
-                    <span className="font-medium text-slate-500 dark:text-slate-400">Legend:</span>
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-                      <Receipt className="h-3.5 w-3.5" />
-                      <span>Receipt generated</span>
-                    </span>
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-                      <FileCheck className="h-3.5 w-3.5" />
-                      <span>Proof of payment uploaded</span>
-                    </span>
-                  </div>
-                </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>#</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead className="text-right">Principal</TableHead>
-                      <TableHead className="text-right">Interest</TableHead>
-                      <TableHead className="text-right">Total Due</TableHead>
-                      <TableHead className="text-right">Late Fees</TableHead>
-                      <TableHead className="text-right">Paid</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {currentSchedule.repayments.map((repayment, idx) => {
-                      const paid = repayment.allocations.reduce((s, a) => s + toSafeNumber(a.amount), 0);
-                      const totalDue = toSafeNumber(repayment.totalDue);
-                      const interestDue = toSafeNumber(repayment.interest);
-                      const principalDue = toSafeNumber(repayment.principal);
-                      const interestPaid = Math.min(interestDue, paid);
-                      const principalPaid = Math.min(
-                        principalDue,
-                        Math.max(0, safeSubtract(paid, interestPaid))
-                      );
-                      const remaining = safeSubtract(totalDue, paid);
-                      const isCancelled = repayment.status === "CANCELLED";
-                      const isOverdue = new Date(repayment.dueDate) < new Date() && repayment.status !== "PAID" && !isCancelled;
-                      const lateFeeAccrued = toSafeNumber(repayment.lateFeeAccrued);
-                      const lateFeesPaid = toSafeNumber(repayment.lateFeesPaid);
-                      const hasLateFees = lateFeeAccrued > 0;
+                  <TabsContent value="standard" className="mt-0">
+                    <div className="px-4 py-2.5 border-b border-border bg-slate-100 dark:bg-slate-800/60">
+                      <div className="flex items-center gap-5 text-xs">
+                        <span className="font-medium text-slate-500 dark:text-slate-400">Legend:</span>
+                        <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                          <Receipt className="h-3.5 w-3.5" />
+                          <span>Receipt generated</span>
+                        </span>
+                        <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                          <FileCheck className="h-3.5 w-3.5" />
+                          <span>Proof of payment uploaded</span>
+                        </span>
+                      </div>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>#</TableHead>
+                          <TableHead>Due Date</TableHead>
+                          <TableHead className="text-right">Principal</TableHead>
+                          <TableHead className="text-right">Interest</TableHead>
+                          <TableHead className="text-right">Balance</TableHead>
+                          <TableHead className="text-right">Late Fees</TableHead>
+                          <TableHead className="text-right">Paid</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {currentSchedule.repayments.map((repayment, idx) => {
+                          const paid = repayment.allocations.reduce((s, a) => s + toSafeNumber(a.amount), 0);
+                          const totalDue = toSafeNumber(repayment.totalDue);
+                          const interestDue = toSafeNumber(repayment.interest);
+                          const principalDue = toSafeNumber(repayment.principal);
+                          const scheduledBalance = Math.max(0, safeSubtract(totalDue, paid));
+                          const interestPaid = Math.min(interestDue, paid);
+                          const principalPaid = Math.min(
+                            principalDue,
+                            Math.max(0, safeSubtract(paid, interestPaid))
+                          );
+                          const isCancelled = repayment.status === "CANCELLED";
+                          const isOverdue = new Date(repayment.dueDate) < new Date() && repayment.status !== "PAID" && !isCancelled;
+                          const lateFeeAccrued = toSafeNumber(repayment.lateFeeAccrued);
+                          const lateFeesPaid = toSafeNumber(repayment.lateFeesPaid);
+                          const hasLateFees = lateFeeAccrued > 0;
 
-                      return (
-                        <TableRow key={repayment.id} className={isCancelled ? "opacity-50" : isOverdue ? "bg-destructive/5" : ""}>
-                          <TableCell>{idx + 1}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {formatDate(repayment.dueDate)}
-                              {isOverdue && <AlertTriangle className="h-4 w-4 text-destructive" />}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div>
-                              <span>{formatCurrency(toSafeNumber(repayment.principal))}</span>
-                              {principalPaid > 0 && (
-                                <span className="text-xs text-muted-foreground block">
-                                  {formatCurrency(principalPaid)} paid
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div>
-                              <span>{formatCurrency(toSafeNumber(repayment.interest))}</span>
-                              {interestPaid > 0 && (
-                                <span className="text-xs text-muted-foreground block">
-                                  {formatCurrency(interestPaid)} paid
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">{formatCurrency(totalDue)}</TableCell>
-                          <TableCell className="text-right">
-                            {hasLateFees ? (
-                              <div>
-                                <span className="text-destructive font-medium">{formatCurrency(lateFeeAccrued)}</span>
-                                {lateFeesPaid > 0 && (
-                                  <span className="text-xs text-muted-foreground block">
-                                    {formatCurrency(lateFeesPaid)} paid
-                                  </span>
+                          return (
+                            <TableRow key={repayment.id} className={isCancelled ? "opacity-50" : isOverdue ? "bg-destructive/5" : ""}>
+                              <TableCell>{idx + 1}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  {formatDate(repayment.dueDate)}
+                                  {isOverdue && <AlertTriangle className="h-4 w-4 text-destructive" />}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div>
+                                  <span>{formatCurrency(toSafeNumber(repayment.principal))}</span>
+                                  {principalPaid > 0 && (
+                                    <span className="text-xs text-muted-foreground block">
+                                      {formatCurrency(principalPaid)} paid
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div>
+                                  <span>{formatCurrency(toSafeNumber(repayment.interest))}</span>
+                                  {interestPaid > 0 && (
+                                    <span className="text-xs text-muted-foreground block">
+                                      {formatCurrency(interestPaid)} paid
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right font-medium">{formatCurrency(scheduledBalance)}</TableCell>
+                              <TableCell className="text-right">
+                                {hasLateFees ? (
+                                  <div>
+                                    <span className="text-destructive font-medium">{formatCurrency(lateFeeAccrued)}</span>
+                                    {lateFeesPaid > 0 && (
+                                      <span className="text-xs text-muted-foreground block">
+                                        {formatCurrency(lateFeesPaid)} paid
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
                                 )}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div>
-                              <div className="flex items-center justify-end gap-1">
-                                <span className={paid > 0 ? "text-success" : ""}>
-                                  {formatCurrency(paid)}
-                                </span>
-                                {repayment.allocations.length > 0 && (() => {
-                                  const hasReceipt = repayment.allocations.some(
-                                    (a) => (a as { transaction?: { receiptPath?: string } }).transaction?.receiptPath
-                                  );
-                                  const hasProof = repayment.allocations.some(
-                                    (a) => (a as { transaction?: { proofPath?: string } }).transaction?.proofPath
-                                  );
-                                  return (
-                                    <>
-                                      <span title={hasReceipt ? "Has payment receipt" : "Receipt not yet generated"}>
-                                        <Receipt className={`h-3.5 w-3.5 ${hasReceipt ? "text-success" : "text-amber-500"}`} />
-                                      </span>
-                                      <span title={hasProof ? "Has proof of payment" : "Proof of payment not yet uploaded"}>
-                                        <FileCheck className={`h-3.5 w-3.5 ${hasProof ? "text-success" : "text-amber-500"}`} />
-                                      </span>
-                                    </>
-                                  );
-                                })()}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={isCancelled ? "secondary" as "default" : isOverdue ? "destructive" : repaymentStatusColors[repayment.status]}>
-                              {isCancelled ? "SETTLED" : isOverdue && repayment.status !== "PAID" ? "OVERDUE" : repayment.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              {repayment.allocations.length > 0 && (
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm" title="View payments & receipts">
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-72">
-                                    <DropdownMenuLabel>
-                                      {repayment.allocations.length} Payment{repayment.allocations.length > 1 ? "s" : ""} Recorded
-                                    </DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    {repayment.allocations.map((allocation, allocIdx) => {
-                                      const tx = (allocation as { transaction?: { id: string; proofPath?: string; receiptPath?: string } }).transaction;
-                                      const hasProof = !!tx?.proofPath;
-                                      const hasReceipt = !!tx?.receiptPath;
-                                      
-                                      return (
-                                        <div key={allocation.id}>
-                                          {allocIdx > 0 && <DropdownMenuSeparator />}
-                                          <DropdownMenuLabel className="font-normal text-xs text-muted-foreground flex items-center justify-between">
-                                            <span>
-                                              Payment {allocIdx + 1}: {formatCurrency(toSafeNumber(allocation.amount))}
-                                            </span>
-                                            <span className="text-xs">{formatDate(allocation.allocatedAt)}</span>
-                                          </DropdownMenuLabel>
-                                          {tx && hasReceipt && (
-                                            <DropdownMenuItem
-                                              onClick={() => window.open(`/api/proxy/schedules/transactions/${tx.id}/receipt`, "_blank")}
-                                            >
-                                              <Receipt className="h-4 w-4 mr-2" />
-                                              View Receipt
-                                            </DropdownMenuItem>
-                                          )}
-                                          {tx && hasProof && (
-                                            <DropdownMenuItem
-                                              onClick={() => window.open(`/api/proxy/schedules/transactions/${tx.id}/proof`, "_blank")}
-                                            >
-                                              <Download className="h-4 w-4 mr-2" />
-                                              View Proof of Payment
-                                            </DropdownMenuItem>
-                                          )}
-                                          {tx && (
-                                            <DropdownMenuItem
-                                              onClick={() => openUploadProofDialog(tx.id)}
-                                              className={!hasProof ? "text-amber-500 focus:text-amber-500" : ""}
-                                            >
-                                              <Upload className="h-4 w-4 mr-2" />
-                                              {hasProof ? "Replace" : "Upload"} Proof of Payment
-                                            </DropdownMenuItem>
-                                          )}
-                                        </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div>
+                                  <div className="flex items-center justify-end gap-1">
+                                    <span className={paid > 0 ? "text-success" : ""}>
+                                      {formatCurrency(paid)}
+                                    </span>
+                                    {repayment.allocations.length > 0 && (() => {
+                                      const hasReceipt = repayment.allocations.some(
+                                        (a) => (a as { transaction?: { receiptPath?: string } }).transaction?.receiptPath
                                       );
-                                    })}
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {/* Totals row */}
-                    {(() => {
-                      const totals = currentSchedule.repayments.reduce(
-                        (acc, r) => {
-                          const principal = toSafeNumber(r.principal);
-                          const interest = toSafeNumber(r.interest);
-                          const totalDue = toSafeNumber(r.totalDue);
-                          const lateFeeAccrued = toSafeNumber(r.lateFeeAccrued);
-                          const paid = r.allocations.reduce((s, a) => s + toSafeNumber(a.amount), 0);
-                          return {
-                            principal: safeAdd(acc.principal, principal),
-                            interest: safeAdd(acc.interest, interest),
-                            totalDue: safeAdd(acc.totalDue, totalDue),
-                            lateFees: safeAdd(acc.lateFees, lateFeeAccrued),
-                            paid: safeAdd(acc.paid, paid),
-                          };
-                        },
-                        { principal: 0, interest: 0, totalDue: 0, lateFees: 0, paid: 0 }
-                      );
-                      return (
-                        <TableRow className="bg-muted/10 font-semibold border-t-2">
-                          <TableCell colSpan={2} className="font-medium">
-                            Total
-                          </TableCell>
-                          <TableCell className="text-right">{formatCurrency(totals.principal)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(totals.interest)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(totals.totalDue)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(totals.lateFees)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(totals.paid)}</TableCell>
-                          <TableCell colSpan={2} />
-                        </TableRow>
-                      );
-                    })()}
-                  </TableBody>
-                </Table>
-              </CardContent>
+                                      const hasProof = repayment.allocations.some(
+                                        (a) => (a as { transaction?: { proofPath?: string } }).transaction?.proofPath
+                                      );
+                                      return (
+                                        <>
+                                          <span title={hasReceipt ? "Has payment receipt" : "Receipt not yet generated"}>
+                                            <Receipt className={`h-3.5 w-3.5 ${hasReceipt ? "text-success" : "text-amber-500"}`} />
+                                          </span>
+                                          <span title={hasProof ? "Has proof of payment" : "Proof of payment not yet uploaded"}>
+                                            <FileCheck className={`h-3.5 w-3.5 ${hasProof ? "text-success" : "text-amber-500"}`} />
+                                          </span>
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={isCancelled ? "secondary" as "default" : isOverdue ? "destructive" : repaymentStatusColors[repayment.status]}>
+                                  {isCancelled ? "SETTLED" : isOverdue && repayment.status !== "PAID" ? "OVERDUE" : repayment.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1">
+                                  {repayment.allocations.length > 0 && (
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm" title="View payments & receipts">
+                                          <MoreHorizontal className="h-4 w-4" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end" className="w-72">
+                                        <DropdownMenuLabel>
+                                          {repayment.allocations.length} Payment{repayment.allocations.length > 1 ? "s" : ""} Recorded
+                                        </DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        {repayment.allocations.map((allocation, allocIdx) => {
+                                          const tx = (allocation as { transaction?: { id: string; proofPath?: string; receiptPath?: string } }).transaction;
+                                          const hasProof = !!tx?.proofPath;
+                                          const hasReceipt = !!tx?.receiptPath;
+
+                                          return (
+                                            <div key={allocation.id}>
+                                              {allocIdx > 0 && <DropdownMenuSeparator />}
+                                              <DropdownMenuLabel className="font-normal text-xs text-muted-foreground flex items-center justify-between">
+                                                <span>
+                                                  Payment {allocIdx + 1}: {formatCurrency(toSafeNumber(allocation.amount))}
+                                                </span>
+                                                <span className="text-xs">{formatDate(allocation.allocatedAt)}</span>
+                                              </DropdownMenuLabel>
+                                              {tx && hasReceipt && (
+                                                <DropdownMenuItem
+                                                  onClick={() => window.open(`/api/proxy/schedules/transactions/${tx.id}/receipt`, "_blank")}
+                                                >
+                                                  <Receipt className="h-4 w-4 mr-2" />
+                                                  View Receipt
+                                                </DropdownMenuItem>
+                                              )}
+                                              {tx && hasProof && (
+                                                <DropdownMenuItem
+                                                  onClick={() => window.open(`/api/proxy/schedules/transactions/${tx.id}/proof`, "_blank")}
+                                                >
+                                                  <Download className="h-4 w-4 mr-2" />
+                                                  View Proof of Payment
+                                                </DropdownMenuItem>
+                                              )}
+                                              {tx && (
+                                                <DropdownMenuItem
+                                                  onClick={() => openUploadProofDialog(tx.id)}
+                                                  className={!hasProof ? "text-amber-500 focus:text-amber-500" : ""}
+                                                >
+                                                  <Upload className="h-4 w-4 mr-2" />
+                                                  {hasProof ? "Replace" : "Upload"} Proof of Payment
+                                                </DropdownMenuItem>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {(() => {
+                          const totals = currentSchedule.repayments.reduce(
+                            (acc, r) => {
+                              const principal = toSafeNumber(r.principal);
+                              const interest = toSafeNumber(r.interest);
+                              const lateFeeAccrued = toSafeNumber(r.lateFeeAccrued);
+                              const paid = r.allocations.reduce((s, a) => s + toSafeNumber(a.amount), 0);
+                              const balance = r.status === "CANCELLED"
+                                ? 0
+                                : Math.max(0, safeSubtract(toSafeNumber(r.totalDue), paid));
+                              return {
+                                principal: safeAdd(acc.principal, principal),
+                                interest: safeAdd(acc.interest, interest),
+                                balance: safeAdd(acc.balance, balance),
+                                lateFees: safeAdd(acc.lateFees, lateFeeAccrued),
+                                paid: safeAdd(acc.paid, paid),
+                              };
+                            },
+                            { principal: 0, interest: 0, balance: 0, lateFees: 0, paid: 0 }
+                          );
+                          return (
+                            <TableRow className="bg-muted/10 font-semibold border-t-2">
+                              <TableCell colSpan={2} className="font-medium">
+                                Total
+                              </TableCell>
+                              <TableCell className="text-right">{formatCurrency(totals.principal)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(totals.interest)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(totals.balance)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(totals.lateFees)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(totals.paid)}</TableCell>
+                              <TableCell colSpan={2} />
+                            </TableRow>
+                          );
+                        })()}
+                      </TableBody>
+                    </Table>
+                  </TabsContent>
+
+                  {internalSchedule && (
+                    <TabsContent value="internal" className="mt-0">
+                      <div className="px-4 py-3 border-b border-border">
+                        <p className="text-sm font-medium">Risk-adjusted schedule view</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          This risk-adjusted schedule is provided solely for internal reference and scenario analysis. Risk index and risk term are for internal planning purposes only; their meaning and interpretation are determined by the lender. Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements. This risk-adjusted view does not amend, replace, validate, or supersede the official repayment schedule, contractual terms, or compliance record. Payment actions continue to follow the compliant schedule.
+                        </p>
+                      </div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>#</TableHead>
+                            <TableHead>Due Date</TableHead>
+                            <TableHead className="text-right">Principal</TableHead>
+                            <TableHead className="text-right">Interest</TableHead>
+                            <TableHead className="text-right">Balance</TableHead>
+                            <TableHead className="text-right">Paid</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {internalSchedule.repayments.map((repayment) => {
+                            const interestPaid = Math.min(repayment.interest, repayment.paidAmount);
+                            const principalPaid = Math.min(
+                              repayment.principal,
+                              Math.max(0, safeSubtract(repayment.paidAmount, interestPaid)),
+                            );
+                            const scheduledBalance = Math.max(0, repayment.remainingAmount);
+                            const isOverdue =
+                              new Date(repayment.dueDate) < new Date() &&
+                              repayment.status !== "PAID";
+
+                            return (
+                              <TableRow key={repayment.id} className={isOverdue ? "bg-destructive/5" : ""}>
+                                <TableCell>{repayment.installmentNumber}</TableCell>
+                                <TableCell>{formatDate(repayment.dueDate)}</TableCell>
+                                <TableCell className="text-right">
+                                  <div>
+                                    <span>{formatCurrency(repayment.principal)}</span>
+                                    {principalPaid > 0 && (
+                                      <span className="text-xs text-muted-foreground block">
+                                        {formatCurrency(principalPaid)} paid
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div>
+                                    <span>{formatCurrency(repayment.interest)}</span>
+                                    {interestPaid > 0 && (
+                                      <span className="text-xs text-muted-foreground block">
+                                        {formatCurrency(interestPaid)} paid
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right font-medium">{formatCurrency(scheduledBalance)}</TableCell>
+                                <TableCell className="text-right">
+                                  <span className={repayment.paidAmount > 0 ? "text-success" : ""}>
+                                    {formatCurrency(repayment.paidAmount)}
+                                  </span>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={isOverdue ? "destructive" : repaymentStatusColors[repayment.status]}>
+                                    {isOverdue ? "OVERDUE" : repayment.status}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                          <TableRow className="bg-muted/10 font-semibold border-t-2">
+                            <TableCell colSpan={2} className="font-medium">
+                              Total
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(internalSchedule.repayments.reduce((sum, repayment) => safeAdd(sum, repayment.principal), 0))}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(internalSchedule.totalInterest)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(internalSchedule.totalRemaining)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(internalSchedule.totalPaid)}
+                            </TableCell>
+                            <TableCell />
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </TabsContent>
+                  )}
+                </CardContent>
+              </Tabs>
             </Card>
           )}
         </div>

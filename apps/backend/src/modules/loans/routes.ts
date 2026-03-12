@@ -22,6 +22,7 @@ import { fetchLogoBuffer } from '../../lib/safeLogoFetch.js';
 import PDFDocument from 'pdfkit';
 import { recalculateBorrowerPerformanceProjection } from '../borrowers/performanceProjectionService.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
+import { buildInternalScheduleView, supportsInternalScheduleView } from './scheduleViewService.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
@@ -65,6 +66,89 @@ function resolveVerificationStatus(borrower: {
     return borrower.verificationStatus;
   }
   return getBorrowerVerificationSummary(borrower);
+}
+
+const submitApplicationSchema = z.object({
+  enableInternalSchedule: z.boolean().optional().default(false),
+  actualInterestRate: z.number().positive().max(100).optional(),
+  actualTerm: z.number().int().positive().optional(),
+});
+
+function deriveCompliantStructureFromInternal(params: {
+  principal: number;
+  compliantRateCap: number;
+  actualInterestRate: number;
+  actualTerm: number;
+}): {
+  compliantInterestRate: number;
+  compliantTerm: number;
+} {
+  const {
+    principal,
+    compliantRateCap,
+    actualInterestRate,
+    actualTerm,
+  } = params;
+
+  if (principal <= 0) {
+    throw new BadRequestError('Loan principal must be greater than zero');
+  }
+
+  if (compliantRateCap <= 0) {
+    throw new BadRequestError('Product interest rate cap must be greater than zero');
+  }
+
+  const normalizedActualRate = safeRound(actualInterestRate, 2);
+  const normalizedRateCap = safeRound(compliantRateCap, 2);
+  const targetTotalInterest = calculateFlatInterest(
+    principal,
+    normalizedActualRate,
+    actualTerm,
+  );
+  const targetTotalPayable = safeAdd(principal, targetTotalInterest);
+  const minCompliantTerm = Math.max(
+    1,
+    Math.ceil(
+      safeDivide(
+        safeMultiply(targetTotalInterest, 1200, 8),
+        safeMultiply(principal, normalizedRateCap, 8),
+        8,
+      ),
+    ),
+  );
+
+  for (let compliantTerm = minCompliantTerm; compliantTerm <= 600; compliantTerm++) {
+    const compliantInterestRate = safeRound(
+      safeDivide(
+        safeMultiply(targetTotalInterest, 1200, 8),
+        safeMultiply(principal, compliantTerm, 8),
+        8,
+      ),
+      2,
+    );
+
+    if (compliantInterestRate <= 0 || compliantInterestRate > normalizedRateCap) {
+      continue;
+    }
+
+    const compliantTotalInterest = calculateFlatInterest(
+      principal,
+      compliantInterestRate,
+      compliantTerm,
+    );
+    const compliantTotalPayable = safeAdd(principal, compliantTotalInterest);
+
+    if (Math.abs(compliantTotalPayable - targetTotalPayable) <= 0.001) {
+      return {
+        compliantInterestRate,
+        compliantTerm,
+      };
+    }
+  }
+
+  throw new BadRequestError(
+    'Unable to derive a compliant schedule that matches the simulated total payable within the product rate cap',
+  );
 }
 
 // Generate early settlement receipt PDF
@@ -405,6 +489,9 @@ const createApplicationSchema = z.object({
   collateralType: z.string().max(200).optional(),
   collateralValue: z.number().positive().optional(),
   guarantorIds: z.array(z.string()).max(5).optional(),
+  enableInternalSchedule: z.boolean().optional().default(false),
+  actualInterestRate: z.number().positive().max(100).optional(),
+  actualTerm: z.number().int().positive().optional(),
 });
 
 const updateApplicationSchema = z.object({
@@ -737,7 +824,30 @@ router.post('/applications', async (req, res, next) => {
       );
     }
 
-    if (data.term < product.minTerm || data.term > product.maxTerm) {
+    let actualInterestRate: number | null = null;
+    let actualTerm: number | null = null;
+    let applicationTerm = data.term;
+
+    if (data.enableInternalSchedule) {
+      if (!supportsInternalScheduleView(product.interestModel as 'FLAT' | 'RULE_78')) {
+        throw new BadRequestError('Additional schedule options are only supported for flat-structured products');
+      }
+
+      if (data.actualInterestRate == null || data.actualTerm == null) {
+        throw new BadRequestError('Risk-adjusted schedule rate and term are required');
+      }
+
+      actualInterestRate = safeRound(data.actualInterestRate, 2);
+      actualTerm = data.actualTerm;
+
+      const compliantStructure = deriveCompliantStructureFromInternal({
+        principal: data.amount,
+        compliantRateCap: toSafeNumber(product.interestRate),
+        actualInterestRate,
+        actualTerm,
+      });
+      applicationTerm = compliantStructure.compliantTerm;
+    } else if (data.term < product.minTerm || data.term > product.maxTerm) {
       throw new BadRequestError(
         `Term must be between ${product.minTerm} and ${product.maxTerm} months`
       );
@@ -749,9 +859,11 @@ router.post('/applications', async (req, res, next) => {
         borrowerId: data.borrowerId,
         productId: data.productId,
         amount: data.amount,
-        term: data.term,
+        term: applicationTerm,
         notes: data.notes,
         status: 'DRAFT',
+        actualInterestRate,
+        actualTerm,
         collateralType: data.collateralType,
         collateralValue: data.collateralValue,
         guarantors: guarantors.length > 0
@@ -1055,10 +1167,14 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
  */
 router.post('/applications/:applicationId/submit', async (req, res, next) => {
   try {
+    const submitData = submitApplicationSchema.parse(req.body);
     const application = await prisma.loanApplication.findFirst({
       where: {
         id: req.params.applicationId,
         tenantId: req.tenantId,
+      },
+      include: {
+        product: true,
       },
     });
 
@@ -1070,9 +1186,36 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
       throw new BadRequestError('Can only submit draft applications');
     }
 
+    let actualInterestRate: number | null = null;
+    let actualTerm: number | null = null;
+
+    if (submitData.enableInternalSchedule) {
+      if (!supportsInternalScheduleView(application.product.interestModel as 'FLAT' | 'RULE_78')) {
+        throw new BadRequestError('Additional schedule options are only supported for flat-structured products');
+      }
+
+      if (submitData.actualInterestRate == null || submitData.actualTerm == null) {
+        throw new BadRequestError('Risk-adjusted schedule rate and term are required');
+      }
+
+      actualInterestRate = safeRound(submitData.actualInterestRate, 2);
+      actualTerm = submitData.actualTerm;
+
+      deriveCompliantStructureFromInternal({
+        principal: toSafeNumber(application.amount),
+        compliantRateCap: toSafeNumber(application.product.interestRate),
+        actualInterestRate,
+        actualTerm,
+      });
+    }
+
     const updated = await prisma.loanApplication.update({
       where: { id: req.params.applicationId },
-      data: { status: 'SUBMITTED' },
+      data: {
+        status: 'SUBMITTED',
+        actualInterestRate,
+        actualTerm,
+      },
     });
 
     // Log to audit trail
@@ -1082,8 +1225,16 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
       action: 'SUBMIT',
       entityType: 'LoanApplication',
       entityId: application.id,
-      previousData: { status: 'DRAFT' },
-      newData: { status: 'SUBMITTED' },
+      previousData: {
+        status: 'DRAFT',
+        actualInterestRate: application.actualInterestRate,
+        actualTerm: application.actualTerm,
+      },
+      newData: {
+        status: 'SUBMITTED',
+        actualInterestRate,
+        actualTerm,
+      },
       ipAddress: req.ip,
     });
 
@@ -1140,6 +1291,30 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
     }
 
     const previousStatus = application.status;
+    const productRateCap = toSafeNumber(application.product.interestRate);
+    const principalAmount = toSafeNumber(application.amount);
+    const hasRiskAdjustedSchedule = application.actualInterestRate != null && application.actualTerm != null;
+    let compliantInterestRate = productRateCap;
+    let derivedTerm = application.term;
+    let actualInterestRate: number | null = null;
+    let actualTerm: number | null = null;
+
+    if (hasRiskAdjustedSchedule) {
+      if (!supportsInternalScheduleView(application.product.interestModel as 'FLAT' | 'RULE_78')) {
+        throw new BadRequestError('Additional schedule options are only supported for flat-structured products');
+      }
+
+      actualInterestRate = safeRound(toSafeNumber(application.actualInterestRate), 2);
+      actualTerm = application.actualTerm;
+      const compliantStructure = deriveCompliantStructureFromInternal({
+        principal: principalAmount,
+        compliantRateCap: productRateCap,
+        actualInterestRate,
+        actualTerm,
+      });
+      compliantInterestRate = compliantStructure.compliantInterestRate;
+      derivedTerm = compliantStructure.compliantTerm;
+    }
 
     // Create loan with initial schedule in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -1157,8 +1332,10 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
           productId: application.productId,
           applicationId: application.id,
           principalAmount: application.amount,
-          interestRate: application.product.interestRate,
-          term: application.term,
+          interestRate: compliantInterestRate,
+          term: derivedTerm,
+          actualInterestRate,
+          actualTerm,
           status: 'PENDING_DISBURSEMENT',
           collateralType: application.collateralType,
           collateralValue: application.collateralValue,
@@ -1207,8 +1384,8 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
       previousData: null,
       newData: {
         principalAmount: Number(application.amount),
-        interestRate: Number(application.product.interestRate),
-        term: application.term,
+        interestRate: compliantInterestRate,
+        term: derivedTerm,
         status: 'PENDING_DISBURSEMENT',
         applicationId: application.id,
         borrowerId: application.borrowerId,
@@ -1900,6 +2077,109 @@ router.get('/:loanId', async (req, res, next) => {
     res.json({
       success: true,
       data: loanWithVerification,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:loanId/schedule/internal', requireAdmin, async (req, res, next) => {
+  try {
+    const loanId = req.params.loanId as string;
+    const loan = await prisma.loan.findFirst({
+      where: {
+        id: loanId,
+        tenantId: req.tenantId,
+      },
+      select: {
+        id: true,
+        principalAmount: true,
+        interestRate: true,
+        actualInterestRate: true,
+        term: true,
+        actualTerm: true,
+        disbursementDate: true,
+        agreementDate: true,
+        createdAt: true,
+        product: {
+          select: {
+            interestModel: true,
+          },
+        },
+        scheduleVersions: {
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            interestModel: true,
+            repayments: {
+              orderBy: { dueDate: 'asc' },
+              select: {
+                id: true,
+                status: true,
+                principal: true,
+                interest: true,
+                totalDue: true,
+                allocations: {
+                  orderBy: { allocatedAt: 'asc' },
+                  select: {
+                    id: true,
+                    amount: true,
+                    allocatedAt: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    const schedule = buildInternalScheduleView({
+      id: loan.id,
+      principalAmount: loan.principalAmount,
+      interestRate: loan.interestRate,
+      actualInterestRate: loan.actualInterestRate,
+      term: loan.term,
+      actualTerm: loan.actualTerm,
+      disbursementDate: loan.disbursementDate,
+      agreementDate: loan.agreementDate,
+      createdAt: loan.createdAt,
+      product: {
+        interestModel: loan.product.interestModel,
+      },
+      scheduleVersions: loan.scheduleVersions.map((version) => ({
+        id: version.id,
+        interestModel: version.interestModel,
+        repayments: version.repayments.map((repayment) => ({
+          id: repayment.id,
+          status: repayment.status,
+          principal: repayment.principal,
+          interest: repayment.interest,
+          totalDue: repayment.totalDue,
+          allocations: repayment.allocations.map((allocation) => ({
+            id: allocation.id,
+            amount: allocation.amount,
+            allocatedAt: allocation.allocatedAt,
+          })),
+        })),
+      })),
+    });
+
+    res.json({
+      success: true,
+      data: schedule
+        ? {
+            enabled: true,
+            schedule,
+          }
+        : {
+            enabled: false,
+          },
     });
   } catch (error) {
     next(error);

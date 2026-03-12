@@ -27,15 +27,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { CopyField } from "@/components/ui/copy-field";
 import { VerificationBadge } from "@/components/verification-badge";
 import { api } from "@/lib/api";
 import {
   formatCurrency,
+  formatNumber,
   toSafeNumber,
   safeMultiply,
   safeDivide,
   safeAdd,
   safeSubtract,
+  safeRound,
 } from "@/lib/utils";
 
 // ============================================
@@ -95,6 +100,157 @@ interface LoanPreview {
   monthlyPayment: number;
   totalInterest: number;
   totalPayable: number;
+}
+
+function supportsInternalScheduleOptions(interestModel: string): boolean {
+  return interestModel === "FLAT" || interestModel === "RULE_78";
+}
+
+function annualizeRiskLevel(monthlyRiskLevel: number): number {
+  return safeRound(safeMultiply(monthlyRiskLevel, 12, 8), 2);
+}
+
+function formatRiskCodeNumber(value: number, decimals = 2): string {
+  return safeRound(value, decimals).toFixed(decimals);
+}
+
+function deriveCompliantStructure(params: {
+  principal: number;
+  compliantRateCap: number;
+  internalInterestRate: number;
+  internalTerm: number;
+}): {
+  compliantInterestRate: number;
+  compliantTerm: number;
+} | null {
+  const { principal, compliantRateCap, internalInterestRate, internalTerm } = params;
+  if (principal <= 0 || compliantRateCap <= 0) return null;
+
+  const normalizedInternalRate = safeRound(internalInterestRate, 2);
+  const normalizedRateCap = safeRound(compliantRateCap, 2);
+  const targetTotalInterest = safeRound(
+    safeMultiply(
+      safeMultiply(principal, safeDivide(normalizedInternalRate, 100, 8), 8),
+      safeDivide(internalTerm, 12, 8),
+      8,
+    ),
+    2,
+  );
+  const targetTotalPayable = safeAdd(principal, targetTotalInterest);
+  const minCompliantTerm = Math.max(
+    1,
+    Math.ceil(
+      safeDivide(
+        safeMultiply(targetTotalInterest, 1200, 8),
+        safeMultiply(principal, normalizedRateCap, 8),
+        8,
+      ),
+    ),
+  );
+
+  for (let compliantTerm = minCompliantTerm; compliantTerm <= 600; compliantTerm += 1) {
+    const compliantInterestRate = safeRound(
+      safeDivide(
+        safeMultiply(targetTotalInterest, 1200, 8),
+        safeMultiply(principal, compliantTerm, 8),
+        8,
+      ),
+      2,
+    );
+
+    if (compliantInterestRate <= 0 || compliantInterestRate > normalizedRateCap) {
+      continue;
+    }
+
+    const compliantTotalInterest = safeRound(
+      safeMultiply(
+        safeMultiply(principal, safeDivide(compliantInterestRate, 100, 8), 8),
+        safeDivide(compliantTerm, 12, 8),
+        8,
+      ),
+      2,
+    );
+
+    if (Math.abs(compliantTotalInterest - targetTotalInterest) <= 0.001) {
+      return {
+        compliantInterestRate,
+        compliantTerm,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getPreview(params: {
+  product: Product;
+  amount: number;
+  term: number;
+  interestRate?: number;
+}): LoanPreview {
+  const { product, amount, term, interestRate = toSafeNumber(product.interestRate) } = params;
+  const loanAmount = amount;
+
+  const legalFeeValue = toSafeNumber(product.legalFeeValue);
+  const stampingFeeValue = toSafeNumber(product.stampingFeeValue);
+
+  const legalFee =
+    product.legalFeeType === "PERCENTAGE"
+      ? safeMultiply(loanAmount, safeDivide(legalFeeValue, 100))
+      : legalFeeValue;
+
+  const stampingFee =
+    product.stampingFeeType === "PERCENTAGE"
+      ? safeMultiply(loanAmount, safeDivide(stampingFeeValue, 100))
+      : stampingFeeValue;
+
+  const totalFees = safeAdd(legalFee, stampingFee);
+  const netDisbursement = safeSubtract(loanAmount, totalFees);
+
+  let monthlyPayment: number;
+  let totalInterest: number;
+  let totalPayable: number;
+
+  if (product.interestModel === "FLAT" || product.interestModel === "RULE_78") {
+    const annualRate = safeDivide(interestRate, 100, 8);
+    totalInterest = safeRound(
+      safeMultiply(
+        safeMultiply(loanAmount, annualRate, 8),
+        safeDivide(term, 12, 8),
+        8,
+      ),
+      2,
+    );
+    totalPayable = safeAdd(loanAmount, totalInterest);
+    monthlyPayment = safeDivide(totalPayable, term);
+  } else {
+    const monthlyRate = safeDivide(interestRate, 12 * 100);
+    if (monthlyRate === 0) {
+      monthlyPayment = safeDivide(loanAmount, term);
+    } else {
+      const factor = Math.pow(1 + monthlyRate, term);
+      monthlyPayment = safeMultiply(
+        loanAmount,
+        safeDivide(safeMultiply(monthlyRate, factor), factor - 1)
+      );
+    }
+    totalPayable = safeMultiply(monthlyPayment, term);
+    totalInterest = safeSubtract(totalPayable, loanAmount);
+  }
+
+  return {
+    loanAmount,
+    term,
+    interestRate,
+    interestModel: product.interestModel,
+    legalFee,
+    stampingFee,
+    totalFees,
+    netDisbursement,
+    monthlyPayment,
+    totalInterest,
+    totalPayable,
+  };
 }
 
 // ============================================
@@ -174,6 +330,9 @@ export default function NewApplicationPage() {
   const [notes, setNotes] = useState("");
   const [collateralType, setCollateralType] = useState("");
   const [collateralValue, setCollateralValue] = useState<number | "">(0);
+  const [useInternalSchedule, setUseInternalSchedule] = useState(false);
+  const [internalInterestRate, setInternalInterestRate] = useState<number | "" | string>("");
+  const [internalTerm, setInternalTerm] = useState<number | "">("");
 
   // Fetch borrowers and products on mount
   useEffect(() => {
@@ -209,74 +368,11 @@ export default function NewApplicationPage() {
       setPreview(null);
       return;
     }
-
-    const calculatePreview = () => {
-      const loanAmount = numAmount;
-      const interestRate = toSafeNumber(selectedProduct.interestRate);
-
-      // Calculate fees
-      const legalFeeValue = toSafeNumber(selectedProduct.legalFeeValue);
-      const stampingFeeValue = toSafeNumber(selectedProduct.stampingFeeValue);
-
-      const legalFee =
-        selectedProduct.legalFeeType === "PERCENTAGE"
-          ? safeMultiply(loanAmount, safeDivide(legalFeeValue, 100))
-          : legalFeeValue;
-
-      const stampingFee =
-        selectedProduct.stampingFeeType === "PERCENTAGE"
-          ? safeMultiply(loanAmount, safeDivide(stampingFeeValue, 100))
-          : stampingFeeValue;
-
-      const totalFees = safeAdd(legalFee, stampingFee);
-      const netDisbursement = safeSubtract(loanAmount, totalFees);
-
-      // Calculate monthly payment
-      let monthlyPayment: number;
-      let totalInterest: number;
-      let totalPayable: number;
-
-      if (selectedProduct.interestModel === "FLAT" || selectedProduct.interestModel === "RULE_78") {
-        // Flat interest: Principal × Rate × Term / 12
-        const annualRate = safeDivide(interestRate, 100);
-        totalInterest = safeMultiply(
-          safeMultiply(loanAmount, annualRate),
-          safeDivide(numTerm, 12)
-        );
-        totalPayable = safeAdd(loanAmount, totalInterest);
-        monthlyPayment = safeDivide(totalPayable, numTerm);
-      } else {
-        // Declining balance EMI
-        const monthlyRate = safeDivide(interestRate, 12 * 100);
-        if (monthlyRate === 0) {
-          monthlyPayment = safeDivide(loanAmount, numTerm);
-        } else {
-          const factor = Math.pow(1 + monthlyRate, numTerm);
-          monthlyPayment = safeMultiply(
-            loanAmount,
-            safeDivide(safeMultiply(monthlyRate, factor), factor - 1)
-          );
-        }
-        totalPayable = safeMultiply(monthlyPayment, numTerm);
-        totalInterest = safeSubtract(totalPayable, loanAmount);
-      }
-
-      setPreview({
-        loanAmount,
-        term: numTerm,
-        interestRate,
-        interestModel: selectedProduct.interestModel,
-        legalFee,
-        stampingFee,
-        totalFees,
-        netDisbursement,
-        monthlyPayment,
-        totalInterest,
-        totalPayable,
-      });
-    };
-
-    calculatePreview();
+    setPreview(getPreview({
+      product: selectedProduct,
+      amount: numAmount,
+      term: numTerm,
+    }));
   }, [selectedProduct, amount, term]);
 
   // Filter borrowers by search
@@ -319,7 +415,55 @@ export default function NewApplicationPage() {
     setSelectedProduct(product);
     setAmount(toSafeNumber(product.minAmount));
     setTerm(product.minTerm);
+    setUseInternalSchedule(false);
+    setInternalInterestRate("");
+    setInternalTerm(product.minTerm);
   };
+
+  const supportsInternalOptions = selectedProduct
+    ? supportsInternalScheduleOptions(selectedProduct.interestModel)
+    : false;
+  const hasInternalInputs =
+    !!selectedProduct &&
+    useInternalSchedule &&
+    internalInterestRate !== "" &&
+    Number(internalInterestRate) > 0 &&
+    internalTerm !== "" &&
+    internalTerm > 0;
+  const annualizedInternalInterestRate = hasInternalInputs
+    ? annualizeRiskLevel(Number(internalInterestRate))
+    : null;
+  const compliantStructure = selectedProduct && hasInternalInputs && amount !== ""
+    ? deriveCompliantStructure({
+        principal: amount,
+        compliantRateCap: toSafeNumber(selectedProduct.interestRate),
+        internalInterestRate: annualizedInternalInterestRate ?? 0,
+        internalTerm: Number(internalTerm),
+      })
+    : null;
+  const compliantPreview = selectedProduct && compliantStructure && amount !== ""
+    ? getPreview({
+        product: selectedProduct,
+        amount,
+        term: compliantStructure.compliantTerm,
+        interestRate: compliantStructure.compliantInterestRate,
+      })
+    : null;
+  const internalPreview = selectedProduct && hasInternalInputs && amount !== ""
+    ? getPreview({
+        product: selectedProduct,
+        amount,
+        term: Number(internalTerm),
+        interestRate: annualizedInternalInterestRate ?? 0,
+      })
+    : null;
+  const summaryPreview = compliantPreview ?? preview;
+  const displayedCompliantTerm = useInternalSchedule
+    ? (compliantStructure?.compliantTerm ?? "")
+    : term;
+  const loanIdCodePreview = hasInternalInputs && internalPreview
+    ? `XXXXXXXX00${Number(internalTerm)}00${formatRiskCodeNumber(Number(internalInterestRate), 1)}00${formatRiskCodeNumber(internalPreview.monthlyPayment)}`
+    : null;
 
   const handleNext = () => {
     if (currentStep === 1 && !selectedBorrower) {
@@ -336,7 +480,9 @@ export default function NewApplicationPage() {
       const minTerm = selectedProduct.minTerm;
       const maxTerm = selectedProduct.maxTerm;
       const numAmount = amount === "" ? 0 : amount;
-      const numTerm = term === "" ? 0 : term;
+      const numTerm = useInternalSchedule
+        ? (compliantStructure?.compliantTerm ?? 0)
+        : (term === "" ? 0 : term);
       const numCollateral = collateralValue === "" ? 0 : collateralValue;
 
       if (numAmount <= 0) {
@@ -355,11 +501,11 @@ export default function NewApplicationPage() {
         toast.error("Please enter a valid term");
         return;
       }
-      if (numTerm < minTerm) {
+      if (!useInternalSchedule && numTerm < minTerm) {
         toast.error(`Term must be at least ${minTerm} months`);
         return;
       }
-      if (numTerm > maxTerm) {
+      if (!useInternalSchedule && numTerm > maxTerm) {
         toast.error(`Term cannot exceed ${maxTerm} months`);
         return;
       }
@@ -371,6 +517,24 @@ export default function NewApplicationPage() {
         }
         if (numCollateral <= 0) {
           toast.error("Please enter the collateral value for Jadual K loan");
+          return;
+        }
+      }
+      if (useInternalSchedule) {
+        if (!supportsInternalOptions) {
+          toast.error("Additional schedule options are only available for flat-structured products");
+          return;
+        }
+        if (internalInterestRate === "" || Number(internalInterestRate) <= 0 || Number.isNaN(Number(internalInterestRate))) {
+          toast.error("Please enter a valid risk index");
+          return;
+        }
+        if (internalTerm === "" || internalTerm <= 0) {
+          toast.error("Please enter a valid risk term");
+          return;
+        }
+        if (!compliantStructure) {
+          toast.error("Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap");
           return;
         }
       }
@@ -388,7 +552,9 @@ export default function NewApplicationPage() {
     setCreating(true);
     try {
       const numAmount = amount === "" ? 0 : amount;
-      const numTerm = term === "" ? 0 : term;
+      const numTerm = useInternalSchedule
+        ? (compliantStructure?.compliantTerm ?? 0)
+        : (term === "" ? 0 : term);
       const numCollateral = collateralValue === "" ? 0 : collateralValue;
       const res = await api.post<{ id: string }>("/api/loans/applications", {
         borrowerId: selectedBorrower.id,
@@ -397,6 +563,13 @@ export default function NewApplicationPage() {
         amount: numAmount,
         term: numTerm,
         notes: notes || undefined,
+        ...(useInternalSchedule
+          ? {
+              enableInternalSchedule: true,
+              actualInterestRate: annualizedInternalInterestRate,
+              actualTerm: Number(internalTerm),
+            }
+          : {}),
         ...(selectedProduct.loanScheduleType === "JADUAL_K" && collateralType.trim() ? {
           collateralType: collateralType.trim(),
           collateralValue: numCollateral > 0 ? numCollateral : undefined,
@@ -780,7 +953,7 @@ export default function NewApplicationPage() {
               <div>
                 <h2 className="text-lg font-semibold mb-2">Loan Details</h2>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Enter the loan amount and term
+                  Enter the loan amount, term, and any optional risk-adjusted schedule settings
                 </p>
               </div>
 
@@ -821,23 +994,32 @@ export default function NewApplicationPage() {
                   {(() => {
                     const minTerm = selectedProduct.minTerm;
                     const maxTerm = selectedProduct.maxTerm;
-                    const numTerm = term === "" ? 0 : term;
+                    const numTerm = useInternalSchedule
+                      ? 0
+                      : (term === "" ? 0 : term);
                     const isTermInvalid = numTerm > 0 && (numTerm < minTerm || numTerm > maxTerm);
                     return (
                       <div>
                         <label className="text-sm font-medium">
-                          Term (months)
+                          {useInternalSchedule ? "Compliant Term (months)" : "Term (months)"}
                           <span className="text-muted-foreground ml-2">
                             ({minTerm} - {maxTerm})
                           </span>
                         </label>
                         <NumericInput
-                          value={term}
+                          value={displayedCompliantTerm}
                           onChange={setTerm}
                           min={minTerm}
                           max={maxTerm}
+                          disabled={useInternalSchedule}
+                          placeholder={useInternalSchedule ? "Auto-derived from risk term" : undefined}
                           className={`mt-1 ${isTermInvalid ? "border-red-500 focus:ring-red-500" : ""}`}
                         />
+                        {useInternalSchedule && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            This compliant term is auto-derived from the risk-adjusted schedule.
+                          </p>
+                        )}
                         {isTermInvalid && (
                           <p className="text-xs text-red-500 mt-1">
                             {numTerm < minTerm
@@ -898,10 +1080,97 @@ export default function NewApplicationPage() {
                       </div>
                     </div>
                   )}
+
+                  <div className="border-t pt-4 space-y-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <ChartPie className="h-4 w-4 text-muted-foreground" />
+                        <label className="text-sm font-semibold">Schedule Options</label>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Optional risk-adjusted schedule settings captured during the details step.
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">
+                        This risk-adjusted schedule is provided solely for internal reference and scenario analysis. Risk index and risk term are for internal planning purposes only; their meaning and interpretation are determined by the lender. Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements. This risk-adjusted view does not amend, replace, validate, or supersede the approved repayment schedule, contractual terms, or compliance record.
+                      </p>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="new-application-internal-schedule-toggle">Enable Risk-Adjusted Schedule</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Add a risk-adjusted schedule while preserving a compliant schedule that remains within the product rate cap.
+                        </p>
+                      </div>
+                      <Switch
+                        id="new-application-internal-schedule-toggle"
+                        checked={useInternalSchedule}
+                        onCheckedChange={(checked) => {
+                          setUseInternalSchedule(checked);
+                          if (checked && internalTerm === "") {
+                            setInternalTerm(term === "" ? selectedProduct.minTerm : term);
+                          }
+                        }}
+                        disabled={!supportsInternalOptions}
+                      />
+                    </div>
+
+                    {!supportsInternalOptions && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                        Additional schedule options are currently available for flat-structured products only.
+                      </div>
+                    )}
+
+                    {useInternalSchedule && supportsInternalOptions && (
+                      <div className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="new-application-internal-rate">Risk Index (1-100)</Label>
+                            <NumericInput
+                              id="new-application-internal-rate"
+                              mode="float"
+                              maxDecimals={1}
+                              value={internalInterestRate}
+                              onChange={setInternalInterestRate}
+                              placeholder="e.g. 5.5"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="new-application-internal-term">Risk Term (1-36)</Label>
+                            <NumericInput
+                              id="new-application-internal-term"
+                              mode="int"
+                              value={internalTerm}
+                              onChange={(v) => setInternalTerm(v === "" ? "" : Number(v))}
+                              placeholder="e.g. 12"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border bg-secondary/30 p-3 text-sm">
+                          <div className="flex justify-between gap-4">
+                            <span className="text-muted-foreground">Derived Compliant Term</span>
+                            <span className="font-medium">
+                              {compliantStructure ? `${compliantStructure.compliantTerm} months` : "Enter risk index and risk term"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {hasInternalInputs && !compliantStructure && (
+                          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                            Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Right: Preview */}
-                {preview && (
+                {summaryPreview && (
                   <div className="relative overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/5 via-card to-primary/10 dark:from-primary/10 dark:via-card dark:to-primary/5 p-5 space-y-3">
                     {/* Subtle accent glow */}
                     <div className="absolute -top-12 -right-12 w-32 h-32 bg-foreground/10 rounded-full blur-3xl" />
@@ -909,58 +1178,71 @@ export default function NewApplicationPage() {
                       <div className="p-1.5 rounded-md bg-foreground/10">
                         <Calculator className="h-4 w-4 text-muted-foreground" />
                       </div>
-                      Loan Summary
+                      {useInternalSchedule && compliantStructure ? "Compliant Loan Repayment" : "Loan Summary"}
                     </h3>
                     <div className="relative space-y-2.5 text-sm">
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Loan Amount</span>
                         <span className="font-medium text-foreground">
-                          {formatCurrency(preview.loanAmount)}
+                          {formatCurrency(summaryPreview.loanAmount)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">{useInternalSchedule && compliantStructure ? "Compliant Term" : "Term"}</span>
+                        <span className="font-medium text-foreground">
+                          {summaryPreview.term} months
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Legal Fee</span>
-                        <span className="text-foreground">{formatCurrency(preview.legalFee)}</span>
+                        <span className="text-foreground">{formatCurrency(summaryPreview.legalFee)}</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Stamping Fee</span>
-                        <span className="text-foreground">{formatCurrency(preview.stampingFee)}</span>
+                        <span className="text-foreground">{formatCurrency(summaryPreview.stampingFee)}</span>
                       </div>
                       <div className="flex justify-between items-center border-t border-border/50 pt-2.5">
                         <span className="text-muted-foreground">Total Fees</span>
                         <span className="font-medium text-amber-600 dark:text-amber-400">
-                          {formatCurrency(preview.totalFees)}
+                          {formatCurrency(summaryPreview.totalFees)}
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Net Disbursement</span>
                         <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                          {formatCurrency(preview.netDisbursement)}
+                          {formatCurrency(summaryPreview.netDisbursement)}
                         </span>
                       </div>
                       <div className="border-t border-border/50 pt-2.5" />
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Interest Rate</span>
-                        <span className="text-foreground">{preview.interestRate}% p.a.</span>
+                        <span className="text-foreground">{formatNumber(summaryPreview.interestRate, 2)}% p.a.</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Total Interest</span>
-                        <span className="text-foreground">{formatCurrency(preview.totalInterest)}</span>
+                        <span className="text-foreground">{formatCurrency(summaryPreview.totalInterest)}</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Total Payable</span>
                         <span className="font-medium text-foreground">
-                          {formatCurrency(preview.totalPayable)}
+                          {formatCurrency(summaryPreview.totalPayable)}
                         </span>
                       </div>
                       {/* Monthly Payment Highlight */}
                       <div className="flex justify-between items-center bg-foreground/10 dark:bg-primary/20 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-primary/20">
-                        <span className="font-semibold text-foreground">Monthly Payment</span>
+                        <span className="font-semibold text-foreground">
+                          {useInternalSchedule && compliantStructure ? "Compliant Monthly Payment" : "Monthly Payment"}
+                        </span>
                         <span className="font-bold text-xl text-foreground">
-                          {formatCurrency(preview.monthlyPayment)}
+                          {formatCurrency(summaryPreview.monthlyPayment)}
                         </span>
                       </div>
                     </div>
+                    {loanIdCodePreview && (
+                      <div className="relative pt-4 border-t border-border/50">
+                        <CopyField label="Loan ID Preview" value={loanIdCodePreview} />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -968,7 +1250,7 @@ export default function NewApplicationPage() {
           )}
 
           {/* Step 5: Review */}
-          {currentStep === 5 && selectedBorrower && selectedProduct && preview && (
+          {currentStep === 5 && selectedBorrower && selectedProduct && summaryPreview && (
             <div className="space-y-6">
               <div>
                 <h2 className="text-lg font-semibold mb-2">Review Application</h2>
@@ -1119,62 +1401,87 @@ export default function NewApplicationPage() {
                     <div className="p-1.5 rounded-md bg-foreground/10">
                       <Calculator className="h-4 w-4 text-muted-foreground" />
                     </div>
-                    Loan Summary
+                    {useInternalSchedule && compliantStructure ? "Compliant Loan Repayment" : "Loan Summary"}
                   </h3>
                   <div className="relative space-y-2.5 text-sm">
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Loan Amount</span>
                       <span className="font-medium text-foreground">
-                        {formatCurrency(preview.loanAmount)}
+                          {formatCurrency(summaryPreview.loanAmount)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Term</span>
-                      <span className="font-medium text-foreground">{preview.term} months</span>
+                        <span className="font-medium text-foreground">{summaryPreview.term} months</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Legal Fee</span>
-                      <span className="text-foreground">{formatCurrency(preview.legalFee)}</span>
+                        <span className="text-foreground">{formatCurrency(summaryPreview.legalFee)}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Stamping Fee</span>
-                      <span className="text-foreground">{formatCurrency(preview.stampingFee)}</span>
+                        <span className="text-foreground">{formatCurrency(summaryPreview.stampingFee)}</span>
                     </div>
                     <div className="flex justify-between items-center border-t border-border/50 pt-2.5">
                       <span className="text-muted-foreground">Total Fees</span>
                       <span className="font-medium text-amber-600 dark:text-amber-400">
-                        {formatCurrency(preview.totalFees)}
+                          {formatCurrency(summaryPreview.totalFees)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Net Disbursement</span>
                       <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                        {formatCurrency(preview.netDisbursement)}
+                          {formatCurrency(summaryPreview.netDisbursement)}
                       </span>
                     </div>
                     <div className="border-t border-border/50 pt-2.5" />
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Interest Rate</span>
-                      <span className="text-foreground">{preview.interestRate}% p.a.</span>
+                      <span className="text-foreground">{formatNumber(summaryPreview.interestRate, 2)}% p.a.</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Total Interest</span>
-                      <span className="text-foreground">{formatCurrency(preview.totalInterest)}</span>
+                        <span className="text-foreground">{formatCurrency(summaryPreview.totalInterest)}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Total Payable</span>
                       <span className="font-medium text-foreground">
-                        {formatCurrency(preview.totalPayable)}
+                          {formatCurrency(summaryPreview.totalPayable)}
                       </span>
                     </div>
                     {/* Monthly Payment Highlight */}
                     <div className="flex justify-between items-center bg-foreground/10 dark:bg-primary/20 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-primary/20">
                       <span className="font-semibold text-foreground">Monthly Payment</span>
                       <span className="font-bold text-xl text-foreground">
-                        {formatCurrency(preview.monthlyPayment)}
+                        {formatCurrency(summaryPreview.monthlyPayment)}
                       </span>
                     </div>
                   </div>
+                  {useInternalSchedule && hasInternalInputs && compliantStructure && (
+                    <div className="relative pt-4 border-t border-border/50 space-y-2 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Schedule View</span>
+                        <span className="font-medium text-foreground">Compliant + Risk-Adjusted</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Compliant Term</span>
+                        <span className="font-medium text-foreground">{compliantStructure.compliantTerm} months</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Risk Index</span>
+                        <span className="font-medium text-foreground">{formatNumber(Number(internalInterestRate), 2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Risk Term</span>
+                        <span className="font-medium text-foreground">{internalTerm}</span>
+                      </div>
+                    </div>
+                  )}
+                  {loanIdCodePreview && (
+                    <div className="relative pt-4 border-t border-border/50">
+                      <CopyField label="Loan ID Preview" value={loanIdCodePreview} />
+                    </div>
+                  )}
                   {/* Collateral Details for Jadual K */}
                   {selectedProduct.loanScheduleType === "JADUAL_K" && collateralType && (
                     <div className="relative pt-4 border-t border-border/50 space-y-2">

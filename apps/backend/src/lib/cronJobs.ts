@@ -70,7 +70,9 @@ export function initCronJobs(): void {
   console.log('  ✓ TrueSend payment reminders: 9:00 AM MYT daily');
 
   // Billing reconciliation + renewal generation: 12:05 AM Malaysia Time daily
-  cron.schedule('5 0 * * *', async () => {
+  // Override with KREDIT_BILLING_CRON env var for testing (e.g. "*/2 * * * *" for every 2 minutes)
+  const kreditCronSchedule = process.env.KREDIT_BILLING_CRON || '5 0 * * *';
+  cron.schedule(kreditCronSchedule, async () => {
     console.log('[CRON] Starting daily billing reconciliation...');
     try {
       await BillingCronService.run();
@@ -82,7 +84,7 @@ export function initCronJobs(): void {
     timezone: 'Asia/Kuala_Lumpur',
   });
 
-  console.log('  ✓ Billing reconciliation: 12:05 AM MYT daily');
+  console.log(`  ✓ Billing reconciliation: ${kreditCronSchedule} MYT`);
 
   // Startup catch-up: ensures missed midnight window still gets reconciled
   // (safe due to advisory lock and idempotent invoice checks).

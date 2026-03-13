@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { safeAdd, safeDivide, safeMultiply, safeRound, safeSubtract, toSafeNumber } from '../../lib/math.js';
 import { BillingCronService } from '../../lib/billingCronService.js';
+import { refreshRenewalInvoiceCharges } from '../billing/routes.js';
 
 const router = Router();
 
@@ -448,6 +449,21 @@ router.get('/tenants', async (req, res, next) => {
     ]);
 
     const tenantIds = tenants.map((t) => t.id);
+
+    // Refresh unpaid renewal invoices so amounts are up to date (matches Kredit billing page behavior)
+    const unpaidRenewals = await prisma.invoice.findMany({
+      where: {
+        tenantId: { in: tenantIds },
+        billingType: 'RENEWAL',
+        status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+      },
+      select: { id: true, tenantId: true },
+    });
+    await Promise.all(
+      unpaidRenewals.map((inv) =>
+        refreshRenewalInvoiceCharges({ tenantId: inv.tenantId, invoiceId: inv.id })
+      )
+    );
 
     const [financialsByTenant, latestInvoices] = await Promise.all([
       computeTenantFinancials(tenantIds),

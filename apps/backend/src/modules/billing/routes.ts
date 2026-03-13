@@ -335,25 +335,50 @@ router.post('/payments', requireAdmin, async (req, res, next) => {
       });
 
       // Update invoice status
+      const paidAt = new Date();
+      const allLineItems = await tx.invoiceLineItem.findMany({
+        where: { invoiceId: invoice.id },
+        orderBy: { createdAt: 'asc' },
+      });
       const updatedInvoice = await tx.invoice.update({
         where: { id: invoice.id },
         data: {
           status: 'PAID',
-          paidAt: new Date(),
-          lineItemsSnapshot: (
-            await tx.invoiceLineItem.findMany({
-              where: { invoiceId: invoice.id },
-              orderBy: { createdAt: 'asc' },
-            })
-          ).map((item) => ({
+          paidAt,
+          lineItemsSnapshot: allLineItems.map((item) => ({
             description: item.description,
             quantity: item.quantity,
             unitPrice: Number(item.unitPrice),
             amount: Number(item.amount),
             itemType: item.itemType,
+            metadata: item.metadata,
           })),
         },
       });
+
+      // Record each billed usage day so future invoices don't re-charge them
+      if (invoice.billingType === 'RENEWAL') {
+        const usageLine = allLineItems.find((li) => li.itemType === 'USAGE');
+        if (usageLine) {
+          const meta = usageLine.metadata as { usageByDate?: Record<string, number> } | null;
+          const usageByDate = meta?.usageByDate ?? {};
+          const usagePaidRows = Object.entries(usageByDate)
+            .filter(([, count]) => count > 0)
+            .map(([date, count]) => ({
+              tenantId: req.tenantId!,
+              invoiceId: invoice.id,
+              usageDate: new Date(date),
+              count,
+              paidAt,
+            }));
+          if (usagePaidRows.length > 0) {
+            await tx.trueIdentityUsagePaid.createMany({
+              data: usagePaidRows,
+              skipDuplicates: true,
+            });
+          }
+        }
+      }
 
       // Update subscription status if was in grace period or blocked
       const subscription = await tx.subscription.findUnique({
@@ -571,17 +596,26 @@ export async function refreshRenewalInvoiceCharges(params: {
       });
       updated = true;
     }
+    const usageByDate: Record<string, number> = {};
+    for (const row of usageRows) {
+      if (row.count > 0) usageByDate[row.date] = row.count;
+    }
+
     if (usageAmountMyr > 0) {
       const usageDescription = `TrueIdentity usage (${verificationCount} verifications)`;
+      const usageMeta = { usageByDate };
       if (usageLine) {
         const currentAmount = toSafeNumber(usageLine.amount);
         const currentQuantity = usageLine.quantity ?? 0;
         const currentUnitPrice = toSafeNumber(usageLine.unitPrice);
+        const currentMeta = usageLine.metadata as { usageByDate?: Record<string, number> } | null;
+        const metaChanged = JSON.stringify(currentMeta?.usageByDate ?? {}) !== JSON.stringify(usageByDate);
         if (
           currentAmount !== usageAmountMyr ||
           currentQuantity !== verificationCount ||
           currentUnitPrice !== unitPriceMyr ||
-          usageLine.description !== usageDescription
+          usageLine.description !== usageDescription ||
+          metaChanged
         ) {
           await tx.invoiceLineItem.update({
             where: { id: usageLine.id },
@@ -590,6 +624,7 @@ export async function refreshRenewalInvoiceCharges(params: {
               unitPrice: unitPriceMyr,
               quantity: verificationCount,
               amount: usageAmountMyr,
+              metadata: usageMeta,
             },
           });
           updated = true;
@@ -603,6 +638,7 @@ export async function refreshRenewalInvoiceCharges(params: {
             unitPrice: unitPriceMyr,
             quantity: verificationCount,
             amount: usageAmountMyr,
+            metadata: usageMeta,
           },
         });
         updated = true;
@@ -824,6 +860,11 @@ async function getOrCreateRenewalInvoiceForTenant(tenantId: string): Promise<{
               unitPrice: unitPriceMyr,
               quantity: verificationCount,
               amount: usageAmountMyr,
+              metadata: {
+                usageByDate: Object.fromEntries(
+                  usageRows.filter((r) => r.count > 0).map((r) => [r.date, r.count])
+                ),
+              },
             }]
           : []),
         {

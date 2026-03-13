@@ -128,9 +128,34 @@ export async function applyApprovedDecision(decision: PaymentDecision): Promise<
             unitPrice: Number(item.unitPrice),
             amount: Number(item.amount),
             itemType: item.itemType,
+            metadata: item.metadata,
           })),
         },
       });
+
+      // Record each billed usage day so future invoices don't re-charge them
+      if (invoice.billingType === 'RENEWAL') {
+        const usageLine = invoice.lineItems.find((li) => li.itemType === 'USAGE');
+        if (usageLine) {
+          const meta = usageLine.metadata as { usageByDate?: Record<string, number> } | null;
+          const usageByDate = meta?.usageByDate ?? {};
+          const usagePaidRows = Object.entries(usageByDate)
+            .filter(([, count]) => count > 0)
+            .map(([date, count]) => ({
+              tenantId: request.tenantId,
+              invoiceId: invoice.id,
+              usageDate: new Date(date),
+              count,
+              paidAt: approvedAt,
+            }));
+          if (usagePaidRows.length > 0) {
+            await tx.trueIdentityUsagePaid.createMany({
+              data: usagePaidRows,
+              skipDuplicates: true,
+            });
+          }
+        }
+      }
     }
 
     const existingSub = await tx.subscription.findUnique({ where: { tenantId: request.tenantId } });
@@ -492,6 +517,11 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
                 unitPrice: unitPriceMyr,
                 quantity: verificationCount,
                 amount: usageAmount,
+                metadata: {
+                  usageByDate: Object.fromEntries(
+                    usageRows.filter((r) => r.count > 0).map((r) => [r.date, r.count])
+                  ),
+                },
               }]
             : []),
           {

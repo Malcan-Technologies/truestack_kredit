@@ -68,8 +68,56 @@ export async function getUsageForTenant(
     orderBy: { usageDate: 'asc' },
   });
 
-  return rows.map((r) => ({
-    date: r.usageDate.toISOString().slice(0, 10),
-    count: r.count,
-  }));
+  // Fetch paid usage for this period to subtract already-settled counts
+  const paidRows = await prisma.trueIdentityUsagePaid.findMany({
+    where: {
+      tenantId,
+      usageDate: { gte: from, ...upperBound },
+    },
+    orderBy: { usageDate: 'asc' },
+  });
+
+  // Build a map of paidCount per date
+  const paidByDate = new Map<string, number>();
+  for (const pr of paidRows) {
+    const key = pr.usageDate.toISOString().slice(0, 10);
+    paidByDate.set(key, (paidByDate.get(key) ?? 0) + pr.count);
+  }
+
+  return rows
+    .map((r) => {
+      const key = r.usageDate.toISOString().slice(0, 10);
+      const paid = paidByDate.get(key) ?? 0;
+      return {
+        date: key,
+        count: Math.max(0, r.count - paid),
+      };
+    })
+    .filter((r) => r.count > 0);
+}
+
+/**
+ * Record which usage days were settled by a paid invoice.
+ * Called when a RENEWAL invoice is marked PAID.
+ * Inserts one TrueIdentityUsagePaid row per usage day billed.
+ */
+export async function recordPaidUsage(params: {
+  tenantId: string;
+  invoiceId: string;
+  paidAt: Date;
+  usageRows: { date: string; count: number }[];
+}): Promise<void> {
+  const { tenantId, invoiceId, paidAt, usageRows } = params;
+  if (usageRows.length === 0) return;
+
+  await prisma.trueIdentityUsagePaid.createMany({
+    data: usageRows.map((row) => ({
+      tenantId,
+      invoiceId,
+      usageDate: new Date(row.date),
+      count: row.count,
+      paidAt,
+    })),
+    skipDuplicates: true,
+  });
 }

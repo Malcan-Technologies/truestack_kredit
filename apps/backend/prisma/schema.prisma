@@ -171,6 +171,7 @@ model Tenant {
   trueIdentitySessions TrueIdentitySession[]
   trueIdentityWebhookEvents TrueIdentityWebhookEvent[]
   trueIdentityUsageDaily TrueIdentityUsageDaily[]
+  trueIdentityUsagePaid  TrueIdentityUsagePaid[]
   subscriptionPaymentRequests SubscriptionPaymentRequest[]
 }
 
@@ -414,6 +415,7 @@ model Invoice {
   subscriptionPaymentRequests SubscriptionPaymentRequest[]
   sourceCreditNotes          CreditNote[]                @relation("CreditNoteSourceInvoice")
   appliedCreditNotes         CreditNote[]                @relation("CreditNoteAppliedInvoice")
+  trueIdentityUsagePaid      TrueIdentityUsagePaid[]
 
   @@index([tenantId])
   @@index([status])
@@ -1361,6 +1363,26 @@ model TrueIdentityUsageDaily {
 
   @@unique([tenantId, usageDate])
   @@index([tenantId])
+}
+
+/// Records which TrueIdentity usage days have been settled by a paid invoice.
+/// When a RENEWAL invoice is paid, one row per billed usage day is inserted here.
+/// Usage queries for future invoices exclude these dates to prevent double-charging.
+model TrueIdentityUsagePaid {
+  id        String   @id @default(cuid())
+  tenantId  String
+  invoiceId String
+  usageDate DateTime // MYT day (UTC midnight) that was billed
+  count     Int      // how many verifications on that day were covered
+  paidAt    DateTime // when the invoice was marked PAID
+  createdAt DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, invoiceId, usageDate])
+  @@index([tenantId])
+  @@index([tenantId, usageDate])
 }
 
 // Audit trail for each cron / manual late fee processing run

@@ -29,8 +29,12 @@ export async function fetchAdminUsage(
   const secret = config.trueIdentity.kreditWebhookSecret;
   if (!secret) return null;
 
-  const periodStartStr = periodStart.toISOString().slice(0, 10);
-  const periodEndStr = periodEnd.toISOString().slice(0, 10);
+  // Pass full UTC ISO timestamps so the admin query uses exact period boundaries.
+  // Slicing to date-only would give the UTC calendar date, which is 8 hours behind MYT
+  // and causes the query window to drift, making admin return fewer sessions than Kredit
+  // has locally and triggering incorrect trimming of local usage rows.
+  const periodStartStr = periodStart.toISOString();
+  const periodEndStr = periodEnd.toISOString();
   const url = `${baseUrl}${ENDPOINT}`;
   const rawBody = JSON.stringify({
     tenant_id: tenantId,

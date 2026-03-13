@@ -48,9 +48,70 @@ function formatTimeSaved(totalCount: number, minsPerUnit: number): string {
 }
 
 function toApiDateParam(value: string): string | null {
-  const date = new Date(value);
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const directDateMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (directDateMatch) return directDateMatch[1];
+  const date = new Date(trimmed);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(date)
+    .reduce<Record<string, string>>((acc, part) => {
+      if (part.type === "year" || part.type === "month" || part.type === "day") {
+        acc[part.type] = part.value;
+      }
+      return acc;
+    }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getMytDaysUntil(targetIsoDate: string): number {
+  const target = new Date(targetIsoDate);
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const getParts = (d: Date) => {
+    const parts = formatter.formatToParts(d);
+    return {
+      y: parts.find((p) => p.type === "year")?.value ?? "1970",
+      m: parts.find((p) => p.type === "month")?.value ?? "01",
+      d: parts.find((p) => p.type === "day")?.value ?? "01",
+    };
+  };
+  const nowP = getParts(now);
+  const targetP = getParts(target);
+  const nowUtc = Date.UTC(Number(nowP.y), Number(nowP.m) - 1, Number(nowP.d));
+  const targetUtc = Date.UTC(Number(targetP.y), Number(targetP.m) - 1, Number(targetP.d));
+  return Math.ceil((targetUtc - nowUtc) / (1000 * 60 * 60 * 24));
+}
+
+function getTomorrowMytDateParam(): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(now)
+    .reduce<Record<string, string>>((acc, part) => {
+      if (part.type === "year" || part.type === "month" || part.type === "day") {
+        acc[part.type] = part.value;
+      }
+      return acc;
+    }, {});
+  const todayUtc = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)));
+  todayUtc.setUTCDate(todayUtc.getUTCDate() + 1);
+  return todayUtc.toISOString().slice(0, 10);
 }
 
 export default function TrueIdentityModulePage() {
@@ -81,13 +142,18 @@ export default function TrueIdentityModulePage() {
           subscriptionRes.data?.currentPeriodStart &&
           subscriptionRes.data?.currentPeriodEnd
         ) {
-          const from = toApiDateParam(subscriptionRes.data.currentPeriodStart);
-          const to = toApiDateParam(subscriptionRes.data.currentPeriodEnd);
+          const isPostExpiry = getMytDaysUntil(subscriptionRes.data.currentPeriodEnd) <= 0;
+          const from = toApiDateParam(
+            isPostExpiry ? subscriptionRes.data.currentPeriodEnd : subscriptionRes.data.currentPeriodStart
+          );
+          const to = isPostExpiry
+            ? getTomorrowMytDateParam()
+            : toApiDateParam(subscriptionRes.data.currentPeriodEnd);
           if (from && to) {
             usageEndpoint = `/billing/trueidentity-usage?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
             cycleFromSubscription = {
-              start: subscriptionRes.data.currentPeriodStart,
-              end: subscriptionRes.data.currentPeriodEnd,
+              start: from,
+              end: to,
             };
             setBillingCycle(cycleFromSubscription);
           }

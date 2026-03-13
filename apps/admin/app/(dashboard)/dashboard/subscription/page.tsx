@@ -74,6 +74,49 @@ function getMytDaysUntil(targetIsoDate: string): number {
   return Math.ceil((targetUtc - nowUtc) / (1000 * 60 * 60 * 24));
 }
 
+function toApiDateParam(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const directDateMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (directDateMatch) return directDateMatch[1];
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(parsed)
+    .reduce<Record<string, string>>((acc, part) => {
+      if (part.type === "year" || part.type === "month" || part.type === "day") {
+        acc[part.type] = part.value;
+      }
+      return acc;
+    }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getTomorrowMytDateParam(): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(now)
+    .reduce<Record<string, string>>((acc, part) => {
+      if (part.type === "year" || part.type === "month" || part.type === "day") {
+        acc[part.type] = part.value;
+      }
+      return acc;
+    }, {});
+  const todayUtc = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)));
+  todayUtc.setUTCDate(todayUtc.getUTCDate() + 1);
+  return todayUtc.toISOString().slice(0, 10);
+}
+
 const CORE_FEATURES = [
   "Borrower management",
   "Loan products & applications",
@@ -432,10 +475,14 @@ export default function SubscriptionPage() {
         billingSubRes.data?.currentPeriodStart &&
         billingSubRes.data?.currentPeriodEnd
       ) {
-        const from = new Date(billingSubRes.data.currentPeriodStart);
-        const to = new Date(billingSubRes.data.currentPeriodEnd);
-        const fromDate = Number.isNaN(from.getTime()) ? null : from.toISOString().slice(0, 10);
-        const toDate = Number.isNaN(to.getTime()) ? null : to.toISOString().slice(0, 10);
+        const daysUntilEnd = getMytDaysUntil(billingSubRes.data.currentPeriodEnd);
+        const isPostExpiry = daysUntilEnd <= 0;
+        const fromDate = toApiDateParam(
+          isPostExpiry ? billingSubRes.data.currentPeriodEnd : billingSubRes.data.currentPeriodStart
+        );
+        const toDate = isPostExpiry
+          ? getTomorrowMytDateParam()
+          : toApiDateParam(billingSubRes.data.currentPeriodEnd);
         if (fromDate && toDate) {
           try {
             const usageRes = await api.get<{

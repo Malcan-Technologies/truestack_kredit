@@ -454,6 +454,11 @@ function addDays(date: Date, days: number): Date {
   return next;
 }
 
+function startOfMytDayUtc(date: Date): Date {
+  const { year, month, day } = getMytDateParts(date);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
 function differenceInDays(start: Date, end: Date): number {
   const msPerDay = 24 * 60 * 60 * 1000;
   return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / msPerDay));
@@ -466,6 +471,157 @@ function toDateOnly(value: Date): string {
 }
 
 const SST_RATE = 0.08;
+
+async function refreshRenewalInvoiceCharges(params: {
+  tenantId: string;
+  invoiceId: string;
+  addTruesend?: boolean;
+}): Promise<{ invoiceId: string; amount: number; updated: boolean }> {
+  const { tenantId, invoiceId, addTruesend = false } = params;
+  const truesendMonthlyMyr = Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50');
+
+  const invoice = await prisma.invoice.findFirst({
+    where: {
+      id: invoiceId,
+      tenantId,
+      billingType: 'RENEWAL',
+      status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+    },
+    include: { lineItems: true },
+  });
+
+  if (!invoice) {
+    throw new BadRequestError('Renewal invoice not found');
+  }
+
+  const { getUsageForTenant, computeUsageAmount } = await import('../trueidentity/usageService.js');
+  const usageEndExclusive = startOfMytDayUtc(addDays(new Date(), 1));
+  const usageStart = invoice.periodStart;
+  const usageTo = usageEndExclusive > usageStart ? usageEndExclusive : usageStart;
+  const usageRows = await getUsageForTenant(tenantId, usageStart, usageTo, { toDateExclusive: true });
+  const verificationCount = usageRows.reduce((sum, row) => sum + row.count, 0);
+  const { usageAmountMyr, unitPriceMyr } = computeUsageAmount(verificationCount);
+
+  let updated = false;
+  await prisma.$transaction(async (tx) => {
+    let hasTruesend = invoice.lineItems.some(
+      (li) => li.itemType === 'ADDON' && li.description?.toLowerCase().includes('truesend')
+    );
+    if (addTruesend && !hasTruesend) {
+      await tx.invoiceLineItem.create({
+        data: {
+          invoiceId: invoice.id,
+          itemType: 'ADDON',
+          description: 'TrueSend add-on',
+          unitPrice: truesendMonthlyMyr,
+          quantity: 1,
+          amount: truesendMonthlyMyr,
+        },
+      });
+      hasTruesend = true;
+      updated = true;
+    }
+
+    const usageLines = invoice.lineItems.filter((li) => li.itemType === 'USAGE');
+    const usageLine = usageLines[0];
+    if (usageLines.length > 1) {
+      await tx.invoiceLineItem.deleteMany({
+        where: { id: { in: usageLines.slice(1).map((li) => li.id) } },
+      });
+      updated = true;
+    }
+    if (usageAmountMyr > 0) {
+      const usageDescription = `TrueIdentity usage (${verificationCount} verifications)`;
+      if (usageLine) {
+        const currentAmount = toSafeNumber(usageLine.amount);
+        const currentQuantity = usageLine.quantity ?? 0;
+        const currentUnitPrice = toSafeNumber(usageLine.unitPrice);
+        if (
+          currentAmount !== usageAmountMyr ||
+          currentQuantity !== verificationCount ||
+          currentUnitPrice !== unitPriceMyr ||
+          usageLine.description !== usageDescription
+        ) {
+          await tx.invoiceLineItem.update({
+            where: { id: usageLine.id },
+            data: {
+              description: usageDescription,
+              unitPrice: unitPriceMyr,
+              quantity: verificationCount,
+              amount: usageAmountMyr,
+            },
+          });
+          updated = true;
+        }
+      } else {
+        await tx.invoiceLineItem.create({
+          data: {
+            invoiceId: invoice.id,
+            itemType: 'USAGE',
+            description: usageDescription,
+            unitPrice: unitPriceMyr,
+            quantity: verificationCount,
+            amount: usageAmountMyr,
+          },
+        });
+        updated = true;
+      }
+    } else if (usageLine) {
+      await tx.invoiceLineItem.delete({ where: { id: usageLine.id } });
+      updated = true;
+    }
+
+    const updatedLineItems = await tx.invoiceLineItem.findMany({
+      where: { invoiceId: invoice.id },
+    });
+    const subtotal = updatedLineItems
+      .filter((li) => li.itemType !== 'SST')
+      .reduce((sum, li) => safeAdd(sum, toSafeNumber(li.amount)), 0);
+    const sstAmount = safeMultiply(subtotal, SST_RATE);
+    const totalAmount = safeAdd(subtotal, sstAmount);
+
+    const sstLine = updatedLineItems.find((li) => li.itemType === 'SST');
+    if (sstLine) {
+      if (toSafeNumber(sstLine.amount) !== sstAmount || toSafeNumber(sstLine.unitPrice) !== sstAmount) {
+        await tx.invoiceLineItem.update({
+          where: { id: sstLine.id },
+          data: { unitPrice: sstAmount, amount: sstAmount },
+        });
+        updated = true;
+      }
+    } else {
+      await tx.invoiceLineItem.create({
+        data: {
+          invoiceId: invoice.id,
+          itemType: 'SST',
+          description: 'SST (8%)',
+          unitPrice: sstAmount,
+          quantity: 1,
+          amount: sstAmount,
+        },
+      });
+      updated = true;
+    }
+
+    if (toSafeNumber(invoice.amount) !== totalAmount) {
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { amount: totalAmount },
+      });
+      updated = true;
+    }
+  });
+
+  const latestInvoice = await prisma.invoice.findUniqueOrThrow({
+    where: { id: invoice.id },
+    select: { id: true, amount: true },
+  });
+  return {
+    invoiceId: latestInvoice.id,
+    amount: toSafeNumber(latestInvoice.amount),
+    updated,
+  };
+}
 
 /** Compute add-on purchase amount: prorated for first-time, full price for re-subscribe. */
 function computeAddOnPurchaseAmount(
@@ -1231,69 +1387,15 @@ router.post('/overdue/update-invoice-addons', async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const { invoiceId, addTruesend } = updateInvoiceAddonsSchema.parse(req.body);
-
-    if (!addTruesend) {
-      return res.json({ success: true, data: { updated: false, invoiceId } });
-    }
-
-    const truesendMonthlyMyr = Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50');
-    const invoice = await prisma.invoice.findFirst({
-      where: {
-        id: invoiceId,
-        tenantId,
-        billingType: 'RENEWAL',
-        status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
-      },
-      include: { lineItems: true },
-    });
-
-    if (!invoice) throw new BadRequestError('Renewal invoice not found');
-
-    const hasTruesend = invoice.lineItems.some(
-      (li) => li.itemType === 'ADDON' && li.description?.toLowerCase().includes('truesend')
-    );
-    if (hasTruesend) {
-      return res.json({ success: true, data: { updated: false, invoiceId } });
-    }
-
-    const coreAmount = invoice.lineItems
-      .filter((li) => li.itemType === 'SUBSCRIPTION')
-      .reduce((sum, li) => safeAdd(sum, toSafeNumber(li.amount)), 0);
-    const existingAddons = invoice.lineItems
-      .filter((li) => li.itemType === 'ADDON' || li.itemType === 'USAGE')
-      .reduce((sum, li) => safeAdd(sum, toSafeNumber(li.amount)), 0);
-
-    const newSubtotal = safeAdd(coreAmount, existingAddons, truesendMonthlyMyr);
-    const newSst = safeMultiply(newSubtotal, SST_RATE);
-    const newTotal = safeAdd(newSubtotal, newSst);
-
-    await prisma.$transaction(async (tx) => {
-      await tx.invoiceLineItem.create({
-        data: {
-          invoiceId: invoice.id,
-          itemType: 'ADDON',
-          description: 'TrueSend add-on',
-          unitPrice: truesendMonthlyMyr,
-          quantity: 1,
-          amount: truesendMonthlyMyr,
-        },
-      });
-      const sstItem = invoice.lineItems.find((li) => li.itemType === 'SST');
-      if (sstItem) {
-        await tx.invoiceLineItem.update({
-          where: { id: sstItem.id },
-          data: { unitPrice: newSst, amount: newSst },
-        });
-      }
-      await tx.invoice.update({
-        where: { id: invoice.id },
-        data: { amount: newTotal },
-      });
+    const refreshed = await refreshRenewalInvoiceCharges({
+      tenantId,
+      invoiceId,
+      addTruesend,
     });
 
     res.json({
       success: true,
-      data: { updated: true, invoiceId, amount: newTotal },
+      data: { updated: refreshed.updated, invoiceId: refreshed.invoiceId, amount: refreshed.amount },
     });
   } catch (error) {
     next(error);
@@ -1310,21 +1412,26 @@ router.post('/overdue/submit-payment', async (req, res, next) => {
     const tenantId = req.tenantId!;
     const { invoiceId, paymentReference } = overduePaymentSchema.parse(req.body);
 
-    const [tenant, invoice] = await Promise.all([
+    const [tenant] = await Promise.all([
       prisma.tenant.findUnique({
         where: { id: tenantId },
         select: { id: true, slug: true, name: true, subscriptionStatus: true },
       }),
-      prisma.invoice.findFirst({
-        where: {
-          id: invoiceId,
-          tenantId,
-          billingType: 'RENEWAL',
-          status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
-        },
-        include: { lineItems: true },
-      }),
     ]);
+    const refreshed = await refreshRenewalInvoiceCharges({
+      tenantId,
+      invoiceId,
+      addTruesend: false,
+    });
+    const invoice = await prisma.invoice.findFirst({
+      where: {
+        id: refreshed.invoiceId,
+        tenantId,
+        billingType: 'RENEWAL',
+        status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+      },
+      include: { lineItems: true },
+    });
 
     if (!tenant) throw new NotFoundError('Tenant');
     if (!invoice) throw new BadRequestError('Renewal invoice not found');

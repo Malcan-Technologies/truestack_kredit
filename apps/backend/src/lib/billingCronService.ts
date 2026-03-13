@@ -399,7 +399,7 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
     // Always renew from the core plan base price; add-ons and tax are added as separate line items.
     const baseAmount = CORE_AMOUNT_CENTS / 100;
 
-    const [truesendAddOn, usageRows] = await Promise.all([
+    const [truesendAddOn, latestPaidRenewal] = await Promise.all([
       prisma.tenantAddOn.findUnique({
         where: {
           tenantId_addOnType: {
@@ -408,8 +408,32 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
           },
         },
       }),
-      getUsageForTenant(sub.tenantId, sub.currentPeriodStart, sub.currentPeriodEnd, { toDateExclusive: true }),
+      prisma.invoice.findFirst({
+        where: {
+          tenantId: sub.tenantId,
+          billingType: 'RENEWAL',
+          status: 'PAID',
+          paidAt: { not: null },
+        },
+        orderBy: { paidAt: 'desc' },
+        select: { periodStart: true, paidAt: true },
+      }),
     ]);
+    let usageStart = sub.currentPeriodStart;
+    if (
+      latestPaidRenewal?.paidAt &&
+      startOfMytDayUtc(latestPaidRenewal.periodStart).getTime() === startOfMytDayUtc(sub.currentPeriodStart).getTime()
+    ) {
+      // Usage is stored by day; when renewal is paid on the same day as period start,
+      // skip that already-paid day to avoid carrying it into the next invoice.
+      const dayAfterPaid = startOfMytDayUtc(addDays(latestPaidRenewal.paidAt, 1));
+      if (dayAfterPaid > usageStart) {
+        usageStart = dayAfterPaid;
+      }
+    }
+    const usageRows = await getUsageForTenant(sub.tenantId, usageStart, sub.currentPeriodEnd, {
+      toDateExclusive: true,
+    });
 
     const truesendAmount = truesendAddOn?.status === 'ACTIVE' ? truesendMonthly : 0;
     const verificationCount = usageRows.reduce((sum, row) => sum + row.count, 0);

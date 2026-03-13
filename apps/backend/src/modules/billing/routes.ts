@@ -484,7 +484,7 @@ async function refreshRenewalInvoiceCharges(params: {
   const { tenantId, invoiceId, addTruesend = false } = params;
   const truesendMonthlyMyr = Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50');
 
-  const [invoice, subscription, truesendAddOn] = await Promise.all([
+  const [invoice, subscription, truesendAddOn, latestPaidRenewal] = await Promise.all([
     prisma.invoice.findFirst({
       where: {
         id: invoiceId,
@@ -502,6 +502,16 @@ async function refreshRenewalInvoiceCharges(params: {
       where: { tenantId_addOnType: { tenantId, addOnType: 'TRUESEND' } },
       select: { status: true },
     }),
+    prisma.invoice.findFirst({
+      where: {
+        tenantId,
+        billingType: 'RENEWAL',
+        status: 'PAID',
+        paidAt: { not: null },
+      },
+      orderBy: { paidAt: 'desc' },
+      select: { periodStart: true, paidAt: true },
+    }),
   ]);
 
   if (!invoice) {
@@ -515,7 +525,18 @@ async function refreshRenewalInvoiceCharges(params: {
   const usageEndExclusive = startOfMytDayUtc(addDays(new Date(), 1));
   // Bill usage against the unpaid renewal for the expired cycle:
   // include from the previous cycle start through "now" (MYT day boundary).
-  const usageStart = subscription.currentPeriodStart;
+  let usageStart = subscription.currentPeriodStart;
+  if (
+    latestPaidRenewal?.paidAt &&
+    toDateOnly(latestPaidRenewal.periodStart) === toDateOnly(subscription.currentPeriodStart)
+  ) {
+    // Daily usage rows cannot distinguish pre/post-payment events on the same MYT day.
+    // Clamp start to the next day after a paid renewal for this same period to avoid rebilling.
+    const dayAfterPaid = startOfMytDayUtc(addDays(latestPaidRenewal.paidAt, 1));
+    if (dayAfterPaid > usageStart) {
+      usageStart = dayAfterPaid;
+    }
+  }
   const usageTo = usageEndExclusive > usageStart ? usageEndExclusive : usageStart;
   const usageRows = await getUsageForTenant(tenantId, usageStart, usageTo, { toDateExclusive: true });
   const verificationCount = usageRows.reduce((sum, row) => sum + row.count, 0);
@@ -681,7 +702,7 @@ async function getOrCreateRenewalInvoiceForTenant(tenantId: string): Promise<{
     };
   }
 
-  const [tenant, subscription, truesendAddOn] = await Promise.all([
+  const [tenant, subscription, truesendAddOn, latestPaidRenewal] = await Promise.all([
     prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { id: true, slug: true, subscriptionStatus: true },
@@ -693,6 +714,16 @@ async function getOrCreateRenewalInvoiceForTenant(tenantId: string): Promise<{
     prisma.tenantAddOn.findUnique({
       where: { tenantId_addOnType: { tenantId, addOnType: 'TRUESEND' } },
       select: { status: true },
+    }),
+    prisma.invoice.findFirst({
+      where: {
+        tenantId,
+        billingType: 'RENEWAL',
+        status: 'PAID',
+        paidAt: { not: null },
+      },
+      orderBy: { paidAt: 'desc' },
+      select: { periodStart: true, paidAt: true },
     }),
   ]);
 
@@ -711,9 +742,19 @@ async function getOrCreateRenewalInvoiceForTenant(tenantId: string): Promise<{
 
   const usageEndExclusive = startOfTomorrowMyt;
   const { getUsageForTenant, computeUsageAmount } = await import('../trueidentity/usageService.js');
+  let usageStart = subscription.currentPeriodStart;
+  if (
+    latestPaidRenewal?.paidAt &&
+    toDateOnly(latestPaidRenewal.periodStart) === toDateOnly(subscription.currentPeriodStart)
+  ) {
+    const dayAfterPaid = startOfMytDayUtc(addDays(latestPaidRenewal.paidAt, 1));
+    if (dayAfterPaid > usageStart) {
+      usageStart = dayAfterPaid;
+    }
+  }
   const usageRows = await getUsageForTenant(
     tenantId,
-    subscription.currentPeriodStart,
+    usageStart,
     usageEndExclusive,
     { toDateExclusive: true }
   );

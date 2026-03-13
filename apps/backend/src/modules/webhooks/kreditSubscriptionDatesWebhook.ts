@@ -133,9 +133,9 @@ router.post('/', async (req, res) => {
       return;
     }
 
-    if (currentPeriodEnd < currentPeriodStart) {
-      await failEvent(idempotencyKey, 'current_period_end must be on or after current_period_start');
-      res.status(400).json({ error: 'current_period_end must be on or after current_period_start' });
+    if (currentPeriodEnd <= currentPeriodStart) {
+      await failEvent(idempotencyKey, 'current_period_end must be after current_period_start');
+      res.status(400).json({ error: 'current_period_end must be after current_period_start' });
       return;
     }
 

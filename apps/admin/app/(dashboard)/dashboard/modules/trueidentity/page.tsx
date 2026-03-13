@@ -20,6 +20,13 @@ interface SubscriptionData {
   currentPeriodEnd: string;
 }
 
+interface InvoiceEntry {
+  status: string;
+  billingType?: string;
+  periodStart?: string;
+  paidAt?: string | null;
+}
+
 interface TrueIdentityUsagePoint {
   date: string;
   count: number;
@@ -114,6 +121,16 @@ function getTomorrowMytDateParam(): string {
   return todayUtc.toISOString().slice(0, 10);
 }
 
+function addDaysToDateParam(dateParam: string, days: number): string {
+  const utc = new Date(`${dateParam}T00:00:00.000Z`);
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
+
+function maxDateParam(a: string, b: string): string {
+  return a >= b ? a : b;
+}
+
 export default function TrueIdentityModulePage() {
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -125,9 +142,10 @@ export default function TrueIdentityModulePage() {
     const fetchModuleData = async () => {
       setLoading(true);
       try {
-        const [addOnsRes, subscriptionRes] = await Promise.all([
+        const [addOnsRes, subscriptionRes, invoicesRes] = await Promise.all([
           api.get<{ addOns: AddOnEntry[] }>("/billing/add-ons"),
           api.get<SubscriptionData>("/billing/subscription"),
+          api.get<InvoiceEntry[]>("/billing/invoices"),
         ]);
 
         if (addOnsRes.success && addOnsRes.data?.addOns) {
@@ -142,10 +160,28 @@ export default function TrueIdentityModulePage() {
           subscriptionRes.data?.currentPeriodStart &&
           subscriptionRes.data?.currentPeriodEnd
         ) {
+          const latestPaidRenewal = invoicesRes.success && Array.isArray(invoicesRes.data)
+            ? invoicesRes.data
+                .filter((inv) => inv.billingType === "RENEWAL" && inv.status === "PAID" && !!inv.paidAt)
+                .sort((a, b) => new Date(b.paidAt ?? 0).getTime() - new Date(a.paidAt ?? 0).getTime())[0]
+            : null;
           const isPostExpiry = getMytDaysUntil(subscriptionRes.data.currentPeriodEnd) <= 0;
-          const from = toApiDateParam(
+          const baseFrom = toApiDateParam(
             isPostExpiry ? subscriptionRes.data.currentPeriodEnd : subscriptionRes.data.currentPeriodStart
           );
+          const paidAtDate = latestPaidRenewal?.paidAt ? toApiDateParam(latestPaidRenewal.paidAt) : null;
+          const latestPaidPeriodStart = latestPaidRenewal?.periodStart
+            ? toApiDateParam(latestPaidRenewal.periodStart)
+            : null;
+          const from = baseFrom
+            ? (
+                paidAtDate &&
+                latestPaidPeriodStart &&
+                latestPaidPeriodStart === baseFrom
+                  ? maxDateParam(baseFrom, addDaysToDateParam(paidAtDate, 1))
+                  : baseFrom
+              )
+            : null;
           const to = isPostExpiry
             ? getTomorrowMytDateParam()
             : toApiDateParam(subscriptionRes.data.currentPeriodEnd);

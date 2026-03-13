@@ -178,6 +178,16 @@ function getTomorrowMytDateParam(): string {
   return todayUtc.toISOString().slice(0, 10);
 }
 
+function addDaysToDateParam(dateParam: string, days: number): string {
+  const utc = new Date(`${dateParam}T00:00:00.000Z`);
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
+
+function maxDateParam(a: string, b: string): string {
+  return a >= b ? a : b;
+}
+
 export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [addOns, setAddOns] = useState<AddOnStatus[]>([]);
@@ -269,8 +279,24 @@ export default function BillingPage() {
       }
 
       if (subRes.success && subRes.data?.currentPeriodStart && subRes.data?.currentPeriodEnd) {
+        const latestPaidRenewal = nextInvoices
+          .filter((inv) => inv.billingType === "RENEWAL" && inv.status === "PAID" && !!inv.paidAt)
+          .sort((a, b) => new Date(b.paidAt ?? 0).getTime() - new Date(a.paidAt ?? 0).getTime())[0];
         const isPostExpiry = getMytDaysUntil(subRes.data.currentPeriodEnd) <= 0;
-        const fromDate = toApiDateParam(subRes.data.currentPeriodStart);
+        const baseFromDate = toApiDateParam(subRes.data.currentPeriodStart);
+        const paidAtDate = latestPaidRenewal?.paidAt ? toApiDateParam(latestPaidRenewal.paidAt) : null;
+        const latestPaidPeriodStart = latestPaidRenewal?.periodStart
+          ? toApiDateParam(latestPaidRenewal.periodStart)
+          : null;
+        const fromDate = baseFromDate
+          ? (
+              paidAtDate &&
+              latestPaidPeriodStart &&
+              latestPaidPeriodStart === baseFromDate
+                ? maxDateParam(baseFromDate, addDaysToDateParam(paidAtDate, 1))
+                : baseFromDate
+            )
+          : null;
         const toDate = isPostExpiry
           ? getTomorrowMytDateParam()
           : toApiDateParam(subRes.data.currentPeriodEnd);

@@ -166,16 +166,15 @@ export default function TrueIdentityModulePage() {
                 .sort((a, b) => new Date(b.paidAt ?? 0).getTime() - new Date(a.paidAt ?? 0).getTime())[0]
             : null;
           const isPostExpiry = getMytDaysUntil(subscriptionRes.data.currentPeriodEnd) <= 0;
-          const baseFrom = toApiDateParam(
-            isPostExpiry ? subscriptionRes.data.currentPeriodEnd : subscriptionRes.data.currentPeriodStart
-          );
+          // Always start from period start so the displayed usage matches the renewal invoice,
+          // which covers from currentPeriodStart to now (regardless of expiry status).
+          const baseFrom = toApiDateParam(subscriptionRes.data.currentPeriodStart);
           const paidAtDate = latestPaidRenewal?.paidAt ? toApiDateParam(latestPaidRenewal.paidAt) : null;
           const latestPaidPeriodStart = latestPaidRenewal?.periodStart
             ? toApiDateParam(latestPaidRenewal.periodStart)
             : null;
           const from = baseFrom
             ? (
-                isPostExpiry &&
                 paidAtDate &&
                 latestPaidPeriodStart &&
                 latestPaidPeriodStart === baseFrom

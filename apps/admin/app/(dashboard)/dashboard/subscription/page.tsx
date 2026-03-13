@@ -492,16 +492,15 @@ export default function SubscriptionPage() {
           : null;
         const daysUntilEnd = getMytDaysUntil(billingSubRes.data.currentPeriodEnd);
         const isPostExpiry = daysUntilEnd <= 0;
-        const baseFromDate = toApiDateParam(
-          isPostExpiry ? billingSubRes.data.currentPeriodEnd : billingSubRes.data.currentPeriodStart
-        );
+        // Always start from period start so the displayed usage matches the renewal invoice,
+        // which covers from currentPeriodStart to now (regardless of expiry status).
+        const baseFromDate = toApiDateParam(billingSubRes.data.currentPeriodStart);
         const paidAtDate = latestPaidRenewal?.paidAt ? toApiDateParam(latestPaidRenewal.paidAt) : null;
         const latestPaidPeriodStart = latestPaidRenewal?.periodStart
           ? toApiDateParam(latestPaidRenewal.periodStart)
           : null;
         const fromDate = baseFromDate
           ? (
-              isPostExpiry &&
               paidAtDate &&
               latestPaidPeriodStart &&
               latestPaidPeriodStart === baseFromDate

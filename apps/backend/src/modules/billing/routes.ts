@@ -36,7 +36,7 @@ const addOnPurchaseSchema = z.object({
 });
 
 const overduePaymentSchema = z.object({
-  invoiceId: z.string(),
+  invoiceId: z.string().optional(),
   paymentReference: z.string().trim().min(3).max(120),
 });
 
@@ -46,7 +46,7 @@ const updateInvoiceAddonsSchema = z.object({
 });
 
 const refreshOverdueInvoiceSchema = z.object({
-  invoiceId: z.string(),
+  invoiceId: z.string().optional(),
 });
 
 const cancelSubscriptionSchema = z.object({
@@ -640,6 +640,192 @@ async function refreshRenewalInvoiceCharges(params: {
     invoiceId: latestInvoice.id,
     amount: toSafeNumber(latestInvoice.amount),
     updated,
+  };
+}
+
+async function getOrCreateRenewalInvoiceForTenant(tenantId: string): Promise<{
+  id: string;
+  amount: number;
+  status: string;
+  dueAt: Date;
+  lineItems: Array<{
+    itemType: string;
+    description: string;
+    amount: number;
+    quantity: number;
+    unitPrice: number;
+  }>;
+}> {
+  const existing = await prisma.invoice.findFirst({
+    where: {
+      tenantId,
+      billingType: 'RENEWAL',
+      status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+    },
+    orderBy: { dueAt: 'desc' },
+    include: { lineItems: true },
+  });
+  if (existing) {
+    return {
+      id: existing.id,
+      amount: toSafeNumber(existing.amount),
+      status: existing.status,
+      dueAt: existing.dueAt,
+      lineItems: existing.lineItems.map((li) => ({
+        itemType: li.itemType,
+        description: li.description,
+        amount: toSafeNumber(li.amount),
+        quantity: li.quantity,
+        unitPrice: toSafeNumber(li.unitPrice),
+      })),
+    };
+  }
+
+  const [tenant, subscription, truesendAddOn] = await Promise.all([
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, slug: true, subscriptionStatus: true },
+    }),
+    prisma.subscription.findUnique({
+      where: { tenantId },
+      select: { currentPeriodStart: true, currentPeriodEnd: true, status: true },
+    }),
+    prisma.tenantAddOn.findUnique({
+      where: { tenantId_addOnType: { tenantId, addOnType: 'TRUESEND' } },
+      select: { status: true },
+    }),
+  ]);
+
+  if (!tenant || !subscription) {
+    throw new BadRequestError('Renewal invoice is still being prepared. Please try again in a moment.');
+  }
+  if (!['PAID', 'OVERDUE'].includes(tenant.subscriptionStatus)) {
+    throw new BadRequestError('Renewal invoice is only available for paid or overdue subscriptions');
+  }
+
+  const now = new Date();
+  const startOfTomorrowMyt = startOfMytDayUtc(addDays(now, 1));
+  if (subscription.currentPeriodEnd > startOfTomorrowMyt) {
+    throw new BadRequestError('Renewal invoice is still being prepared. Please try again in a moment.');
+  }
+
+  const usageEndExclusive = startOfTomorrowMyt;
+  const { getUsageForTenant, computeUsageAmount } = await import('../trueidentity/usageService.js');
+  const usageRows = await getUsageForTenant(
+    tenantId,
+    subscription.currentPeriodStart,
+    usageEndExclusive,
+    { toDateExclusive: true }
+  );
+  const verificationCount = usageRows.reduce((sum, row) => sum + row.count, 0);
+  const { usageAmountMyr, unitPriceMyr } = computeUsageAmount(verificationCount);
+  const baseAmount = CORE_AMOUNT_CENTS / 100;
+  const truesendAmount = truesendAddOn?.status === 'ACTIVE' ? Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50') : 0;
+  const subtotal = safeAdd(baseAmount, truesendAmount, usageAmountMyr);
+  const sstAmount = safeMultiply(subtotal, SST_RATE);
+  const totalAmount = safeAdd(subtotal, sstAmount);
+  const invoiceMeta = await generateInvoiceNumber(tenantId, tenant.slug, now);
+
+  const created = await prisma.$transaction(async (tx) => {
+    const existingInTx = await tx.invoice.findFirst({
+      where: {
+        tenantId,
+        billingType: 'RENEWAL',
+        periodStart: subscription.currentPeriodEnd,
+        status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+      },
+      include: { lineItems: true },
+    });
+    if (existingInTx) {
+      return existingInTx;
+    }
+
+    const invoice = await tx.invoice.create({
+      data: {
+        tenantId,
+        invoiceNumber: invoiceMeta.invoiceNumber,
+        sequenceNumber: invoiceMeta.sequence,
+        amount: totalAmount,
+        status: 'ISSUED',
+        billingType: 'RENEWAL',
+        periodStart: subscription.currentPeriodEnd,
+        periodEnd: addMonthsClamped(subscription.currentPeriodEnd, 1),
+        issuedAt: subscription.currentPeriodEnd,
+        dueAt: addDays(subscription.currentPeriodEnd, 14),
+      },
+    });
+
+    await tx.invoiceLineItem.createMany({
+      data: [
+        {
+          invoiceId: invoice.id,
+          itemType: 'SUBSCRIPTION',
+          description: 'Subscription renewal',
+          unitPrice: baseAmount,
+          quantity: 1,
+          amount: baseAmount,
+        },
+        ...(truesendAmount > 0
+          ? [{
+              invoiceId: invoice.id,
+              itemType: 'ADDON',
+              description: 'TrueSend add-on',
+              unitPrice: truesendAmount,
+              quantity: 1,
+              amount: truesendAmount,
+            }]
+          : []),
+        ...(usageAmountMyr > 0
+          ? [{
+              invoiceId: invoice.id,
+              itemType: 'USAGE',
+              description: `TrueIdentity usage (${verificationCount} verifications)`,
+              unitPrice: unitPriceMyr,
+              quantity: verificationCount,
+              amount: usageAmountMyr,
+            }]
+          : []),
+        {
+          invoiceId: invoice.id,
+          itemType: 'SST',
+          description: 'SST (8%)',
+          unitPrice: sstAmount,
+          quantity: 1,
+          amount: sstAmount,
+        },
+      ],
+    });
+
+    await tx.billingEvent.create({
+      data: {
+        tenantId,
+        eventType: 'INVOICE_ISSUED',
+        metadata: {
+          billingType: 'RENEWAL',
+          invoiceId: invoice.id,
+          source: 'on_demand_refresh',
+        },
+      },
+    });
+
+    return tx.invoice.findUniqueOrThrow({
+      where: { id: invoice.id },
+      include: { lineItems: true },
+    });
+  });
+
+  return {
+    id: created.id,
+    amount: toSafeNumber(created.amount),
+    status: created.status,
+    dueAt: created.dueAt,
+    lineItems: created.lineItems.map((li) => ({
+      itemType: li.itemType,
+      description: li.description,
+      amount: toSafeNumber(li.amount),
+      quantity: li.quantity,
+      unitPrice: toSafeNumber(li.unitPrice),
+    })),
   };
 }
 
@@ -1429,10 +1615,13 @@ router.post('/overdue/update-invoice-addons', async (req, res, next) => {
 router.post('/overdue/refresh-invoice', async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { invoiceId } = refreshOverdueInvoiceSchema.parse(req.body);
+    const { invoiceId } = refreshOverdueInvoiceSchema.parse(req.body ?? {});
+    const baseInvoice = invoiceId
+      ? { id: invoiceId }
+      : await getOrCreateRenewalInvoiceForTenant(tenantId);
     const refreshed = await refreshRenewalInvoiceCharges({
       tenantId,
-      invoiceId,
+      invoiceId: baseInvoice.id,
     });
     const invoice = await prisma.invoice.findFirst({
       where: {
@@ -1486,9 +1675,10 @@ router.post('/overdue/submit-payment', async (req, res, next) => {
         select: { id: true, slug: true, name: true, subscriptionStatus: true },
       }),
     ]);
+    const resolvedInvoiceId = invoiceId || (await getOrCreateRenewalInvoiceForTenant(tenantId)).id;
     const refreshed = await refreshRenewalInvoiceCharges({
       tenantId,
-      invoiceId,
+      invoiceId: resolvedInvoiceId,
       addTruesend: false,
     });
     const invoice = await prisma.invoice.findFirst({

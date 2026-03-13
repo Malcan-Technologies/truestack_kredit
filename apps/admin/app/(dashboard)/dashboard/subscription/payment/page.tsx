@@ -244,7 +244,7 @@ function PaymentPageContent() {
                 ["ISSUED", "PENDING_APPROVAL", "OVERDUE"].includes(inv.status)
             )
             .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
-          if (unpaidRenewal && (isOverdueMode || status === "PAID" || status === "OVERDUE")) {
+          if (isOverdueMode || status === "PAID" || status === "OVERDUE") {
             try {
               const refreshRes = await api.post<{
                 updated: boolean;
@@ -255,9 +255,9 @@ function PaymentPageContent() {
                   dueAt: string;
                   lineItems: InvoiceLineItem[];
                 };
-              }>("/api/billing/overdue/refresh-invoice", {
+              }>("/api/billing/overdue/refresh-invoice", unpaidRenewal ? {
                 invoiceId: unpaidRenewal.id,
-              });
+              } : {});
               if (refreshRes.success && refreshRes.data?.invoice) {
                 const latestInvoicesRes = await api.get<InvoiceSummary[]>("/api/billing/invoices");
                 if (latestInvoicesRes.success && Array.isArray(latestInvoicesRes.data)) {
@@ -306,7 +306,9 @@ function PaymentPageContent() {
     !!latestOverdueInvoice &&
     (subscriptionStatus === "PAID" || subscriptionStatus === "OVERDUE");
   const effectiveOverdueMode = isOverdueMode || autoOverdueMode;
-  const effectiveOverdueInvoiceId = isOverdueMode ? overdueInvoiceId : latestOverdueInvoice?.id;
+  const effectiveOverdueInvoiceId = isOverdueMode
+    ? (overdueInvoiceId ?? latestOverdueInvoice?.id)
+    : latestOverdueInvoice?.id;
   const effectiveOverdueAmount = latestOverdueInvoice
     ? Number(latestOverdueInvoice.amount)
     : queryAmount;

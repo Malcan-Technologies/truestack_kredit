@@ -398,7 +398,14 @@ router.post('/', async (req, res) => {
         });
       }
 
-      if (event === 'kyc.session.completed' && status === 'completed' && result === 'approved') {
+      const wasAlreadyApprovedBeforeThisWebhook =
+        session?.status === 'completed' && session?.result === 'approved';
+      if (
+        event === 'kyc.session.completed' &&
+        status === 'completed' &&
+        result === 'approved' &&
+        !wasAlreadyApprovedBeforeThisWebhook
+      ) {
         // Atomically claim the right to record usage so retries don't double-count
         const claimed = await prisma.trueIdentityWebhookEvent.updateMany({
           where: { idempotencyKey, usageRecordedAt: null },

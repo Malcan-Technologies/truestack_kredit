@@ -216,7 +216,12 @@ export default function BillingPage() {
         )
         .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
 
-      if (latestUnpaidRenewalFromFetch) {
+      const shouldEnsureRenewalInvoice =
+        subRes.success &&
+        (subRes.data?.tenantSubscriptionStatus === "PAID" || subRes.data?.tenantSubscriptionStatus === "OVERDUE") &&
+        !!subRes.data?.currentPeriodEnd &&
+        getMytDaysUntil(subRes.data.currentPeriodEnd) <= 0;
+      if (latestUnpaidRenewalFromFetch || shouldEnsureRenewalInvoice) {
         try {
           const refreshRes = await api.post<{
             updated: boolean;
@@ -227,22 +232,27 @@ export default function BillingPage() {
               dueAt: string;
               lineItems: InvoiceLineItem[];
             };
-          }>("/billing/overdue/refresh-invoice", {
-            invoiceId: latestUnpaidRenewalFromFetch.id,
-          });
+          }>("/billing/overdue/refresh-invoice", latestUnpaidRenewalFromFetch
+            ? { invoiceId: latestUnpaidRenewalFromFetch.id }
+            : {});
           if (refreshRes.success && refreshRes.data?.invoice) {
             const refreshed = refreshRes.data.invoice;
-            nextInvoices = nextInvoices.map((inv) =>
-              inv.id === refreshed.id
-                ? {
-                    ...inv,
-                    amount: String(refreshed.amount),
-                    status: refreshed.status,
-                    dueAt: refreshed.dueAt,
-                    lineItems: refreshed.lineItems ?? inv.lineItems,
-                  }
-                : inv
-            );
+            const latestInvoicesRes = await api.get<Invoice[]>("/billing/invoices");
+            if (latestInvoicesRes.success && latestInvoicesRes.data) {
+              nextInvoices = latestInvoicesRes.data;
+            } else {
+              nextInvoices = nextInvoices.map((inv) =>
+                inv.id === refreshed.id
+                  ? {
+                      ...inv,
+                      amount: String(refreshed.amount),
+                      status: refreshed.status,
+                      dueAt: refreshed.dueAt,
+                      lineItems: refreshed.lineItems ?? inv.lineItems,
+                    }
+                  : inv
+              );
+            }
           }
         } catch (error) {
           console.warn("Failed to refresh overdue invoice:", error);

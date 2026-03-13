@@ -476,7 +476,7 @@ function toDateOnly(value: Date): string {
 
 const SST_RATE = 0.08;
 
-async function refreshRenewalInvoiceCharges(params: {
+export async function refreshRenewalInvoiceCharges(params: {
   tenantId: string;
   invoiceId: string;
   addTruesend?: boolean;

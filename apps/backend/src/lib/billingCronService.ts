@@ -8,6 +8,8 @@ import { NotificationService } from '../modules/notifications/service.js';
 import { fetchAdminUsage } from '../modules/trueidentity/adminUsageClient.js';
 import { signRequestBody } from '../modules/trueidentity/signature.js';
 import { computeUsageAmount, getUsageForTenant } from '../modules/trueidentity/usageService.js';
+import { refreshRenewalInvoiceCharges } from '../modules/billing/routes.js';
+import { notifySubscriptionPaymentRequested } from '../modules/trueidentity/subscriptionPaymentRequestWebhook.js';
 
 export type PaymentDecision = {
   id: string;
@@ -431,7 +433,10 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
         usageStart = dayAfterPaid;
       }
     }
-    const usageRows = await getUsageForTenant(sub.tenantId, usageStart, sub.currentPeriodEnd, {
+    // Include post-expiry usage: bill usage from period start through tomorrow (MYT).
+    // This ensures TrueIdentity usage after expiry attaches to the unpaid invoice.
+    const usageEndExclusive = startOfTomorrowMyt;
+    const usageRows = await getUsageForTenant(sub.tenantId, usageStart, usageEndExclusive, {
       toDateExclusive: true,
     });
 
@@ -515,6 +520,97 @@ async function generateRenewalInvoices(now: Date): Promise<number> {
     created++;
   }
   return created;
+}
+
+/**
+ * Retry sending payment request webhooks to admin that failed on first attempt.
+ * Covers PENDING requests created in the last 7 days with webhookDelivered = false.
+ */
+async function retryUndeliveredPaymentWebhooks(): Promise<number> {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const undelivered = await prisma.subscriptionPaymentRequest.findMany({
+    where: {
+      status: 'PENDING',
+      webhookDelivered: false,
+      requestedAt: { gte: cutoff },
+    },
+    include: {
+      tenant: {
+        select: { id: true, slug: true, name: true },
+      },
+    },
+    orderBy: { requestedAt: 'asc' },
+  });
+
+  let retried = 0;
+  for (const req of undelivered) {
+    try {
+      const lineItems = Array.isArray(req.lineItems) ? req.lineItems : [];
+      const requestedAddOns = Array.isArray(req.requestedAddOns)
+        ? req.requestedAddOns.filter((v): v is string => typeof v === 'string')
+        : [];
+
+      const result = await notifySubscriptionPaymentRequested({
+        requestId: req.requestId,
+        tenantId: req.tenantId,
+        tenantSlug: req.tenant?.slug ?? req.tenantId,
+        tenantName: req.tenant?.name ?? req.tenantId,
+        plan: req.plan,
+        amountCents: req.amountCents,
+        amountMyr: toSafeNumber(req.amountMyr),
+        billingType: req.billingType ?? 'FIRST_SUBSCRIPTION',
+        paymentReference: req.paymentReference,
+        periodStart: req.periodStart.toISOString().slice(0, 10),
+        periodEnd: req.periodEnd.toISOString().slice(0, 10),
+        requestedAt: req.requestedAt.toISOString(),
+        requestedAddOns,
+        lineItems,
+      });
+
+      if (result.delivered) {
+        await prisma.subscriptionPaymentRequest.update({
+          where: { id: req.id },
+          data: { webhookDelivered: true, webhookError: null },
+        });
+        retried++;
+      } else {
+        await prisma.subscriptionPaymentRequest.update({
+          where: { id: req.id },
+          data: { webhookError: result.error ?? `Retry failed (${result.statusCode ?? 'unknown'})` },
+        });
+      }
+    } catch (error) {
+      console.error(`[BillingCron] Retry webhook failed for ${req.requestId}:`, error);
+    }
+  }
+  return retried;
+}
+
+/**
+ * Refresh all unpaid renewal invoices with latest TrueIdentity usage.
+ * Ensures post-expiry usage attaches to the unpaid invoice before payment.
+ */
+async function refreshUnpaidRenewalInvoices(): Promise<number> {
+  const unpaid = await prisma.invoice.findMany({
+    where: {
+      billingType: 'RENEWAL',
+      status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+    },
+    select: { id: true, tenantId: true },
+  });
+  let refreshed = 0;
+  for (const inv of unpaid) {
+    try {
+      const result = await refreshRenewalInvoiceCharges({
+        tenantId: inv.tenantId,
+        invoiceId: inv.id,
+      });
+      if (result.updated) refreshed++;
+    } catch (error) {
+      console.error(`[BillingCron] Failed to refresh invoice ${inv.id}:`, error);
+    }
+  }
+  return refreshed;
 }
 
 async function reconcileUsageWithAdmin(now: Date): Promise<number> {
@@ -857,6 +953,12 @@ export class BillingCronService {
       });
       const backfillFrom = lastSuccess?.completedAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000);
 
+      try {
+        await retryUndeliveredPaymentWebhooks();
+      } catch (error) {
+        errors.push({ step: 'retry_payment_webhooks', message: error instanceof Error ? error.message : 'Unknown error' });
+      }
+
       let decisions: PaymentDecision[] = [];
       try {
         decisions = await pullPaymentDecisions(backfillFrom);
@@ -890,6 +992,12 @@ export class BillingCronService {
         invoicesCreated += await generateRenewalInvoices(new Date());
       } catch (error) {
         errors.push({ step: 'generate_renewals', message: error instanceof Error ? error.message : 'Unknown error' });
+      }
+
+      try {
+        await refreshUnpaidRenewalInvoices();
+      } catch (error) {
+        errors.push({ step: 'refresh_unpaid_invoices', message: error instanceof Error ? error.message : 'Unknown error' });
       }
 
       try {

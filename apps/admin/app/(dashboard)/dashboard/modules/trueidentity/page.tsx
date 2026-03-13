@@ -175,6 +175,7 @@ export default function TrueIdentityModulePage() {
             : null;
           const from = baseFrom
             ? (
+                isPostExpiry &&
                 paidAtDate &&
                 latestPaidPeriodStart &&
                 latestPaidPeriodStart === baseFrom

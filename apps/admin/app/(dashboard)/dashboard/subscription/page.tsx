@@ -501,6 +501,7 @@ export default function SubscriptionPage() {
           : null;
         const fromDate = baseFromDate
           ? (
+              isPostExpiry &&
               paidAtDate &&
               latestPaidPeriodStart &&
               latestPaidPeriodStart === baseFromDate

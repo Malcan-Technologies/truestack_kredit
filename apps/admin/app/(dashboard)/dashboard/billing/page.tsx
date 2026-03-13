@@ -290,6 +290,7 @@ export default function BillingPage() {
           : null;
         const fromDate = baseFromDate
           ? (
+              isPostExpiry &&
               paidAtDate &&
               latestPaidPeriodStart &&
               latestPaidPeriodStart === baseFromDate

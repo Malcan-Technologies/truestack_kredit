@@ -236,14 +236,59 @@ function PaymentPageContent() {
           setExistingTrueIdentityActive(trueidentityActive);
         }
         if (invoicesRes.success && Array.isArray(invoicesRes.data)) {
-          const unpaidRenewal = invoicesRes.data
+          let nextInvoices = invoicesRes.data;
+          const unpaidRenewal = nextInvoices
             .filter(
               (inv: { status: string; billingType?: string }) =>
                 inv.billingType === "RENEWAL" &&
                 ["ISSUED", "PENDING_APPROVAL", "OVERDUE"].includes(inv.status)
             )
             .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
-          setLatestOverdueInvoice(unpaidRenewal ?? null);
+          if (unpaidRenewal && (isOverdueMode || status === "PAID" || status === "OVERDUE")) {
+            try {
+              const refreshRes = await api.post<{
+                updated: boolean;
+                invoice: {
+                  id: string;
+                  amount: number;
+                  status: string;
+                  dueAt: string;
+                  lineItems: InvoiceLineItem[];
+                };
+              }>("/api/billing/overdue/refresh-invoice", {
+                invoiceId: unpaidRenewal.id,
+              });
+              if (refreshRes.success && refreshRes.data?.invoice) {
+                const latestInvoicesRes = await api.get<InvoiceSummary[]>("/api/billing/invoices");
+                if (latestInvoicesRes.success && Array.isArray(latestInvoicesRes.data)) {
+                  nextInvoices = latestInvoicesRes.data;
+                } else {
+                  const refreshed = refreshRes.data.invoice;
+                  nextInvoices = nextInvoices.map((inv) =>
+                    inv.id === refreshed.id
+                      ? {
+                          ...inv,
+                          amount: String(refreshed.amount),
+                          status: refreshed.status,
+                          dueAt: refreshed.dueAt,
+                          lineItems: refreshed.lineItems ?? inv.lineItems,
+                        }
+                      : inv
+                  );
+                }
+              }
+            } catch (error) {
+              console.warn("Failed to refresh overdue invoice:", error);
+            }
+          }
+          const refreshedUnpaidRenewal = nextInvoices
+            .filter(
+              (inv: { status: string; billingType?: string }) =>
+                inv.billingType === "RENEWAL" &&
+                ["ISSUED", "PENDING_APPROVAL", "OVERDUE"].includes(inv.status)
+            )
+            .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+          setLatestOverdueInvoice(refreshedUnpaidRenewal ?? null);
         } else {
           setLatestOverdueInvoice(null);
         }

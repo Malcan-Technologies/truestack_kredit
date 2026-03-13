@@ -45,6 +45,10 @@ const updateInvoiceAddonsSchema = z.object({
   addTruesend: z.boolean().optional().default(false),
 });
 
+const refreshOverdueInvoiceSchema = z.object({
+  invoiceId: z.string(),
+});
+
 const cancelSubscriptionSchema = z.object({
   immediate: z.boolean().optional().default(false),
 });
@@ -480,34 +484,50 @@ async function refreshRenewalInvoiceCharges(params: {
   const { tenantId, invoiceId, addTruesend = false } = params;
   const truesendMonthlyMyr = Number(process.env.TRUESEND_MONTHLY_PRICE_MYR || '50');
 
-  const invoice = await prisma.invoice.findFirst({
-    where: {
-      id: invoiceId,
-      tenantId,
-      billingType: 'RENEWAL',
-      status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
-    },
-    include: { lineItems: true },
-  });
+  const [invoice, subscription, truesendAddOn] = await Promise.all([
+    prisma.invoice.findFirst({
+      where: {
+        id: invoiceId,
+        tenantId,
+        billingType: 'RENEWAL',
+        status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+      },
+      include: { lineItems: true },
+    }),
+    prisma.subscription.findUnique({
+      where: { tenantId },
+      select: { currentPeriodStart: true },
+    }),
+    prisma.tenantAddOn.findUnique({
+      where: { tenantId_addOnType: { tenantId, addOnType: 'TRUESEND' } },
+      select: { status: true },
+    }),
+  ]);
 
   if (!invoice) {
     throw new BadRequestError('Renewal invoice not found');
   }
+  if (!subscription) {
+    throw new BadRequestError('Subscription not found');
+  }
 
   const { getUsageForTenant, computeUsageAmount } = await import('../trueidentity/usageService.js');
   const usageEndExclusive = startOfMytDayUtc(addDays(new Date(), 1));
-  const usageStart = invoice.periodStart;
+  // Bill usage against the unpaid renewal for the expired cycle:
+  // include from the previous cycle start through "now" (MYT day boundary).
+  const usageStart = subscription.currentPeriodStart;
   const usageTo = usageEndExclusive > usageStart ? usageEndExclusive : usageStart;
   const usageRows = await getUsageForTenant(tenantId, usageStart, usageTo, { toDateExclusive: true });
   const verificationCount = usageRows.reduce((sum, row) => sum + row.count, 0);
   const { usageAmountMyr, unitPriceMyr } = computeUsageAmount(verificationCount);
+  const shouldIncludeTruesend = addTruesend || truesendAddOn?.status === 'ACTIVE';
 
   let updated = false;
   await prisma.$transaction(async (tx) => {
     let hasTruesend = invoice.lineItems.some(
       (li) => li.itemType === 'ADDON' && li.description?.toLowerCase().includes('truesend')
     );
-    if (addTruesend && !hasTruesend) {
+    if (shouldIncludeTruesend && !hasTruesend) {
       await tx.invoiceLineItem.create({
         data: {
           invoiceId: invoice.id,
@@ -1396,6 +1416,54 @@ router.post('/overdue/update-invoice-addons', async (req, res, next) => {
     res.json({
       success: true,
       data: { updated: refreshed.updated, invoiceId: refreshed.invoiceId, amount: refreshed.amount },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Refresh an unpaid renewal invoice charges (usage/add-ons/tax) without submitting payment.
+ * POST /api/billing/overdue/refresh-invoice
+ */
+router.post('/overdue/refresh-invoice', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { invoiceId } = refreshOverdueInvoiceSchema.parse(req.body);
+    const refreshed = await refreshRenewalInvoiceCharges({
+      tenantId,
+      invoiceId,
+    });
+    const invoice = await prisma.invoice.findFirst({
+      where: {
+        id: refreshed.invoiceId,
+        tenantId,
+        billingType: 'RENEWAL',
+      },
+      include: { lineItems: true },
+    });
+    if (!invoice) {
+      throw new BadRequestError('Renewal invoice not found');
+    }
+
+    res.json({
+      success: true,
+      data: {
+        updated: refreshed.updated,
+        invoice: {
+          id: invoice.id,
+          amount: toSafeNumber(invoice.amount),
+          status: invoice.status,
+          dueAt: invoice.dueAt,
+          lineItems: invoice.lineItems.map((li) => ({
+            itemType: li.itemType,
+            description: li.description,
+            amount: toSafeNumber(li.amount),
+            quantity: li.quantity,
+            unitPrice: toSafeNumber(li.unitPrice),
+          })),
+        },
+      },
     });
   } catch (error) {
     next(error);

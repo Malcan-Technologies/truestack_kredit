@@ -135,6 +135,49 @@ function getMytDaysUntil(targetIsoDate: string): number {
   return Math.ceil((targetUtc - nowUtc) / (1000 * 60 * 60 * 24));
 }
 
+function toApiDateParam(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const directDateMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (directDateMatch) return directDateMatch[1];
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(parsed)
+    .reduce<Record<string, string>>((acc, part) => {
+      if (part.type === "year" || part.type === "month" || part.type === "day") {
+        acc[part.type] = part.value;
+      }
+      return acc;
+    }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getTomorrowMytDateParam(): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(now)
+    .reduce<Record<string, string>>((acc, part) => {
+      if (part.type === "year" || part.type === "month" || part.type === "day") {
+        acc[part.type] = part.value;
+      }
+      return acc;
+    }, {});
+  const todayUtc = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)));
+  todayUtc.setUTCDate(todayUtc.getUTCDate() + 1);
+  return todayUtc.toISOString().slice(0, 10);
+}
+
 export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [addOns, setAddOns] = useState<AddOnStatus[]>([]);
@@ -164,11 +207,48 @@ export default function BillingPage() {
       } else {
         setAddOns([]);
       }
-      if (invRes.success && invRes.data) {
-        setInvoices(invRes.data);
-      } else {
-        setInvoices([]);
+      let nextInvoices = invRes.success && invRes.data ? invRes.data : [];
+      const latestUnpaidRenewalFromFetch = nextInvoices
+        .filter(
+          (inv) =>
+            inv.billingType === "RENEWAL" &&
+            ["ISSUED", "PENDING_APPROVAL", "OVERDUE"].includes(inv.status)
+        )
+        .sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime())[0];
+
+      if (latestUnpaidRenewalFromFetch) {
+        try {
+          const refreshRes = await api.post<{
+            updated: boolean;
+            invoice: {
+              id: string;
+              amount: number;
+              status: string;
+              dueAt: string;
+              lineItems: InvoiceLineItem[];
+            };
+          }>("/billing/overdue/refresh-invoice", {
+            invoiceId: latestUnpaidRenewalFromFetch.id,
+          });
+          if (refreshRes.success && refreshRes.data?.invoice) {
+            const refreshed = refreshRes.data.invoice;
+            nextInvoices = nextInvoices.map((inv) =>
+              inv.id === refreshed.id
+                ? {
+                    ...inv,
+                    amount: String(refreshed.amount),
+                    status: refreshed.status,
+                    dueAt: refreshed.dueAt,
+                    lineItems: refreshed.lineItems ?? inv.lineItems,
+                  }
+                : inv
+            );
+          }
+        } catch (error) {
+          console.warn("Failed to refresh overdue invoice:", error);
+        }
       }
+      setInvoices(nextInvoices);
       if (tenantRes.success && tenantRes.data?.counts) {
         setLoanCount(tenantRes.data.counts.loans);
       } else {
@@ -179,10 +259,11 @@ export default function BillingPage() {
       }
 
       if (subRes.success && subRes.data?.currentPeriodStart && subRes.data?.currentPeriodEnd) {
-        const from = new Date(subRes.data.currentPeriodStart);
-        const to = new Date(subRes.data.currentPeriodEnd);
-        const fromDate = Number.isNaN(from.getTime()) ? null : from.toISOString().slice(0, 10);
-        const toDate = Number.isNaN(to.getTime()) ? null : to.toISOString().slice(0, 10);
+        const isPostExpiry = getMytDaysUntil(subRes.data.currentPeriodEnd) <= 0;
+        const fromDate = toApiDateParam(subRes.data.currentPeriodStart);
+        const toDate = isPostExpiry
+          ? getTomorrowMytDateParam()
+          : toApiDateParam(subRes.data.currentPeriodEnd);
         const usagePath = fromDate && toDate
           ? `/billing/trueidentity-usage?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`
           : "/billing/trueidentity-usage";

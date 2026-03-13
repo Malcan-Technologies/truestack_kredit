@@ -501,7 +501,7 @@ export default function ApplicationDetailPage() {
         return;
       }
       if (!compliantStructure) {
-        toast.error("Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap");
+        toast.error("Unable to derive a schedule that matches the risk-adjusted total payable within the product rate cap");
         setActionLoading(null);
         return;
       }
@@ -1047,7 +1047,7 @@ export default function ApplicationDetailPage() {
                   <div className="space-y-1">
                     <Label htmlFor="internal-schedule-toggle">Enable Risk-Adjusted Schedule</Label>
                     <p className="text-xs text-muted-foreground">
-                      Add a risk-adjusted schedule while preserving a compliant schedule that remains within the product rate cap.
+                      Add a risk-adjusted schedule while preserving the loan schedule within the product rate cap.
                     </p>
                   </div>
                   <Switch
@@ -1097,7 +1097,7 @@ export default function ApplicationDetailPage() {
 
                     <div className="rounded-lg border bg-secondary/30 p-3 text-sm">
                       <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Derived Compliant Term</span>
+                        <span className="text-muted-foreground">Derived Term</span>
                         <span className="font-medium">
                           {compliantStructure ? `${compliantStructure.compliantTerm} months` : "Enter risk index and risk term"}
                         </span>
@@ -1105,7 +1105,7 @@ export default function ApplicationDetailPage() {
                     </div>
                     {hasInternalInputs && !compliantStructure && (
                       <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                        Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap.
+                        Unable to derive a schedule that matches the risk-adjusted total payable within the product rate cap.
                       </div>
                     )}
                   </div>
@@ -1513,14 +1513,14 @@ export default function ApplicationDetailPage() {
                   <div className="pt-2 mt-2 border-t border-blue-200/70 dark:border-blue-800/70" />
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Schedule View</span>
-                    <span className="font-medium">Compliant + Risk-Adjusted</span>
+                    <span className="font-medium">Loan + Risk-Adjusted</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Compliant Rate</span>
+                    <span className="text-muted-foreground">Interest Rate</span>
                     <span className="font-medium">{formatNumber(compliantStructure.compliantInterestRate, 2)}% p.a.</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Compliant Term</span>
+                    <span className="text-muted-foreground">Term</span>
                     <span className="font-medium">{compliantStructure.compliantTerm} months</span>
                   </div>
                   <div className="flex justify-between">
@@ -1584,14 +1584,14 @@ export default function ApplicationDetailPage() {
                   <div className="pt-2 mt-2 border-t border-emerald-200/70 dark:border-emerald-800/70" />
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Schedule View</span>
-                    <span className="font-medium">Compliant + Risk-Adjusted</span>
+                    <span className="font-medium">Loan + Risk-Adjusted</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Compliant Rate</span>
+                    <span className="text-muted-foreground">Interest Rate</span>
                     <span className="font-medium">{formatNumber(compliantStructure.compliantInterestRate, 2)}% p.a.</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Compliant Term</span>
+                    <span className="text-muted-foreground">Term</span>
                     <span className="font-medium">{compliantStructure.compliantTerm} months</span>
                   </div>
                   <div className="flex justify-between">

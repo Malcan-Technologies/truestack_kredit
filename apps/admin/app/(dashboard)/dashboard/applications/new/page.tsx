@@ -534,7 +534,7 @@ export default function NewApplicationPage() {
           return;
         }
         if (!compliantStructure) {
-          toast.error("Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap");
+          toast.error("Unable to derive a schedule that matches the risk-adjusted total payable within the product rate cap");
           return;
         }
       }
@@ -1001,7 +1001,7 @@ export default function NewApplicationPage() {
                     return (
                       <div>
                         <label className="text-sm font-medium">
-                          {useInternalSchedule ? "Compliant Term (months)" : "Term (months)"}
+                          Term (months)
                           <span className="text-muted-foreground ml-2">
                             ({minTerm} - {maxTerm})
                           </span>
@@ -1017,7 +1017,7 @@ export default function NewApplicationPage() {
                         />
                         {useInternalSchedule && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            This compliant term is auto-derived from the risk-adjusted schedule.
+                            This term is auto-derived from the risk-adjusted schedule.
                           </p>
                         )}
                         {isTermInvalid && (
@@ -1102,7 +1102,7 @@ export default function NewApplicationPage() {
                       <div className="space-y-1">
                         <Label htmlFor="new-application-internal-schedule-toggle">Enable Risk-Adjusted Schedule</Label>
                         <p className="text-xs text-muted-foreground">
-                          Add a risk-adjusted schedule while preserving a compliant schedule that remains within the product rate cap.
+                          Add a risk-adjusted schedule while preserving the loan schedule within the product rate cap.
                         </p>
                       </div>
                       <Switch
@@ -1152,7 +1152,7 @@ export default function NewApplicationPage() {
 
                         <div className="rounded-lg border bg-secondary/30 p-3 text-sm">
                           <div className="flex justify-between gap-4">
-                            <span className="text-muted-foreground">Derived Compliant Term</span>
+                            <span className="text-muted-foreground">Derived Term</span>
                             <span className="font-medium">
                               {compliantStructure ? `${compliantStructure.compliantTerm} months` : "Enter risk index and risk term"}
                             </span>
@@ -1161,7 +1161,7 @@ export default function NewApplicationPage() {
 
                         {hasInternalInputs && !compliantStructure && (
                           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                            Unable to derive a compliant schedule that matches the risk-adjusted total payable within the product rate cap.
+                            Unable to derive a schedule that matches the risk-adjusted total payable within the product rate cap.
                           </div>
                         )}
                       </div>
@@ -1178,7 +1178,7 @@ export default function NewApplicationPage() {
                       <div className="p-1.5 rounded-md bg-foreground/10">
                         <Calculator className="h-4 w-4 text-muted-foreground" />
                       </div>
-                      {useInternalSchedule && compliantStructure ? "Compliant Loan Repayment" : "Loan Summary"}
+                      Loan Summary
                     </h3>
                     <div className="relative space-y-2.5 text-sm">
                       <div className="flex justify-between items-center">
@@ -1188,7 +1188,7 @@ export default function NewApplicationPage() {
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">{useInternalSchedule && compliantStructure ? "Compliant Term" : "Term"}</span>
+                        <span className="text-muted-foreground">Term</span>
                         <span className="font-medium text-foreground">
                           {summaryPreview.term} months
                         </span>
@@ -1231,7 +1231,7 @@ export default function NewApplicationPage() {
                       {/* Monthly Payment Highlight */}
                       <div className="flex justify-between items-center bg-foreground/10 dark:bg-primary/20 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-primary/20">
                         <span className="font-semibold text-foreground">
-                          {useInternalSchedule && compliantStructure ? "Compliant Monthly Payment" : "Monthly Payment"}
+                          Monthly Payment
                         </span>
                         <span className="font-bold text-xl text-foreground">
                           {formatCurrency(summaryPreview.monthlyPayment)}
@@ -1401,7 +1401,7 @@ export default function NewApplicationPage() {
                     <div className="p-1.5 rounded-md bg-foreground/10">
                       <Calculator className="h-4 w-4 text-muted-foreground" />
                     </div>
-                    {useInternalSchedule && compliantStructure ? "Compliant Loan Repayment" : "Loan Summary"}
+                    Loan Summary
                   </h3>
                   <div className="relative space-y-2.5 text-sm">
                     <div className="flex justify-between items-center">
@@ -1461,10 +1461,10 @@ export default function NewApplicationPage() {
                     <div className="relative pt-4 border-t border-border/50 space-y-2 text-sm">
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">Schedule View</span>
-                        <span className="font-medium text-foreground">Compliant + Risk-Adjusted</span>
+                        <span className="font-medium text-foreground">Loan + Risk-Adjusted</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Compliant Term</span>
+                        <span className="text-muted-foreground">Term</span>
                         <span className="font-medium text-foreground">{compliantStructure.compliantTerm} months</span>
                       </div>
                       <div className="flex justify-between items-center">

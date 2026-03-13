@@ -2824,7 +2824,7 @@ export default function LoanDetailPage() {
                           <div className="text-right">
                             <p className="text-xs text-muted-foreground mb-2">Schedule View</p>
                             <TabsList>
-                              <TabsTrigger value="standard">Compliant</TabsTrigger>
+                              <TabsTrigger value="standard">Loan</TabsTrigger>
                               <TabsTrigger value="internal">Risk-Adjusted</TabsTrigger>
                             </TabsList>
                           </div>
@@ -3107,7 +3107,7 @@ export default function LoanDetailPage() {
                       <div className="px-4 py-3 border-b border-border">
                         <p className="text-sm font-medium">Risk-adjusted schedule view</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          This risk-adjusted schedule is provided solely for internal reference and scenario analysis. Risk index and risk term are for internal planning purposes only; their meaning and interpretation are determined by the lender. Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements. This risk-adjusted view does not amend, replace, validate, or supersede the official repayment schedule, contractual terms, or compliance record. Payment actions continue to follow the compliant schedule.
+                          This risk-adjusted schedule is provided solely for internal reference and scenario analysis. Risk index and risk term are for internal planning purposes only; their meaning and interpretation are determined by the lender. Under applicable KPKT limits, the maximum permitted interest rate is 18% p.a. for Jadual J financing and 12% p.a. for Jadual K financing; lenders are not permitted to charge above the applicable cap. The lender remains solely responsible for ensuring that all pricing, documentation, and recoveries comply with applicable law and regulatory requirements. This risk-adjusted view does not amend, replace, validate, or supersede the official repayment schedule, contractual terms, or compliance record. Payment actions continue to follow the loan schedule.
                         </p>
                       </div>
                       <Table>

@@ -87,7 +87,6 @@ const navigationSections: NavSection[] = [
     title: "Loan Management",
     items: [
       { name: "Borrowers", href: "/dashboard/borrowers", icon: Users },
-      { name: "Products", href: "/dashboard/products", icon: Package },
       {
         name: "Applications",
         href: "/dashboard/applications",
@@ -99,8 +98,8 @@ const navigationSections: NavSection[] = [
   {
     title: "Business",
     items: [
+      { name: "Products", href: "/dashboard/products", icon: Package },
       { name: "Compliance", href: "/dashboard/compliance", icon: Shield },
-      { name: "Promotions", href: "/dashboard/promotions", icon: Megaphone },
       { name: "Debt Marketplace", href: "/dashboard/debt-marketplace", icon: Store },
       {
         name: "Modules",
@@ -126,6 +125,7 @@ const navigationSections: NavSection[] = [
     items: [
       { name: "Billing", href: "/dashboard/billing", icon: Wallet },
       { name: "Plan", href: "/dashboard/plan", icon: Layers },
+      { name: "Promotions", href: "/dashboard/promotions", icon: Megaphone },
       { name: "Admin Logs", href: "/dashboard/admin-logs", icon: ScrollText },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
     ],

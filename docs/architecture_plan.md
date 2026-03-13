@@ -81,6 +81,38 @@ This should be treated as the current baseline.
 - **Deploy**: Push to `main` triggers deploy; workflow supports `backend-only`, `frontend-only`, `db-migrate`, etc.
 - **Terraform**: `environments/prod.tfvars`; single prod environment
 
+## Feasibility audit from current codebase
+
+Overall direction is **feasible**, but some parts of the plan are more realistic as a phased evolution than as an immediate target.
+
+### High-feasibility items
+- One shared monorepo for SaaS + Pro
+- One backend deployable for the near term
+- Config-driven SaaS vs Pro behavior (`productMode`, `enabledModules`, `clientId`)
+- Dedicated per-client Pro deployments
+- Shared domain logic and integration adapters
+
+### Medium-feasibility items
+- Extracting reusable packages from the backend
+- Borrower-facing auth
+- Client-specific branding/theming
+- Per-client release lanes in GitHub Actions
+
+### Higher-risk items that need plan adjustment
+- **Immediate package-first refactor**: current backend is still route-heavy, with very large route files such as `modules/loans/routes.ts` and `modules/borrowers/routes.ts`. A full `/packages/domain-*` extraction should not be the first move. The more feasible first step is to extract internal services within `apps/backend`, then promote stable services into packages.
+- **Immediate client wrapper apps**: current frontend/deploy setup only knows about one admin app and one backend image. Creating `web-client-a`, `web-client-b`, etc. immediately is possible, but not the fastest path. A single shared borrower web app with runtime theming/config is more feasible first; thin wrapper apps can come later if client divergence becomes real.
+- **Current Terraform is not yet account-per-client ready**: the existing `terraform/` reuses shared infra state (`terraform_remote_state` from `admin-truestack`) and a shared VPC/ALB model. That is suitable for today's SaaS deployment, but Pro client accounts will need a more self-contained stack instead of depending on shared network state.
+- **Current workflow and Dockerfiles are app-specific**: the GitHub Actions workflow and Dockerfiles are currently hardcoded around `apps/backend`, `apps/admin`, and `packages/shared`. Adding new packages/apps is feasible, but requires explicit CI/CD and Docker changes.
+
+### Practical conclusion
+The plan should optimize for **minimal architectural change before the first Pro client**:
+
+1. Add product-mode/config boundaries first.
+2. Extract backend services inside `apps/backend` before extracting many new workspace packages.
+3. Build one shared borrower web app first.
+4. Add per-client deployment templates and manual Pro deployment workflows.
+5. Introduce wrapper apps or additional deployables only after real reuse/divergence is proven.
+
 ---
 
 # 2. Desired Target State
@@ -213,54 +245,70 @@ Different between SaaS and Pro:
 
 ---
 
-# 6. Monorepo Strategy
+# 6. Repository Strategy
 
 ## Recommendation
-Use a **single monorepo**.
+Use **two repositories**:
 
-This monorepo should contain:
-- backend
-- admin frontend
-- borrower web frontends
-- mobile apps
-- shared packages
-- infra code
-- CI/CD workflows
+1. **Platform repo (`truestack_kredit`)**
+   - backend API
+   - admin app
+   - Terraform / infra
+   - platform/shared backend packages
+   - GitHub Actions for SaaS + Pro backend deployments
 
-## Why
-This is recommended because:
-- logic is mostly shared
-- APIs are shared
-- easier upgrades
-- easier to maintain consistent contracts
-- avoids code duplication across clients
-- easier for shared testing/build tooling
+2. **Borrower frontend repo** (`truekredit-borrower` or similar)
+   - borrower web app
+   - borrower mobile app
+   - per-client branding / app identities / frontend config
+   - frontend CI/CD and store release workflows
+
+## Why this separation makes sense
+
+This split matches the actual product boundaries better:
+- **platform** concerns live together: auth, tenanting, billing, admin operations, infra
+- **borrower experience** concerns live together: borrower web, mobile, branding, feature presentation
+- borrower web and mobile share flows, copy, theming, app identity, and client branding more closely with each other than with the admin app
+- admin remains tightly coupled to backend behavior and tenant/billing logic, so it belongs in the platform repo
+- mobile no longer has to be the only thing separated; instead the entire borrower-facing surface gets a coherent delivery boundary
+
+## Trade-off
+
+This is slightly more operationally complex than a single monorepo, because backend/admin and borrower-facing apps now change across repo boundaries.
+
+However, for your clarified requirements, it is a better fit because:
+- every Pro client needs borrower web and mobile from day 1
+- both web and mobile are client-branded deliverables
+- both web and mobile will likely evolve faster and more frequently than admin
+- frontend/mobile release workflows are materially different from backend/admin deployment workflows
+
+## What the borrower frontend repo must share with the platform repo
+
+Do **not** let the borrower frontend repo become a disconnected code fork. It should consume:
+- a generated API SDK or shared contract package from the platform repo
+- shared Zod/TypeScript API contracts where possible
+- shared client configuration model
+- shared release/version compatibility rules
+
+This keeps the platform and borrower experience aligned even though they live in separate repos.
 
 ---
 
-# 7. Recommended Monorepo Shape
+# 7. Recommended Repo Shapes
 
 ## Current vs target
 
 **Current**: `apps/admin`, `apps/backend`, `packages/shared` (types, enums), `terraform/`, `.github/workflows/`
 
-**Target**: Add borrower apps, mobile apps, and domain/integration packages as below.
+**Target**: Keep backend/admin/infra in this repo, and move borrower-facing web + mobile into a shared borrower frontend repo.
 
-## Suggested target structure
+## Platform repo target structure (`truestack_kredit`)
 
 ```txt
 /apps
   /admin                     # current admin frontend
   /backend                   # current main backend API
   /worker                    # optional later for async jobs, queues, scheduled jobs
-
-  /borrower-web-base         # shared borrower web base app
-  /web-client-a              # thin client-specific wrapper
-  /web-client-b              # thin client-specific wrapper
-
-  /mobile-base               # shared mobile borrower app base
-  /mobile-client-a           # thin client-specific wrapper
-  /mobile-client-b           # thin client-specific wrapper
 
 /packages
   /shared                    # existing: types, enums, constants
@@ -273,10 +321,9 @@ This is recommended because:
   /shared-auth               # auth/session/roles
   /shared-db                 # ORM/db access layer (optional; Prisma lives in backend)
   /shared-config             # runtime config loading
-  /api-sdk                   # frontend/mobile SDK for backend APIs
-  /ui-core                   # shared UI components/design system
-  /theme-engine              # branding/theme system
-  /form-schemas              # shared validation schemas/forms
+  /api-contracts             # published/shared API contracts
+  /api-sdk                   # generated/published SDK for borrower frontend repo
+  /form-schemas              # shared validation schemas/forms where useful
 
   /integrations-ekyc         # eKYC adapter (TrueIdentity logic can move here)
   /integrations-credit       # future credit report adapter/client
@@ -290,6 +337,36 @@ This is recommended because:
 /.github/workflows
   ci.yml, deploy-saas.yml, deploy-pro.yml, build-images.yml
 ```
+
+## Borrower frontend repo target structure (`truekredit-borrower`)
+
+```txt
+/apps
+  /borrower-web              # shared borrower web app
+  /mobile-app                # shared borrower mobile app
+
+/packages
+  /ui-core                   # borrower-facing UI components
+  /theme-engine              # borrower branding and design tokens
+  /client-config             # client metadata, domains, app ids, feature flags
+  /api-sdk                   # consumed/generated from platform repo
+  /form-schemas              # shared borrower form schemas if published cleanly
+
+/.github/workflows
+  ci.yml
+  deploy-web.yml
+  build-mobile.yml
+  release-mobile.yml
+```
+
+## Feasible interpretation of the target structure
+
+The structure above is the long-term target, not the required day-one shape.
+
+Most feasible rollout order:
+- start with one borrower web app and one mobile app in the borrower frontend repo
+- use shared per-client config in that repo for branding, domains, bundle IDs, and feature flags
+- introduce thinner per-client wrappers only when multiple clients truly need different shells or build identities
 
 ---
 
@@ -308,15 +385,28 @@ Keep:
   /backend
 ```
 
-But move internal business logic into reusable packages under `/packages`.
+But first move internal business logic into **services inside `apps/backend`**, then move stable abstractions into reusable packages under `/packages`.
 
 ## Best near-term model
 Use:
 
 - **one backend deployable app**
-- **many internal modules/packages**
+- **many internal modules/services**
+- **selective shared packages only where boundaries are already stable**
 
 That means the backend remains one deployable service initially, but internally becomes modular.
+
+## Practical codebase note
+
+This matters because the current backend is still route-centric:
+- `modules/loans/routes.ts` is very large and mixes routing, validation, orchestration, and domain logic
+- `modules/borrowers/routes.ts` also contains significant business logic
+- some cross-cutting behavior such as subscription enforcement is currently attached at route level
+
+Because of this, the most feasible first refactor is:
+1. extract per-module service files inside `apps/backend/src/modules/...`
+2. introduce product-aware middleware/config boundaries
+3. move genuinely reusable logic into `/packages` after those seams exist
 
 ## Why
 This avoids:
@@ -385,6 +475,15 @@ enabledModules: (process.env.ENABLED_MODULES || 'core').split(','),
 
 Gate routes and features by these values. Same image, different runtime behavior.
 
+## Product-aware middleware
+
+Current route composition includes SaaS-oriented middleware patterns. For Pro, some of this behavior must become product-aware.
+
+Examples:
+- borrower-facing Pro routes should not accidentally inherit SaaS subscription checks
+- admin routes may still need auth/role checks, but not SaaS billing checks
+- Pro-specific route groups should be mounted conditionally based on `productMode` / `enabledModules`
+
 ## Pro tenant model
 
 For Pro, each deployment has exactly one logical tenant. Recommended approach:
@@ -417,11 +516,32 @@ However:
 - only UI/branding/composition should vary where possible
 
 ## Recommendation
-Keep borrower websites in the same monorepo.
+Keep borrower websites in the **shared borrower frontend repo**, together with the mobile app.
 
-## Best implementation pattern
+## Most feasible first implementation
 Create:
-- one shared borrower web base app
+- one shared borrower web app in the borrower frontend repo
+- runtime client config for branding, wording, enabled flows, and domain
+- optional wrapper apps later only if clients diverge materially
+
+This separation makes sense because borrower web and mobile share more with each other than with the admin app:
+- client branding
+- borrower journeys
+- public-facing copy and content
+- feature presentation
+- per-client frontend release cadence
+
+## When to add wrapper apps
+
+Add thin client-specific wrapper apps only when at least one of these becomes true:
+- a client needs substantially different page composition or routing
+- legal/commercial requirements force separate app code identity
+- build-time branding/assets become too awkward to manage via runtime config
+- deployment identity must be separated from the shared base in a way runtime config cannot handle
+
+## Long-term implementation pattern
+Later, if needed, evolve to:
+- one shared borrower web base app inside the borrower frontend repo
 - thin client-specific wrapper apps on top
 
 The shared layer should contain:
@@ -453,12 +573,65 @@ Avoid creating fully duplicated client frontend apps with copy-paste code.
 Each client may also have their own borrower mobile app.
 
 ## Recommendation
-Keep mobile apps in the same monorepo too.
+Given your clarified requirements, **keep mobile in the shared borrower frontend repo**, together with borrower web, rather than in this platform repo.
 
-## Best implementation pattern
+Recommended model:
+- one borrower frontend repo
+- one shared mobile codebase
+- per-client app identities via build profiles / config
+- no per-client mobile forks
+
+## Why the combined borrower frontend repo makes sense here
+
+- every Pro client needs mobile from day 1
+- each client will likely need its own bundle ID / package name, app-store listing, icons, splash, and release pipeline
+- mobile has a distinct toolchain (Expo/React Native, native modules, EAS/Fastlane, app-store credentials)
+- borrower web and mobile share branding, customer-facing flows, and release planning
+- separating both from the current backend/admin repo keeps the platform repo much cleaner operationally
+
+## Most feasible implementation
 Create:
-- one shared mobile app base
-- thin client-specific app shells/wrappers
+- one shared mobile app / Expo app in the borrower frontend repo
+- use build profiles, environment config, and theme assets per client
+- support separate app identities from day 1
+
+## Recommended borrower frontend repo pattern
+
+```txt
+truekredit-borrower/
+  /apps
+    /borrower-web
+    /mobile-app
+  /packages
+    /ui-core
+    /theme-engine
+    /api-sdk
+  /client-configs
+    /client-a
+    /client-b
+  /.github/workflows
+    deploy-web.yml
+    build-mobile.yml
+    release-mobile.yml
+```
+
+Each client config should define:
+- app name
+- bundle ID / package name
+- icons / splash assets
+- theme
+- API base URL
+- enabled modules
+- app-store metadata
+
+## Core requirement if the borrower frontend repo is separate
+
+The borrower frontend repo must not hand-code API contracts independently. It should consume one of:
+- a generated API SDK published from the core repo
+- a shared contracts package published to a registry
+- OpenAPI-generated clients if you formalize the API that way
+
+Without this, backend/frontend drift becomes a serious maintenance risk.
 
 Shared layer:
 - borrower business logic
@@ -492,6 +665,32 @@ Avoid separate repos per client unless:
 - separate ownership is required
 - contractual handover/isolation is required
 - release cadence is completely different
+
+## What you lose by keeping borrower-facing frontends in a separate repo
+
+Compared with putting borrower web + mobile in this monorepo, you lose:
+- **atomic cross-repo changes** — backend + borrower web/mobile contract updates cannot land in one PR/commit
+- **direct workspace sharing** — cannot import local packages from `packages/*` without publishing/generating them
+- **simpler refactors** — renaming DTOs/contracts across backend and borrower frontends takes more coordination
+- **one-place CI visibility** — CI and release history are split across repos
+- **higher integration coordination overhead** — you will need versioning and compatibility rules between the platform repo and the borrower frontend repo
+
+## What you gain by separating borrower-facing frontends
+
+- **cleaner operational boundary** for borrower-facing tooling and releases
+- **faster borrower frontend iteration** without disturbing backend/admin workflows
+- **simpler app-store management** across multiple client apps
+- **web + mobile branding in one place**
+- **shared borrower UX ownership**
+- **easier scaling** if mobile work becomes substantial or is handled by a separate team
+- **less complexity in the current repo**, which is already doing backend, admin, infra, and SaaS/Pro evolution
+
+## Recommendation summary
+
+For your stated direction, the better fit is:
+- keep backend/admin/infra in this repo
+- create **one shared borrower frontend repo** for borrower web + all client mobile apps
+- invest early in contract sharing between the two repos
 
 ---
 
@@ -552,6 +751,17 @@ Each TrueKredit Pro client should get:
 
 This is the most important deployment principle for Pro.
 
+## Clarified requirement
+
+Treat **per-client AWS accounts from day 1** as a hard requirement, not a future optimization.
+
+This means the first Pro implementation must already include:
+- a repeatable client account bootstrap process
+- per-client IAM role assumptions for GitHub Actions
+- per-client secrets and naming conventions
+- per-client DNS / certificates / monitoring conventions
+- per-client release inventory
+
 ## Pro deployment template (for easy new-client onboarding)
 
 Use a reusable Terraform module so adding a Pro client is mostly configuration:
@@ -581,6 +791,28 @@ enabled_modules = ["origination", "repayments", "attestation", "signing"]
 
 **CI/CD pattern**: Reusable workflow with `client_id` input; builds once from monorepo, deploys to the correct AWS account via OIDC, runs migrations for that client's DB. Deployments are manual or release-triggered — not automatic on every push.
 
+## Current infrastructure constraint
+
+The current `terraform/` is still SaaS-oriented:
+- it uses `terraform_remote_state` from `admin-truestack`
+- it assumes a shared VPC / shared ALB model
+- it is parameterized for one main production environment
+
+That is acceptable for the current SaaS deployment, but it means Pro cannot simply reuse the existing Terraform shape as-is.
+
+## Adjustment for Pro feasibility
+
+For Pro, prefer a **self-contained client stack module** that does not depend on shared network state from another project/account.
+
+That module should be able to provision or reference, per client:
+- VPC / subnets (or clearly defined network inputs)
+- ECS or equivalent compute
+- RDS
+- secrets
+- storage
+- DNS / certificates
+- logging / monitoring
+
 ---
 
 # 14. AWS Account Model
@@ -593,6 +825,7 @@ Can contain:
 - shared CI/CD resources
 - ECR repositories
 - central/shared platform services if appropriate
+- client inventory / release metadata if you centralize it
 
 ### SaaS account
 Contains:
@@ -604,11 +837,22 @@ Contains:
 Contains:
 - Pro backend services
 - borrower frontend hosting
+- mobile API endpoints / backend connectivity for that client
 - DB
 - secrets
 - storage
 - monitoring/logs
 - client-specific infra
+
+## Day-1 operational implication
+
+Because multiple Pro clients will exist from the start, define a client bootstrap standard immediately:
+- AWS account name pattern
+- OIDC role name pattern for GitHub Actions
+- secrets naming pattern
+- Route53 / domain naming pattern
+- alerting / dashboard baseline
+- runbook template
 
 ---
 
@@ -633,7 +877,7 @@ Runs on PRs and pushes:
 
 ### Shared image build workflow (`build-images.yml`)
 Reusable workflow that:
-- builds backend image (and optionally admin, borrower-web, mobile)
+- builds backend image (and optionally admin)
 - pushes to ECR
 - outputs image URI/tag
 
@@ -642,6 +886,36 @@ Deploys only to SaaS environment/account. Current `deploy.yml` is SaaS-only; can
 
 ### Pro deploy workflow (`deploy-pro.yml`)
 Deploys to selected Pro client account(s). Takes `client_id` (and optionally `version`) as workflow input. Manually triggered or release-triggered. Uses AWS OIDC to assume role in client's account.
+
+### Borrower frontend repo workflows
+Handled in the separate borrower frontend repo:
+- `deploy-web.yml`
+- `build-mobile.yml`
+- `release-mobile.yml`
+- optional `submit-store.yml`
+
+These should support:
+- per-client web deployment config
+- per-client mobile build profiles
+- per-client release channels
+
+## Build-system implication
+
+Current Dockerfiles and workflows are explicitly wired to:
+- `apps/backend`
+- `apps/admin`
+- `packages/shared`
+
+When introducing new packages such as `packages/domain-*` or `packages/integrations-*`, the build pipeline must be updated in parallel:
+- workspace manifests copied into Docker build context
+- change detection expanded beyond `packages/shared`
+- image builds parameterized for additional apps
+- CI paths and cache keys updated to reflect new workspace layout
+
+If borrower-facing frontends are split into a separate repo, this repo's CI/CD becomes cleaner:
+- current repo builds backend/admin only
+- borrower frontend repo owns borrower-web and mobile CI
+- contract publishing between repos becomes mandatory
 
 ## Important deployment rule
 A code push does **not** automatically update all environments.
@@ -677,6 +951,7 @@ During the period when Pro is being built while SaaS is in production, the CI/CD
 - `deploy-pro.yml` must use **only** `workflow_dispatch` — no `on: push`.
 - Inputs: `client_id`, optionally `environment` (staging/production), `image_tag` (default: latest).
 - Pro deployments never run as a side effect of merging to `main`.
+- The workflow should resolve a per-client role ARN / account mapping from a checked-in client registry file or environment configuration.
 
 ### Change detection updates (when adding packages)
 
@@ -715,8 +990,10 @@ This ensures shared package changes flow to SaaS. Since `productMode=saas` at ru
 | **1. Now** | Add `ci.yml` (or enhance existing) for lint/test/typecheck on PRs. Make it a required check. | None |
 | **2. Add packages** | Extend change detection to `packages/*` for backend. Ensure backend Dockerfile installs/builds packages. | None; backend rebuilds when packages change |
 | **3. Add Pro config** | Add `productMode`, `enabledModules` to backend config. Default `saas`. | None; SaaS behavior unchanged |
-| **4. Add deploy-pro** | Create `deploy-pro.yml` with `workflow_dispatch` only. No `on: push`. | None |
-| **5. Pro staging (optional)** | One Pro staging deployment for testing before production clients. Deploy via manual trigger. | None |
+| **4. Add client registry** | Add checked-in client deployment metadata (account, role, domains, modules). | None |
+| **5. Add deploy-pro** | Create `deploy-pro.yml` with `workflow_dispatch` only. No `on: push`. | None |
+| **6. Add borrower frontend repo CI** | Build borrower web/mobile workflows per client config in the separate borrower frontend repo. | None |
+| **7. Pro staging (optional)** | One or more Pro staging deployments for testing before production clients. | None |
 
 ### Rollback safety
 
@@ -844,8 +1121,8 @@ Design for:
 ## Phase 1: Codebase restructuring
 - keep existing `/apps/admin` and `/apps/backend`
 - add `productMode`, `enabledModules`, `clientId` to `config.ts`
-- introduce `/packages` (start with `domain-core` extraction)
-- move business/domain logic out of app layer into packages
+- extract module services inside `apps/backend` first
+- introduce `/packages` only for stable shared boundaries
 - establish config/module boundaries
 
 ## Phase 2: Add Pro modules
@@ -857,23 +1134,29 @@ Design for:
 - document flow support
 
 ## Phase 3: Add borrower web foundation
-- build shared borrower web base app (`apps/borrower-web-base`)
-- create client wrapper approach
-- integrate with backend APIs
+- create separate shared borrower frontend repo
+- build one shared borrower web app there
+- use runtime client config/theming
+- integrate with backend APIs via published SDK / contracts
 
 ## Phase 4: Add mobile foundation
-- build shared mobile base app (`apps/mobile-base`)
-- create client wrapper approach
-- connect to same backend contracts
+- in the borrower frontend repo, build one shared mobile app from day 1
+- use per-client build profiles / environment config / app identities
+- connect to the same backend contracts via published SDK / generated client
 
 ## Phase 5: Pro deployment templating
-- define per-client AWS account deployment template (`infra/modules/pro-client`)
+- define self-contained per-client AWS account deployment template (`terraform/modules/pro-client`)
 - infra-as-code for Pro client stacks
 - DB/secrets/logging conventions
 - `deploy-pro.yml` workflow with `client_id` input
 - release pipeline for selective client deployment
 
-## Phase 6: Operational hardening
+## Phase 6: Optional wrappers / extra deployables
+- introduce borrower web wrappers only if multiple clients need separate shells
+- introduce extra mobile shells only if one shared borrower frontend repo/app structure becomes insufficient
+- split `worker` / `borrower-api` only when scaling or security boundaries justify it
+
+## Phase 7: Operational hardening
 - worker service if needed
 - monitoring/alerts
 - audit logging
@@ -889,7 +1172,7 @@ Design for:
 2. **No per-client code forks by default**
 3. **Shared logic, separate runtime**
 4. **Config-driven product differences**
-5. **Thin client-specific frontend/mobile shells**
+5. **Use thin client-specific shells only when needed**
 6. **Dedicated Pro deployment per client**
 7. **SaaS and Pro release independently**
 8. **Mostly AWS, but keep code portable**
@@ -949,10 +1232,10 @@ The recommended direction is:
 
 - keep **TrueKredit SaaS** as the current pooled multi-tenant product
 - build **TrueKredit Pro** as an extension of the same shared codebase
-- use **one monorepo**
-- keep backend, admin, borrower web, and mobile app code in the same monorepo
-- use **shared packages** for business logic
-- use **thin client-specific shells** for custom borrower websites and apps
+- use **one core platform repo** for backend/admin/infra and **one shared borrower frontend repo**
+- keep backend, admin, and infra in this repo; keep borrower web and all client mobile apps in one separate shared borrower frontend repo
+- extract services first, then use **shared packages** where boundaries are stable
+- start with a shared borrower web app and shared mobile app in the borrower frontend repo; add **thin client-specific shells** only when needed
 - keep **shared backend logic**, but deploy Pro **per client AWS account**
 - use **GitHub Actions + AWS** for selective deployments
 - stay **AWS-first**, while avoiding unnecessary deep lock-in in the app layer
@@ -968,17 +1251,19 @@ This is the preferred architecture direction unless future codebase analysis rev
 
 | Current location | Target package | Notes |
 |------------------|----------------|-------|
-| `modules/loans/*`, `modules/schedules/*` | `packages/domain-core` | Loans, schedules, repayments |
+| `modules/loans/*`, `modules/schedules/*` | module services first, then `packages/domain-core` | Loans, schedules, repayments |
 | `modules/billing/*` | Keep in backend or `packages/domain-billing` | SaaS-only; Pro may not need |
-| `modules/compliance/*` | `packages/domain-compliance` | Audit, digital-license rules |
+| `modules/compliance/*` | module services first, then `packages/domain-compliance` | Audit, digital-license rules |
 | `lib/math.ts` | `packages/shared` or `packages/shared-math` | Already in shared |
-| `modules/borrowers/*` | `packages/domain-core` | Core domain |
+| `modules/borrowers/*` | module services first, then `packages/domain-core` | Core domain |
 | New: origination flows | `packages/domain-origination` | Borrower application flows |
 | New: attestation | `packages/domain-attestation` | Attestation logic |
 | New: documents | `packages/domain-documents` | Agreements, templates |
 | New: signing | `packages/integrations-signing` | CA/on-prem adapter |
 
 Backend remains one deployable app; it imports packages and wires routes based on `productMode` and `enabledModules`.
+
+Practical recommendation: do not try to extract the large route modules directly into workspace packages in one step. First create service boundaries inside `apps/backend`.
 
 ## Existing domain boundaries
 
@@ -998,50 +1283,57 @@ The codebase already has implicit domain boundaries that map well to packages:
   ci.yml              # Lint, test, typecheck on PRs (required before merge)
   deploy-saas.yml     # Deploy to SaaS (on push to main; current deploy.yml)
   deploy-pro.yml      # Manual only: client_id input, deploys to that client
-  build-images.yml    # Reusable: build backend, admin, borrower-web, mobile
+  build-images.yml    # Reusable: build backend and admin
 ```
 
 **Pro deployment flow**: Build images from monorepo → deploy to client AWS account via OIDC → run migrations for that client's DB → update ECS services. Use image tags like `sha-abc123` or `v2.1.0-pro`. Maintain a version matrix (which client is on which version).
 
 **Transition**: See Section 15 "Transition strategy" for how to implement Pro without disrupting SaaS users — SaaS deploy stays on push-to-main; Pro deploy is manual-only.
 
-## Thin client shell pattern (web)
+**Borrower frontend repo flow**: Deploy borrower web per client config and build mobile app per client profile in the separate borrower frontend repo → release to hosting / internal distribution / app stores using client-specific identities → keep compatibility tied to a published SDK or contract version from the platform repo.
+
+## Borrower web pattern (borrower frontend repo)
 
 ```
-apps/borrower-web-base/     # Shared Next.js app
+truekredit-borrower/apps/borrower-web/   # Shared Next.js borrower app
+  app/, components/, lib/
+  theme/
+  client-config.ts          # runtime client branding / copy / feature toggles
+```
+
+## Thin client shell pattern (web, optional later)
+
+```
+truekredit-borrower/apps/borrower-web-base/  # Shared Next.js app
   app/, components/, lib/
   theme/                    # CSS variables, default theme
 
-apps/web-client-a/          # Thin shell
+truekredit-borrower/apps/web-client-a/       # Thin shell
   app/layout.tsx            # Imports base layout, applies theme
   theme/variables.css       # Client A colors/fonts
 ```
 
-## Thin client shell pattern (mobile)
+## Mobile app pattern (borrower frontend repo)
 
 ```
-apps/mobile-base/
-  src/, app.json            # Base config
-
-apps/mobile-client-a/
-  app.json                  # Override: name, bundleId, icon, splash
-  theme.ts                  # Client A theme
-  index.js                  # Entry that loads base + theme
+truekredit-borrower/apps/mobile-app/
+  src/
+  app.config.ts             # build profile / env-driven client config
 ```
 
-Use `packages/theme-engine` for shared theming consumed by both web and mobile shells.
+Use the borrower frontend repo's `packages/theme-engine` for shared theming consumed by both web and mobile.
 
 ## Migration path (minimal disruption)
 
 | Phase | Focus | Impact |
 |-------|-------|--------|
 | 1 | Add `productMode`, `enabledModules` to config | Low |
-| 2 | Extract `domain-core` into package | Medium |
+| 2 | Extract module services inside `apps/backend` | Medium |
 | 3 | Add Pro deployment Terraform module + `deploy-pro` workflow | Medium |
 | 4 | Add borrower origination + repayment APIs (Pro-only routes) | Medium |
-| 5 | Add `borrower-web-base` + first client shell | Medium |
-| 6 | Add attestation, documents, signing adapter | Medium |
-| 7 | Add mobile base + first client shell | Medium |
+| 5 | Add borrower frontend repo with borrower web + shared contract flow | Medium |
+| 6 | Add mobile app in the borrower frontend repo | Medium |
+| 7 | Add attestation, documents, signing adapter | Medium |
 
 SaaS behavior stays unchanged when `productMode=saas`.
 
@@ -1049,11 +1341,11 @@ SaaS behavior stays unchanged when `productMode=saas`.
 
 # 25. Planning Questions — Answered
 
-1. **Modularize backend**: Extract domain logic into `packages/domain-*`; keep routes in `apps/backend` calling package services.
+1. **Modularize backend**: First extract services inside `apps/backend`, then promote stable domains into `packages/domain-*`; keep routes thin.
 
 2. **Domain boundaries**: Loans, schedules, repayments, borrowers, products, compliance, billing — use these as package boundaries.
 
-3. **Migration path**: Introduce packages incrementally; keep existing modules working while extracting.
+3. **Migration path**: Introduce product-mode and internal services first, then packages incrementally; keep existing modules working while extracting.
 
 4. **Config for SaaS vs Pro**: `productMode`, `clientId`, `enabledModules`; gate routes/features by these.
 
@@ -1061,13 +1353,13 @@ SaaS behavior stays unchanged when `productMode=saas`.
 
 6. **Borrower flows as packages**: Origination, repayments, attestation, documents as `packages/domain-*`.
 
-7. **Web client wrappers**: Shared Next.js base app; per-client apps override layout/theme/config only.
+7. **Web client wrappers**: Start with one shared borrower web app plus runtime config; add wrapper apps only if clients diverge.
 
-8. **Mobile**: Shared Expo/React Native base; per-client `app.json` + theme overrides.
+8. **Borrower frontends**: Use one separate shared borrower frontend repo with borrower web + one shared mobile app codebase and per-client build profiles / app identities.
 
-9. **Infra for Pro**: Terraform module `pro-client` parameterized by `client_id`, domain, modules.
+9. **Infra for Pro**: Terraform module `pro-client` parameterized by `client_id`, domain, modules, and built as a self-contained client stack rather than depending on current shared remote state.
 
-10. **CI/CD**: Separate workflows for SaaS vs Pro; Pro workflow takes `client_id` input.
+10. **CI/CD**: Separate workflows for SaaS vs Pro in this repo; the borrower frontend repo has its own web/mobile workflows. Pro workflow takes `client_id` input and resolves per-client account/role mapping.
 
 11. **Backend split**: Keep one backend initially; consider `borrower-api` only if separate security boundary needed.
 
@@ -1085,6 +1377,9 @@ SaaS behavior stays unchanged when `productMode=saas`.
 2. **Parameterized Pro Terraform module** — New client = new tfvars + run apply.
 3. **Reusable Pro deploy workflow** — Input `client_id`, deploy to correct account. Manual-only; never on push.
 4. **Client config as code** — e.g. `config/clients/client-a.yaml` with branding, modules, domains.
-5. **Shared packages** — One implementation for loans, schedules, repayments; no duplication.
-6. **Version matrix** — Track which client is on which release for support and staged rollouts.
-7. **SaaS deploy unchanged during transition** — Keep push-to-main → SaaS deploy. Pro deploy never auto-triggers. CI must pass before merge.
+5. **Service extraction before package extraction** — Stabilize boundaries inside `apps/backend` before creating many new workspace packages.
+6. **Build pipeline updates alongside architecture** — Parameterize Dockerfiles and GitHub Actions whenever new packages/apps are introduced.
+7. **Client account registry from day 1** — Track account IDs, role ARNs, domains, module flags, and release state per client.
+8. **Borrower frontend contract sharing** — Publish/generated SDK or contracts for the separate borrower frontend repo from day 1.
+9. **Version matrix** — Track which client is on which release for support and staged rollouts.
+10. **SaaS deploy unchanged during transition** — Keep push-to-main → SaaS deploy. Pro deploy never auto-triggers. CI must pass before merge.

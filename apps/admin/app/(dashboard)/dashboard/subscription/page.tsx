@@ -499,12 +499,21 @@ export default function SubscriptionPage() {
         const latestPaidPeriodStart = latestPaidRenewal?.periodStart
           ? toApiDateParam(latestPaidRenewal.periodStart)
           : null;
+        // Clamp applies in two cases:
+        // 1. Post-expiry and unpaid: paid renewal covers same period start → exclude already-paid day.
+        // 2. Same-day billing (paid on same MYT day as currentPeriodStart): usage can't be split
+        //    intra-day, so shift from to the next day to avoid showing pre-payment charges.
+        // For normal monthly cycles paidAtDate is ~30 days before baseFromDate, so clamp is a no-op.
+        const paidSameDayAsStart = paidAtDate !== null && paidAtDate === baseFromDate;
+        const shouldClamp =
+          paidAtDate &&
+          latestPaidPeriodStart &&
+          latestPaidPeriodStart === baseFromDate &&
+          (isPostExpiry || paidSameDayAsStart);
         const fromDate = baseFromDate
           ? (
-              paidAtDate &&
-              latestPaidPeriodStart &&
-              latestPaidPeriodStart === baseFromDate
-                ? maxDateParam(baseFromDate, addDaysToDateParam(paidAtDate, 1))
+              shouldClamp
+                ? maxDateParam(baseFromDate, addDaysToDateParam(paidAtDate!, 1))
                 : baseFromDate
             )
           : null;

@@ -18,6 +18,7 @@ import { verifyCallbackSignature } from '../trueidentity/signature.js';
 import { AuditService } from '../compliance/auditService.js';
 import { recordVerificationComplete } from '../trueidentity/usageService.js';
 import { syncTenantBillingToAdmin } from '../trueidentity/adminBillingSync.js';
+import { syncSubscriptionAmountToAdmin } from '../trueidentity/syncSubscriptionToAdmin.js';
 import {
   processCorporateDirectorDocumentUrls,
   processDocumentImagesFromWebhook,
@@ -426,6 +427,7 @@ router.post('/', async (req, res) => {
               subscription.currentPeriodEnd
             );
           }
+          await syncSubscriptionAmountToAdmin(tenantId);
         }
       }
     }

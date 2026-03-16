@@ -10,6 +10,7 @@ import { signRequestBody } from '../modules/trueidentity/signature.js';
 import { computeUsageAmount, getUsageForTenant } from '../modules/trueidentity/usageService.js';
 import { refreshRenewalInvoiceCharges } from '../modules/billing/routes.js';
 import { notifySubscriptionPaymentRequested } from '../modules/trueidentity/subscriptionPaymentRequestWebhook.js';
+import { syncSubscriptionAmountToAdmin } from '../modules/trueidentity/syncSubscriptionToAdmin.js';
 
 export type PaymentDecision = {
   id: string;
@@ -1028,6 +1029,29 @@ export class BillingCronService {
         await refreshUnpaidRenewalInvoices();
       } catch (error) {
         errors.push({ step: 'refresh_unpaid_invoices', message: error instanceof Error ? error.message : 'Unknown error' });
+      }
+
+      try {
+        const unpaidRenewals = await prisma.invoice.findMany({
+          where: {
+            billingType: 'RENEWAL',
+            status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
+          },
+          select: { tenantId: true },
+          distinct: ['tenantId'],
+        });
+        for (const inv of unpaidRenewals) {
+          try {
+            await syncSubscriptionAmountToAdmin(inv.tenantId);
+          } catch (syncErr) {
+            errors.push({
+              step: `sync_subscription_to_admin:${inv.tenantId}`,
+              message: syncErr instanceof Error ? syncErr.message : 'Unknown error',
+            });
+          }
+        }
+      } catch (error) {
+        errors.push({ step: 'sync_subscription_to_admin', message: error instanceof Error ? error.message : 'Unknown error' });
       }
 
       try {

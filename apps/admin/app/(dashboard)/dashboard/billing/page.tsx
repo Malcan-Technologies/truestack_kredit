@@ -675,7 +675,9 @@ export default function BillingPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invoices.map((invoice) => (
+                {[...invoices]
+                  .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())
+                  .map((invoice) => (
                   <TableRow
                     key={invoice.id}
                     className="cursor-pointer hover:bg-muted/50"

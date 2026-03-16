@@ -676,7 +676,12 @@ export default function BillingPage() {
               </TableHeader>
               <TableBody>
                 {[...invoices]
-                  .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())
+                  .sort((a, b) => {
+                    // Sort by invoice number suffix (e.g. INV-X-202603-0010 > 0009 > ... > 0001)
+                    const seqA = parseInt(a.invoiceNumber.split("-").pop() ?? "0", 10) || 0;
+                    const seqB = parseInt(b.invoiceNumber.split("-").pop() ?? "0", 10) || 0;
+                    return seqB - seqA;
+                  })
                   .map((invoice) => (
                   <TableRow
                     key={invoice.id}

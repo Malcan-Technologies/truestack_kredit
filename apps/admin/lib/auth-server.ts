@@ -106,7 +106,7 @@ export const auth = betterAuth({
           expiresAt,
         },
       });
-      void sendEmail({
+      const result = await sendEmail({
         to: user.email,
         subject: "Reset your TrueKredit password",
         html: `
@@ -117,6 +117,9 @@ export const auth = betterAuth({
           <p>If you didn't request this, you can ignore this email.</p>
         `,
       });
+      if (!result.ok) {
+        console.error("[auth] Password reset email failed:", result.error);
+      }
     },
     onPasswordReset: async ({ user }, _request) => {
       await prisma.user.update({

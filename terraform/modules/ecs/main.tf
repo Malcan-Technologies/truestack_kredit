@@ -323,6 +323,9 @@ resource "aws_ecs_task_definition" "frontend" {
 
       secrets = [
         { name = "BETTER_AUTH_SECRET", valueFrom = "${var.secrets_arn}:better_auth_secret::" },
+        # Required for password reset: Prisma (Better Auth) + Resend
+        { name = "DATABASE_URL", valueFrom = "${var.secrets_arn}:database_url::" },
+        { name = "RESEND_API_KEY", valueFrom = "${var.secrets_arn}:resend_api_key::" },
       ]
 
       logConfiguration = {

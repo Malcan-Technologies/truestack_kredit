@@ -1,0 +1,93 @@
+---
+alwaysApply: true
+---
+
+Use these rules for **borrower_pro (Demo_Client)** — the borrower-facing frontend for TrueKredit Pro. Borrowers register and borrow money online (digital license KPKT).
+
+---
+
+## 1) Context
+
+- **Location**: `apps/borrower_pro/Demo_Client/` — client-specific app; template for new clients.
+- **Shared components**: Live at `apps/borrower_pro/components/` (outside client folder). Import ShadCN, shared UI from there. Do not duplicate components in each client folder.
+- **Backend**: `backend_pro` — Better Auth, borrower APIs.
+
+---
+
+## 2) Framework & Structure
+
+- **Next.js 16.x** with App Router.
+- TypeScript only.
+- Organize by feature: `app/(auth)/sign-in`, `app/(auth)/sign-up`, `app/(dashboard)/` (future).
+- Next.js 16 requires convention of proxy instead of middleware files.
+
+---
+
+## 3) Shared Components (No Duplication)
+
+- **ShadCN UI** and other reusable components live at `apps/borrower_pro/components/`.
+- Demo_Client imports from parent: use path alias or relative import to `../components`.
+- Do **not** copy ShadCN or shared components into Demo_Client. Add new shared components to `apps/borrower_pro/components/` so all clients can use them.
+- Client-specific code: branding, layout, theme, custom pages. Shared: forms, buttons, inputs, SignIn, SignUp flows.
+
+---
+
+## 4) Auth (Better Auth)
+
+- Use **Better Auth** client for sign in / sign up (no admin plugin — borrower auth only).
+- Session-based; cookies handled by Better Auth.
+- Base URL = this app's URL (where auth API routes live). Auth routes at `app/api/auth/[...all]/route.ts`.
+
+```typescript
+// Example: createAuthClient for borrower (no adminClient)
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001",
+});
+```
+
+Auth API route: `app/api/auth/[...all]/route.ts` using `toNextJsHandler` from Better Auth. Backend_pro verifies sessions; BETTER_AUTH_SECRET must match.
+
+---
+
+## 5) UI System
+
+- Use **ShadCN UI** from shared components.
+- Use **sonner** for toasts.
+- Modularize: `components/ui` (shared) vs `components/features/<feature>` (client-specific if needed).
+- Refer to `docs/planning/brand.md` for Demo_Client branding.
+
+---
+
+## 6) Theming & Typography
+
+- Support light/dark theme (configurable per client).
+- Use fonts and colors from `brand.md`.
+- Client-specific theming via CSS variables or theme provider.
+
+---
+
+## 7) Forms & Validation
+
+- Schema-based validation (Zod).
+- Inline validation with consistent error messaging.
+- Accessible, keyboard-friendly inputs.
+
+---
+
+## 8) Date, Time & Number Formatting
+
+- Database: UTC. Frontend: display in Malaysia timezone (GMT+8).
+- Use `formatDate`, `formatCurrency`, etc. from `lib/utils.ts`.
+- Use safe math utilities for any financial display.
+
+---
+
+## 9) Current Scope (Phase 1)
+
+For now, focus on:
+- **Sign in** — borrower logs in
+- **Sign up** — borrower registers to become a borrower
+
+Future: loan application, repayments, dashboard, etc.

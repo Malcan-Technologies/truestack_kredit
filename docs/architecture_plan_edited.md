@@ -11,6 +11,7 @@ This document summarizes the intended architecture direction for extending the e
    - existing backend + database + admin access
 
 2. **TrueKredit Pro for digital license clients**
+   - extension of TrueKredit — users (money lenders) can operate both **offline** (traditional) and **online** (digital) lending
    - dedicated deployment per client (own AWS account, DB, backend, frontend)
    - one deployment per AWS account
    - isolated client data
@@ -177,7 +178,7 @@ Characteristics:
 - existing functionality continues
 
 ### B. TrueKredit Pro
-This is an extension of TrueKredit for digital license clients.
+This is an extension of TrueKredit for digital license clients. Money lenders can operate both offline (traditional) and online (digital) lending via the Pro product.
 
 Characteristics:
 - dedicated deployment per client

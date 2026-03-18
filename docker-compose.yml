@@ -18,6 +18,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # TrueKredit Pro database (separate from SaaS)
+  postgres_pro:
+    image: postgres:16
+    container_name: kredit-postgres-pro
+    environment:
+      POSTGRES_USER: kredit_pro
+      POSTGRES_PASSWORD: kredit_pro_dev
+      POSTGRES_DB: kredit_pro_dev
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_pro_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kredit_pro -d kredit_pro_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Optional: Local S3 (MinIO) for file storage testing
   minio:
     image: minio/minio
@@ -34,4 +52,5 @@ services:
 
 volumes:
   postgres_data:
+  postgres_pro_data:
   minio_data:

@@ -31,9 +31,15 @@ export function IdentityCard({ data, onChange, errors, onErrorClear }: IdentityC
     const updates: Partial<IndividualFormData> = { icNumber: cleanValue };
     if (isIC) {
       const extractedDate = extractDateFromIC(cleanValue);
-      if (extractedDate) updates.dateOfBirth = extractedDate;
+      if (extractedDate) {
+        updates.dateOfBirth = extractedDate;
+        if (errors.dateOfBirth) onErrorClear("dateOfBirth");
+      }
       const extractedGender = extractGenderFromIC(cleanValue);
-      if (extractedGender) updates.gender = extractedGender;
+      if (extractedGender) {
+        updates.gender = extractedGender;
+        if (errors.gender) onErrorClear("gender");
+      }
     }
     onChange(updates);
     if (errors.icNumber) onErrorClear("icNumber");
@@ -50,6 +56,8 @@ export function IdentityCard({ data, onChange, errors, onErrorClear }: IdentityC
         dateOfBirth: extractedDate || "",
         gender: extractedGender || "",
       });
+      if (extractedDate && errors.dateOfBirth) onErrorClear("dateOfBirth");
+      if (extractedGender && errors.gender) onErrorClear("gender");
     }
   };
 

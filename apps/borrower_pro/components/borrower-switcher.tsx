@@ -33,6 +33,13 @@ function ProfileIcon({ type }: { type: string }) {
   );
 }
 
+function getProfileDisplayName(profile: BorrowerProfile): string {
+  if (profile.borrowerType === "CORPORATE" && profile.companyName?.trim()) {
+    return profile.companyName.trim();
+  }
+  return profile.name || "Select profile";
+}
+
 function fetchProfiles() {
   return fetchBorrowerMe().then((res) => {
     if (res.success && res.data) return res.data;
@@ -75,7 +82,7 @@ export function BorrowerSwitcher({ className, collapsed }: BorrowerSwitcherProps
     try {
       await switchBorrowerProfile(profile.id);
       setActiveBorrower(profile);
-      toast.success(`Switched to ${profile.name}`);
+      toast.success(`Switched to ${getProfileDisplayName(profile)}`);
       router.refresh();
     } catch {
       toast.error("Failed to switch profile");
@@ -139,7 +146,7 @@ export function BorrowerSwitcher({ className, collapsed }: BorrowerSwitcherProps
           {!collapsed && (
             <>
               <span className="flex-1 truncate text-sm font-medium">
-                {activeBorrower?.name || "Select profile"}
+                {activeBorrower ? getProfileDisplayName(activeBorrower) : "Select profile"}
               </span>
               <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted" />
             </>
@@ -168,7 +175,7 @@ export function BorrowerSwitcher({ className, collapsed }: BorrowerSwitcherProps
             )}
           >
             <ProfileIcon type={p.borrowerType} />
-            <span className="ml-2 truncate">{p.name}</span>
+            <span className="ml-2 truncate">{getProfileDisplayName(p)}</span>
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

@@ -154,6 +154,7 @@ router.get('/me', async (req, res, next) => {
             icNumber: true,
             phone: true,
             email: true,
+            companyName: true,
           },
         },
       },
@@ -163,6 +164,7 @@ router.get('/me', async (req, res, next) => {
     const profiles = links.map((l) => ({
       id: l.borrowerId,
       name: l.borrower.name,
+      companyName: l.borrower.companyName ?? null,
       borrowerType: l.borrowerType,
       icNumber: l.borrower.icNumber,
       phone: l.borrower.phone,
@@ -210,6 +212,7 @@ router.get('/profiles', async (req, res, next) => {
             icNumber: true,
             phone: true,
             email: true,
+            companyName: true,
           },
         },
       },
@@ -221,6 +224,7 @@ router.get('/profiles', async (req, res, next) => {
       data: links.map((l) => ({
         id: l.borrowerId,
         name: l.borrower.name,
+        companyName: l.borrower.companyName ?? null,
         borrowerType: l.borrowerType,
         icNumber: l.borrower.icNumber,
         phone: l.borrower.phone,

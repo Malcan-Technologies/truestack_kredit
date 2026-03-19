@@ -7,6 +7,7 @@ const BASE = "/api/proxy/borrower-auth";
 export interface BorrowerProfile {
   id: string;
   name: string;
+  companyName?: string | null;
   borrowerType: string;
   icNumber: string | null;
   phone: string | null;

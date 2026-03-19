@@ -1,3 +1,4 @@
+import path from 'path';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
@@ -5,9 +6,21 @@ import { config } from '../../lib/config.js';
 import { requireBorrowerSession } from '../../middleware/authenticateBorrower.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.js';
 import { runCrossTenantLookup } from '../../lib/crossTenantLookupService.js';
+import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
+import { performBorrowerUpdate, updateBorrowerSchema } from '../borrowers/borrowerUpdateService.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
+
+// Document categories - align with borrowers module
+const INDIVIDUAL_DOCUMENT_CATEGORIES = [
+  'IC_FRONT', 'IC_BACK', 'PASSPORT', 'WORK_PERMIT', 'SELFIE_LIVENESS', 'OTHER',
+] as const;
+const CORPORATE_DOCUMENT_CATEGORIES = [
+  'SSM_CERT', 'FORM_9', 'FORM_13', 'FORM_24', 'FORM_49',
+  'COMPANY_PROFILE', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT', 'SELFIE_LIVENESS', 'OTHER',
+] as const;
+const MAX_DOCUMENTS_PER_CATEGORY = 3;
 
 const BORROWER_TYPE_VALUES = ['INDIVIDUAL', 'CORPORATE'] as const;
 const DOCUMENT_TYPE_VALUES = ['IC', 'PASSPORT'] as const;
@@ -187,7 +200,8 @@ router.get('/me', async (req, res, next) => {
         profileCount: profiles.length,
         profiles,
         activeBorrower,
-        activeBorrowerId: activeBorrower?.id ?? null,
+        // Return actual session value so frontend knows when to call switch-profile
+        activeBorrowerId: activeBorrowerId ?? null,
       },
     });
   } catch (e) {
@@ -251,14 +265,28 @@ router.post('/switch-profile', async (req, res, next) => {
     }
 
     const sessionToken = req.borrowerUser!.sessionToken;
-    if (!sessionToken) {
+    const sessionId = req.borrowerUser!.sessionId;
+
+    if (sessionToken) {
+      const updated = await prisma.session.updateMany({
+        where: { userId, token: sessionToken },
+        data: { activeBorrowerId: borrowerId },
+      });
+      // Fallback when token lookup misses (e.g. encoded token mismatch).
+      if (updated.count === 0 && sessionId) {
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { activeBorrowerId: borrowerId },
+        });
+      }
+    } else if (sessionId) {
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: { activeBorrowerId: borrowerId },
+      });
+    } else {
       throw new BadRequestError('Session token not found');
     }
-
-    await prisma.session.updateMany({
-      where: { userId, token: sessionToken },
-      data: { activeBorrowerId: borrowerId },
-    });
 
     res.json({
       success: true,
@@ -412,11 +440,17 @@ router.post('/onboarding', async (req, res, next) => {
       },
     });
 
-    // Update session activeBorrowerId
+    // Update session activeBorrowerId (so /me and /borrower work immediately)
     const sessionToken = req.borrowerUser!.sessionToken;
+    const sessionId = req.borrowerUser!.sessionId;
     if (sessionToken) {
       await prisma.session.updateMany({
         where: { userId, token: sessionToken },
+        data: { activeBorrowerId: borrower.id },
+      });
+    } else if (sessionId) {
+      await prisma.session.update({
+        where: { id: sessionId },
         data: { activeBorrowerId: borrower.id },
       });
     }
@@ -439,16 +473,24 @@ router.post('/onboarding', async (req, res, next) => {
   }
 });
 
-/** GET /api/borrower-auth/account - account info for profile page */
+/** GET /api/borrower-auth/account - account info for profile page (includes createdAt for "Member since") */
 router.get('/account', async (req, res, next) => {
   try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.borrowerUser!.userId },
+      select: { id: true, email: true, name: true, createdAt: true },
+    });
+    if (!user) {
+      throw new NotFoundError('User');
+    }
     res.json({
       success: true,
       data: {
         user: {
-          id: req.borrowerUser!.userId,
-          email: req.borrowerUser!.email,
-          name: req.borrowerUser!.name,
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          createdAt: user.createdAt,
         },
       },
     });
@@ -471,6 +513,233 @@ router.get('/cross-tenant-insights', async (req, res, next) => {
     res.json({
       success: true,
       data,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Ensure active borrower exists and user has link. Returns { borrowerId, tenant }. */
+async function requireActiveBorrower(req: {
+  borrowerUser?: {
+    userId: string;
+    activeBorrowerId?: string | null;
+    sessionToken?: string | null;
+    sessionId?: string;
+  };
+}) {
+  const tenant = await resolveProTenant();
+  let activeBorrowerId = req.borrowerUser?.activeBorrowerId ?? null;
+
+  // Self-heal when session lost activeBorrowerId but linked profile exists.
+  if (!activeBorrowerId) {
+    const firstLink = await prisma.borrowerProfileLink.findFirst({
+      where: {
+        userId: req.borrowerUser!.userId,
+        tenantId: tenant.id,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (!firstLink) {
+      throw new BadRequestError('No active borrower profile. Please complete onboarding first.');
+    }
+
+    activeBorrowerId = firstLink.borrowerId;
+    req.borrowerUser!.activeBorrowerId = activeBorrowerId;
+
+    const sessionToken = req.borrowerUser?.sessionToken;
+    const sessionId = req.borrowerUser?.sessionId;
+    if (sessionToken) {
+      const updated = await prisma.session.updateMany({
+        where: { userId: req.borrowerUser!.userId, token: sessionToken },
+        data: { activeBorrowerId },
+      });
+      if (updated.count === 0 && sessionId) {
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { activeBorrowerId },
+        });
+      }
+    } else if (sessionId) {
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: { activeBorrowerId },
+      });
+    }
+  }
+
+  const link = await prisma.borrowerProfileLink.findFirst({
+    where: {
+      userId: req.borrowerUser!.userId,
+      borrowerId: activeBorrowerId,
+      tenantId: tenant.id,
+    },
+  });
+  if (!link) {
+    throw new NotFoundError('Borrower profile not found or not linked to you');
+  }
+  return { borrowerId: activeBorrowerId, tenant };
+}
+
+/** GET /api/borrower-auth/borrower - fetch full borrower details for active borrower */
+router.get('/borrower', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+
+    const borrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId, tenantId: tenant.id },
+      include: {
+        documents: { orderBy: { uploadedAt: 'desc' } },
+        directors: { orderBy: { order: 'asc' } },
+      },
+    });
+
+    if (!borrower) {
+      throw new NotFoundError('Borrower');
+    }
+
+    res.json({
+      success: true,
+      data: borrower,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** PATCH /api/borrower-auth/borrower - update borrower */
+router.patch('/borrower', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const data = updateBorrowerSchema.parse(req.body);
+
+    const borrower = await performBorrowerUpdate(prisma, borrowerId, tenant.id, data);
+
+    res.json({
+      success: true,
+      data: borrower,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** GET /api/borrower-auth/borrower/documents - list documents for active borrower */
+router.get('/borrower/documents', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+
+    const documents = await prisma.borrowerDocument.findMany({
+      where: { borrowerId, tenantId: tenant.id },
+      orderBy: { uploadedAt: 'desc' },
+    });
+
+    res.json({
+      success: true,
+      data: documents,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** POST /api/borrower-auth/borrower/documents - upload document (multipart) */
+router.post('/borrower/documents', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+
+    const borrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId, tenantId: tenant.id },
+    });
+    if (!borrower) {
+      throw new NotFoundError('Borrower');
+    }
+
+    const { buffer, originalName, mimeType, category } = await parseDocumentUpload(req);
+
+    const BORROWER_ALLOWED_MIME_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+    const BORROWER_ALLOWED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg'];
+    const ext = path.extname(originalName).toLowerCase();
+    if (!BORROWER_ALLOWED_MIME_TYPES.includes(mimeType) || !BORROWER_ALLOWED_EXTENSIONS.includes(ext)) {
+      throw new BadRequestError(
+        'Invalid file type for borrower documents. Allowed: PDF, PNG, JPG only.'
+      );
+    }
+
+    const validCategories = borrower.borrowerType === 'CORPORATE'
+      ? CORPORATE_DOCUMENT_CATEGORIES
+      : INDIVIDUAL_DOCUMENT_CATEGORIES;
+    const validSet = new Set(validCategories as readonly string[]);
+    if (!validSet.has(category)) {
+      throw new ConflictError(`Invalid document category for ${borrower.borrowerType} borrower`);
+    }
+
+    const existingCount = await prisma.borrowerDocument.count({
+      where: { borrowerId, category },
+    });
+    if (existingCount >= MAX_DOCUMENTS_PER_CATEGORY) {
+      throw new BadRequestError(
+        `Maximum ${MAX_DOCUMENTS_PER_CATEGORY} documents per category allowed. This category already has ${existingCount} document(s).`
+      );
+    }
+
+    ensureDocumentsDir();
+    const { filename, path: filePath } = await saveDocumentFile(
+      buffer,
+      tenant.id,
+      borrowerId,
+      ext
+    );
+
+    const document = await prisma.borrowerDocument.create({
+      data: {
+        tenantId: tenant.id,
+        borrowerId,
+        filename,
+        originalName,
+        mimeType,
+        size: buffer.length,
+        path: filePath,
+        category,
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: document,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** DELETE /api/borrower-auth/borrower/documents/:documentId */
+router.delete('/borrower/documents/:documentId', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+
+    const document = await prisma.borrowerDocument.findFirst({
+      where: {
+        id: req.params.documentId,
+        borrowerId,
+        tenantId: tenant.id,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundError('Document');
+    }
+
+    await deleteDocumentFile(document.path);
+
+    await prisma.borrowerDocument.delete({
+      where: { id: document.id },
+    });
+
+    res.json({
+      success: true,
+      message: 'Document deleted',
     });
   } catch (e) {
     next(e);

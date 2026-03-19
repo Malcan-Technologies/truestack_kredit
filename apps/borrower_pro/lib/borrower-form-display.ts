@@ -63,3 +63,13 @@ export function formatCurrency(value: string | number | null | undefined): strin
   if (Number.isNaN(num)) return "—";
   return `RM ${num.toLocaleString("en-MY")}`;
 }
+
+/** Format Malaysian IC as YYMMDD-NN-GGGG for display */
+export function formatICForDisplay(icNumber: string | null | undefined): string {
+  if (!icNumber?.trim()) return "—";
+  const cleanIC = icNumber.replace(/[-\s]/g, "");
+  if (cleanIC.length === 12 && /^\d{12}$/.test(cleanIC)) {
+    return `${cleanIC.substring(0, 6)}-${cleanIC.substring(6, 8)}-${cleanIC.substring(8, 12)}`;
+  }
+  return icNumber;
+}

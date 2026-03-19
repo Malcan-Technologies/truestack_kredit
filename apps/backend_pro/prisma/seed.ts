@@ -175,6 +175,34 @@ async function main() {
 
   console.log('✓ Created user:', owner.email);
 
+  // Create demo borrower user (demo@gmail.com / Admin@123) with Individual + Corporate profiles
+  const demoPasswordHash = await hashPassword('Admin@123');
+  let demoUser = await prisma.user.findUnique({
+    where: { email: 'demo@gmail.com' },
+  });
+
+  if (!demoUser) {
+    demoUser = await prisma.user.create({
+      data: {
+        email: 'demo@gmail.com',
+        emailVerified: true,
+        name: 'Demo Borrower',
+        isActive: true,
+      },
+    });
+
+    await prisma.account.create({
+      data: {
+        userId: demoUser.id,
+        accountId: demoUser.id,
+        providerId: 'credential',
+        password: demoPasswordHash,
+      },
+    });
+  }
+
+  console.log('✓ Created demo borrower user:', demoUser.email);
+
   // Create membership for owner in first tenant
   const membership = await prisma.tenantMember.upsert({
     where: {
@@ -752,6 +780,110 @@ async function main() {
   });
 
   console.log('✓ Created borrowers:', borrower1.name, ',', borrower2.name, ',', borrower3.name, ',', corporateBorrower.companyName);
+
+  // Create Individual borrower for demo user (demo@gmail.com)
+  const demoIndividualBorrower = await prisma.borrower.upsert({
+    where: {
+      tenantId_icNumber: {
+        tenantId: tenant.id,
+        icNumber: '950101011234', // Unique IC for demo individual
+      },
+    },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      name: 'Demo Individual',
+      icNumber: '950101011234',
+      phone: '+60123456700',
+      email: 'demo@gmail.com',
+      address: '100 Jalan Demo, 50000 Kuala Lumpur',
+      borrowerType: 'INDIVIDUAL',
+      documentType: 'IC',
+      documentVerified: true,
+      verifiedAt: new Date(),
+      verifiedBy: 'SEED_DATA',
+      dateOfBirth: new Date('1995-01-01'),
+      gender: 'MALE',
+      race: 'MELAYU',
+      educationLevel: 'DEGREE',
+      occupation: 'Developer',
+      employmentStatus: 'EMPLOYED',
+      bankName: 'MAYBANK',
+      bankAccountNo: '1111222233',
+      monthlyIncome: 8000,
+    },
+  });
+
+  // Create Corporate borrower for demo user (demo@gmail.com)
+  const demoCorporateBorrower = await prisma.borrower.upsert({
+    where: {
+      tenantId_icNumber: {
+        tenantId: tenant.id,
+        icNumber: '202301019999', // SSM number for demo corporate
+      },
+    },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      name: 'Demo Corp Authorized Rep',
+      icNumber: '202301019999',
+      phone: '+60312349999',
+      email: 'demo@gmail.com',
+      address: '200 Jalan Demo Corp, 50450 Kuala Lumpur',
+      borrowerType: 'CORPORATE',
+      documentType: 'SSM',
+      documentVerified: true,
+      verifiedAt: new Date(),
+      verifiedBy: 'SEED_DATA',
+      companyName: 'Demo Corp Sdn Bhd',
+      ssmRegistrationNo: '202301019999',
+      businessAddress: '200 Jalan Demo Corp, 50450 Kuala Lumpur',
+      authorizedRepName: 'Demo Individual',
+      authorizedRepIc: '950101011234',
+      companyPhone: '+60312349999',
+      companyEmail: 'demo@gmail.com',
+      natureOfBusiness: 'Technology',
+      dateOfIncorporation: new Date('2023-01-01'),
+      paidUpCapital: 50000,
+      numberOfEmployees: 10,
+      bankName: 'CIMB',
+      bankAccountNo: '9999888877',
+    },
+  });
+
+  // Link demo user to Individual and Corporate borrowers
+  await prisma.borrowerProfileLink.upsert({
+    where: {
+      userId_borrowerId: {
+        userId: demoUser.id,
+        borrowerId: demoIndividualBorrower.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: demoUser.id,
+      borrowerId: demoIndividualBorrower.id,
+      tenantId: tenant.id,
+      borrowerType: 'INDIVIDUAL',
+    },
+  });
+  await prisma.borrowerProfileLink.upsert({
+    where: {
+      userId_borrowerId: {
+        userId: demoUser.id,
+        borrowerId: demoCorporateBorrower.id,
+      },
+    },
+    update: {},
+    create: {
+      userId: demoUser.id,
+      borrowerId: demoCorporateBorrower.id,
+      tenantId: tenant.id,
+      borrowerType: 'CORPORATE',
+    },
+  });
+
+  console.log('✓ Created demo borrower profiles: Individual + Corporate for', demoUser.email);
 
   // Create demo loan applications
   const application1 = await prisma.loanApplication.upsert({
@@ -1991,9 +2123,9 @@ async function main() {
 
   console.log('\n🎉 Seeding completed!');
   console.log('\n📝 Demo credentials:');
-  console.log('   Email: admin@demo.com');
-  console.log('   Password: Demo@123');
-  console.log('\n📋 User has access to:');
+  console.log('   Admin: admin@demo.com / Demo@123');
+  console.log('   Borrower (Individual + Corporate): demo@gmail.com / Admin@123');
+  console.log('\n📋 Admin user has access to:');
   console.log('   - Demo Company Sdn Bhd (OWNER) - PPW (Money Lender)');
   console.log('   - ACME Lending Sdn Bhd (ADMIN) - PPW (Money Lender)');
   console.log('\n📦 Demo data created:');

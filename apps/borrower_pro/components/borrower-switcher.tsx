@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import {
   fetchBorrowerMe,
   switchBorrowerProfile,
+  dispatchBorrowerProfileSwitched,
   type BorrowerProfile,
 } from "../lib/borrower-auth-client";
 
@@ -82,6 +83,7 @@ export function BorrowerSwitcher({ className, collapsed }: BorrowerSwitcherProps
     try {
       await switchBorrowerProfile(profile.id);
       setActiveBorrower(profile);
+      dispatchBorrowerProfileSwitched(profile.id);
       toast.success(`Switched to ${getProfileDisplayName(profile)}`);
       router.refresh();
     } catch {

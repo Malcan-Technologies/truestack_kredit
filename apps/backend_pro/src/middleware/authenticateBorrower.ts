@@ -9,8 +9,9 @@ function getSessionTokenFromCookie(cookieHeader: string | undefined): string | n
   const parts = cookieHeader.split(';');
   for (const part of parts) {
     const [rawKey, ...rawVal] = part.trim().split('=');
-    if (rawKey === 'better-auth.session_token') {
-      return rawVal.join('=');
+    const name = rawKey?.trim();
+    if (name === 'better-auth.session_token' || name === '__Secure-better-auth.session_token') {
+      return rawVal.join('=').trim();
     }
   }
   return null;
@@ -45,6 +46,7 @@ export interface BorrowerSessionUser {
   tenantId?: string;
   activeBorrowerId?: string | null;
   sessionToken?: string | null;
+  sessionId?: string;
 }
 
 declare global {
@@ -95,6 +97,7 @@ export async function requireBorrowerSession(
       name: session.user.name,
       activeBorrowerId: dbSession.activeBorrowerId,
       sessionToken: sessionToken ?? undefined,
+      sessionId: dbSession.id,
     };
 
     next();

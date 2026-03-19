@@ -4,6 +4,17 @@
 
 const BASE = "/api/proxy/borrower-auth";
 
+/** Dispatched when user switches borrower profile. Listen to re-fetch borrower data. */
+export const BORROWER_PROFILE_SWITCHED_EVENT = "borrower-profile-switched";
+
+export function dispatchBorrowerProfileSwitched(borrowerId: string): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(BORROWER_PROFILE_SWITCHED_EVENT, { detail: { borrowerId } })
+    );
+  }
+}
+
 export interface BorrowerProfile {
   id: string;
   name: string;

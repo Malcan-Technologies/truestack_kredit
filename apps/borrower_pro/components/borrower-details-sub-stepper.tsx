@@ -102,7 +102,7 @@ export function BorrowerDetailsSubStepper({
                   isActive
                     ? "border border-primary bg-primary/10 text-primary"
                     : isCompleted
-                      ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      ? "border border-success/40 bg-success/10 text-success"
                       : "border border-border bg-muted/30 text-muted-foreground"
                 )}
               >
@@ -112,7 +112,7 @@ export function BorrowerDetailsSubStepper({
                     isActive
                       ? "bg-primary text-primary-foreground"
                       : isCompleted
-                        ? "bg-emerald-600/40 text-emerald-700 dark:text-emerald-300"
+                        ? "bg-success/40 text-success"
                         : "bg-muted"
                   )}
                 >
@@ -126,7 +126,7 @@ export function BorrowerDetailsSubStepper({
                       isActive
                         ? "text-primary/80"
                         : isCompleted
-                          ? "text-emerald-700/80 dark:text-emerald-300/80"
+                          ? "text-success/80"
                           : "text-muted-foreground"
                     )}
                   >
@@ -139,7 +139,7 @@ export function BorrowerDetailsSubStepper({
                 <div
                   className={cn(
                     "hidden md:block mx-1 h-px w-4 shrink-0 flex-shrink-0",
-                    s.id < currentSubStep ? "bg-emerald-500/60" : "bg-border"
+                    s.id < currentSubStep ? "bg-success/60" : "bg-border"
                   )}
                 />
               )}

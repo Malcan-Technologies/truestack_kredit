@@ -46,7 +46,7 @@ export function Field({
           {label} {required && "*"}
         </Label>
         <Select value={value} onValueChange={onChange} disabled={disabled}>
-          <SelectTrigger className={error ? "border-red-500" : ""}>
+          <SelectTrigger className={error ? "border-error" : ""}>
             <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
           </SelectTrigger>
           <SelectContent>
@@ -57,7 +57,7 @@ export function Field({
             ))}
           </SelectContent>
         </Select>
-        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        {error && <p className="text-xs text-error mt-1">{error}</p>}
       </div>
     );
   }
@@ -76,9 +76,9 @@ export function Field({
           onChange={(v) => onChange(v === "" ? "" : String(v))}
           placeholder={placeholder}
           disabled={disabled}
-          className={error ? "border-red-500" : ""}
+          className={error ? "border-error" : ""}
         />
-        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        {error && <p className="text-xs text-error mt-1">{error}</p>}
       </div>
     );
   }
@@ -94,9 +94,9 @@ export function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        className={error ? "border-red-500" : ""}
+        className={error ? "border-error" : ""}
       />
-      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      {error && <p className="text-xs text-error mt-1">{error}</p>}
     </div>
   );
 }

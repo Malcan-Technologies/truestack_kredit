@@ -54,7 +54,7 @@ export function OnboardingStepper({ currentStep, className }: OnboardingStepperP
                     isActive
                       ? "border-primary bg-primary text-primary-foreground"
                       : isCompleted
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        ? "border-success/40 bg-success/10 text-success"
                         : "border-border bg-muted/30 text-muted-foreground"
                   )}
                 >
@@ -64,7 +64,7 @@ export function OnboardingStepper({ currentStep, className }: OnboardingStepperP
                       isActive
                         ? "border-primary-foreground/40"
                         : isCompleted
-                          ? "border-emerald-600/40"
+                          ? "border-success/40"
                           : "border-border"
                     )}
                   >
@@ -78,7 +78,7 @@ export function OnboardingStepper({ currentStep, className }: OnboardingStepperP
                         isActive
                           ? "text-primary-foreground/80"
                           : isCompleted
-                            ? "text-emerald-700/80 dark:text-emerald-300/80"
+                            ? "text-success/80"
                             : "text-muted-foreground"
                       )}
                     >
@@ -91,7 +91,7 @@ export function OnboardingStepper({ currentStep, className }: OnboardingStepperP
                   <div
                     className={cn(
                       "mx-2 h-px w-8",
-                      step.id < currentStep ? "bg-emerald-500/60" : "bg-border"
+                      step.id < currentStep ? "bg-success/60" : "bg-border"
                     )}
                   />
                 )}
@@ -101,8 +101,8 @@ export function OnboardingStepper({ currentStep, className }: OnboardingStepperP
         </div>
       </div>
 
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-        <p className="text-sm text-amber-700 dark:text-amber-200">
+      <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+        <p className="text-sm text-warning-foreground">
           Your borrower profile becomes active after you confirm and submit.
         </p>
       </div>

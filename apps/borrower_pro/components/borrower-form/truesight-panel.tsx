@@ -54,7 +54,7 @@ export function TrueSightPanel({
 }: TrueSightPanelProps) {
   if (!lookupReady) {
     return (
-      <Card className="border-purple-500/60 shadow-[0_0_25px_rgba(139,92,246,0.35)]">
+      <Card className="border-primary/60 shadow-[0_0_25px_hsl(var(--primary)_/_0.35)]">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-muted-foreground" />
@@ -81,7 +81,7 @@ export function TrueSightPanel({
 
   if (loading) {
     return (
-      <Card className="border-purple-500/60 shadow-[0_0_25px_rgba(139,92,246,0.35)]">
+      <Card className="border-primary/60 shadow-[0_0_25px_hsl(var(--primary)_/_0.35)]">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-muted-foreground" />
@@ -105,7 +105,7 @@ export function TrueSightPanel({
 
   if (!insights) {
     return (
-      <Card className="border-purple-500/60 shadow-[0_0_25px_rgba(139,92,246,0.35)]">
+      <Card className="border-primary/60 shadow-[0_0_25px_hsl(var(--primary)_/_0.35)]">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-muted-foreground" />
@@ -126,7 +126,7 @@ export function TrueSightPanel({
 
   if (!insights.hasHistory) {
     return (
-      <Card className="border-purple-500/60 shadow-[0_0_25px_rgba(139,92,246,0.35)]">
+      <Card className="border-primary/60 shadow-[0_0_25px_hsl(var(--primary)_/_0.35)]">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-muted-foreground" />
@@ -159,7 +159,7 @@ export function TrueSightPanel({
     addressInput.postcode.length > 0;
 
   return (
-    <Card className="border-purple-500/60 shadow-[0_0_25px_rgba(139,92,246,0.35)]">
+    <Card className="border-primary/60 shadow-[0_0_25px_hsl(var(--primary)_/_0.35)]">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-muted-foreground" />
@@ -269,12 +269,12 @@ export function TrueSightPanel({
             <span className="font-medium tabular-nums">{insights.activeLoans}</span>
             <span className="text-muted-foreground"> Active</span>
             <span className="text-muted-foreground/60 mx-2">·</span>
-            <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+            <span className="font-medium tabular-nums text-success">
               {insights.completedLoans}
             </span>
             <span className="text-muted-foreground"> Completed</span>
             <span className="text-muted-foreground/60 mx-2">·</span>
-            <span className="font-medium tabular-nums text-red-600 dark:text-red-400">
+            <span className="font-medium tabular-nums text-error">
               {insights.defaultedLoans}
             </span>
             <span className="text-muted-foreground"> Defaulted</span>

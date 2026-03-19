@@ -52,7 +52,7 @@ export function ContactCard({ data, onChange, errors, onErrorClear }: ContactCar
             />
             <p className="text-xs text-muted-foreground mt-1">e.g. 16 4818800</p>
             {errors.phone && (
-              <p className="text-xs text-red-500 mt-1">{errors.phone}</p>
+              <p className="text-xs text-error mt-1">{errors.phone}</p>
             )}
           </div>
           <Field

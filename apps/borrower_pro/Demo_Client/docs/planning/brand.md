@@ -4,6 +4,19 @@ Reference branding for **Demo_Client** — the template/demo borrower frontend f
 
 ---
 
+## ⚠️ Do NOT Hardcode Colors
+
+**Never hardcode hex codes or raw Tailwind colors** (e.g. `#6151ca`, `red-500`, `emerald-500`, `amber-500`) in pages or components. All colors are defined centrally in `app/globals.css` — change once to update globally.
+
+| Use this | Not this |
+|----------|----------|
+| `text-error`, `border-error`, `bg-error/10` | `text-red-500`, `border-red-500` |
+| `text-success`, `bg-success/10` | `text-emerald-500`, `bg-emerald-500/10` |
+| `text-warning`, `bg-warning/10` | `text-amber-500`, `bg-amber-500/10` |
+| `text-primary`, `border-primary` | `#6151ca`, `text-purple-500` |
+
+---
+
 ## 1) Client Identity
 
 - **Client name**: Demo Client
@@ -53,13 +66,16 @@ Reference branding for **Demo_Client** — the template/demo borrower frontend f
 
 - Use for CTAs, links, focus. Client can override.
 - Default: neutral (dark/light adapts to theme).
+- **To change brand color** (e.g. to `#6151ca`): update `--primary` in `app/globals.css`.
 
 ### Status Colors
 
-- **Success:** #22C55E
-- **Warning:** #F59E0B
-- **Error:** #EF4444
-- **Info:** #3B82F6
+All defined in `app/globals.css` — change once to update globally.
+
+- **Success:** #22C55E (`--success`) — use `text-success`, `bg-success/10`, `border-success`
+- **Warning:** #F59E0B (`--warning`) — use `text-warning`, `bg-warning/10`
+- **Error:** #EF4444 (`--error`) — use `text-error`, `border-error`, `bg-error/10`
+- **Info:** #3B82F6 (`--info`) — use `text-info`, `bg-info/10`
 
 ---
 

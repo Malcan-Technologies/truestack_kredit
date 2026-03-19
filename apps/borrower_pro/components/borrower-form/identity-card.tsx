@@ -104,10 +104,10 @@ export function IdentityCard({ data, onChange, errors, onErrorClear }: IdentityC
               value={data.icNumber}
               onChange={(e) => handleIcNumberChange(e.target.value)}
               placeholder={isIC ? "880101011234" : "A12345678"}
-              className={errors.icNumber ? "border-red-500" : ""}
+              className={errors.icNumber ? "border-error" : ""}
             />
             {errors.icNumber && (
-              <p className="text-xs text-red-500 mt-1">{errors.icNumber}</p>
+              <p className="text-xs text-error mt-1">{errors.icNumber}</p>
             )}
             {isIC && (
               <p className="text-xs text-muted-foreground mt-1">

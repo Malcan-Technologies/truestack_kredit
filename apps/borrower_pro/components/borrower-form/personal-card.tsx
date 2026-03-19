@@ -139,10 +139,10 @@ export function PersonalCard({
               }}
               placeholder="e.g., 3500"
               disabled={noMonthlyIncome}
-              className={errors.monthlyIncome ? "border-red-500" : ""}
+              className={errors.monthlyIncome ? "border-error" : ""}
             />
             {errors.monthlyIncome && (
-              <p className="text-xs text-red-500 mt-1">{errors.monthlyIncome}</p>
+              <p className="text-xs text-error mt-1">{errors.monthlyIncome}</p>
             )}
             <div className="flex items-center gap-2 mt-2">
               <Checkbox

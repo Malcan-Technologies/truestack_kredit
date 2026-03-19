@@ -417,7 +417,7 @@ export function OnboardingWizard() {
                       </div>
                     </div>
                     {isDisabled && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                      <p className="text-xs text-warning">
                         You already have one individual profile
                       </p>
                     )}
@@ -444,11 +444,11 @@ export function OnboardingWizard() {
       {step === 2 && (
         <div className="space-y-6">
           {Object.keys(validationErrors).length > 0 && (
-            <div className="rounded-lg border-2 border-red-500 bg-red-500/10 px-4 py-3">
-              <p className="text-sm font-medium text-red-700 dark:text-red-300">
+            <div className="rounded-lg border-2 border-error bg-error/10 px-4 py-3">
+              <p className="text-sm font-medium text-error">
                 Please fill in all required fields marked with *
               </p>
-              <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-1">
+              <p className="text-xs text-error/80 mt-1">
                 Complete the required fields below before proceeding.
               </p>
             </div>

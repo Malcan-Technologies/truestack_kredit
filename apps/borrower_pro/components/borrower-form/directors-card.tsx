@@ -127,7 +127,7 @@ export function DirectorsCard({
           ))}
 
           {errors.directors && (
-            <p className="text-xs text-red-500">{errors.directors}</p>
+            <p className="text-xs text-error">{errors.directors}</p>
           )}
 
           <Button

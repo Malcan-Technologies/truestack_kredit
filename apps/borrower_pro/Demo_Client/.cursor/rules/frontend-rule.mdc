@@ -66,6 +66,14 @@ Auth API route: `app/api/auth/[...all]/route.ts` using `toNextJsHandler` from Be
 - Use fonts and colors from `brand.md`.
 - Client-specific theming via CSS variables or theme provider.
 
+### Colors — Do NOT Hardcode
+
+**Never hardcode hex codes or Tailwind color names** (e.g. `#6151ca`, `red-500`, `emerald-500`, `amber-500`) in components. All brand/status colors are defined in one place: `app/globals.css`.
+
+- **Use theme variables**: `primary`, `success`, `warning`, `error`, `info` (e.g. `text-error`, `bg-success/10`, `border-primary`).
+- **Change once**: Update `app/globals.css` to update colors globally.
+- See `docs/planning/brand.md` for the full color system.
+
 ---
 
 ## 7) Forms & Validation

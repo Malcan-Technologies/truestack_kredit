@@ -45,7 +45,7 @@ const PhoneInput = React.forwardRef<HTMLDivElement, PhoneInputProps>(
         ref={_ref}
         className={cn(
           "flex h-11 w-full items-center rounded-md border border-input bg-background px-3 py-2 ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 overflow-hidden",
-          error && "border-red-500",
+          error && "border-error",
           disabled && "cursor-not-allowed opacity-50",
           className
         )}

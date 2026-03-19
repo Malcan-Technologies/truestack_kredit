@@ -41,9 +41,14 @@ export default function DashboardLayout({
     }
   }, [session, isPending, router]);
 
-  // Redirect to onboarding when no borrower profiles (except when already on onboarding)
+  // Redirect to onboarding when no borrower profiles, unless user previously dismissed
   useEffect(() => {
     if (isPending || !session || pathname === "/onboarding") return;
+    const dismissed = (() => {
+      try { return localStorage.getItem("onboarding_dismissed") === "true"; }
+      catch { return false; }
+    })();
+    if (dismissed) return;
     fetchBorrowerMe()
       .then((res) => {
         if (res.success && res.data.profileCount === 0) {

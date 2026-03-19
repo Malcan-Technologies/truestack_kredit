@@ -71,12 +71,12 @@ variable "secrets_arn" {
 
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${var.project_name}-${var.environment}-backend"
-  retention_in_days = 30
+  retention_in_days = 14
 }
 
 resource "aws_cloudwatch_log_group" "frontend" {
   name              = "/ecs/${var.project_name}-${var.environment}-frontend"
-  retention_in_days = 30
+  retention_in_days = 14
 }
 
 resource "aws_ecs_cluster" "main" {
@@ -84,7 +84,7 @@ resource "aws_ecs_cluster" "main" {
 
   setting {
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
   }
 }
 

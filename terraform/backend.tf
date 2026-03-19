@@ -6,5 +6,6 @@ terraform {
     dynamodb_table         = "truestack-terraform-locks"
     encrypt                = true
     skip_region_validation = true
+    profile                = "truestack"
   }
 }

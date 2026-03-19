@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BorrowerDetailCard } from "../../../../components/borrower-detail-card";
 import { TrueIdentityComingSoonCard } from "../../../../components/trueidentity-coming-soon-card";
+import { DigitalSigningComingSoonCard } from "../../../../components/digital-signing-coming-soon-card";
 import { BorrowerDocumentsCard } from "../../../../components/borrower-documents-card";
 import {
   fetchBorrowerMe,
@@ -142,6 +143,7 @@ export default function SettingsPage() {
         {/* Right column - TrueIdentity & Documents */}
         <div className="space-y-6">
           <TrueIdentityComingSoonCard />
+          <DigitalSigningComingSoonCard />
           <BorrowerDocumentsCard borrowerType={borrowerType} />
         </div>
       </div>

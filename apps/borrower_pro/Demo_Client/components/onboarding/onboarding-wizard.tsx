@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -32,11 +32,11 @@ import {
   CompanyContactCard,
   CompanyAdditionalCard,
   DirectorsCard,
-  TrueSightPanel,
 } from "../../../components/borrower-form";
+import { BorrowerDetailsSubStepper } from "../../../components/borrower-details-sub-stepper";
+import type { BorrowerDetailsSubStep } from "../../../components/borrower-details-sub-stepper";
 import {
   fetchBorrowerMe,
-  fetchCrossTenantInsights,
   submitOnboarding,
   type OnboardingPayload,
 } from "../../../lib/borrower-auth-client";
@@ -47,12 +47,13 @@ import {
 import {
   validateIndividualForm,
   validateCorporateForm,
+  validateIndividualFormStep,
+  validateCorporateFormStep,
 } from "../../../lib/borrower-form-validation";
 import type {
   IndividualFormData,
   CorporateFormData,
 } from "../../../lib/borrower-form-types";
-import type { CrossTenantInsightsData } from "../../../lib/truesight-helpers";
 import {
   getOptionLabel,
   formatDate,
@@ -60,21 +61,6 @@ import {
   formatCurrency,
 } from "../../../lib/borrower-form-display";
 import { cn } from "@/lib/utils";
-
-/** Fallback when TrueSight API fails - shows "No borrowing history" instead of error */
-const TRUESIGHT_NO_HISTORY_FALLBACK: CrossTenantInsightsData = {
-  hasHistory: false,
-  otherLenderCount: 0,
-  lenderNames: [],
-  totalLoans: 0,
-  activeLoans: 0,
-  completedLoans: 0,
-  defaultedLoans: 0,
-  totalBorrowedRange: null,
-  paymentPerformance: { rating: "NO_HISTORY", onTimeRateRange: null },
-  lastBorrowedAt: null,
-  lastActivityAt: null,
-};
 
 function ReviewSection({
   title,
@@ -145,63 +131,8 @@ export function OnboardingWizard() {
     Record<string, string>
   >({});
   const [noMonthlyIncome, setNoMonthlyIncome] = useState(false);
-  const [crossTenantInsights, setCrossTenantInsights] =
-    useState<CrossTenantInsightsData | null>(null);
-  const [crossTenantInsightsLoading, setCrossTenantInsightsLoading] =
-    useState(false);
-
-  const isIC = individualFormData.documentType === "IC";
-  const trueSightIdentifier =
-    borrowerType === "INDIVIDUAL"
-      ? isIC
-        ? individualFormData.icNumber.replace(/\D/g, "")
-        : ""
-      : corporateFormData.ssmRegistrationNo.trim();
-  const trueSightLookupReady =
-    borrowerType === "INDIVIDUAL"
-      ? isIC && trueSightIdentifier.length === 12
-      : trueSightIdentifier.length >= 3;
-  const trueSightNameInput =
-    borrowerType === "INDIVIDUAL"
-      ? individualFormData.name.trim()
-      : corporateFormData.companyName.trim();
-  const trueSightPhoneInput =
-    borrowerType === "INDIVIDUAL"
-      ? individualFormData.phone.trim()
-      : corporateFormData.companyPhone.trim();
-  const trueSightAddressInput = useMemo(
-    () =>
-      borrowerType === "INDIVIDUAL"
-        ? {
-            addressLine1: individualFormData.addressLine1.trim(),
-            addressLine2: individualFormData.addressLine2.trim(),
-            city: individualFormData.city.trim(),
-            state: individualFormData.state.trim(),
-            postcode: individualFormData.postcode.trim(),
-          }
-        : {
-            addressLine1: corporateFormData.addressLine1.trim(),
-            addressLine2: corporateFormData.addressLine2.trim(),
-            city: corporateFormData.city.trim(),
-            state: corporateFormData.state.trim(),
-            postcode: corporateFormData.postcode.trim(),
-          },
-    [
-      borrowerType,
-      individualFormData.addressLine1,
-      individualFormData.addressLine2,
-      individualFormData.city,
-      individualFormData.state,
-      individualFormData.postcode,
-      corporateFormData.addressLine1,
-      corporateFormData.addressLine2,
-      corporateFormData.city,
-      corporateFormData.state,
-      corporateFormData.postcode,
-    ]
-  );
-  const trueSightNameReady = trueSightNameInput.length > 0;
-  const trueSightPhoneReady = trueSightPhoneInput.length > 0;
+  const [borrowerDetailSubStep, setBorrowerDetailSubStep] =
+    useState<BorrowerDetailsSubStep>(1);
 
   useEffect(() => {
     fetchBorrowerMe()
@@ -215,77 +146,6 @@ export function OnboardingWizard() {
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!trueSightLookupReady) {
-      setCrossTenantInsights(null);
-      setCrossTenantInsightsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setCrossTenantInsightsLoading(true);
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetchCrossTenantInsights({
-          borrowerType,
-          identifier: trueSightIdentifier,
-          name: trueSightNameReady ? trueSightNameInput : undefined,
-          phone: trueSightPhoneReady ? trueSightPhoneInput : undefined,
-          addressLine1:
-            trueSightAddressInput.addressLine1.length > 0
-              ? trueSightAddressInput.addressLine1
-              : undefined,
-          addressLine2:
-            trueSightAddressInput.addressLine2.length > 0
-              ? trueSightAddressInput.addressLine2
-              : undefined,
-          city:
-            trueSightAddressInput.city.length > 0
-              ? trueSightAddressInput.city
-              : undefined,
-          state:
-            trueSightAddressInput.state.length > 0
-              ? trueSightAddressInput.state
-              : undefined,
-          postcode:
-            trueSightAddressInput.postcode.length > 0
-              ? trueSightAddressInput.postcode
-              : undefined,
-        });
-        if (cancelled) return;
-
-        if (res.success && res.data) {
-          setCrossTenantInsights(res.data as CrossTenantInsightsData);
-        } else {
-          // On API failure, show "No borrowing history" as fallback so the form stays usable
-          setCrossTenantInsights(TRUESIGHT_NO_HISTORY_FALLBACK);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.error("Failed to fetch TrueSight insights:", error);
-        setCrossTenantInsights(TRUESIGHT_NO_HISTORY_FALLBACK);
-      } finally {
-        if (!cancelled) {
-          setCrossTenantInsightsLoading(false);
-        }
-      }
-    }, 450);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [
-    borrowerType,
-    trueSightIdentifier,
-    trueSightLookupReady,
-    trueSightNameInput,
-    trueSightPhoneInput,
-    trueSightAddressInput,
-    trueSightNameReady,
-    trueSightPhoneReady,
-  ]);
 
   const clearError = (key: string) => {
     setValidationErrors((prev) => {
@@ -427,9 +287,13 @@ export function OnboardingWizard() {
 
   const handleBorrowerTypeChange = (type: "INDIVIDUAL" | "CORPORATE") => {
     setBorrowerType(type);
+    setBorrowerDetailSubStep(1);
     setValidationErrors({});
     setNoMonthlyIncome(false);
   };
+
+  const maxBorrowerDetailSubStep =
+    borrowerType === "INDIVIDUAL" ? 3 : 5;
 
   const stepTitles: Record<number, { title: string; desc: string }> = {
     1: { title: "Choose Borrower Type", desc: "Select Individual or Corporate profile." },
@@ -440,9 +304,34 @@ export function OnboardingWizard() {
     3: { title: "Review & Confirm", desc: "Verify your details before submitting." },
   };
 
+  const getSubStepTitle = (subStep: BorrowerDetailsSubStep): string => {
+    if (borrowerType === "INDIVIDUAL") {
+      const titles: Record<1 | 2 | 3, string> = {
+        1: "Identity & Personal Information",
+        2: "Contact & Bank Information",
+        3: "Emergency Contact & Social Media",
+      };
+      return titles[subStep as 1 | 2 | 3] ?? "";
+    }
+    const titles: Record<1 | 2 | 3 | 4 | 5, string> = {
+      1: "Company Information",
+      2: "Additional Company Details & Company Contact",
+      3: "Company Directors",
+      4: "Bank Information",
+      5: "Social Media Profiles",
+    };
+    return titles[subStep] ?? "";
+  };
+
   return (
     <div className="space-y-6 pb-10">
       <OnboardingStepper currentStep={step as 1 | 2 | 3} />
+      {step === 2 && (
+        <BorrowerDetailsSubStepper
+          borrowerType={borrowerType}
+          currentSubStep={borrowerDetailSubStep}
+        />
+      )}
 
       <div className="flex items-center gap-3">
         {step === 1 && profileCount > 0 ? (
@@ -451,14 +340,33 @@ export function OnboardingWizard() {
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
+        ) : step === 2 && borrowerDetailSubStep > 1 ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setBorrowerDetailSubStep((s) => (s - 1) as BorrowerDetailsSubStep)}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
         ) : step > 1 ? (
-          <Button variant="ghost" size="icon" onClick={() => setStep((s) => s - 1)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              if (step === 3) setBorrowerDetailSubStep(maxBorrowerDetailSubStep as BorrowerDetailsSubStep);
+              setStep((s) => s - 1);
+            }}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
         ) : null}
         <div>
-          <h1 className="text-2xl font-heading font-bold">{stepTitles[step].title}</h1>
-          <p className="text-sm text-muted-foreground">{stepTitles[step].desc}</p>
+          <h1 className="text-2xl font-heading font-bold">
+            {step === 2 ? getSubStepTitle(borrowerDetailSubStep) : stepTitles[step].title}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {step === 2 ? stepTitles[2].desc : stepTitles[step].desc}
+          </p>
         </div>
       </div>
 
@@ -518,7 +426,13 @@ export function OnboardingWizard() {
               })}
             </div>
             <div className="mt-6 flex justify-end">
-              <Button onClick={() => setStep(2)}>
+              <Button
+                disabled={borrowerType === "INDIVIDUAL" && hasIndividual}
+                onClick={() => {
+                  setBorrowerDetailSubStep(1);
+                  setStep(2);
+                }}
+              >
                 Next <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
@@ -526,55 +440,81 @@ export function OnboardingWizard() {
         </Card>
       )}
 
-      {/* Step 2: Form - card-based layout with TrueSight */}
+      {/* Step 2: Form - split into sub-steps for mobile-friendly flow */}
       {step === 2 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            {borrowerType === "INDIVIDUAL" ? (
-              <>
-                <IdentityCard
-                  data={individualFormData}
-                  onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
-                  errors={validationErrors}
-                  onErrorClear={clearError}
-                />
-                <PersonalCard
-                  data={individualFormData}
-                  onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
-                  errors={validationErrors}
-                  onErrorClear={clearError}
-                  noMonthlyIncome={noMonthlyIncome}
-                  onNoMonthlyIncomeChange={setNoMonthlyIncome}
-                />
-                <ContactCard
-                  data={individualFormData}
-                  onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
-                  errors={validationErrors}
-                  onErrorClear={clearError}
-                />
-                <BankCard
-                  data={individualFormData}
-                  onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
-                  errors={validationErrors}
-                  onErrorClear={clearError}
-                />
-                <EmergencyContactCard
-                  data={individualFormData}
-                  onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
-                />
-                <SocialMediaCard
-                  data={individualFormData}
-                  onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
-                />
-              </>
-            ) : (
-              <>
-                <CompanyCard
-                  data={corporateFormData}
-                  onChange={(u) => setCorporateFormData((prev) => ({ ...prev, ...u }))}
-                  errors={validationErrors}
-                  onErrorClear={clearError}
-                />
+        <div className="space-y-6">
+          {Object.keys(validationErrors).length > 0 && (
+            <div className="rounded-lg border-2 border-red-500 bg-red-500/10 px-4 py-3">
+              <p className="text-sm font-medium text-red-700 dark:text-red-300">
+                Please fill in all required fields marked with *
+              </p>
+              <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-1">
+                Complete the required fields below before proceeding.
+              </p>
+            </div>
+          )}
+          {borrowerType === "INDIVIDUAL" ? (
+            <>
+              {borrowerDetailSubStep === 1 && (
+                <div className="space-y-6">
+                  <IdentityCard
+                    data={individualFormData}
+                    onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
+                    errors={validationErrors}
+                    onErrorClear={clearError}
+                  />
+                  <PersonalCard
+                    data={individualFormData}
+                    onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
+                    errors={validationErrors}
+                    onErrorClear={clearError}
+                    noMonthlyIncome={noMonthlyIncome}
+                    onNoMonthlyIncomeChange={setNoMonthlyIncome}
+                  />
+                </div>
+              )}
+              {borrowerDetailSubStep === 2 && (
+                <div className="space-y-6">
+                  <ContactCard
+                    data={individualFormData}
+                    onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
+                    errors={validationErrors}
+                    onErrorClear={clearError}
+                  />
+                  <BankCard
+                    data={individualFormData}
+                    onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
+                    errors={validationErrors}
+                    onErrorClear={clearError}
+                  />
+                </div>
+              )}
+              {borrowerDetailSubStep === 3 && (
+                <div className="space-y-6">
+                  <EmergencyContactCard
+                    data={individualFormData}
+                    onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
+                  />
+                  <SocialMediaCard
+                    data={individualFormData}
+                    onChange={(u) => setIndividualFormData((prev) => ({ ...prev, ...u }))}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {borrowerDetailSubStep === 1 && (
+                <div className="space-y-6">
+                  <CompanyCard
+                    data={corporateFormData}
+                    onChange={(u) => setCorporateFormData((prev) => ({ ...prev, ...u }))}
+                    errors={validationErrors}
+                    onErrorClear={clearError}
+                  />
+                </div>
+              )}
+              {borrowerDetailSubStep === 2 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <CompanyAdditionalCard
                     data={corporateFormData}
@@ -587,47 +527,79 @@ export function OnboardingWizard() {
                     onErrorClear={clearError}
                   />
                 </div>
-                <DirectorsCard
-                  data={corporateFormData}
-                  onChange={(u) => setCorporateFormData((prev) => ({ ...prev, ...u }))}
-                  errors={validationErrors}
-                  onErrorClear={clearError}
-                />
-                <BankCard
-                  data={corporateFormData}
-                  onChange={(u) => setCorporateFormData((prev) => ({ ...prev, ...u }))}
-                  errors={validationErrors}
-                  onErrorClear={clearError}
-                />
-                <SocialMediaCard
-                  data={corporateFormData}
-                  onChange={(u) => setCorporateFormData((prev) => ({ ...prev, ...u }))}
-                />
-              </>
-            )}
+              )}
+              {borrowerDetailSubStep === 3 && (
+                <div className="space-y-6">
+                  <DirectorsCard
+                    data={corporateFormData}
+                    onChange={(u) => setCorporateFormData((prev) => ({ ...prev, ...u }))}
+                    errors={validationErrors}
+                    onErrorClear={clearError}
+                  />
+                </div>
+              )}
+              {borrowerDetailSubStep === 4 && (
+                <div className="space-y-6">
+                  <BankCard
+                    data={corporateFormData}
+                    onChange={(u) => setCorporateFormData((prev) => ({ ...prev, ...u }))}
+                    errors={validationErrors}
+                    onErrorClear={clearError}
+                  />
+                </div>
+              )}
+              {borrowerDetailSubStep === 5 && (
+                <div className="space-y-6">
+                  <SocialMediaCard
+                    data={corporateFormData}
+                    onChange={(u) => setCorporateFormData((prev) => ({ ...prev, ...u }))}
+                  />
+                </div>
+              )}
+            </>
+          )}
 
-            <div className="flex justify-between pt-4">
-              <Button variant="outline" onClick={() => setStep(1)}>
-                <ArrowLeft className="mr-2 h-4 w-4" /> Back
-              </Button>
-              <Button onClick={() => setStep(3)}>
-                Next <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <TrueSightPanel
-              borrowerType={borrowerType}
-              isIC={isIC}
-              identifier={trueSightIdentifier}
-              lookupReady={trueSightLookupReady}
-              insights={crossTenantInsights}
-              loading={crossTenantInsightsLoading}
-              nameReady={trueSightNameReady}
-              phoneReady={trueSightPhoneReady}
-              addressInput={trueSightAddressInput}
-            />
+          <div className="flex justify-between pt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (borrowerDetailSubStep > 1) {
+                  setBorrowerDetailSubStep((s) => (s - 1) as BorrowerDetailsSubStep);
+                } else {
+                  setStep(1);
+                }
+              }}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" /> Back
+            </Button>
+            <Button
+              onClick={() => {
+                const errors =
+                  borrowerType === "INDIVIDUAL"
+                    ? validateIndividualFormStep(
+                        individualFormData,
+                        borrowerDetailSubStep as 1 | 2 | 3,
+                        noMonthlyIncome
+                      )
+                    : validateCorporateFormStep(
+                        corporateFormData,
+                        borrowerDetailSubStep as 1 | 2 | 3 | 4 | 5
+                      );
+                if (Object.keys(errors).length > 0) {
+                  setValidationErrors(errors);
+                  toast.error("Please fill in all required fields marked with *");
+                  return;
+                }
+                setValidationErrors({});
+                if (borrowerDetailSubStep < maxBorrowerDetailSubStep) {
+                  setBorrowerDetailSubStep((s) => (s + 1) as BorrowerDetailsSubStep);
+                } else {
+                  setStep(3);
+                }
+              }}
+            >
+              Next <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
           </div>
         </div>
       )}
@@ -690,43 +662,24 @@ export function OnboardingWizard() {
                   />
                   <ReviewRow label="Account Number" value={individualFormData.bankAccountNo} />
                 </ReviewSection>
-                {(individualFormData.emergencyContactName ||
-                  individualFormData.emergencyContactPhone) && (
-                  <ReviewSection title="Emergency Contact">
-                    <ReviewRow label="Name" value={individualFormData.emergencyContactName} />
-                    <ReviewRow label="Phone" value={individualFormData.emergencyContactPhone} />
-                    <ReviewRow
-                      label="Relationship"
-                      value={getOptionLabel(
-                        "emergencyContactRelationship",
-                        individualFormData.emergencyContactRelationship
-                      )}
-                    />
-                  </ReviewSection>
-                )}
-                {(individualFormData.instagram ||
-                  individualFormData.tiktok ||
-                  individualFormData.facebook ||
-                  individualFormData.linkedin ||
-                  individualFormData.xTwitter) && (
-                  <ReviewSection title="Social Media">
-                    {individualFormData.instagram && (
-                      <ReviewRow label="Instagram" value={individualFormData.instagram} />
+                <ReviewSection title="Emergency Contact">
+                  <ReviewRow label="Name" value={individualFormData.emergencyContactName} />
+                  <ReviewRow label="Phone" value={individualFormData.emergencyContactPhone} />
+                  <ReviewRow
+                    label="Relationship"
+                    value={getOptionLabel(
+                      "emergencyContactRelationship",
+                      individualFormData.emergencyContactRelationship
                     )}
-                    {individualFormData.tiktok && (
-                      <ReviewRow label="TikTok" value={individualFormData.tiktok} />
-                    )}
-                    {individualFormData.facebook && (
-                      <ReviewRow label="Facebook" value={individualFormData.facebook} />
-                    )}
-                    {individualFormData.linkedin && (
-                      <ReviewRow label="LinkedIn" value={individualFormData.linkedin} />
-                    )}
-                    {individualFormData.xTwitter && (
-                      <ReviewRow label="X (Twitter)" value={individualFormData.xTwitter} />
-                    )}
-                  </ReviewSection>
-                )}
+                  />
+                </ReviewSection>
+                <ReviewSection title="Social Media Profiles">
+                  <ReviewRow label="Instagram" value={individualFormData.instagram} />
+                  <ReviewRow label="TikTok" value={individualFormData.tiktok} />
+                  <ReviewRow label="Facebook" value={individualFormData.facebook} />
+                  <ReviewRow label="LinkedIn" value={individualFormData.linkedin} />
+                  <ReviewRow label="X (Twitter)" value={individualFormData.xTwitter} />
+                </ReviewSection>
               </>
             ) : (
               <>
@@ -796,29 +749,13 @@ export function OnboardingWizard() {
                   />
                   <ReviewRow label="Account Number" value={corporateFormData.bankAccountNo} />
                 </ReviewSection>
-                {(corporateFormData.instagram ||
-                  corporateFormData.tiktok ||
-                  corporateFormData.facebook ||
-                  corporateFormData.linkedin ||
-                  corporateFormData.xTwitter) && (
-                  <ReviewSection title="Social Media">
-                    {corporateFormData.instagram && (
-                      <ReviewRow label="Instagram" value={corporateFormData.instagram} />
-                    )}
-                    {corporateFormData.tiktok && (
-                      <ReviewRow label="TikTok" value={corporateFormData.tiktok} />
-                    )}
-                    {corporateFormData.facebook && (
-                      <ReviewRow label="Facebook" value={corporateFormData.facebook} />
-                    )}
-                    {corporateFormData.linkedin && (
-                      <ReviewRow label="LinkedIn" value={corporateFormData.linkedin} />
-                    )}
-                    {corporateFormData.xTwitter && (
-                      <ReviewRow label="X (Twitter)" value={corporateFormData.xTwitter} />
-                    )}
-                  </ReviewSection>
-                )}
+                <ReviewSection title="Social Media Profiles">
+                  <ReviewRow label="Instagram" value={corporateFormData.instagram} />
+                  <ReviewRow label="TikTok" value={corporateFormData.tiktok} />
+                  <ReviewRow label="Facebook" value={corporateFormData.facebook} />
+                  <ReviewRow label="LinkedIn" value={corporateFormData.linkedin} />
+                  <ReviewRow label="X (Twitter)" value={corporateFormData.xTwitter} />
+                </ReviewSection>
               </>
             )}
             <div className="flex justify-between pt-4 border-t border-border">

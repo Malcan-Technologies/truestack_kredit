@@ -103,7 +103,7 @@ export function IdentityCard({ data, onChange, errors, onErrorClear }: IdentityC
             )}
             {isIC && (
               <p className="text-xs text-muted-foreground mt-1">
-                Enter a complete 12-digit IC number to preview TrueSight data. DOB and gender auto-extracted.
+                Enter a complete 12-digit IC number. DOB and gender are auto-extracted.
               </p>
             )}
           </div>

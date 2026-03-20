@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { fetchBorrowerMe } from "../../../lib/borrower-auth-client";
 import Link from "next/link";
-import { LayoutDashboard, Settings, UserCircle, LogOut, Menu } from "lucide-react";
+import {
+  ClipboardList,
+  Landmark,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  UserCircle,
+} from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { Button } from "../../../components/ui/button";
 import {
@@ -22,7 +29,9 @@ import { APP_VERSION } from "@/lib/version";
 
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Applications", href: "/applications", icon: ClipboardList },
+  { name: "Loans", href: "/loans", icon: Landmark },
+  { name: "Your Profile", href: "/profile", icon: UserCircle },
 ];
 
 export default function DashboardLayout({
@@ -142,9 +151,9 @@ export default function DashboardLayout({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="right" className="w-56">
-                <DropdownMenuItem onClick={() => router.push("/profile")}>
+                <DropdownMenuItem onClick={() => router.push("/account")}>
                   <UserCircle className="h-4 w-4 mr-2" />
-                  Profile
+                  Account
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -183,9 +192,13 @@ export default function DashboardLayout({
                 {pathname === "/dashboard"
                   ? "Dashboard"
                   : pathname === "/profile"
-                  ? "Profile"
-                  : pathname === "/settings"
-                  ? "Settings"
+                  ? "Your Profile"
+                  : pathname === "/account"
+                  ? "My account"
+                  : pathname === "/applications"
+                  ? "Applications"
+                  : pathname === "/loans"
+                  ? "Loans"
                   : pathname === "/onboarding"
                   ? "Onboarding"
                   : "Demo Client"}

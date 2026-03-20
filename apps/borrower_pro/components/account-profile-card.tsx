@@ -56,7 +56,7 @@ export function AccountProfileCard() {
           : null
       );
       setShowEdit(false);
-      toast.success("Profile updated");
+      toast.success("Account updated");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update");
     } finally {
@@ -76,7 +76,7 @@ export function AccountProfileCard() {
           <div className="flex items-center gap-3">
             <UserCircle className="h-5 w-5 text-muted-foreground" />
             <div>
-              <CardTitle className="font-heading">My Profile</CardTitle>
+              <CardTitle className="font-heading">My Account</CardTitle>
               <CardDescription>Your personal account information</CardDescription>
             </div>
           </div>
@@ -97,13 +97,13 @@ export function AccountProfileCard() {
           <div className="flex items-center gap-3">
             <UserCircle className="h-5 w-5 text-muted-foreground" />
             <div>
-              <CardTitle className="font-heading">My Profile</CardTitle>
+              <CardTitle className="font-heading">My Account</CardTitle>
               <CardDescription>Your personal account information</CardDescription>
             </div>
           </div>
           {!showEdit && (
             <Button variant="outline" onClick={() => setShowEdit(true)}>
-              Edit Profile
+              Edit account
             </Button>
           )}
         </div>

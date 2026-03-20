@@ -33,6 +33,7 @@ interface PersonalCardProps {
   onErrorClear: (key: string) => void;
   noMonthlyIncome: boolean;
   onNoMonthlyIncomeChange: (checked: boolean) => void;
+  identityLocked?: boolean;
 }
 
 export function PersonalCard({
@@ -42,10 +43,13 @@ export function PersonalCard({
   onErrorClear,
   noMonthlyIncome,
   onNoMonthlyIncomeChange,
+  identityLocked = false,
 }: PersonalCardProps) {
   const isIC = data.documentType === "IC";
   const dobFromIC = extractDateFromIC(data.icNumber);
   const genderFromIC = extractGenderFromIC(data.icNumber);
+  const dobDisplay = data.dateOfBirth || (isIC && dobFromIC ? dobFromIC : "");
+  const genderDisplay = data.gender || (isIC && genderFromIC ? genderFromIC : "");
 
   const numValue: number | "" =
     data.monthlyIncome === ""
@@ -64,18 +68,18 @@ export function PersonalCard({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field
             label="Date of Birth"
-            value={data.dateOfBirth}
+            value={dobDisplay}
             onChange={(val) => {
               onChange({ dateOfBirth: val });
               if (errors.dateOfBirth) onErrorClear("dateOfBirth");
             }}
             type="date"
             error={errors.dateOfBirth}
-            disabled={isIC && !!dobFromIC}
+            disabled={identityLocked || (isIC && !!dobFromIC)}
           />
           <Field
             label="Gender"
-            value={data.gender}
+            value={genderDisplay}
             onChange={(val) => {
               onChange({ gender: val });
               if (errors.gender) onErrorClear("gender");
@@ -83,7 +87,7 @@ export function PersonalCard({
             type="select"
             options={GENDER_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
             error={errors.gender}
-            disabled={isIC && !!genderFromIC}
+            disabled={identityLocked || (isIC && !!genderFromIC)}
           />
           <Field
             label="Race"

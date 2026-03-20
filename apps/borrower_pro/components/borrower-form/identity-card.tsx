@@ -21,9 +21,17 @@ interface IdentityCardProps {
   onChange: (updates: Partial<IndividualFormData>) => void;
   errors: Record<string, string>;
   onErrorClear: (key: string) => void;
+  /** When true, name / document type / IC cannot be edited (verified identity). */
+  identityLocked?: boolean;
 }
 
-export function IdentityCard({ data, onChange, errors, onErrorClear }: IdentityCardProps) {
+export function IdentityCard({
+  data,
+  onChange,
+  errors,
+  onErrorClear,
+  identityLocked = false,
+}: IdentityCardProps) {
   const isIC = data.documentType === "IC";
 
   const handleIcNumberChange = (value: string) => {
@@ -70,6 +78,12 @@ export function IdentityCard({ data, onChange, errors, onErrorClear }: IdentityC
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {identityLocked && (
+          <p className="text-xs text-muted-foreground mb-4 rounded-md border border-border bg-muted/40 px-3 py-2">
+            Identity details are locked because your profile is verified. To change them, start a new TrueStack
+            KYC session and complete verification again.
+          </p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field
             label="Name"
@@ -80,10 +94,15 @@ export function IdentityCard({ data, onChange, errors, onErrorClear }: IdentityC
             }}
             error={errors.name}
             placeholder="Full name"
+            disabled={identityLocked}
           />
           <div>
             <Label className="text-xs text-muted-foreground">Document Type *</Label>
-            <Select value={data.documentType} onValueChange={handleDocumentTypeChange}>
+            <Select
+              value={data.documentType}
+              onValueChange={handleDocumentTypeChange}
+              disabled={identityLocked}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -105,6 +124,7 @@ export function IdentityCard({ data, onChange, errors, onErrorClear }: IdentityC
               onChange={(e) => handleIcNumberChange(e.target.value)}
               placeholder={isIC ? "880101011234" : "A12345678"}
               className={errors.icNumber ? "border-error" : ""}
+              disabled={identityLocked}
             />
             {errors.icNumber && (
               <p className="text-xs text-error mt-1">{errors.icNumber}</p>

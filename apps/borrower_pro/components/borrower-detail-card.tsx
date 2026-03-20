@@ -19,8 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import {
-  IdentityCard,
-  PersonalCard,
+  IndividualPersonalInformationEdit,
   AddressCard,
   ContactCard,
   BankCard,
@@ -64,6 +63,7 @@ import { CopyField } from "./ui/copy-field";
 import { PhoneDisplay } from "./ui/phone-display";
 import { cn } from "../lib/utils";
 import { toast } from "sonner";
+import { isIndividualIdentityLocked } from "../lib/borrower-verification";
 
 function InfoField({
   label,
@@ -129,6 +129,8 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
   const [corporateForm, setCorporateForm] = useState<CorporateFormData | null>(null);
 
   const isIndividual = borrower?.borrowerType === "INDIVIDUAL";
+  const identityLocked =
+    Boolean(borrower && isIndividual && isIndividualIdentityLocked(borrower));
 
   const loadBorrower = async () => {
     setLoading(true);
@@ -240,7 +242,38 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Edit Borrower</h2>
+          <div>
+            <h2 className="text-2xl font-heading font-bold">
+              {isIndividual && individualForm
+                ? individualForm.name
+                : corporateForm?.companyName ?? "Borrower"}
+            </h2>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <Badge variant={isIndividual ? "outline" : "secondary"}>
+                {isIndividual ? (
+                  <User className="h-3 w-3 mr-1" />
+                ) : (
+                  <Building2 className="h-3 w-3 mr-1" />
+                )}
+                {isIndividual ? "Individual" : "Corporate"}
+              </Badge>
+              {isIndividual && individualForm && (
+                <span className="text-sm text-muted-foreground">
+                  {individualForm.documentType === "IC"
+                    ? formatICForDisplay(individualForm.icNumber)
+                    : individualForm.icNumber}
+                </span>
+              )}
+              {!isIndividual && corporateForm && (
+                <span className="text-sm text-muted-foreground">
+                  SSM: {corporateForm.ssmRegistrationNo || "—"}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Update your details below, then save.
+            </p>
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleCancel} disabled={saving}>
               <X className="h-4 w-4 mr-2" />
@@ -255,19 +288,14 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
         <div className="space-y-6">
           {isIndividual && individualForm ? (
             <>
-              <IdentityCard
-                data={individualForm}
-                onChange={(u) => setIndividualForm((prev) => (prev ? { ...prev, ...u } : null))}
-                errors={errors}
-                onErrorClear={clearError}
-              />
-              <PersonalCard
+              <IndividualPersonalInformationEdit
                 data={individualForm}
                 onChange={(u) => setIndividualForm((prev) => (prev ? { ...prev, ...u } : null))}
                 errors={errors}
                 onErrorClear={clearError}
                 noMonthlyIncome={noMonthlyIncome}
                 onNoMonthlyIncomeChange={setNoMonthlyIncome}
+                identityLocked={identityLocked}
               />
               <AddressCard
                 data={individualForm}

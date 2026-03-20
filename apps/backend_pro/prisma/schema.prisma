@@ -174,6 +174,7 @@ model Tenant {
   trueIdentityUsagePaid  TrueIdentityUsagePaid[]
   subscriptionPaymentRequests SubscriptionPaymentRequest[]
   borrowerProfileLinks       BorrowerProfileLink[]
+  truestackKycSessions       TruestackKycSession[]
 }
 
 // ============================================
@@ -676,6 +677,7 @@ model Borrower {
   emailLogs    EmailLog[] // TrueSend email delivery logs
   performanceProjection BorrowerPerformanceProjection?
   trueIdentitySessions TrueIdentitySession[]
+  truestackKycSessions TruestackKycSession[]
 
   @@unique([tenantId, icNumber])
   @@index([tenantId])
@@ -735,8 +737,34 @@ model BorrowerDirector {
   trueIdentityDocumentUrls  Json?     // { icFrontUrl?, icBackUrl?, selfieUrl?, verificationDetailUrl?, updatedAt? } from Admin
 
   borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  truestackKycSessions TruestackKycSession[]
 
   @@index([borrowerId])
+}
+
+// TrueStack public KYC API sessions (Bearer ti_/ts_ keys) — not Admin HMAC TrueIdentity
+model TruestackKycSession {
+  id                String   @id @default(cuid())
+  tenantId          String
+  borrowerId        String
+  directorId        String?
+  externalSessionId String   @unique // UUID from TrueStack POST /api/v1/kyc/sessions
+  onboardingUrl     String
+  expiresAt         DateTime?
+  status            String   @default("pending") // pending, processing, completed, expired, failed
+  result            String? // approved, rejected when status=completed
+  rejectMessage     String?
+  lastWebhookAt     DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower Borrower          @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  director BorrowerDirector? @relation(fields: [directorId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([borrowerId])
+  @@index([borrowerId, directorId])
 }
 
 model Product {

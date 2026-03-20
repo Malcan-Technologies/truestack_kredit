@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { BorrowerDetailCard } from "../../../../components/borrower-detail-card";
-import { TrueIdentityComingSoonCard } from "../../../../components/trueidentity-coming-soon-card";
+import { TruestackKycCard } from "../../../../components/truestack-kyc-card";
 import { DigitalSigningComingSoonCard } from "../../../../components/digital-signing-coming-soon-card";
 import { BorrowerDocumentsCard } from "../../../../components/borrower-documents-card";
 import {
@@ -17,6 +17,11 @@ export default function YourProfilePage() {
   const router = useRouter();
   const [borrowerType, setBorrowerType] = useState<"INDIVIDUAL" | "CORPORATE" | null>(null);
   const [loading, setLoading] = useState(true);
+  const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
+
+  const bumpDocumentsRefresh = useCallback(() => {
+    setDocumentsRefreshKey((k) => k + 1);
+  }, []);
 
   const loadSettings = async () => {
     let cancelled = false;
@@ -127,9 +132,12 @@ export default function YourProfilePage() {
         </div>
         {/* Right column - TrueIdentity & Documents */}
         <div className="space-y-6">
-          <TrueIdentityComingSoonCard />
+          <TruestackKycCard onStatusLoaded={bumpDocumentsRefresh} />
           <DigitalSigningComingSoonCard />
-          <BorrowerDocumentsCard borrowerType={borrowerType} />
+          <BorrowerDocumentsCard
+            borrowerType={borrowerType}
+            externalRefreshKey={documentsRefreshKey}
+          />
         </div>
       </div>
     </div>

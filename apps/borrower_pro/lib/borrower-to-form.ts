@@ -4,16 +4,44 @@
 
 import type { BorrowerDetail, UpdateBorrowerPayload } from "./borrower-api-client";
 import type { IndividualFormData, CorporateFormData, CorporateDirector } from "./borrower-form-types";
+import { extractDateFromIC, extractGenderFromIC } from "./borrower-form-helpers";
 
 const empty = (v: string | null | undefined) => v?.trim() ?? "";
 const numStr = (v: string | number | null | undefined) =>
   v === null || v === undefined ? "" : String(v);
 
+/** YYYY-MM-DD for <input type="date" /> from API ISO or plain date strings */
+function normalizeDateInput(v: string | null | undefined): string {
+  const s = empty(v);
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
+}
+
 export function borrowerToIndividualForm(b: BorrowerDetail): IndividualFormData {
+  const documentType = b.documentType || "IC";
+  let dateOfBirth = normalizeDateInput(b.dateOfBirth);
+  let gender = empty(b.gender);
+
+  if (documentType === "IC") {
+    const icDigits = empty(b.icNumber).replace(/\D/g, "");
+    if (icDigits.length >= 12) {
+      if (!dateOfBirth) {
+        const fromIc = extractDateFromIC(icDigits);
+        if (fromIc) dateOfBirth = fromIc;
+      }
+      if (!gender) {
+        const fromIc = extractGenderFromIC(icDigits);
+        if (fromIc) gender = fromIc;
+      }
+    }
+  }
+
   return {
     name: empty(b.name),
     icNumber: empty(b.icNumber),
-    documentType: b.documentType || "IC",
+    documentType,
     phone: empty(b.phone),
     email: empty(b.email),
     addressLine1: empty(b.addressLine1),
@@ -22,8 +50,8 @@ export function borrowerToIndividualForm(b: BorrowerDetail): IndividualFormData 
     state: empty(b.state),
     postcode: empty(b.postcode),
     country: empty(b.country),
-    dateOfBirth: empty(b.dateOfBirth),
-    gender: empty(b.gender),
+    dateOfBirth,
+    gender,
     race: empty(b.race),
     educationLevel: empty(b.educationLevel),
     occupation: empty(b.occupation),

@@ -37,3 +37,21 @@ export function getBorrowerVerificationSummary(borrower: {
 
   return isIndividualVerified || borrower.documentVerified ? 'FULLY_VERIFIED' : 'UNVERIFIED';
 }
+
+/** True when individual borrower identity is fully verified (cached or derived). */
+export function isIndividualIdentityLocked(borrower: {
+  borrowerType: string;
+  verificationStatus: string | null;
+  documentVerified: boolean;
+  trueIdentityStatus: string | null;
+  trueIdentityResult: string | null;
+}): boolean {
+  if (borrower.borrowerType !== 'INDIVIDUAL') return false;
+  const status =
+    borrower.verificationStatus ??
+    getBorrowerVerificationSummary({
+      ...borrower,
+      directors: [],
+    });
+  return status === 'FULLY_VERIFIED';
+}

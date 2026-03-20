@@ -1,6 +1,7 @@
 export { Field } from "./field";
 export { IdentityCard } from "./identity-card";
 export { PersonalCard } from "./personal-card";
+export { IndividualPersonalInformationEdit } from "./individual-personal-information-edit";
 export { AddressCard } from "./address-card";
 export { ContactCard } from "./contact-card";
 export { BankCard } from "./bank-card";

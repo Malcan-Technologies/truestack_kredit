@@ -1,5 +1,5 @@
 import path from 'path';
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
@@ -7,7 +7,10 @@ import { requireBorrowerSession } from '../../middleware/authenticateBorrower.js
 import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.js';
 import { runCrossTenantLookup } from '../../lib/crossTenantLookupService.js';
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
+import { assertIdentityDocumentMutationAllowed } from '../../lib/identityLock.js';
 import { performBorrowerUpdate, updateBorrowerSchema } from '../borrowers/borrowerUpdateService.js';
+import { createKycSession, refreshKycSession } from '../truestack-kyc/publicApiClient.js';
+import { ingestTruestackKycDocuments } from '../truestack-kyc/ingestKycDocuments.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -706,6 +709,8 @@ router.post('/borrower/documents', async (req, res, next) => {
       );
     }
 
+    await assertIdentityDocumentMutationAllowed(prisma, borrowerId, category);
+
     ensureDocumentsDir();
     const { filename, path: filePath } = await saveDocumentFile(
       buffer,
@@ -736,6 +741,333 @@ router.post('/borrower/documents', async (req, res, next) => {
   }
 });
 
+const startKycBodySchema = z.object({
+  directorId: z.string().cuid().optional(),
+});
+
+const refreshKycBodySchema = z.object({
+  externalSessionId: z.string().min(10).max(64),
+});
+
+function assertKycConfigured(res: Response): boolean {
+  const base = config.truestackKyc.publicWebhookBaseUrl;
+  const key = config.truestackKyc.apiKey;
+  if (!key || !base) {
+    res.status(503).json({
+      success: false,
+      error:
+        'TrueStack KYC is not configured. Set TRUESTACK_KYC_API_KEY and TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL on the server.',
+    });
+    return false;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(base);
+  } catch {
+    res.status(503).json({
+      success: false,
+      error:
+        'TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL must be a full URL, e.g. https://your-name.ngrok-free.dev (no quotes, no spaces, include https://).',
+    });
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    res.status(503).json({
+      success: false,
+      error: 'TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL must start with http:// or https://',
+    });
+    return false;
+  }
+  if (config.nodeEnv === 'production' && parsed.protocol !== 'https:') {
+    res.status(503).json({
+      success: false,
+      error: 'TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL must use https in production.',
+    });
+    return false;
+  }
+  return true;
+}
+
+/** POST /api/borrower-auth/kyc/sessions — start public API KYC (TrueStack Bearer key) */
+router.post('/kyc/sessions', async (req, res, next) => {
+  try {
+    if (!assertKycConfigured(res)) return;
+
+    const parsed = startKycBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: 'Invalid body' });
+      return;
+    }
+    const { directorId } = parsed.data;
+
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+
+    const borrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId, tenantId: tenant.id },
+      include: { directors: { orderBy: { order: 'asc' } } },
+    });
+    if (!borrower) {
+      throw new NotFoundError('Borrower');
+    }
+
+    let documentName: string;
+    let documentNumber: string;
+    let targetDirectorId: string | null = null;
+
+    if (borrower.borrowerType === 'CORPORATE') {
+      if (!directorId) {
+        res.status(400).json({
+          success: false,
+          error: 'directorId is required for corporate borrowers.',
+        });
+        return;
+      }
+      const director = borrower.directors.find((d) => d.id === directorId);
+      if (!director) {
+        res.status(404).json({ success: false, error: 'Director not found.' });
+        return;
+      }
+      documentName = director.name;
+      documentNumber = director.icNumber;
+      targetDirectorId = directorId;
+    } else {
+      if (directorId) {
+        res.status(400).json({
+          success: false,
+          error: 'directorId must not be sent for individual borrowers.',
+        });
+        return;
+      }
+      documentName = borrower.name;
+      documentNumber = borrower.icNumber;
+    }
+
+    const webhookBase = config.truestackKyc.publicWebhookBaseUrl;
+    const webhookUrl = new URL('/api/webhooks/truestack-kyc', webhookBase).href;
+    const documentType = borrower.documentType === 'PASSPORT' ? '2' : '1';
+
+    const metadata: Record<string, unknown> = {
+      borrowerId,
+      tenantId: tenant.id,
+    };
+    if (targetDirectorId) metadata.directorId = targetDirectorId;
+
+    let ts: Awaited<ReturnType<typeof createKycSession>>;
+    try {
+      ts = await createKycSession({
+        document_name: documentName,
+        document_number: documentNumber,
+        webhook_url: webhookUrl,
+        document_type: documentType,
+        platform: 'Web',
+        redirect_url: config.truestackKyc.redirectUrl,
+        metadata,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'TrueStack KYC create session failed';
+      res.status(502).json({ success: false, error: msg });
+      return;
+    }
+
+    const expiresAt = ts.expires_at ? new Date(ts.expires_at) : null;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.truestackKycSession.updateMany({
+        where: {
+          tenantId: tenant.id,
+          borrowerId,
+          directorId: targetDirectorId,
+        },
+        data: {
+          status: 'expired',
+          result: null,
+        },
+      });
+
+      if (borrower.borrowerType === 'INDIVIDUAL') {
+        await tx.borrower.update({
+          where: { id: borrowerId },
+          data: {
+            documentVerified: false,
+            verifiedAt: null,
+            verifiedBy: null,
+            verificationStatus: 'UNVERIFIED',
+            trueIdentityStatus: null,
+            trueIdentityResult: null,
+            trueIdentityRejectMessage: null,
+            trueIdentitySessionId: null,
+            trueIdentityOnboardingUrl: null,
+            trueIdentityExpiresAt: null,
+            trueIdentityLastWebhookAt: null,
+          },
+        });
+      }
+
+      await tx.truestackKycSession.create({
+        data: {
+          tenantId: tenant.id,
+          borrowerId,
+          directorId: targetDirectorId,
+          externalSessionId: ts.id,
+          onboardingUrl: ts.onboarding_url,
+          expiresAt,
+          status: ts.status || 'pending',
+        },
+      });
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        externalSessionId: ts.id,
+        onboardingUrl: ts.onboarding_url,
+        status: ts.status || 'pending',
+        expiresAt: expiresAt?.toISOString() ?? null,
+        directorId: targetDirectorId ?? undefined,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** GET /api/borrower-auth/kyc/status */
+router.get('/kyc/status', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+
+    const sessions = await prisma.truestackKycSession.findMany({
+      where: { borrowerId, tenantId: tenant.id },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        externalSessionId: true,
+        directorId: true,
+        onboardingUrl: true,
+        expiresAt: true,
+        status: true,
+        result: true,
+        rejectMessage: true,
+        lastWebhookAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const borrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId, tenantId: tenant.id },
+      select: { borrowerType: true },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        borrowerType: borrower?.borrowerType ?? 'INDIVIDUAL',
+        sessions,
+        latest: sessions[0] ?? null,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** POST /api/borrower-auth/kyc/refresh — pull latest from TrueStack (e.g. missed webhook) */
+router.post('/kyc/refresh', async (req, res, next) => {
+  try {
+    if (!assertKycConfigured(res)) return;
+
+    const parsed = refreshKycBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: 'externalSessionId required' });
+      return;
+    }
+
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { externalSessionId } = parsed.data;
+
+    const row = await prisma.truestackKycSession.findFirst({
+      where: {
+        externalSessionId,
+        borrowerId,
+        tenantId: tenant.id,
+      },
+    });
+    if (!row) {
+      res.status(404).json({ success: false, error: 'Session not found' });
+      return;
+    }
+
+    const refreshed = await refreshKycSession(externalSessionId);
+    const status = refreshed.status || row.status;
+    const result =
+      refreshed.result === 'approved' || refreshed.result === 'rejected'
+        ? refreshed.result
+        : row.result;
+
+    await prisma.truestackKycSession.update({
+      where: { id: row.id },
+      data: {
+        status,
+        result: result ?? undefined,
+        rejectMessage: refreshed.reject_message ?? undefined,
+        lastWebhookAt: new Date(),
+      },
+    });
+
+    if (status === 'completed' && result === 'approved' && !row.directorId) {
+      await prisma.borrower.update({
+        where: { id: borrowerId },
+        data: {
+          documentVerified: true,
+          verifiedAt: new Date(),
+          verifiedBy: 'TRUESTACK_KYC_API',
+          verificationStatus: 'FULLY_VERIFIED',
+        },
+      });
+    }
+
+    let documentsIngested = 0;
+    if (status === 'completed' && result === 'approved') {
+      const borrower = await prisma.borrower.findUnique({
+        where: { id: borrowerId },
+        select: { borrowerType: true },
+      });
+      if (borrower) {
+        try {
+          const ingestRes = await ingestTruestackKycDocuments(
+            prisma,
+            tenant.id,
+            borrowerId,
+            borrower.borrowerType === 'CORPORATE' ? 'CORPORATE' : 'INDIVIDUAL',
+            refreshed
+          );
+          documentsIngested = ingestRes.created;
+          if (ingestRes.errors.length > 0) {
+            console.warn('[borrower-auth/kyc/refresh] Ingest issues:', ingestRes.errors);
+          }
+        } catch (ingestErr) {
+          console.error('[borrower-auth/kyc/refresh] Document ingest failed:', ingestErr);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        externalSessionId,
+        status,
+        result,
+        rejectMessage: refreshed.reject_message ?? null,
+        documentsIngested,
+        raw: refreshed,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /** DELETE /api/borrower-auth/borrower/documents/:documentId */
 router.delete('/borrower/documents/:documentId', async (req, res, next) => {
   try {
@@ -752,6 +1084,8 @@ router.delete('/borrower/documents/:documentId', async (req, res, next) => {
     if (!document) {
       throw new NotFoundError('Document');
     }
+
+    await assertIdentityDocumentMutationAllowed(prisma, borrowerId, document.category);
 
     await deleteDocumentFile(document.path);
 

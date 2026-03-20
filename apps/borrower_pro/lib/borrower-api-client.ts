@@ -4,6 +4,25 @@
 
 const BASE = "/api/proxy/borrower-auth";
 
+export interface TruestackKycSessionRow {
+  id: string;
+  externalSessionId: string;
+  directorId: string | null;
+  onboardingUrl: string;
+  expiresAt: string | null;
+  status: string;
+  result: string | null;
+  rejectMessage: string | null;
+  lastWebhookAt: string | null;
+  updatedAt: string;
+}
+
+export interface TruestackKycStatusData {
+  borrowerType: string;
+  sessions: TruestackKycSessionRow[];
+  latest: TruestackKycSessionRow | null;
+}
+
 export interface BorrowerDocument {
   id: string;
   filename: string;
@@ -31,6 +50,8 @@ export interface BorrowerDetail {
   documentType: string;
   documentVerified: boolean;
   verificationStatus?: string | null;
+  trueIdentityStatus?: string | null;
+  trueIdentityResult?: string | null;
   phone: string | null;
   email: string | null;
   address: string | null;
@@ -172,6 +193,79 @@ export async function uploadBorrowerDocument(
     throw new Error(err?.error || "Failed to upload document");
   }
   return res.json();
+}
+
+export async function startTruestackKycSession(body?: {
+  directorId?: string;
+}): Promise<{
+  success: boolean;
+  data: {
+    externalSessionId: string;
+    onboardingUrl: string;
+    status: string;
+    expiresAt: string | null;
+    directorId?: string;
+  };
+}> {
+  const res = await fetch(BASE + "/kyc/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body ?? {}),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    data?: {
+      externalSessionId: string;
+      onboardingUrl: string;
+      status: string;
+      expiresAt: string | null;
+      directorId?: string;
+    };
+  };
+  if (!res.ok) {
+    throw new Error(json?.error || "Failed to start KYC session");
+  }
+  if (!json.success || !json.data) {
+    throw new Error(json?.error || "Invalid KYC start response");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function getTruestackKycStatus(): Promise<{
+  success: boolean;
+  data: TruestackKycStatusData;
+}> {
+  const res = await fetch(BASE + "/kyc/status", { credentials: "include" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string })?.error || "Failed to fetch KYC status");
+  }
+  return res.json() as Promise<{ success: boolean; data: TruestackKycStatusData }>;
+}
+
+export async function refreshTruestackKycSession(
+  externalSessionId: string
+): Promise<{ success: boolean; data: Record<string, unknown> }> {
+  const res = await fetch(BASE + "/kyc/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ externalSessionId }),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    data?: Record<string, unknown>;
+  };
+  if (!res.ok) {
+    throw new Error(json?.error || "Failed to refresh KYC session");
+  }
+  if (!json.success || !json.data) {
+    throw new Error(json?.error || "Invalid KYC refresh response");
+  }
+  return { success: true, data: json.data };
 }
 
 export async function deleteBorrowerDocument(

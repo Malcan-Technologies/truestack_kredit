@@ -85,6 +85,28 @@ export const config = {
       '',
     timestampMaxAgeMs: parseInt(process.env.TRUEIDENTITY_TIMESTAMP_MAX_AGE_MS || '300000', 10),
   },
+
+  /** Public TrueStack KYC API (Bearer key) — separate from TrueKredit↔Admin TrueIdentity webhooks */
+  truestackKyc: {
+    apiBaseUrl: (process.env.TRUESTACK_KYC_API_BASE_URL || 'https://api.truestack.my').replace(/\/$/, ''),
+    apiKey: (process.env.TRUESTACK_KYC_API_KEY || '').trim(),
+    /** Public origin where TrueStack POSTs webhooks (must be full https URL in practice, e.g. ngrok) */
+    publicWebhookBaseUrl: (process.env.TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL || '')
+      .trim()
+      .replace(/\/$/, ''),
+    redirectUrl: (() => {
+      const r = (process.env.TRUESTACK_KYC_REDIRECT_URL || '').trim();
+      if (!r) return undefined;
+      try {
+        const u = new URL(r);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return undefined;
+        return r;
+      } catch {
+        return undefined;
+      }
+    })(),
+    webhookSecret: (process.env.TRUESTACK_KYC_WEBHOOK_SECRET || '').trim(),
+  },
 };
 
 const MIN_SECRET_LENGTH = 32;

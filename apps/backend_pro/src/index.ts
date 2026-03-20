@@ -25,6 +25,7 @@ import dashboardRoutes from './modules/dashboard/routes.js';
 import resendWebhookRoutes from './modules/webhooks/resendWebhook.js';
 import trueIdentityWebhookRoutes from './modules/webhooks/trueIdentityWebhook.js';
 import trueIdentityPaymentWebhookRoutes from './modules/webhooks/trueIdentityPaymentWebhook.js';
+import truestackKycWebhookRoutes from './modules/webhooks/truestackKycWebhook.js';
 import kreditReferralPaidWebhookRoutes from './modules/webhooks/kreditReferralPaidWebhook.js';
 import kreditSubscriptionPaymentDecisionWebhookRoutes from './modules/webhooks/kreditSubscriptionPaymentDecisionWebhook.js';
 import kreditSubscriptionDatesWebhookRoutes from './modules/webhooks/kreditSubscriptionDatesWebhook.js';
@@ -51,6 +52,7 @@ app.use('/api/webhooks/kredit/subscription-payment-decision', express.raw({ type
 app.use('/api/webhooks/kredit/subscription-dates', express.raw({ type: 'application/json' }), kreditSubscriptionDatesWebhookRoutes);
 app.use('/api/webhooks/trueidentity/payment', express.raw({ type: 'application/json' }), trueIdentityPaymentWebhookRoutes);
 app.use('/api/webhooks/trueidentity', express.raw({ type: 'application/json' }), trueIdentityWebhookRoutes);
+app.use('/api/webhooks/truestack-kyc', express.raw({ type: 'application/json' }), truestackKycWebhookRoutes);
 
 app.use(express.json());
 app.use(requestLogger);

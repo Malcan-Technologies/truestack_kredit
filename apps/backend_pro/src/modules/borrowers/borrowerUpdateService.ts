@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import type { PrismaClient } from '@prisma/client';
 import { normalizeIdentityNumber } from '../../lib/crossTenantLookupService.js';
+import { assertNoLockedIndividualIdentityChanges } from '../../lib/identityLock.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { ConflictError, NotFoundError } from '../../lib/errors.js';
 
@@ -205,6 +206,8 @@ export async function performBorrowerUpdate(
   if (!existing) {
     throw new NotFoundError('Borrower');
   }
+
+  assertNoLockedIndividualIdentityChanges(existing, data);
 
   if (data.icNumber !== undefined && data.icNumber !== existing.icNumber) {
     const icConflict = await prisma.borrower.findUnique({

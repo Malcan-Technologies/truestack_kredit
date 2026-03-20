@@ -45,6 +45,51 @@ export async function fetchBorrowerMe(): Promise<BorrowerMeResponse> {
   return res.json();
 }
 
+/** Lender (tenant) details for the borrower About page — mirrors admin tenant display fields. */
+export interface LenderInfo {
+  name: string;
+  type: "PPW" | "PPG";
+  licenseNumber: string | null;
+  registrationNumber: string | null;
+  email: string | null;
+  contactNumber: string | null;
+  businessAddress: string | null;
+  logoUrl: string | null;
+}
+
+export interface LenderInfoResponse {
+  success: boolean;
+  data: LenderInfo;
+}
+
+export async function fetchLenderInfo(): Promise<LenderInfoResponse> {
+  const res = await fetch(BASE + "/lender", { credentials: "include" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || "Failed to load lender information");
+  }
+  return res.json();
+}
+
+/**
+ * Resolve tenant logo URL for the borrower app: absolute URLs pass through;
+ * local `/uploads/...` paths are loaded via the Next.js proxy to backend_pro.
+ */
+export function resolveBorrowerLenderLogoSrc(logoUrl: string | null): string | undefined {
+  if (!logoUrl) return undefined;
+  if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
+    return logoUrl;
+  }
+  const trimmed = logoUrl.replace(/^\/+/, "");
+  if (trimmed.startsWith("uploads/")) {
+    return `/api/proxy/${trimmed}`;
+  }
+  if (trimmed.startsWith("api/uploads/")) {
+    return `/api/proxy/${trimmed.replace(/^api\//, "")}`;
+  }
+  return `/api/proxy/${trimmed}`;
+}
+
 export async function fetchBorrowerProfiles(): Promise<{
   success: boolean;
   data: BorrowerProfile[];

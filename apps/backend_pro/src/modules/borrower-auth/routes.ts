@@ -150,6 +150,28 @@ function buildLegacyAddress(data: {
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
+/** GET /api/borrower-auth/lender — company (tenant) details for the borrower-facing About page */
+router.get('/lender', async (req, res, next) => {
+  try {
+    const tenant = await resolveProTenant();
+    res.json({
+      success: true,
+      data: {
+        name: tenant.name,
+        type: tenant.type,
+        licenseNumber: tenant.licenseNumber,
+        registrationNumber: tenant.registrationNumber,
+        email: tenant.email,
+        contactNumber: tenant.contactNumber,
+        businessAddress: tenant.businessAddress,
+        logoUrl: tenant.logoUrl,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /** GET /api/borrower-auth/me - current user, profiles, active borrower */
 router.get('/me', async (req, res, next) => {
   try {

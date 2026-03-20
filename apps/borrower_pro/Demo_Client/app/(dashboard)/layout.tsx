@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { fetchBorrowerMe } from "../../../lib/borrower-auth-client";
 import Link from "next/link";
 import {
+  Building2,
   ClipboardList,
   Landmark,
   LayoutDashboard,
@@ -155,6 +156,10 @@ export default function DashboardLayout({
                   <UserCircle className="h-4 w-4 mr-2" />
                   Account
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => router.push("/about")}>
+                  <Building2 className="h-4 w-4 mr-2" />
+                  About
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleSignOut}
@@ -169,7 +174,7 @@ export default function DashboardLayout({
 
           <div className="border-t border-border py-3 px-4">
             <span className="text-[10px] font-medium text-muted-foreground">
-              v{APP_VERSION}
+              TrueKredit™ Pro · v{APP_VERSION}
             </span>
           </div>
         </div>
@@ -199,6 +204,8 @@ export default function DashboardLayout({
                   ? "Applications"
                   : pathname === "/loans"
                   ? "Loans"
+                  : pathname === "/about"
+                  ? "About"
                   : pathname === "/onboarding"
                   ? "Onboarding"
                   : "Demo Client"}

@@ -1,9 +1,9 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { safeAdd, safeDivide, safeMultiply, safeRound, safeSubtract, toSafeNumber } from '../../lib/math.js';
 import { BillingCronService } from '../../lib/billingCronService.js';
-import { refreshRenewalInvoiceCharges } from '../billing/routes.js';
 
 const router = Router();
 
@@ -301,7 +301,7 @@ router.get('/overview', async (req, res, next) => {
           name: true,
           slug: true,
           email: true,
-          subscriptionStatus: true,
+          proLicenseActivatedAt: true,
           createdAt: true,
           _count: {
             select: {
@@ -343,7 +343,7 @@ router.get('/overview', async (req, res, next) => {
         tenantName: tenant.name,
         tenantSlug: tenant.slug,
         email: tenant.email,
-        subscriptionStatus: tenant.subscriptionStatus,
+        proLicenseActivatedAt: tenant.proLicenseActivatedAt,
         borrowerCount: tenant._count.borrowers,
         applicationCount: tenant._count.applications,
         loanCount: tenant._count.loans,
@@ -417,20 +417,8 @@ router.get('/tenants', async (req, res, next) => {
           contactNumber: true,
           businessAddress: true,
           status: true,
-          subscriptionStatus: true,
-          subscriptionAmount: true,
-          subscribedAt: true,
+          proLicenseActivatedAt: true,
           trueIdentityTenantSyncedAt: true,
-          subscription: {
-            select: {
-              plan: true,
-              status: true,
-              autoRenew: true,
-              currentPeriodStart: true,
-              currentPeriodEnd: true,
-              gracePeriodEnd: true,
-            },
-          },
           createdAt: true,
           updatedAt: true,
           _count: {
@@ -450,54 +438,10 @@ router.get('/tenants', async (req, res, next) => {
 
     const tenantIds = tenants.map((t) => t.id);
 
-    // Refresh unpaid renewal invoices so amounts match Kredit billing page (RM 592.92 etc.)
-    const unpaidRenewals = await prisma.invoice.findMany({
-      where: {
-        tenantId: { in: tenantIds },
-        billingType: 'RENEWAL',
-        status: { in: ['ISSUED', 'PENDING_APPROVAL', 'OVERDUE'] },
-      },
-      select: { id: true, tenantId: true },
-    });
-    await Promise.all(
-      unpaidRenewals.map((inv) =>
-        refreshRenewalInvoiceCharges({ tenantId: inv.tenantId, invoiceId: inv.id })
-      )
-    );
-
-    const [financialsByTenant, latestInvoices] = await Promise.all([
-      computeTenantFinancials(tenantIds),
-      prisma.invoice.findMany({
-        where: {
-          tenantId: { in: tenantIds },
-          billingType: 'RENEWAL',
-        },
-        orderBy: { issuedAt: 'desc' },
-        distinct: ['tenantId'],
-        select: {
-          tenantId: true,
-          amount: true,
-          status: true,
-          periodStart: true,
-          periodEnd: true,
-          lineItems: {
-            select: {
-              itemType: true,
-              description: true,
-              amount: true,
-              quantity: true,
-              unitPrice: true,
-            },
-          },
-        },
-      }),
-    ]);
-
-    const invoiceByTenant = new Map(latestInvoices.map((inv) => [inv.tenantId, inv]));
+    const financialsByTenant = await computeTenantFinancials(tenantIds);
 
     const rows = tenants.map((tenant) => {
       const financials = financialsByTenant.get(tenant.id) ?? { totalDisbursed: 0, totalProfit: 0 };
-      const inv = invoiceByTenant.get(tenant.id);
       return {
         tenantId: tenant.id,
         tenantName: tenant.name,
@@ -509,19 +453,7 @@ router.get('/tenants', async (req, res, next) => {
         contactNumber: tenant.contactNumber,
         businessAddress: tenant.businessAddress,
         status: tenant.status,
-        subscriptionStatus: tenant.subscriptionStatus,
-        subscriptionAmount: tenant.subscriptionAmount,
-        subscribedAt: tenant.subscribedAt,
-        subscription: tenant.subscription
-          ? {
-              plan: tenant.subscription.plan,
-              status: tenant.subscription.status,
-              autoRenew: tenant.subscription.autoRenew,
-              currentPeriodStart: tenant.subscription.currentPeriodStart,
-              currentPeriodEnd: tenant.subscription.currentPeriodEnd,
-              gracePeriodEnd: tenant.subscription.gracePeriodEnd,
-            }
-          : null,
+        proLicenseActivatedAt: tenant.proLicenseActivatedAt,
         trueIdentityTenantSyncedAt: tenant.trueIdentityTenantSyncedAt,
         borrowerCount: tenant._count.borrowers,
         applicationCount: tenant._count.applications,
@@ -530,19 +462,7 @@ router.get('/tenants', async (req, res, next) => {
         totalProfit: financials.totalProfit,
         createdAt: tenant.createdAt,
         updatedAt: tenant.updatedAt,
-        latestInvoice: inv
-          ? {
-              amount: Number(inv.amount),
-              status: inv.status,
-              periodStart: inv.periodStart,
-              periodEnd: inv.periodEnd,
-              lineItems: inv.lineItems.map((li) => ({
-                itemType: li.itemType,
-                description: li.description,
-                amount: Number(li.amount),
-              })),
-            }
-          : null,
+        latestInvoice: null,
       };
     });
 
@@ -891,23 +811,9 @@ router.post('/tenants/:tenantId/suspend', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Tenant not found' });
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.tenant.update({
-        where: { id: tenantId },
-        data: { subscriptionStatus: 'SUSPENDED' },
-      });
-
-      await tx.billingEvent.create({
-        data: {
-          tenantId,
-          eventType: 'TENANT_SUSPENDED',
-          metadata: {
-            reason,
-            suspendedBy,
-            suspendedAt: new Date().toISOString(),
-          },
-        },
-      });
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { status: 'SUSPENDED' },
     });
 
     res.json({ success: true, data: { tenantId, status: 'SUSPENDED' } });
@@ -925,7 +831,6 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
     const { tenantId } = req.params;
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'Manual revoke to free';
     const revokedBy = typeof req.body?.revokedBy === 'string' ? req.body.revokedBy : null;
-    const now = new Date();
 
     // Look up by id first, then by slug (in case Admin passes slug)
     let tenant = await prisma.tenant.findUnique({
@@ -943,75 +848,18 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
     }
     const resolvedTenantId = tenant.id;
 
-    await prisma.$transaction(async (tx) => {
-      await tx.subscriptionPaymentRequest.updateMany({
-        where: {
-          tenantId: resolvedTenantId,
-          status: 'PENDING',
-        },
-        data: {
-          status: 'REJECTED',
-          rejectedAt: now,
-          rejectionReason: 'REVOKED_BY_ADMIN',
-        },
-      });
-
-      await tx.invoice.updateMany({
-        where: {
-          tenantId: resolvedTenantId,
-          status: { in: ['PENDING_APPROVAL', 'ISSUED', 'OVERDUE'] },
-        },
-        data: {
-          status: 'CANCELLED',
-        },
-      });
-
-      await tx.tenant.update({
-        where: { id: tenantId },
-        data: {
-          subscriptionStatus: 'FREE',
-          subscriptionAmount: null,
-          subscribedAt: null,
-        },
-      });
-
-      await tx.subscription.updateMany({
-        where: { tenantId: resolvedTenantId },
-        data: {
-          status: 'CANCELLED',
-          autoRenew: false,
-          currentPeriodEnd: now,
-          gracePeriodEnd: null,
-        },
-      });
-
-      await tx.tenantAddOn.updateMany({
-        where: {
-          tenantId: resolvedTenantId,
-          status: 'ACTIVE',
-        },
-        data: {
-          status: 'CANCELLED',
-          cancelledAt: now,
-        },
-      });
-
-      await tx.billingEvent.create({
-        data: {
-          tenantId: resolvedTenantId,
-          eventType: 'CANCELLATION_PROCESSED',
-          metadata: {
-            status: 'REVOKED',
-            reason,
-            revokedBy,
-            revokedAt: now.toISOString(),
-            source: 'admin_manual_revoke',
-          },
-        },
-      });
+    await prisma.tenant.update({
+      where: { id: resolvedTenantId },
+      data: {
+        status: 'BLOCKED',
+        truesendSettings: Prisma.JsonNull,
+      },
     });
 
-    res.json({ success: true, data: { tenantId: resolvedTenantId, subscriptionStatus: 'FREE' } });
+    res.json({
+      success: true,
+      data: { tenantId: resolvedTenantId, status: 'BLOCKED', note: 'TrueKredit Pro: access revoked (tenant blocked).' },
+    });
   } catch (error) {
     next(error);
   }
@@ -1021,65 +869,11 @@ router.post('/tenants/:tenantId/revoke-to-free', async (req, res, next) => {
  * POST /api/internal/kredit/admin/invoices/:invoiceId/refund
  * Manual refund request from Admin.
  */
-router.post('/invoices/:invoiceId/refund', async (req, res, next) => {
-  try {
-    const { invoiceId } = req.params;
-    const amountMyr = Number(req.body?.amountMyr ?? 0);
-    const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'Manual refund';
-    const refundedBy = typeof req.body?.refundedBy === 'string' ? req.body.refundedBy : null;
-
-    if (!Number.isFinite(amountMyr) || amountMyr <= 0) {
-      return res.status(400).json({ success: false, error: 'amountMyr must be positive' });
-    }
-
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
-      select: { id: true, tenantId: true },
-    });
-    if (!invoice) {
-      return res.status(404).json({ success: false, error: 'Invoice not found' });
-    }
-
-    const creditNote = await prisma.$transaction(async (tx) => {
-      const created = await tx.creditNote.create({
-        data: {
-          tenantId: invoice.tenantId,
-          sourceInvoiceId: invoice.id,
-          amount: amountMyr,
-          reason,
-          isRefunded: true,
-          refundedAt: new Date(),
-        },
-      });
-
-      await tx.billingEvent.create({
-        data: {
-          tenantId: invoice.tenantId,
-          eventType: 'REFUND_PROCESSED',
-          metadata: {
-            invoiceId,
-            creditNoteId: created.id,
-            amountMyr,
-            reason,
-            refundedBy,
-          },
-        },
-      });
-      return created;
-    });
-
-    res.json({
-      success: true,
-      data: {
-        invoiceId,
-        creditNoteId: creditNote.id,
-        amountMyr: Number(creditNote.amount),
-        refundedAt: creditNote.refundedAt,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
+router.post('/invoices/:invoiceId/refund', async (_req, res) => {
+  res.status(410).json({
+    success: false,
+    error: 'SaaS invoices are not used in TrueKredit Pro; refund endpoint is disabled.',
+  });
 });
 
 /**

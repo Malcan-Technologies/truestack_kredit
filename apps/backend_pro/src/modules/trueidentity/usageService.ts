@@ -1,7 +1,5 @@
 /**
- * TrueIdentity usage aggregation for billing.
- * Records verification starts per tenant per day.
- * Uses MYT (Asia/Kuala_Lumpur) for day boundaries to align with subscription billing periods.
+ * TrueIdentity usage aggregation. Pro has no invoice settlement against usage (no TrueIdentityUsagePaid).
  */
 
 import { prisma } from '../../lib/prisma.js';
@@ -55,7 +53,6 @@ export async function getUsageForTenant(
   toDate?: Date,
   options?: { toDateExclusive?: boolean }
 ): Promise<{ date: string; count: number }[]> {
-  // Use provided dates as-is when they are MYT-anchored billing boundaries; otherwise use MYT for defaults
   const from = fromDate ?? startOfMytDayUtc(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
   const to = toDate ?? startOfMytDayUtc(new Date());
   const upperBound = options?.toDateExclusive ? { lt: to } : { lte: to };
@@ -68,56 +65,20 @@ export async function getUsageForTenant(
     orderBy: { usageDate: 'asc' },
   });
 
-  // Fetch paid usage for this period to subtract already-settled counts
-  const paidRows = await prisma.trueIdentityUsagePaid.findMany({
-    where: {
-      tenantId,
-      usageDate: { gte: from, ...upperBound },
-    },
-    orderBy: { usageDate: 'asc' },
-  });
-
-  // Build a map of paidCount per date
-  const paidByDate = new Map<string, number>();
-  for (const pr of paidRows) {
-    const key = pr.usageDate.toISOString().slice(0, 10);
-    paidByDate.set(key, (paidByDate.get(key) ?? 0) + pr.count);
-  }
-
   return rows
-    .map((r) => {
-      const key = r.usageDate.toISOString().slice(0, 10);
-      const paid = paidByDate.get(key) ?? 0;
-      return {
-        date: key,
-        count: Math.max(0, r.count - paid),
-      };
-    })
+    .map((r) => ({
+      date: r.usageDate.toISOString().slice(0, 10),
+      count: r.count,
+    }))
     .filter((r) => r.count > 0);
 }
 
-/**
- * Record which usage days were settled by a paid invoice.
- * Called when a RENEWAL invoice is marked PAID.
- * Inserts one TrueIdentityUsagePaid row per usage day billed.
- */
-export async function recordPaidUsage(params: {
+/** Legacy hook for invoice settlement; no-op in Pro. */
+export async function recordPaidUsage(_params: {
   tenantId: string;
   invoiceId: string;
   paidAt: Date;
   usageRows: { date: string; count: number }[];
 }): Promise<void> {
-  const { tenantId, invoiceId, paidAt, usageRows } = params;
-  if (usageRows.length === 0) return;
-
-  await prisma.trueIdentityUsagePaid.createMany({
-    data: usageRows.map((row) => ({
-      tenantId,
-      invoiceId,
-      usageDate: new Date(row.date),
-      count: row.count,
-      paidAt,
-    })),
-    skipDuplicates: true,
-  });
+  // Intentionally empty
 }

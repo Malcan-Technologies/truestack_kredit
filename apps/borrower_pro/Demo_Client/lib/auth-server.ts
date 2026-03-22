@@ -5,6 +5,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3006";
+const AUTH_COOKIE_PREFIX = "truestack-borrower";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: "postgresql" }),
@@ -43,6 +44,7 @@ export const auth = betterAuth({
   },
 
   advanced: {
+    cookiePrefix: AUTH_COOKIE_PREFIX,
     useSecureCookies: process.env.NODE_ENV === "production",
     defaultCookieAttributes: {
       httpOnly: true,

@@ -6,6 +6,7 @@ import { fetchBorrowerMe } from "../../../lib/borrower-auth-client";
 import Link from "next/link";
 import {
   Building2,
+  ChevronDown,
   ClipboardList,
   Landmark,
   LayoutDashboard,
@@ -17,11 +18,11 @@ import { useSession, signOut } from "@/lib/auth-client";
 import { Button } from "../../../components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu";
+import { AppDropdownMenuContent } from "../../../components/ui/app-dropdown-menu";
 import { BorrowerSwitcher } from "../../../components/borrower-switcher";
 import { NavbarCorner } from "../../../components/navbar-corner";
 import { ThemeToggle } from "../../../components/theme-toggle";
@@ -131,33 +132,44 @@ export default function DashboardLayout({
             })}
           </nav>
 
+          {/* User menu — matches admin_pro sidebar trigger + dropdown */}
           <div className="border-t border-border p-4">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="flex w-full items-center gap-3 rounded-lg border border-border p-2 hover:bg-secondary transition-colors text-left"
-                  aria-label="Account menu"
+                  className={cn(
+                    "group flex w-full items-center gap-3 rounded-lg border border-border p-2 text-left outline-none transition-colors hover:border-foreground/30 hover:bg-secondary focus:ring-0",
+                  )}
+                  aria-label="Open user menu"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground font-medium">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
                     {user.name?.[0] || user.email[0].toUpperCase()}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="truncate text-sm font-medium">
                       {user.name || user.email}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate">
+                    <p className="truncate text-xs text-muted-foreground">
                       {user.email}
                     </p>
                   </div>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-data-[state=open]:-rotate-90" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="right" className="w-56">
+
+              <AppDropdownMenuContent
+                side="right"
+                align="start"
+                sideOffset={8}
+                alignOffset={-20}
+                className="w-56"
+              >
                 <DropdownMenuItem onClick={() => router.push("/account")}>
-                  <UserCircle className="h-4 w-4 mr-2" />
+                  <UserCircle className="mr-2 h-4 w-4" />
                   Account
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push("/about")}>
-                  <Building2 className="h-4 w-4 mr-2" />
+                  <Building2 className="mr-2 h-4 w-4" />
                   About
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -165,10 +177,10 @@ export default function DashboardLayout({
                   onClick={handleSignOut}
                   className="text-destructive focus:text-destructive"
                 >
-                  <LogOut className="h-4 w-4 mr-2" />
+                  <LogOut className="mr-2 h-4 w-4" />
                   Sign Out
                 </DropdownMenuItem>
-              </DropdownMenuContent>
+              </AppDropdownMenuContent>
             </DropdownMenu>
           </div>
 

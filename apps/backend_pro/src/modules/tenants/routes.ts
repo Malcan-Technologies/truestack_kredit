@@ -2,6 +2,7 @@ import { Router, Request } from 'express';
 import { z } from 'zod';
 import path from 'path';
 import { Prisma } from '@prisma/client';
+import { getSessionTokenFromCookie } from '../../lib/authCookies.js';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
 import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
@@ -31,18 +32,6 @@ const createTenantSchema = z.object({
   businessAddress: z.string().min(1).max(500),
 });
 
-function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
-  if (!cookieHeader) return null;
-  const parts = cookieHeader.split(';');
-  for (const part of parts) {
-    const [rawKey, ...rawVal] = part.trim().split('=');
-    if (rawKey === 'better-auth.session_token') {
-      return rawVal.join('=');
-    }
-  }
-  return null;
-}
-
 /**
  * Create a new tenant (allowed when user has no tenant - first-time setup)
  * POST /api/tenants/create
@@ -63,7 +52,6 @@ router.post('/create', requireSession, async (req, res, next) => {
 
     // Create tenant in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Create tenant with subscriptionStatus = FREE
       const newTenant = await tx.tenant.create({
         data: {
           name: data.name,
@@ -75,32 +63,15 @@ router.post('/create', requireSession, async (req, res, next) => {
           contactNumber: data.contactNumber,
           businessAddress: data.businessAddress,
           status: "ACTIVE",
-          subscriptionStatus: "FREE",
         },
       });
 
-      // Create TenantMember with role = OWNER
       await tx.tenantMember.create({
         data: {
           userId: userId,
           tenantId: newTenant.id,
           role: "OWNER",
           isActive: true,
-        },
-      });
-
-      // Create a baseline subscription record.
-      // New tenants start as FREE (no active paid period) until first approved payment.
-      const now = new Date();
-
-      await tx.subscription.create({
-        data: {
-          tenantId: newTenant.id,
-          plan: "free",
-          status: "CANCELLED",
-          autoRenew: false,
-          currentPeriodStart: now,
-          currentPeriodEnd: now,
         },
       });
 
@@ -139,7 +110,7 @@ router.post('/create', requireSession, async (req, res, next) => {
           id: result.id,
           name: result.name,
           slug: result.slug,
-          subscriptionStatus: result.subscriptionStatus,
+          proLicenseActivatedAt: result.proLicenseActivatedAt.toISOString(),
         },
       },
     });
@@ -301,39 +272,24 @@ async function getTenantNoticePeriods(tenantId: string): Promise<{ arrearsPeriod
  */
 router.get('/current', async (req, res, next) => {
   try {
-    const [tenant, truesendAddOn] = await Promise.all([
-      prisma.tenant.findUnique({
-        where: { id: req.tenantId },
-        include: {
-          subscription: true,
-          _count: {
-            select: {
-              members: true,
-              borrowers: true,
-              loans: true,
-            },
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.tenantId },
+      include: {
+        _count: {
+          select: {
+            members: true,
+            borrowers: true,
+            loans: true,
           },
         },
-      }),
-      prisma.tenantAddOn.findUnique({
-        where: { tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' } },
-        select: { status: true },
-      }),
-    ]);
+      },
+    });
 
     if (!tenant) {
       throw new NotFoundError('Tenant');
     }
 
-    // Derive plan name (Core/Core+) from subscriptionStatus, subscriptionAmount, and TrueSend
-    const truesendActive = truesendAddOn?.status === 'ACTIVE';
-    const derivedPlan =
-      tenant.subscriptionStatus === 'PAID'
-        ? derivePlanName(
-            { subscriptionStatus: tenant.subscriptionStatus, subscriptionAmount: tenant.subscriptionAmount },
-            truesendActive
-          )
-        : 'Free';
+    const derivedPlan = derivePlanName();
 
     res.json({
       success: true,
@@ -349,13 +305,13 @@ router.get('/current', async (req, res, next) => {
         businessAddress: tenant.businessAddress,
         logoUrl: tenant.logoUrl,
         status: tenant.status,
-        subscription: tenant.subscription ? {
+        proLicenseActivatedAt: tenant.proLicenseActivatedAt.toISOString(),
+        subscription: {
           plan: derivedPlan,
-          status: tenant.subscription.status,
-          currentPeriodEnd: tenant.subscription.currentPeriodEnd,
-          gracePeriodEnd: tenant.subscription.gracePeriodEnd,
-          tenantSubscriptionStatus: tenant.subscriptionStatus,
-        } : null,
+          status: 'ACTIVE',
+          currentPeriodEnd: null,
+          gracePeriodEnd: null,
+        },
         counts: {
           users: tenant._count.members,
           borrowers: tenant._count.borrowers,
@@ -434,23 +390,20 @@ router.patch('/current', requireAdmin, async (req, res, next) => {
  */
 router.get('/modules/truesend', requireAdmin, async (req, res, next) => {
   try {
-    const [trueSendAddOn, periods] = await Promise.all([
-      prisma.tenantAddOn.findUnique({
-        where: { tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' } },
-        select: {
-          status: true,
-          settings: true,
-        },
+    const [tenantRow, periods] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: req.tenantId! },
+        select: { truesendSettings: true, status: true },
       }),
       getTenantNoticePeriods(req.tenantId!),
     ]);
 
-    const settings = readTrueSendSettings(trueSendAddOn?.settings, periods.arrearsPeriod);
+    const settings = readTrueSendSettings(tenantRow?.truesendSettings, periods.arrearsPeriod);
 
     res.json({
       success: true,
       data: {
-        enabled: trueSendAddOn?.status === 'ACTIVE',
+        enabled: tenantRow?.status === 'ACTIVE',
         settings,
         constraints: {
           maxReminderFrequencyCount: MAX_REMINDER_FREQUENCY_COUNT,
@@ -474,20 +427,20 @@ router.patch('/modules/truesend', requireAdmin, async (req, res, next) => {
   try {
     const payload = updateTrueSendSettingsSchema.parse(req.body);
 
-    const [trueSendAddOn, periods] = await Promise.all([
-      prisma.tenantAddOn.findUnique({
-        where: { tenantId_addOnType: { tenantId: req.tenantId!, addOnType: 'TRUESEND' } },
+    const [existingTenant, periods] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: req.tenantId! },
         select: {
           id: true,
           status: true,
-          settings: true,
+          truesendSettings: true,
         },
       }),
       getTenantNoticePeriods(req.tenantId!),
     ]);
 
-    if (!trueSendAddOn || trueSendAddOn.status !== 'ACTIVE') {
-      throw new ForbiddenError('TrueSend add-on is not active');
+    if (!existingTenant || existingTenant.status !== 'ACTIVE') {
+      throw new ForbiddenError('Tenant is not active');
     }
 
     const normalizedPaymentReminderDays = normalizePaymentReminderDays(payload.paymentReminderDays);
@@ -506,12 +459,12 @@ router.patch('/modules/truesend', requireAdmin, async (req, res, next) => {
       latePaymentNoticeDays: normalizedLatePaymentNoticeDays,
     };
 
-    const updatedAddOn = await prisma.tenantAddOn.update({
-      where: { id: trueSendAddOn.id },
-      data: { settings: settings as unknown as Prisma.InputJsonValue },
+    const updated = await prisma.tenant.update({
+      where: { id: existingTenant.id },
+      data: { truesendSettings: settings as unknown as Prisma.InputJsonValue },
       select: {
         status: true,
-        settings: true,
+        truesendSettings: true,
       },
     });
 
@@ -520,10 +473,10 @@ router.patch('/modules/truesend', requireAdmin, async (req, res, next) => {
       req.tenantId!,
       'TRUESEND_SETTINGS_UPDATED',
       req,
-      trueSendAddOn.id,
-      'TENANT_ADD_ON',
+      existingTenant.id,
+      'TENANT',
       {
-        previousData: readTrueSendSettings(trueSendAddOn.settings, periods.arrearsPeriod),
+        previousData: readTrueSendSettings(existingTenant.truesendSettings, periods.arrearsPeriod),
         newData: settings,
       }
     );
@@ -531,7 +484,7 @@ router.patch('/modules/truesend', requireAdmin, async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        enabled: updatedAddOn.status === 'ACTIVE',
+        enabled: updated.status === 'ACTIVE',
         settings,
         constraints: {
           maxReminderFrequencyCount: MAX_REMINDER_FREQUENCY_COUNT,

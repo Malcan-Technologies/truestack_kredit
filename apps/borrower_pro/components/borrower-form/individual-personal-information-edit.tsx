@@ -101,8 +101,8 @@ export function IndividualPersonalInformationEdit({
     }
   };
 
-  const dobReadOnly = identityLocked || (isIC && !!dobFromIC);
-  const genderReadOnly = identityLocked || (isIC && !!genderFromIC);
+  const dobReadOnly = identityLocked;
+  const genderReadOnly = identityLocked;
 
   return (
     <Card>

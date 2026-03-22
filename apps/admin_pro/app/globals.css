@@ -1,0 +1,384 @@
+/* Import fonts - must be first */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Rethink+Sans:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme - Neutral / Vercel-inspired */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 4%;
+    --surface: 0 0% 98%;
+    --border: 0 0% 90%;
+    --muted: 0 0% 45%;
+    --muted-foreground: 0 0% 45%;
+    
+    /* Card */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 4%;
+    
+    /* Popover */
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 4%;
+    
+    /* Input */
+    --input: 0 0% 90%;
+    --ring: 0 0% 4%;
+    
+    /* Primary (neutral - near-black for CTA) */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    
+    /* Secondary */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Accent (subtle neutral for hover states) */
+    --accent: 0 0% 96%;
+    --accent-start: 0 0% 9%;
+    --accent-end: 0 0% 20%;
+    --accent-foreground: 0 0% 9%;
+    
+    /* Status colors */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --error: 0 84% 60%;
+    --info: 217 91% 60%;
+    
+    /* Radius */
+    --radius: 0.5rem;
+
+    /* Text selection - visible in inputs and everywhere */
+    --selection-bg: 217 91% 60% / 0.3;
+    
+    /* Chart colors - diverse palette since chrome is neutral */
+    --chart-1: 217 91% 60%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 270 50% 60%;
+    --chart-cursor: 0 0% 90% / 0.6;
+    
+    /* Legacy variables for backward compatibility */
+    --color-accent-start: #171717;
+    --color-accent-end: #333333;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 15%;
+    --sidebar-primary: 0 0% 9%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 96%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 90%;
+    --sidebar-ring: 0 0% 9%;
+  }
+
+  .dark {
+    /* Dark theme - True black / Vercel-inspired */
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --surface: 0 0% 9%;
+    --border: 0 0% 16%;
+    --muted: 0 0% 55%;
+    --muted-foreground: 0 0% 55%;
+    
+    /* Card */
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 98%;
+    
+    /* Popover */
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 98%;
+    
+    /* Input */
+    --input: 0 0% 16%;
+    --ring: 0 0% 98%;
+    
+    /* Primary (white on dark for CTA) */
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 4%;
+    
+    /* Secondary */
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 98%;
+    
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Accent (subtle neutral for hover states) */
+    --accent: 0 0% 14%;
+    --accent-start: 0 0% 98%;
+    --accent-end: 0 0% 80%;
+    --accent-foreground: 0 0% 98%;
+    
+    /* Status colors */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --error: 0 84% 60%;
+    --info: 217 91% 60%;
+    
+    /* Chart colors (dark) */
+    --chart-1: 217 91% 65%;
+    --chart-2: 142 71% 50%;
+    --chart-3: 38 92% 55%;
+    --chart-4: 0 84% 65%;
+    --chart-5: 270 50% 65%;
+    --chart-cursor: 0 0% 16% / 0.5;
+
+    /* Text selection - visible on dark backgrounds */
+    --selection-bg: 217 91% 65% / 0.45;
+
+    --sidebar-background: 0 0% 4%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 0 0% 4%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 12%;
+    --sidebar-ring: 0 0% 98%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+}
+
+@layer components {
+  /* Primary button - solid neutral */
+  .btn-primary {
+    @apply bg-primary text-primary-foreground font-medium px-4 py-2 rounded-lg;
+    @apply hover:opacity-90 transition-opacity;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply bg-surface text-foreground border border-border font-medium px-4 py-2 rounded-lg;
+    @apply hover:bg-secondary transition-colors;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply text-muted hover:text-foreground hover:bg-surface px-4 py-2 rounded-lg;
+    @apply transition-colors;
+  }
+
+  /* Card component */
+  .card {
+    @apply bg-surface border border-border rounded-xl p-6;
+  }
+
+  /* Input component */
+  .input {
+    @apply bg-background border border-border rounded-lg px-4 py-2 text-foreground;
+    @apply placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent;
+    @apply transition-colors;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium;
+  }
+
+  .badge-success {
+    @apply bg-success/20 text-success;
+  }
+
+  .badge-warning {
+    @apply bg-warning/20 text-warning;
+  }
+
+  .badge-error {
+    @apply bg-error/20 text-error;
+  }
+
+  .badge-info {
+    @apply bg-info/20 text-info;
+  }
+
+  /* Table styles */
+  .table-header {
+    @apply bg-surface text-muted text-left text-base font-medium;
+  }
+
+  .table-row {
+    @apply border-b border-border hover:bg-surface/50 transition-colors;
+  }
+
+  .table-cell {
+    @apply px-4 py-3;
+  }
+}
+
+@layer utilities {
+  /* Gradient text - now uses foreground for a clean look */
+  .text-gradient {
+    @apply text-foreground font-bold;
+  }
+
+  /* Glassmorphism */
+  .glass {
+    @apply backdrop-blur-md bg-surface/70;
+  }
+
+  /* Theme-aware background tints - flat for neutral theme */
+  .bg-tint {
+    @apply bg-background;
+  }
+
+  .bg-tint-subtle {
+    @apply bg-background;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-background;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted;
+}
+
+/* Selection - visible in both light and dark themes (inputs, textareas, etc.) */
+::selection {
+  background: hsl(var(--selection-bg));
+}
+
+/* Phone input - theme overrides for react-phone-number-input */
+.PhoneInput {
+  --PhoneInput-color--focus: hsl(var(--ring));
+  --PhoneInputCountryFlag-height: 1rem;
+  --PhoneInputCountryFlag-borderColor: transparent;
+  --PhoneInputCountryFlag-borderColor--focus: transparent;
+  --PhoneInputCountrySelectArrow-color: hsl(var(--muted-foreground));
+  --PhoneInputCountrySelectArrow-color--focus: hsl(var(--ring));
+}
+
+/* Markdown content styles */
+.markdown-content {
+  @apply text-foreground leading-relaxed;
+}
+
+.markdown-content h1 {
+  @apply text-4xl font-heading font-bold mb-6 mt-0;
+}
+
+.markdown-content h2 {
+  @apply text-3xl font-bold mt-10 mb-4 text-foreground;
+}
+
+.markdown-content h3 {
+  @apply text-2xl font-semibold mt-8 mb-3;
+}
+
+.markdown-content h4 {
+  @apply text-xl font-medium mt-6 mb-3;
+}
+
+.markdown-content p {
+  @apply my-4 leading-relaxed text-base;
+}
+
+.markdown-content ul {
+  @apply list-disc list-inside my-4 space-y-1;
+}
+
+.markdown-content ol {
+  @apply list-decimal list-inside my-4 space-y-1;
+}
+
+.markdown-content li {
+  @apply ml-4;
+}
+
+.markdown-content a {
+  @apply text-foreground underline underline-offset-4 hover:text-muted;
+}
+
+.markdown-content code {
+  @apply bg-secondary px-1.5 py-0.5 rounded text-sm text-foreground;
+}
+
+.markdown-content pre {
+  @apply bg-secondary rounded-lg p-4 overflow-x-auto my-4 border border-border;
+}
+
+.markdown-content pre code {
+  @apply bg-transparent p-0 text-foreground;
+}
+
+.markdown-content blockquote {
+  @apply border-l-4 border-border pl-4 my-4 italic text-muted;
+}
+
+.markdown-content table {
+  @apply w-full;
+}
+
+.markdown-content th {
+  @apply px-4 py-3 text-left text-base font-semibold bg-surface border-b border-border;
+}
+
+.markdown-content td {
+  @apply px-4 py-3 text-base;
+}
+
+.markdown-content tr {
+  @apply border-b border-border;
+}
+
+.markdown-content tr:last-child {
+  @apply border-b-0;
+}
+
+.markdown-content tbody tr:hover {
+  @apply bg-surface/50;
+}
+
+.markdown-content hr {
+  @apply my-8 border-border;
+}
+
+.markdown-content strong {
+  @apply font-semibold;
+}
+
+.markdown-content em {
+  @apply italic;
+}
+
+
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

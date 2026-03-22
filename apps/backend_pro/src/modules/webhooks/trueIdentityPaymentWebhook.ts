@@ -10,7 +10,6 @@
 import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
-import { addMonthsClamped } from '../../lib/math.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
 
 const router = Router();
@@ -99,80 +98,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const tenantId = payload.tenant_id;
-    const periodStart = payload.period_start;
-    const periodEnd = payload.period_end;
-    const paidAt = payload.paid_at ? new Date(payload.paid_at) : new Date();
-    const paidAmountMyr = payload.paid_amount_myr ?? 0;
-
-    if (tenantId && periodStart && periodEnd) {
-      // Contract sends date-only (e.g. "2025-02-01"); invoices store DateTime.
-      // Match by date range to avoid exact timestamp equality mismatch.
-      const toDateRange = (dateStr: string) => {
-        const d = new Date(dateStr);
-        const gte = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-        const lt = new Date(gte);
-        lt.setUTCDate(lt.getUTCDate() + 1);
-        return { gte, lt };
-      };
-      const startRange = toDateRange(periodStart);
-      const endRange = toDateRange(periodEnd);
-
-      const invoice = await prisma.invoice.findFirst({
-        where: {
-          tenantId,
-          periodStart: { gte: startRange.gte, lt: startRange.lt },
-          periodEnd: { gte: endRange.gte, lt: endRange.lt },
-          status: { in: ['DRAFT', 'ISSUED', 'OVERDUE'] },
-        },
-      });
-
-      if (invoice) {
-        await prisma.$transaction([
-          prisma.invoice.update({
-            where: { id: invoice.id },
-            data: { status: 'PAID', paidAt },
-          }),
-          prisma.receipt.create({
-            data: {
-              tenantId,
-              invoiceId: invoice.id,
-              amount: paidAmountMyr,
-              reference: `TrueIdentity payment ${periodStart}-${periodEnd}`,
-            },
-          }),
-          prisma.billingEvent.create({
-            data: {
-              tenantId,
-              eventType: 'PAYMENT_RECEIVED',
-              metadata: {
-                source: 'trueidentity_webhook',
-                invoiceId: invoice.id,
-                paidAt: paidAt.toISOString(),
-                paidAmountMyr,
-              },
-            },
-          }),
-        ]);
-
-        const subscription = await prisma.subscription.findUnique({
-          where: { tenantId },
-        });
-        if (subscription && (subscription.status === 'GRACE_PERIOD' || subscription.status === 'BLOCKED')) {
-          const newPeriodStart = new Date();
-          const newPeriodEnd = addMonthsClamped(newPeriodStart, 1);
-          await prisma.subscription.update({
-            where: { tenantId },
-            data: {
-              status: 'ACTIVE',
-              currentPeriodStart: newPeriodStart,
-              currentPeriodEnd: newPeriodEnd,
-              gracePeriodEnd: null,
-            },
-          });
-        }
-      }
-    }
+    // TrueKredit Pro has no SaaS invoice pipeline; payment.recorded is acknowledged only.
 
     await prisma.trueIdentityWebhookEvent.update({
       where: { idempotencyKey },

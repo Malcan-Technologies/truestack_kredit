@@ -25,8 +25,10 @@ import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { AuditService } from '../compliance/auditService.js';
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
 import { ensureBorrowerPerformanceProjections } from './performanceProjectionService.js';
+import { config } from '../../lib/config.js';
 import { AddOnService } from '../../lib/addOnService.js';
 import { requestVerificationSession } from '../trueidentity/adminWebhookClient.js';
+import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 
 const router = Router();
@@ -1013,15 +1015,6 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
     const body = verifyStartSchema.safeParse(req.body ?? {});
     const directorId = body.success ? body.data.directorId : undefined;
 
-    const hasAddOn = await AddOnService.hasActiveAddOn(req.tenantId!, 'TRUEIDENTITY');
-    if (!hasAddOn) {
-      res.status(403).json({
-        success: false,
-        error: 'TrueIdentity add-on is not active for this tenant',
-      });
-      return;
-    }
-
     const borrower = await prisma.borrower.findFirst({
       where: {
         id: borrowerId,
@@ -1070,6 +1063,112 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
       }
       name = borrower.name;
       icNumber = borrower.icNumber;
+    }
+
+    /** Pro: public TrueStack KYC API (same model as borrower self-service) — no TrueStack Admin client provisioning. */
+    if (config.productMode === 'pro') {
+      const base = config.truestackKyc.publicWebhookBaseUrl;
+      const key = config.truestackKyc.apiKey;
+      if (!key || !base) {
+        res.status(503).json({
+          success: false,
+          error:
+            'TrueStack KYC is not configured. Set TRUESTACK_KYC_API_KEY and TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL on the server.',
+        });
+        return;
+      }
+      const webhookUrl = new URL('/api/webhooks/truestack-kyc', base).href;
+      const documentType = borrower.documentType === 'PASSPORT' ? '2' : '1';
+      const metadata: Record<string, unknown> = {
+        borrowerId,
+        tenantId: req.tenantId!,
+      };
+      if (targetDirectorId) metadata.directorId = targetDirectorId;
+
+      let ts: Awaited<ReturnType<typeof createKycSession>>;
+      try {
+        ts = await createKycSession({
+          document_name: name,
+          document_number: icNumber,
+          webhook_url: webhookUrl,
+          document_type: documentType,
+          platform: 'Web',
+          redirect_url: config.truestackKyc.redirectUrl,
+          metadata,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'TrueStack KYC create session failed';
+        res.status(502).json({ success: false, error: msg });
+        return;
+      }
+
+      const expiresAt = ts.expires_at ? new Date(ts.expires_at) : null;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.truestackKycSession.updateMany({
+          where: {
+            tenantId: req.tenantId!,
+            borrowerId,
+            directorId: targetDirectorId,
+          },
+          data: {
+            status: 'expired',
+            result: null,
+          },
+        });
+
+        if (borrower.borrowerType === 'INDIVIDUAL') {
+          await tx.borrower.update({
+            where: { id: borrowerId },
+            data: {
+              documentVerified: false,
+              verifiedAt: null,
+              verifiedBy: null,
+              verificationStatus: 'UNVERIFIED',
+              trueIdentityStatus: null,
+              trueIdentityResult: null,
+              trueIdentityRejectMessage: null,
+              trueIdentitySessionId: null,
+              trueIdentityOnboardingUrl: null,
+              trueIdentityExpiresAt: null,
+              trueIdentityLastWebhookAt: null,
+            },
+          });
+        }
+
+        await tx.truestackKycSession.create({
+          data: {
+            tenantId: req.tenantId!,
+            borrowerId,
+            directorId: targetDirectorId,
+            externalSessionId: ts.id,
+            onboardingUrl: ts.onboarding_url,
+            expiresAt,
+            status: ts.status || 'pending',
+          },
+        });
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          sessionId: ts.id,
+          onboardingUrl: ts.onboarding_url,
+          status: ts.status || 'pending',
+          expiresAt: (expiresAt ?? new Date()).toISOString(),
+          directorId: targetDirectorId ?? undefined,
+        },
+      });
+      return;
+    }
+
+    const hasAddOn = await AddOnService.hasActiveAddOn(req.tenantId!, 'TRUEIDENTITY');
+    if (!hasAddOn) {
+      res.status(403).json({
+        success: false,
+        error: 'TrueIdentity add-on is not active for this tenant',
+      });
+      return;
     }
 
     // Admin uses KREDIT_BACKEND_URL to resolve webhook delivery. Kredit sends path-only.
@@ -1210,6 +1309,32 @@ router.get('/:borrowerId/verify/status', async (req, res, next) => {
     }
 
     if (borrower.borrowerType === 'CORPORATE') {
+      if (config.productMode === 'pro') {
+        const kycRows = await prisma.truestackKycSession.findMany({
+          where: { borrowerId, tenantId: req.tenantId! },
+          orderBy: { createdAt: 'desc' },
+        });
+        const directors = borrower.directors.map((d) => {
+          const row = kycRows.find((r) => r.directorId === d.id);
+          return {
+            id: d.id,
+            name: d.name,
+            icNumber: d.icNumber,
+            position: d.position,
+            status: row?.status ?? d.trueIdentityStatus ?? null,
+            result: d.trueIdentityResult ?? null,
+            rejectMessage: d.trueIdentityRejectMessage ?? null,
+            onboardingUrl: row?.onboardingUrl ?? d.trueIdentityOnboardingUrl ?? null,
+            expiresAt: (row?.expiresAt ?? d.trueIdentityExpiresAt)?.toISOString() ?? null,
+            lastWebhookAt: d.trueIdentityLastWebhookAt?.toISOString() ?? null,
+          };
+        });
+        res.json({
+          success: true,
+          data: { borrowerType: 'CORPORATE' as const, directors },
+        });
+        return;
+      }
       const directors = borrower.directors.map((d) => ({
         id: d.id,
         name: d.name,
@@ -1225,6 +1350,26 @@ router.get('/:borrowerId/verify/status', async (req, res, next) => {
       res.json({
         success: true,
         data: { borrowerType: 'CORPORATE' as const, directors },
+      });
+      return;
+    }
+
+    if (config.productMode === 'pro') {
+      const latest = await prisma.truestackKycSession.findFirst({
+        where: { borrowerId, tenantId: req.tenantId!, directorId: null },
+        orderBy: { createdAt: 'desc' },
+      });
+      res.json({
+        success: true,
+        data: {
+          borrowerType: 'INDIVIDUAL' as const,
+          status: latest?.status ?? borrower.trueIdentityStatus ?? null,
+          result: borrower.trueIdentityResult ?? null,
+          rejectMessage: borrower.trueIdentityRejectMessage ?? null,
+          onboardingUrl: latest?.onboardingUrl ?? borrower.trueIdentityOnboardingUrl ?? null,
+          expiresAt: (latest?.expiresAt ?? borrower.trueIdentityExpiresAt)?.toISOString() ?? null,
+          lastWebhookAt: borrower.trueIdentityLastWebhookAt?.toISOString() ?? null,
+        },
       });
       return;
     }

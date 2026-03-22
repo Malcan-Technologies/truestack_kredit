@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../../lib/auth.js';
+import { getBetterAuthHeaders, getSessionTokenFromCookie } from '../../lib/authCookies.js';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnauthorizedError } from '../../lib/errors.js';
 import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
@@ -15,18 +15,6 @@ const BANK_VALUES = [
   'BANK_ISLAM', 'AFFIN', 'ALLIANCE', 'OCBC', 'HSBC', 'UOB', 'STANDARD_CHARTERED',
   'CITIBANK', 'BSN', 'AGROBANK', 'MUAMALAT', 'MBSB', 'OTHER'
 ] as const;
-
-function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
-  if (!cookieHeader) return null;
-  const parts = cookieHeader.split(';');
-  for (const part of parts) {
-    const [rawKey, ...rawVal] = part.trim().split('=');
-    if (rawKey === 'better-auth.session_token') {
-      return rawVal.join('=');
-    }
-  }
-  return null;
-}
 
 async function resolveCurrentSession(userId: string, cookieHeader: string | undefined) {
   const sessionToken = getSessionTokenFromCookie(cookieHeader);
@@ -90,7 +78,7 @@ router.get('/memberships', async (req, res, next) => {
   try {
     // Use Better Auth to verify the session
     const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
+      headers: getBetterAuthHeaders(req.headers),
     });
 
     if (!session || !session.user) {
@@ -100,7 +88,6 @@ router.get('/memberships', async (req, res, next) => {
     // Get the database session to find activeTenantId
     const dbSession = await resolveCurrentSession(session.user.id, req.headers.cookie);
 
-    // Get all active memberships for this user (with subscription and add-ons for profile)
     const memberships = await prisma.tenantMember.findMany({
       where: {
         userId: session.user.id,
@@ -114,18 +101,7 @@ router.get('/memberships', async (req, res, next) => {
             slug: true,
             status: true,
             logoUrl: true,
-            subscriptionStatus: true,
-            subscription: {
-              select: {
-                plan: true,
-                status: true,
-                currentPeriodEnd: true,
-                gracePeriodEnd: true,
-              },
-            },
-            addOns: {
-              select: { addOnType: true, status: true },
-            },
+            proLicenseActivatedAt: true,
           },
         },
       },
@@ -143,16 +119,17 @@ router.get('/memberships', async (req, res, next) => {
           tenantStatus: m.tenant.status,
           tenantLogoUrl: m.tenant.logoUrl,
           role: m.role,
-          subscription: m.tenant.subscription
-            ? {
-                plan: m.tenant.subscription.plan,
-                status: m.tenant.subscription.status,
-                currentPeriodEnd: m.tenant.subscription.currentPeriodEnd.toISOString(),
-                gracePeriodEnd: m.tenant.subscription.gracePeriodEnd?.toISOString() ?? null,
-              }
-            : null,
-          tenantSubscriptionStatus: m.tenant.subscriptionStatus,
-          addOns: m.tenant.addOns?.map((a) => ({ addOnType: a.addOnType, status: a.status })) ?? [],
+          subscription: {
+            plan: 'Pro',
+            status: 'ACTIVE',
+            currentPeriodEnd: null,
+            gracePeriodEnd: null,
+          },
+          proLicenseActivatedAt: m.tenant.proLicenseActivatedAt.toISOString(),
+          addOns: [
+            { addOnType: 'TRUESEND', status: 'ACTIVE' },
+            { addOnType: 'TRUEIDENTITY', status: 'ACTIVE' },
+          ],
         })),
         activeTenantId: dbSession?.activeTenantId || null,
       },
@@ -170,7 +147,7 @@ router.post('/switch-tenant', async (req, res, next) => {
   try {
     // Use Better Auth to verify the session
     const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
+      headers: getBetterAuthHeaders(req.headers),
     });
 
     if (!session || !session.user) {
@@ -328,9 +305,7 @@ router.get('/me', requireSession, async (req, res, next) => {
           name: membership.tenant.name,
           slug: membership.tenant.slug,
           status: membership.tenant.status,
-          subscriptionStatus: membership.tenant.subscriptionStatus,
-          subscriptionAmount: membership.tenant.subscriptionAmount,
-          subscribedAt: membership.tenant.subscribedAt,
+          proLicenseActivatedAt: membership.tenant.proLicenseActivatedAt.toISOString(),
         },
       },
     });

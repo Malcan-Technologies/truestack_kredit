@@ -132,58 +132,21 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const requestRecord = await prisma.subscriptionPaymentRequest.findUnique({
-      where: { requestId: payload.request_id },
-    });
-
-    if (!requestRecord) {
-      await failEvent(idempotencyKey, `Unknown request_id: ${payload.request_id}`);
-      res.status(404).json({ error: 'Subscription payment request not found' });
-      return;
-    }
-
-    if (requestRecord.tenantId !== payload.tenant_id) {
-      await failEvent(idempotencyKey, 'Tenant mismatch for request_id');
-      res.status(400).json({ error: 'tenant_id does not match request' });
-      return;
-    }
-
-    if (requestRecord.status === 'APPROVED' && payload.status === 'approved') {
-      await prisma.trueIdentityWebhookEvent.update({
-        where: { idempotencyKey },
-        data: { status: 'PROCESSED', processedAt: new Date(), errorMessage: null },
-      });
-      res.status(200).json({ ok: true, processed: 'idempotent' });
-      return;
-    }
-
-    if (requestRecord.status === 'REJECTED' && payload.status === 'rejected') {
-      await prisma.trueIdentityWebhookEvent.update({
-        where: { idempotencyKey },
-        data: { status: 'PROCESSED', processedAt: new Date(), errorMessage: null },
-      });
-      res.status(200).json({ ok: true, processed: 'idempotent' });
-      return;
-    }
-
     const decidedAt = payload.decided_at ? new Date(payload.decided_at) : new Date();
     const decision: PaymentDecision = {
       id: payload.request_id,
       request_id: payload.request_id,
       tenant_id: payload.tenant_id,
       status: payload.status,
-      billing_type: normalizeDecisionBillingType(payload.billing_type)
-        ?? normalizeDecisionBillingType(requestRecord.billingType),
+      billing_type: normalizeDecisionBillingType(payload.billing_type),
       approved_at: payload.status === 'approved' ? decidedAt.toISOString() : null,
       rejected_at: payload.status === 'rejected' ? decidedAt.toISOString() : null,
       rejection_reason: payload.rejection_reason ?? null,
-      amount_cents: requestRecord.amountCents,
-      amount_myr: Number(requestRecord.amountMyr),
-      requested_add_ons: payload.requested_add_ons ?? (Array.isArray(requestRecord.requestedAddOns)
-        ? (requestRecord.requestedAddOns as string[])
-        : []),
-      period_start: payload.period_start ?? requestRecord.periodStart.toISOString(),
-      period_end: payload.period_end ?? requestRecord.periodEnd.toISOString(),
+      amount_cents: payload.amount_cents,
+      amount_myr: payload.amount_myr,
+      requested_add_ons: payload.requested_add_ons ?? [],
+      period_start: payload.period_start ?? null,
+      period_end: payload.period_end ?? null,
       updated_at: decidedAt.toISOString(),
     };
 

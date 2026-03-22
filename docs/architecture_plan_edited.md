@@ -122,6 +122,14 @@ This should be treated as the current baseline.
 - **Tenant context**: `TenantContext` + `TenantSwitcher`; session stores `activeTenantId`
 - **Features**: Loans, applications, borrowers, products, billing, dashboard, TrueIdentity/TrueSend modules, referrals
 
+### Pro borrower self-service (`apps/backend_pro`, `apps/borrower_pro`) — implemented in repo
+
+This is the **TrueKredit Pro–style** borrower-facing stack already present in `truestack_kredit` (alongside SaaS `apps/backend` + `apps/admin`). It complements the longer-term per-client folder + `packages/borrower-ui` plan below.
+
+- **Backend (`apps/backend_pro`)**: Express + TypeScript + Prisma; Better Auth sessions; **`borrower-auth`** module (e.g. `/api/borrower-auth/me`, `switch-profile`, `account`) for self-service users who are **not** tenant staff. **`BorrowerProfileLink`** links one `User` to multiple `Borrower` rows per tenant (Individual and/or Corporate); **`Session.activeBorrowerId`** holds the active borrower for the session. Borrower CRUD and documents are tenant-scoped via existing borrowers routes as used by the demo app.
+- **Borrower frontend (`apps/borrower_pro`)**: Reference Next.js app under **`Demo_Client/`**; shared UI under **`apps/borrower_pro/components/`** (candidates for later **`packages/borrower-ui`** extraction). Includes sign-in/up, onboarding, dashboard with **mobile-friendly shell** (off-canvas sidebar, overlay). Primary account surface is **Your Account** (route **`/settings`**; sidebar label "Your Account") for borrower profile management; layout and field grouping follow the same patterns as **`apps/admin` …/borrowers/[id]** where applicable (personal info, address, emergency contact, contact, social, bank). **Switch account** in the account switcher; profile page includes security and **recent login activity** (from auth session history). API calls use **`/api/proxy/...`** to `backend_pro` with cookies forwarded.
+- **Demo / local QA**: `apps/backend_pro/prisma/seed.ts` can seed a demo borrower user with linked Individual + Corporate borrowers (see project README / seed output for credentials).
+
 ### Deployment (current)
 - **Single ECS cluster** (`truekredit-prod`), one backend + one admin service
 - **ECR**: `truekredit-backend`, `truekredit-frontend`
@@ -1188,7 +1196,7 @@ The recommended direction is:
 - build **TrueKredit Pro** as an extension of the same shared codebase
 - use **one monorepo** (`truestack_kredit`) for all apps
 - **admin_pro, backend_pro**: Shared across all clients; deployed per client with config/flags/secrets/variables
-- **borrower_pro**: Per-client frontend in `apps/borrower_pro/{client_id}/`; shares components via `packages/borrower-ui` (no duplication)
+- **borrower_pro**: Per-client frontend in `apps/borrower_pro/{client_id}/` (reference app: `Demo_Client/` + shared `components/` today); shares components via `packages/borrower-ui` (no duplication) as extraction matures
 - **Deployment**: `admin_pro + backend_pro + borrower_pro/client-x` → Client X's AWS account
 - extract services first, then use **shared packages** where boundaries are stable
 - keep **shared backend logic**, but deploy Pro **per client AWS account**
@@ -1247,13 +1255,16 @@ The codebase already has implicit domain boundaries that map well to packages:
 
 ## Borrower_pro web pattern
 
-**Per-client frontend structure** (single monorepo):
+**Implementation note (current monorepo)**: The reference borrower app lives at **`apps/borrower_pro/Demo_Client/`** with shared components in **`apps/borrower_pro/components/`**. Per-client folders (`client-a/`, …) and **`packages/borrower-ui`** remain the target layout for multi-client branding; extract shared pieces as boundaries stabilize.
+
+**Per-client frontend structure** (single monorepo — target):
 
 ```
 truestack_kredit/
   /apps
     /borrower_pro
-      /client-a/            # Client A frontend (different UI)
+      /Demo_Client/         # reference Next.js app (current)
+      /client-a/            # Client A frontend (different UI) — target
         app/, components/, theme/
       /client-b/            # Client B frontend (different UI)
         app/, components/, theme/

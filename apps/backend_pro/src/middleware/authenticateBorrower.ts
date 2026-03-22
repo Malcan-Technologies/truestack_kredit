@@ -1,21 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
-import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../lib/auth.js';
+import { getBetterAuthHeaders, getSessionTokenFromCookie } from '../lib/authCookies.js';
 import { prisma } from '../lib/prisma.js';
 import { UnauthorizedError } from '../lib/errors.js';
-
-function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
-  if (!cookieHeader) return null;
-  const parts = cookieHeader.split(';');
-  for (const part of parts) {
-    const [rawKey, ...rawVal] = part.trim().split('=');
-    const name = rawKey?.trim();
-    if (name === 'better-auth.session_token' || name === '__Secure-better-auth.session_token') {
-      return rawVal.join('=').trim();
-    }
-  }
-  return null;
-}
 
 async function resolveCurrentSession(userId: string, cookieHeader: string | undefined) {
   const sessionToken = getSessionTokenFromCookie(cookieHeader);
@@ -68,7 +55,7 @@ export async function requireBorrowerSession(
 ): Promise<void> {
   try {
     const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
+      headers: getBetterAuthHeaders(req.headers),
     });
 
     if (!session || !session.user) {

@@ -33,14 +33,35 @@ TrueKredit is a comprehensive loan management system designed for KPKT complianc
 ```
 truestack_kredit/
 ├── apps/
-│   ├── admin/          # Tenant admin frontend (Next.js)
-│   └── backend/        # API server (Express)
+│   ├── admin/          # SaaS tenant admin frontend (Next.js, port 3000)
+│   ├── admin_pro/      # TrueKredit Pro admin — shared codebase (Next.js, port 3005)
+│   ├── backend/        # SaaS API (Express)
+│   ├── backend_pro/    # Pro API (Express; use with admin_pro + borrower_pro)
+│   └── borrower_pro/   # Per-client borrower apps (e.g. Demo_Client on 3006)
 ├── packages/
 │   └── shared/         # Shared types and constants
 ├── docs/
 │   └── planning/       # Planning documents
 └── docker-compose.yml  # Local development services
 ```
+
+### TrueKredit Pro local dev (`admin_pro` + `backend_pro`)
+
+| App | Port | Command |
+|-----|------|---------|
+| `backend_pro` | 4001 (see `apps/backend_pro/.env.example`) | `npm run dev:backend_pro` |
+| `admin_pro` | 3005 | `npm run dev:admin_pro` |
+| `borrower_pro` (Demo_Client) | 3006 | `npm run dev:borrower_pro` |
+
+1. Configure `apps/backend_pro/.env` — include `CORS_ORIGINS` with `http://localhost:3005` and set `PRODUCT_MODE=pro` for public TrueStack KYC on staff borrower verification.
+2. Copy `apps/admin_pro/.env.example` to `apps/admin_pro/.env` — `BACKEND_URL` must point at `backend_pro` (e.g. `http://localhost:4001`). Set `NEXT_PUBLIC_PRODUCT_MODE=pro` to match.
+3. Seed/bootstrap: Pro expects a single tenant and staff user (see `apps/backend_pro/prisma/seed.ts` / `seed.prod.ts`); there is no in-app “create tenant” flow in `admin_pro`.
+
+**Product constraints (1 account ↔ 1 tenant for now; future multi-tenant + one TrueIdentity client per client):** see [`docs/admin_pro_product_notes.md`](docs/admin_pro_product_notes.md).
+
+**Docker:** `docker build -f apps/admin_pro/Dockerfile .` from the repo root (build args for `NEXT_PUBLIC_*` and `BACKEND_URL` in real deployments).
+
+**CI/CD:** The SaaS workflow in `.github/workflows/deploy.yml` targets `apps/admin` only. Add path filters and a build step for `apps/admin_pro` when you ship a Pro frontend image to ECS.
 
 ## Quick Start
 

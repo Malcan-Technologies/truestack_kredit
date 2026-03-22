@@ -16,6 +16,7 @@ import { config } from '../../lib/config.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { verifyCallbackSignature } from '../trueidentity/signature.js';
 import { AuditService } from '../compliance/auditService.js';
+import { addMonthsClamped } from '../../lib/math.js';
 import { recordVerificationComplete } from '../trueidentity/usageService.js';
 import { syncTenantBillingToAdmin } from '../trueidentity/adminBillingSync.js';
 import { syncSubscriptionAmountToAdmin } from '../trueidentity/syncSubscriptionToAdmin.js';
@@ -415,17 +416,14 @@ router.post('/', async (req, res) => {
         });
         if (claimed.count > 0) {
           await recordVerificationComplete(tenantId);
-          // Immediately sync tenant_billing_period to admin for real-time display
-          const subscription = await prisma.subscription.findUnique({
-            where: { tenantId },
-            select: { currentPeriodStart: true, currentPeriodEnd: true },
+          const tenantRow = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { proLicenseActivatedAt: true },
           });
-          if (subscription) {
-            await syncTenantBillingToAdmin(
-              tenantId,
-              subscription.currentPeriodStart,
-              subscription.currentPeriodEnd
-            );
+          if (tenantRow) {
+            const periodStart = tenantRow.proLicenseActivatedAt;
+            const periodEnd = addMonthsClamped(periodStart, 1);
+            await syncTenantBillingToAdmin(tenantId, periodStart, periodEnd);
           }
           await syncSubscriptionAmountToAdmin(tenantId);
         }

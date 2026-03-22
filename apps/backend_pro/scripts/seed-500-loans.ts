@@ -15,15 +15,14 @@ function addMonths(date: Date, months: number): Date {
 }
 
 async function main() {
-  console.log(`\n🌱 Seeding ${LOANS_TO_CREATE} loans for plan billing testing...\n`);
+  console.log(`\n🌱 Seeding ${LOANS_TO_CREATE} loans (load test)...\n`);
 
-  // Get first tenant with PAID subscription (demo-company or similar)
   const tenant = await prisma.tenant.findFirst({
-    where: { subscriptionStatus: "PAID" },
+    where: { status: "ACTIVE" },
     orderBy: { createdAt: "asc" },
   });
   if (!tenant) {
-    throw new Error("No PAID tenant found. Run db:seed first.");
+    throw new Error("No active tenant found. Run db:seed first.");
   }
 
   const borrowers = await prisma.borrower.findMany({

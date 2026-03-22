@@ -6,15 +6,13 @@ const prisma = new PrismaClient();
 
 /**
  * Production seed:
- * - Creates/updates only ONE demo tenant
- * - Creates/updates the tenant subscription with long validity
+ * - Creates/updates only ONE demo tenant (Pro license)
  * - Does not create borrowers, loans, products, or applications
  */
 async function main() {
   console.log('Seeding production baseline data...');
 
   const now = new Date();
-  const longValidityEnd = new Date('2099-12-31T23:59:59.000Z');
   const ownerEmail = process.env.PROD_DEMO_OWNER_EMAIL || 'admin@demo.com';
   const ownerName = process.env.PROD_DEMO_OWNER_NAME || 'Demo Owner';
   const ownerPassword = 'Demo@123';
@@ -31,9 +29,7 @@ async function main() {
       contactNumber: '+60312345678',
       businessAddress: '123 Jalan Demo, 50000 Kuala Lumpur',
       status: 'ACTIVE',
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900,
-      subscribedAt: now,
+      proLicenseActivatedAt: now,
     },
     create: {
       name: 'Demo Company Sdn Bhd',
@@ -45,28 +41,7 @@ async function main() {
       contactNumber: '+60312345678',
       businessAddress: '123 Jalan Demo, 50000 Kuala Lumpur',
       status: 'ACTIVE',
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900,
-      subscribedAt: now,
-    },
-  });
-
-  await prisma.subscription.upsert({
-    where: { tenantId: tenant.id },
-    update: {
-      plan: 'enterprise',
-      status: 'ACTIVE',
-      currentPeriodStart: now,
-      currentPeriodEnd: longValidityEnd,
-      gracePeriodEnd: null,
-    },
-    create: {
-      tenantId: tenant.id,
-      plan: 'enterprise',
-      status: 'ACTIVE',
-      currentPeriodStart: now,
-      currentPeriodEnd: longValidityEnd,
-      gracePeriodEnd: null,
+      proLicenseActivatedAt: now,
     },
   });
 
@@ -131,7 +106,7 @@ async function main() {
   console.log(`Owner: ${owner.email} (${owner.name || 'Owner'})`);
   console.log(`Credential account: ${updatedCredentialAccounts.count > 0 ? 'updated' : 'created'}`);
   console.log('Owner password: Demo@123 (starter password - change after first login)');
-  console.log(`Subscription: enterprise, valid until ${longValidityEnd.toISOString()}`);
+  console.log(`Pro license activated: ${tenant.proLicenseActivatedAt.toISOString()}`);
 }
 
 main()

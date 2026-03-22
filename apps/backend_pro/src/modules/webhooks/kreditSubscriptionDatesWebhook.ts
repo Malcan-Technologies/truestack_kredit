@@ -141,14 +141,7 @@ router.post('/', async (req, res) => {
 
     const tenant = await prisma.tenant.findUnique({
       where: { id: payload.tenant_id },
-      select: {
-        id: true,
-        subscription: {
-          select: {
-            tenantId: true,
-          },
-        },
-      },
+      select: { id: true },
     });
 
     if (!tenant) {
@@ -157,44 +150,22 @@ router.post('/', async (req, res) => {
       return;
     }
 
-    if (!tenant.subscription) {
-      await failEvent(idempotencyKey, 'Subscription not found for tenant');
-      res.status(409).json({ error: 'Subscription not found for tenant' });
-      return;
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.tenant.update({
-        where: { id: tenant.id },
-        data: {
-          subscribedAt,
-        },
-      });
-
-      await tx.subscription.update({
-        where: { tenantId: tenant.id },
-        data: {
-          currentPeriodStart,
-          currentPeriodEnd,
-          gracePeriodEnd,
-        },
-      });
-
-      await tx.trueIdentityWebhookEvent.update({
-        where: { idempotencyKey },
-        data: {
-          status: 'PROCESSED',
-          processedAt: new Date(),
-          errorMessage: null,
-          rawPayload: payload as object,
-        },
-      });
+    // TrueKredit Pro does not persist SaaS subscription periods; acknowledge for idempotency.
+    await prisma.trueIdentityWebhookEvent.update({
+      where: { idempotencyKey },
+      data: {
+        status: 'PROCESSED',
+        processedAt: new Date(),
+        errorMessage: null,
+        rawPayload: payload as object,
+      },
     });
 
     res.status(200).json({
       ok: true,
       data: {
         tenantId: tenant.id,
+        note: 'TrueKredit Pro: subscription dates webhook acknowledged (no subscription rows).',
         subscribedAt: subscribedAt?.toISOString() ?? null,
         currentPeriodStart: currentPeriodStart.toISOString(),
         currentPeriodEnd: currentPeriodEnd.toISOString(),

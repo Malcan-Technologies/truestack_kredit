@@ -38,20 +38,18 @@ export function getBorrowerVerificationSummary(borrower: {
   return isIndividualVerified || borrower.documentVerified ? 'FULLY_VERIFIED' : 'UNVERIFIED';
 }
 
-/** True when individual borrower identity is fully verified (cached or derived). */
+/**
+ * True when individual identity fields must not be edited.
+ * Locked only after TrueIdentity KYC completes with approval — not for legacy
+ * `documentVerified` or other paths until TI has approved.
+ */
 export function isIndividualIdentityLocked(borrower: {
   borrowerType: string;
-  verificationStatus: string | null;
-  documentVerified: boolean;
   trueIdentityStatus: string | null;
   trueIdentityResult: string | null;
 }): boolean {
   if (borrower.borrowerType !== 'INDIVIDUAL') return false;
-  const status =
-    borrower.verificationStatus ??
-    getBorrowerVerificationSummary({
-      ...borrower,
-      directors: [],
-    });
-  return status === 'FULLY_VERIFIED';
+  return (
+    borrower.trueIdentityStatus === 'completed' && borrower.trueIdentityResult === 'approved'
+  );
 }

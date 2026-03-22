@@ -5,8 +5,14 @@ export const config = {
   port: parseInt(process.env.PORT || '4001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
 
-  // CORS
-  corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3006'],
+  // CORS (borrower_pro + admin_pro local dev)
+  corsOrigins: process.env.CORS_ORIGINS?.split(',').map((s) => s.trim()) || [
+    'http://localhost:3006',
+    'http://localhost:3005',
+  ],
+
+  /** `saas` = multi-tenant SaaS behavior; `pro` = single-tenant Pro deployment (public KYC, no TrueStack Admin tenant provisioning for KYC). */
+  productMode: (process.env.PRODUCT_MODE || 'saas') as 'saas' | 'pro',
 
   // Pro: single tenant for borrower self-service (slug or ID)
   proTenantSlug: process.env.PRO_TENANT_SLUG || 'demo-company',

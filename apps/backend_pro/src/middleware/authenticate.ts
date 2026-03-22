@@ -1,20 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
-import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../lib/auth.js';
+import { getBetterAuthHeaders, getSessionTokenFromCookie } from '../lib/authCookies.js';
 import { prisma } from '../lib/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../lib/errors.js';
-
-function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
-  if (!cookieHeader) return null;
-  const parts = cookieHeader.split(';');
-  for (const part of parts) {
-    const [rawKey, ...rawVal] = part.trim().split('=');
-    if (rawKey === 'better-auth.session_token') {
-      return rawVal.join('=');
-    }
-  }
-  return null;
-}
 
 async function resolveCurrentSession(userId: string, cookieHeader: string | undefined) {
   const sessionToken = getSessionTokenFromCookie(cookieHeader);
@@ -68,7 +56,7 @@ export async function authenticateToken(req: Request, _res: Response, next: Next
   try {
     // Use Better Auth to verify the session from cookies
     const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
+      headers: getBetterAuthHeaders(req.headers),
     });
 
     if (!session || !session.user) {
@@ -146,7 +134,7 @@ export async function authenticateToken(req: Request, _res: Response, next: Next
 export async function requireSession(req: Request, _res: Response, next: NextFunction): Promise<void> {
   try {
     const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
+      headers: getBetterAuthHeaders(req.headers),
     });
 
     if (!session || !session.user) {
@@ -209,7 +197,7 @@ export async function requireSession(req: Request, _res: Response, next: NextFun
 export async function optionalAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   try {
     const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
+      headers: getBetterAuthHeaders(req.headers),
     });
 
     if (session?.user) {

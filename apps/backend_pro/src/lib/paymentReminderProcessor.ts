@@ -82,19 +82,17 @@ export class PaymentReminderProcessor {
     try {
       const reminderDayStart = getMalaysiaStartOfDay(new Date());
 
-      // Find all tenants with active TrueSend add-on
-      const trueSendAddOns = await prisma.tenantAddOn.findMany({
-        where: {
-          addOnType: 'TRUESEND',
-          status: 'ACTIVE',
-        },
+      // Pro: TrueSend is included for all active tenants; settings live on Tenant.truesendSettings
+      const trueSendTenants = await prisma.tenant.findMany({
+        where: { status: 'ACTIVE' },
         select: {
-          tenantId: true,
-          settings: true,
+          id: true,
+          truesendSettings: true,
         },
       });
 
-      await runWithConcurrency(trueSendAddOns, TENANT_PROCESSING_CONCURRENCY, async ({ tenantId, settings }) => {
+      await runWithConcurrency(trueSendTenants, TENANT_PROCESSING_CONCURRENCY, async ({ id: tenantId, truesendSettings }) => {
+        const settings = truesendSettings;
         try {
           // Verify add-on is truly active (subscription check too)
           const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');

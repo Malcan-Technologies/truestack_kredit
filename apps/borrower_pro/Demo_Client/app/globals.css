@@ -13,6 +13,7 @@
     /* Light theme - per brand.md */
     --background: 0 0% 100%;
     --foreground: 0 0% 4%;
+    --surface: 0 0% 98%;
     --card: 0 0% 98%;
     --card-foreground: 0 0% 4%;
     --popover: 0 0% 100%;
@@ -46,6 +47,7 @@
     /* Dark theme - per brand.md (default) */
     --background: 0 0% 4%;
     --foreground: 0 0% 98%;
+    --surface: 0 0% 9%;
     --card: 0 0% 9%;
     --card-foreground: 0 0% 98%;
     --popover: 0 0% 7%;

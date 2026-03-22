@@ -90,18 +90,16 @@ export class LatePaymentNoticeProcessor {
     try {
       const noticeDayStart = getMalaysiaStartOfDay(new Date());
 
-      const trueSendAddOns = await prisma.tenantAddOn.findMany({
-        where: {
-          addOnType: 'TRUESEND',
-          status: 'ACTIVE',
-        },
+      const trueSendTenants = await prisma.tenant.findMany({
+        where: { status: 'ACTIVE' },
         select: {
-          tenantId: true,
-          settings: true,
+          id: true,
+          truesendSettings: true,
         },
       });
 
-      await runWithConcurrency(trueSendAddOns, TENANT_PROCESSING_CONCURRENCY, async ({ tenantId, settings }) => {
+      await runWithConcurrency(trueSendTenants, TENANT_PROCESSING_CONCURRENCY, async ({ id: tenantId, truesendSettings }) => {
+        const settings = truesendSettings;
         try {
           const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
           if (!isActive) return;

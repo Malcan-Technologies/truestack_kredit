@@ -1,10 +1,5 @@
 /**
- * Add-on validation service
- *
- * Checks whether a tenant has an active add-on AND a valid base subscription.
- * An add-on is considered valid only when:
- *   1. TenantAddOn.status === 'ACTIVE', OR status === 'CANCELLED' with cancelledAt in future (period-end cancellation)
- *   2. Subscription.status is ACTIVE or GRACE_PERIOD
+ * TrueKredit Pro: all product modules are included for licensed tenants (no per-module SaaS add-on rows).
  */
 
 import { prisma } from './prisma.js';
@@ -13,110 +8,38 @@ export type AddOnType = 'TRUESEND' | 'TRUEIDENTITY' | 'BORROWER_PERFORMANCE';
 
 const BORROWER_PERFORMANCE_FEATURE_ENABLED =
   (process.env.BORROWER_PERFORMANCE_FEATURE_ENABLED ?? 'true').toLowerCase() !== 'false';
-const BORROWER_PERFORMANCE_DEFAULT_ACTIVE =
-  (process.env.BORROWER_PERFORMANCE_DEFAULT_ACTIVE ?? 'true').toLowerCase() !== 'false';
+
+async function tenantIsLicensed(tenantId: string): Promise<boolean> {
+  const t = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { status: true },
+  });
+  return !!t && t.status === 'ACTIVE';
+}
 
 export class AddOnService {
-  private static async hasValidBaseSubscription(tenantId: string, addOnType: AddOnType): Promise<boolean> {
-    const subscription = await prisma.subscription.findUnique({
-      where: { tenantId },
-    });
-
-    if (!subscription) {
-      console.log(`[AddOnService] ${addOnType} check failed: no subscription for tenant ${tenantId}`);
-      return false;
-    }
-
-    const isValid = subscription.status === 'ACTIVE' || subscription.status === 'GRACE_PERIOD';
-    if (!isValid) {
-      console.log(`[AddOnService] ${addOnType} check failed: subscription status=${subscription.status} for tenant ${tenantId}`);
-    }
-    return isValid;
-  }
-
-  /**
-   * Check if a tenant has an active add-on with a valid base subscription
-   */
   static async hasActiveAddOn(tenantId: string, addOnType: AddOnType): Promise<boolean> {
-    try {
-      if (addOnType === 'BORROWER_PERFORMANCE' && !BORROWER_PERFORMANCE_FEATURE_ENABLED) {
-        return false;
-      }
-
-      // Check add-on status
-      const addOn = await prisma.tenantAddOn.findUnique({
-        where: {
-          tenantId_addOnType: { tenantId, addOnType },
-        },
-      });
-
-      if (!addOn) {
-        if (addOnType === 'BORROWER_PERFORMANCE' && BORROWER_PERFORMANCE_DEFAULT_ACTIVE) {
-          // Borrower performance is rollout-enabled by default unless explicitly disabled.
-          return this.hasValidBaseSubscription(tenantId, addOnType);
-        }
-        console.log(`[AddOnService] ${addOnType} check failed: addOn=NOT_FOUND for tenant ${tenantId}`);
-        return false;
-      }
-
-      const now = new Date();
-      const activeUntilPeriodEnd =
-        addOn.status === 'CANCELLED' && !!addOn.cancelledAt && addOn.cancelledAt > now;
-      if (addOn.status !== 'ACTIVE' && !activeUntilPeriodEnd) {
-        console.log(`[AddOnService] ${addOnType} check failed: addOn=${addOn.status} for tenant ${tenantId}`);
-        return false;
-      }
-
-      return this.hasValidBaseSubscription(tenantId, addOnType);
-    } catch (error) {
-      console.error(`[AddOnService] Error checking add-on ${addOnType} for tenant ${tenantId}:`, error);
+    if (!(await tenantIsLicensed(tenantId))) {
       return false;
     }
+    if (addOnType === 'BORROWER_PERFORMANCE' && !BORROWER_PERFORMANCE_FEATURE_ENABLED) {
+      return false;
+    }
+    return true;
   }
 
-  /**
-   * Get all active add-ons for a tenant
-   */
   static async getActiveAddOns(tenantId: string): Promise<string[]> {
-    try {
-      const now = new Date();
-      const addOns = await prisma.tenantAddOn.findMany({
-        where: {
-          tenantId,
-          OR: [
-            { status: 'ACTIVE' },
-            {
-              status: 'CANCELLED',
-              cancelledAt: { gt: now },
-            },
-          ],
-        },
-        select: { addOnType: true },
-      });
-
-      // Also verify base subscription
-      const subscription = await prisma.subscription.findUnique({
-        where: { tenantId },
-      });
-
-      if (!subscription || (subscription.status !== 'ACTIVE' && subscription.status !== 'GRACE_PERIOD')) {
-        return [];
-      }
-
-      return addOns.map((a) => a.addOnType);
-    } catch (error) {
-      console.error(`[AddOnService] Error fetching add-ons for tenant ${tenantId}:`, error);
+    if (!(await tenantIsLicensed(tenantId))) {
       return [];
     }
+    const out: string[] = ['TRUESEND', 'TRUEIDENTITY'];
+    if (BORROWER_PERFORMANCE_FEATURE_ENABLED) {
+      out.push('BORROWER_PERFORMANCE');
+    }
+    return out;
   }
 
-  /**
-   * Get all add-on records for a tenant (includes inactive)
-   */
-  static async getAllAddOns(tenantId: string) {
-    return prisma.tenantAddOn.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'desc' },
-    });
+  static async getAllAddOns(_tenantId: string) {
+    return [] as const;
   }
 }

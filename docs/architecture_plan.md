@@ -74,6 +74,15 @@ This should be treated as the current baseline.
 - **Tenant context**: `TenantContext` + `TenantSwitcher`; session stores `activeTenantId`
 - **Features**: Loans, applications, borrowers, products, billing, dashboard, TrueIdentity/TrueSend modules, referrals
 
+### Pro borrower self-service (`apps/backend_pro`, `apps/borrower_pro`) — implemented
+
+The monorepo already includes a **Pro-style** borrower stack used for digital-license self-service (alongside the pooled SaaS `backend` + `admin`):
+
+- **`apps/backend_pro`**: Express + Prisma + Better Auth; **`borrower-auth`** APIs, **`BorrowerProfileLink`**, **`Session.activeBorrowerId`** for multi-borrower users.
+- **`apps/borrower_pro`**: Reference Next.js app at **`Demo_Client/`**; shared UI under **`borrower_pro/components/`**; **Your Account** page (`/settings`), **Switch account** in the switcher, onboarding, profile (e.g. recent login activity). Proxies to `backend_pro` via **`/api/proxy`**.
+
+For per-client deployment layout, `packages/borrower-ui`, and CI details, see **`docs/architecture_plan_edited.md`** (sections *Current State*, *Borrower_pro web pattern*, and *Final Summary*).
+
 ### Deployment (current)
 - **Single ECS cluster** (`truekredit-prod`), one backend + one admin service
 - **ECR**: `truekredit-backend`, `truekredit-frontend`

@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
     "dev:admin": "npm run dev -w apps/admin",
+    "dev:admin_pro": "npm run dev -w apps/admin_pro",
     "dev:backend": "npm run dev -w apps/backend",
     "dev:backend_pro": "npm run dev -w apps/backend_pro",
     "dev:borrower_pro": "npm run dev -w apps/borrower_pro/Demo_Client",

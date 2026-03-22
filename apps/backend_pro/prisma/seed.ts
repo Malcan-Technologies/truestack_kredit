@@ -1,8 +1,24 @@
+/**
+ * TrueKredit Pro — development database seed.
+ *
+ * There are no SaaS subscription / invoice / TenantAddOn rows: tenants are Pro-licensed
+ * (`proLicenseActivatedAt`). TrueSend email day preferences are optional JSON on
+ * `Tenant.truesendSettings` (defaults apply in the API if omitted).
+ */
 import { PrismaClient } from '@prisma/client';
 // @ts-ignore - better-auth crypto module
 import { hashPassword } from 'better-auth/crypto';
 
 const prisma = new PrismaClient();
+
+/** Matches API defaults for GET/PATCH `/api/tenants/modules/truesend` */
+const DEFAULT_TRUEsend_SETTINGS = {
+  paymentReminderDays: [3, 1, 0],
+  latePaymentNoticeDays: [3, 7, 10],
+} as const;
+
+/** Fixed anchor for reproducible demo data (not “subscription period”) */
+const DEMO_PRO_LICENSE_AT = new Date('2024-06-01T00:00:00.000Z');
 
 // Default required documents template
 const DEFAULT_REQUIRED_DOCUMENTS = [
@@ -16,14 +32,13 @@ const DEFAULT_REQUIRED_DOCUMENTS = [
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Create demo tenant (PPW - Money Lender)
-  // subscriptionStatus: PAID so demo tenants pass requirePaidSubscription and avoid billing redirect
+  // Primary demo tenant (PPW) — Pro license, TrueSend settings for email reminders
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'demo-company' },
     update: {
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900, // RM 499 in cents
-      subscribedAt: new Date(),
+      status: 'ACTIVE',
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
+      truesendSettings: DEFAULT_TRUEsend_SETTINGS,
     },
     create: {
       name: 'Demo Company Sdn Bhd',
@@ -35,21 +50,19 @@ async function main() {
       contactNumber: '+60312345678',
       businessAddress: '123 Jalan Demo, 50000 Kuala Lumpur',
       status: 'ACTIVE',
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900, // RM 499 in cents
-      subscribedAt: new Date(),
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
+      truesendSettings: DEFAULT_TRUEsend_SETTINGS,
     },
   });
 
   console.log('✓ Created tenant:', tenant.name);
 
-  // Create a second demo tenant for testing multi-tenant (also PPW for now)
   const tenant2 = await prisma.tenant.upsert({
     where: { slug: 'acme-lending' },
     update: {
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900,
-      subscribedAt: new Date(),
+      status: 'ACTIVE',
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
+      truesendSettings: DEFAULT_TRUEsend_SETTINGS,
     },
     create: {
       name: 'ACME Lending Sdn Bhd',
@@ -61,85 +74,84 @@ async function main() {
       contactNumber: '+60387654321',
       businessAddress: '456 Jalan ACME, 40000 Shah Alam',
       status: 'ACTIVE',
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900,
-      subscribedAt: new Date(),
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
+      truesendSettings: DEFAULT_TRUEsend_SETTINGS,
     },
   });
 
   console.log('✓ Created tenant:', tenant2.name);
 
-  // Create dev tenant: about to expire (for renewal reminder/testing)
+  // Extra active tenant (legacy slug kept for bookmarks)
   const expiringTenant = await prisma.tenant.upsert({
     where: { slug: 'dev-about-to-expire' },
     update: {
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900,
-      subscribedAt: new Date(),
+      name: 'Dev Org Extra Active Sdn Bhd',
+      email: 'dev-org-extra@demo.com',
+      status: 'ACTIVE',
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
+      truesendSettings: DEFAULT_TRUEsend_SETTINGS,
     },
     create: {
-      name: 'Dev About To Expire Sdn Bhd',
+      name: 'Dev Org Extra Active Sdn Bhd',
       slug: 'dev-about-to-expire',
       type: 'PPW',
       licenseNumber: 'PPW/KL/2026/201',
       registrationNumber: '202600020001',
-      email: 'billing-expiring@demo.com',
+      email: 'dev-org-extra@demo.com',
       contactNumber: '+60310002001',
       businessAddress: '201 Jalan Tester, 50450 Kuala Lumpur',
       status: 'ACTIVE',
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900,
-      subscribedAt: new Date(),
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
+      truesendSettings: DEFAULT_TRUEsend_SETTINGS,
     },
   });
   console.log('✓ Created tenant:', expiringTenant.name);
 
-  // Create dev tenant: already expired/overdue (for expiry lock testing)
+  // Suspended org (blocks API access via tenant status — not subscription overdue)
   const expiredTenant = await prisma.tenant.upsert({
     where: { slug: 'dev-expired-overdue' },
     update: {
-      subscriptionStatus: 'OVERDUE',
-      subscriptionAmount: 49900,
-      subscribedAt: new Date(),
+      name: 'Dev Org Suspended Sdn Bhd',
+      email: 'dev-org-suspended@demo.com',
+      status: 'SUSPENDED',
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
     },
     create: {
-      name: 'Dev Expired Overdue Sdn Bhd',
+      name: 'Dev Org Suspended Sdn Bhd',
       slug: 'dev-expired-overdue',
       type: 'PPW',
       licenseNumber: 'PPW/KL/2026/202',
       registrationNumber: '202600020002',
-      email: 'billing-expired@demo.com',
+      email: 'dev-org-suspended@demo.com',
       contactNumber: '+60310002002',
       businessAddress: '202 Jalan Tester, 50450 Kuala Lumpur',
-      status: 'ACTIVE',
-      subscriptionStatus: 'OVERDUE',
-      subscriptionAmount: 49900,
-      subscribedAt: new Date(),
+      status: 'SUSPENDED',
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
     },
   });
   console.log('✓ Created tenant:', expiredTenant.name);
 
-  // Create dev tenant: just expired today at 12:04:12 AM MYT (for 12:05 AM cron verification)
   const justExpiredTenant = await prisma.tenant.upsert({
     where: { slug: 'dev-expired-0004-myt' },
     update: {
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900,
-      subscribedAt: new Date(),
+      name: 'Dev Org Cron Sample Sdn Bhd',
+      email: 'dev-org-cron@demo.com',
+      status: 'ACTIVE',
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
+      truesendSettings: DEFAULT_TRUEsend_SETTINGS,
     },
     create: {
-      name: 'Dev Expired 0004 MYT Sdn Bhd',
+      name: 'Dev Org Cron Sample Sdn Bhd',
       slug: 'dev-expired-0004-myt',
       type: 'PPW',
       licenseNumber: 'PPW/KL/2026/203',
       registrationNumber: '202600020003',
-      email: 'billing-expired-0004@demo.com',
+      email: 'dev-org-cron@demo.com',
       contactNumber: '+60310002003',
       businessAddress: '203 Jalan Tester, 50450 Kuala Lumpur',
       status: 'ACTIVE',
-      subscriptionStatus: 'PAID',
-      subscriptionAmount: 49900,
-      subscribedAt: new Date(),
+      proLicenseActivatedAt: DEMO_PRO_LICENSE_AT,
+      truesendSettings: DEFAULT_TRUEsend_SETTINGS,
     },
   });
   console.log('✓ Created tenant:', justExpiredTenant.name);
@@ -241,7 +253,7 @@ async function main() {
 
   console.log('✓ Created membership: ADMIN in', tenant2.name);
 
-  // Also add this user as OWNER for expiry-testing tenants
+  // Also add this user as OWNER on extra dev tenants (multi-tenant + suspended-org testing)
   await prisma.tenantMember.upsert({
     where: {
       userId_tenantId: {
@@ -288,124 +300,6 @@ async function main() {
     },
   });
   console.log('✓ Created memberships for expiry test tenants');
-
-  // Create subscriptions for both tenants (calendar-month cycle)
-  const now = new Date();
-  const periodEnd = new Date(now);
-  periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
-
-  await prisma.subscription.upsert({
-    where: { tenantId: tenant.id },
-    update: {},
-    create: {
-      tenantId: tenant.id,
-      plan: 'trial',
-      status: 'ACTIVE',
-      currentPeriodStart: now,
-      currentPeriodEnd: periodEnd,
-    },
-  });
-
-  await prisma.subscription.upsert({
-    where: { tenantId: tenant2.id },
-    update: {},
-    create: {
-      tenantId: tenant2.id,
-      plan: 'trial',
-      status: 'ACTIVE',
-      currentPeriodStart: now,
-      currentPeriodEnd: periodEnd,
-    },
-  });
-
-  console.log('✓ Created subscriptions');
-
-  // Create explicit subscription windows for expiry testing
-  const expiringStart = new Date();
-  expiringStart.setDate(expiringStart.getDate() - 29);
-  const expiringEnd = new Date();
-  expiringEnd.setDate(expiringEnd.getDate() + 1);
-
-  await prisma.subscription.upsert({
-    where: { tenantId: expiringTenant.id },
-    update: {
-      plan: 'standard',
-      status: 'ACTIVE',
-      autoRenew: true,
-      currentPeriodStart: expiringStart,
-      currentPeriodEnd: expiringEnd,
-      gracePeriodEnd: null,
-    },
-    create: {
-      tenantId: expiringTenant.id,
-      plan: 'standard',
-      status: 'ACTIVE',
-      autoRenew: true,
-      currentPeriodStart: expiringStart,
-      currentPeriodEnd: expiringEnd,
-      gracePeriodEnd: null,
-    },
-  });
-
-  // Overdue tenant: period ended 20 days ago (past 14-day grace) - for testing overdue UI
-  const expiredStart = new Date();
-  expiredStart.setDate(expiredStart.getDate() - 51);
-  const expiredEnd = new Date();
-  expiredEnd.setDate(expiredEnd.getDate() - 21);
-
-  await prisma.subscription.upsert({
-    where: { tenantId: expiredTenant.id },
-    update: {
-      plan: 'standard',
-      status: 'ACTIVE',
-      autoRenew: true,
-      currentPeriodStart: expiredStart,
-      currentPeriodEnd: expiredEnd,
-      gracePeriodEnd: null,
-    },
-    create: {
-      tenantId: expiredTenant.id,
-      plan: 'standard',
-      status: 'ACTIVE',
-      autoRenew: true,
-      currentPeriodStart: expiredStart,
-      currentPeriodEnd: expiredEnd,
-      gracePeriodEnd: null,
-    },
-  });
-
-  // Just-expired tenant window: current period ends today at 00:04:12 MYT
-  const mytToday = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kuala_Lumpur',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date()); // YYYY-MM-DD in MYT
-  const justExpiredEnd = new Date(`${mytToday}T00:04:12+08:00`);
-  const justExpiredStart = new Date(justExpiredEnd);
-  justExpiredStart.setUTCDate(justExpiredStart.getUTCDate() - 30);
-
-  await prisma.subscription.upsert({
-    where: { tenantId: justExpiredTenant.id },
-    update: {
-      plan: 'standard',
-      status: 'ACTIVE',
-      autoRenew: true,
-      currentPeriodStart: justExpiredStart,
-      currentPeriodEnd: justExpiredEnd,
-      gracePeriodEnd: null,
-    },
-    create: {
-      tenantId: justExpiredTenant.id,
-      plan: 'standard',
-      status: 'ACTIVE',
-      autoRenew: true,
-      currentPeriodStart: justExpiredStart,
-      currentPeriodEnd: justExpiredEnd,
-      gracePeriodEnd: null,
-    },
-  });
-  console.log('✓ Created expiry testing subscriptions');
 
   // Corporate required documents template
   const CORPORATE_REQUIRED_DOCUMENTS = [
@@ -2122,6 +2016,7 @@ async function main() {
   console.log('✓ Created audit logs');
 
   console.log('\n🎉 Seeding completed!');
+  console.log('   (TrueKredit Pro: tenants use proLicenseActivatedAt + optional truesendSettings; no SaaS subscription rows.)');
   console.log('\n📝 Demo credentials:');
   console.log('   Admin: admin@demo.com / Demo@123');
   console.log('   Borrower (Individual + Corporate): demo@gmail.com / Admin@123');

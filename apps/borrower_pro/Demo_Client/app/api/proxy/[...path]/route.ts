@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4001";
+const OWN_AUTH_COOKIE_PREFIXES = ["truestack-borrower.", "__Secure-truestack-borrower."] as const;
+const OTHER_AUTH_COOKIE_PREFIXES = [
+  "better-auth.",
+  "__Secure-better-auth.",
+  "truestack-admin.",
+  "__Secure-truestack-admin.",
+] as const;
+
+function shouldForwardCookie(name: string): boolean {
+  if (OWN_AUTH_COOKIE_PREFIXES.some((prefix) => name.startsWith(prefix))) return true;
+  if (OTHER_AUTH_COOKIE_PREFIXES.some((prefix) => name.startsWith(prefix))) return false;
+  return true;
+}
 
 /**
  * Proxy API requests to the backend_pro Express server.
@@ -17,7 +30,7 @@ async function proxyRequest(
   const backendUrl = `${BACKEND_URL}/api/${pathname}${url.search}`;
 
   const cookieStore = await cookies();
-  const allCookies = cookieStore.getAll();
+  const allCookies = cookieStore.getAll().filter((cookie) => shouldForwardCookie(cookie.name));
   const cookieHeader = allCookies
     .map((c) => `${c.name}=${c.value}`)
     .join("; ");

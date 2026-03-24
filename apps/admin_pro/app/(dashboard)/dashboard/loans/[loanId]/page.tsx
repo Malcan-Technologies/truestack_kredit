@@ -182,6 +182,9 @@ interface Loan {
   agreementOriginalName: string | null;
   agreementVersion: number;
   agreementUploadedAt: string | null;
+  signedAgreementReviewStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+  signedAgreementReviewedAt?: string | null;
+  signedAgreementReviewNotes?: string | null;
   // Stamp certificate fields
   stampCertPath: string | null;
   stampCertOriginalName: string | null;
@@ -786,6 +789,10 @@ export default function LoanDetailPage() {
   const [generatingAgreement, setGeneratingAgreement] = useState(false);
   const [regeneratingAgreement, setRegeneratingAgreement] = useState(false);
   const [generatingGuarantorId, setGeneratingGuarantorId] = useState<string | null>(null);
+
+  const [showRejectSignedAgreementDialog, setShowRejectSignedAgreementDialog] = useState(false);
+  const [rejectSignedAgreementNotes, setRejectSignedAgreementNotes] = useState("");
+  const [approvingSignedAgreement, setApprovingSignedAgreement] = useState(false);
 
   // Guarantor agreement dialog state
   const [showUploadGuarantorAgreementDialog, setShowUploadGuarantorAgreementDialog] = useState(false);
@@ -1497,7 +1504,7 @@ export default function LoanDetailPage() {
       const result = await response.json();
 
       if (result.success) {
-        toast.success("Signed agreement uploaded successfully");
+        toast.success("Signed agreement uploaded and approved (admin upload)");
         setShowUploadAgreementDialog(false);
         setAgreementFile(null);
         await Promise.all([fetchLoan(), fetchTimeline()]); refreshEmailLog();
@@ -1508,6 +1515,52 @@ export default function LoanDetailPage() {
       toast.error("Failed to upload signed agreement");
     }
     setUploadingAgreement(false);
+  };
+
+  const handleApproveSignedAgreement = async () => {
+    setApprovingSignedAgreement(true);
+    try {
+      const response = await fetch(`/api/proxy/loans/${loanId}/signed-agreement/approve`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success("Signed agreement approved");
+        await Promise.all([fetchLoan(), fetchTimeline()]);
+      } else {
+        toast.error(result.error || "Failed to approve");
+      }
+    } catch {
+      toast.error("Failed to approve signed agreement");
+    } finally {
+      setApprovingSignedAgreement(false);
+    }
+  };
+
+  const handleRejectSignedAgreement = async () => {
+    setApprovingSignedAgreement(true);
+    try {
+      const response = await fetch(`/api/proxy/loans/${loanId}/signed-agreement/reject`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: rejectSignedAgreementNotes.trim() || undefined }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success("Signed agreement rejected — borrower can upload again");
+        setShowRejectSignedAgreementDialog(false);
+        setRejectSignedAgreementNotes("");
+        await Promise.all([fetchLoan(), fetchTimeline()]);
+      } else {
+        toast.error(result.error || "Failed to reject");
+      }
+    } catch {
+      toast.error("Failed to reject signed agreement");
+    } finally {
+      setApprovingSignedAgreement(false);
+    }
   };
 
   // Handle upload stamp certificate
@@ -1624,12 +1677,22 @@ export default function LoanDetailPage() {
     (guarantor) => !guarantor.agreementGeneratedAt
   );
   const allGuarantorAgreementsGenerated = pendingGuarantorAgreementGeneration.length === 0;
-  const canDisburseLoan = Boolean(loan.agreementDate) && (!hasGuarantors || allGuarantorAgreementsGenerated);
+  const hasSignedAgreementFile = Boolean(loan.agreementPath);
+  const signedAgreementApproved = (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED";
+  const canDisburseLoan =
+    Boolean(loan.agreementDate) &&
+    (!hasGuarantors || allGuarantorAgreementsGenerated) &&
+    hasSignedAgreementFile &&
+    signedAgreementApproved;
   const disbursementDisabledReason = !loan.agreementDate
     ? "Generate the agreement PDF first to fix the agreement date before disbursement"
     : hasGuarantors && !allGuarantorAgreementsGenerated
       ? "Generate all guarantor agreement PDFs before disbursement"
-      : undefined;
+      : !hasSignedAgreementFile
+        ? "Upload the signed loan agreement PDF"
+        : !signedAgreementApproved
+          ? "Approve the borrower’s signed agreement (or upload on their behalf) before disbursement"
+          : undefined;
 
   // ============================================
   // Main Render
@@ -2292,14 +2355,22 @@ export default function LoanDetailPage() {
             </Card>
           )}
 
-          {/* Signed Loan Agreement (optional upload before/after disbursement) */}
+          {/* Signed Loan Agreement — required before disbursement; borrower uploads for review */}
           {loan.status === "PENDING_DISBURSEMENT" && (
-            <Card className={loan.agreementPath ? "border-emerald-200 dark:border-emerald-800" : undefined}>
+            <Card
+              className={
+                (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED"
+                  ? "border-emerald-200 dark:border-emerald-800"
+                  : loan.agreementPath
+                    ? "border-amber-200 dark:border-amber-800"
+                    : undefined
+              }
+            >
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
                   <FileText className={`h-8 w-8 ${loan.agreementPath ? "text-emerald-600" : "text-muted-foreground"}`} />
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold">Signed Loan Agreement</h3>
                       {loan.product.loanScheduleType === "JADUAL_K" ? (
                         <Badge variant="default" className="text-xs">
@@ -2318,18 +2389,36 @@ export default function LoanDetailPage() {
                           Uploaded (v{loan.agreementVersion})
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="text-xs">
-                          Optional
+                        <Badge variant="warning" className="text-xs">
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Required before disbursement
+                        </Badge>
+                      )}
+                      {(loan.signedAgreementReviewStatus ?? "NONE") === "PENDING" && (
+                        <Badge variant="secondary" className="text-xs">
+                          Awaiting approval
+                        </Badge>
+                      )}
+                      {(loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED" && (
+                        <Badge variant="verified" className="text-xs">
+                          Approved
+                        </Badge>
+                      )}
+                      {(loan.signedAgreementReviewStatus ?? "NONE") === "REJECTED" && (
+                        <Badge variant="destructive" className="text-xs">
+                          Rejected
                         </Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
                       {loan.agreementPath
-                        ? `Signed agreement uploaded on ${formatDate(loan.agreementUploadedAt || "")}`
-                        : "Signed agreement can be uploaded before or after disbursement."
-                      }
+                        ? `Last upload: ${formatDate(loan.agreementUploadedAt || "")}. Borrower uploads go to “Awaiting approval” until you approve.`
+                        : "Upload the borrower’s signed PDF, or ask them to upload from the borrower portal."}
                     </p>
-                    <div className="flex gap-2 mt-3">
+                    {(loan.signedAgreementReviewStatus ?? "NONE") === "REJECTED" && loan.signedAgreementReviewNotes && (
+                      <p className="text-sm text-destructive mt-2">{loan.signedAgreementReviewNotes}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2 mt-3">
                       {loan.agreementPath ? (
                         <>
                           <Button
@@ -2348,6 +2437,26 @@ export default function LoanDetailPage() {
                             <Upload className="h-4 w-4 mr-2" />
                             Replace
                           </Button>
+                          {(loan.signedAgreementReviewStatus ?? "NONE") === "PENDING" && (
+                            <>
+                              <Button
+                                size="sm"
+                                onClick={() => void handleApproveSignedAgreement()}
+                                disabled={approvingSignedAgreement}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Approve signed agreement
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => setShowRejectSignedAgreementDialog(true)}
+                                disabled={approvingSignedAgreement}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
                         </>
                       ) : (
                         <Button size="sm" onClick={() => setShowUploadAgreementDialog(true)}>
@@ -4372,6 +4481,47 @@ export default function LoanDetailPage() {
             <Button onClick={handleUploadGuarantorAgreement} disabled={uploadingGuarantorAgreement || !guarantorAgreementFile}>
               <Upload className="h-4 w-4 mr-2" />
               {uploadingGuarantorAgreement ? "Uploading..." : "Upload Signed"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject borrower signed agreement */}
+      <Dialog
+        open={showRejectSignedAgreementDialog}
+        onOpenChange={(open) => {
+          setShowRejectSignedAgreementDialog(open);
+          if (!open) setRejectSignedAgreementNotes("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject signed agreement</DialogTitle>
+            <DialogDescription>
+              The borrower can upload a replacement. Optional notes may be shown on their loan screen.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="reject-signed-agreement-notes">Notes (optional)</Label>
+            <Textarea
+              id="reject-signed-agreement-notes"
+              value={rejectSignedAgreementNotes}
+              onChange={(e) => setRejectSignedAgreementNotes(e.target.value)}
+              className="mt-1"
+              rows={4}
+              placeholder="e.g. Signature missing on page 2"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRejectSignedAgreementDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleRejectSignedAgreement()}
+              disabled={approvingSignedAgreement}
+            >
+              {approvingSignedAgreement ? "Rejecting..." : "Confirm reject"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -29,8 +29,14 @@
       "@borrower_pro/components": [
         "../components"
       ],
+      "@borrower_pro/components/*": [
+        "../components/*"
+      ],
       "@borrower_pro/lib": [
         "../lib"
+      ],
+      "@borrower_pro/lib/*": [
+        "../lib/*"
       ]
     }
   },

@@ -10,7 +10,9 @@ Borrower-facing frontend for TrueKredit Pro (digital license KPKT borrowing). Ea
 borrower_pro/
 ├── components/           # SHARED — ShadCN, UI primitives (all clients use)
 │   └── ui/              # Add ShadCN components here
-├── lib/                 # SHARED — utils, theme (optional)
+├── lib/                 # SHARED — utils, theme, borrower-applications client
+├── components/application-form/  # SHARED — loan application wizard
+├── docs/loan-application-flow.md  # Borrower apply flow + APIs
 ├── Demo_Client/         # Client app — template for new clients
 ├── Client_B/            # Future: another client
 └── README.md

@@ -23,6 +23,8 @@ import PDFDocument from 'pdfkit';
 import { recalculateBorrowerPerformanceProjection } from '../borrowers/performanceProjectionService.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { buildInternalScheduleView, supportsInternalScheduleView } from './scheduleViewService.js';
+import { computeLoanApplicationPreview } from './loanApplicationPreviewService.js';
+import { buildLoanAgreementPdfBuffer } from './loanAgreementPdfService.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
@@ -718,62 +720,24 @@ router.post('/applications/preview', async (req, res, next) => {
       );
     }
 
-    const loanAmount = data.amount;
-    const term = data.term;
-    const interestRate = toSafeNumber(product.interestRate);
-
-    // Calculate fees
-    const legalFeeValue = toSafeNumber(product.legalFeeValue);
-    const stampingFeeValue = toSafeNumber(product.stampingFeeValue);
-
-    const legalFee = product.legalFeeType === 'PERCENTAGE'
-      ? safeMultiply(loanAmount, safeDivide(legalFeeValue, 100))
-      : legalFeeValue;
-
-    const stampingFee = product.stampingFeeType === 'PERCENTAGE'
-      ? safeMultiply(loanAmount, safeDivide(stampingFeeValue, 100))
-      : stampingFeeValue;
-
-    const totalFees = safeAdd(legalFee, stampingFee);
-    const netDisbursement = safeSubtract(loanAmount, totalFees);
-
-    const interestModel = String(product.interestModel);
-
-    // Calculate monthly payment based on interest model
-    let monthlyPayment: number;
-    let totalInterest: number;
-    let totalPayable: number;
-
-    if (interestModel === 'FLAT' || interestModel === 'RULE_78') {
-      // Flat interest: Principal × Rate × Term / 12
-      totalInterest = calculateFlatInterest(loanAmount, interestRate, term);
-      totalPayable = safeAdd(loanAmount, totalInterest);
-      monthlyPayment = safeDivide(totalPayable, term);
-    } else {
-      // Declining balance EMI
-      monthlyPayment = calculateEMI(loanAmount, interestRate, term);
-      totalPayable = safeMultiply(monthlyPayment, term);
-      totalInterest = safeSubtract(totalPayable, loanAmount);
-    }
+    const preview = computeLoanApplicationPreview(product, data.amount, data.term);
 
     res.json({
       success: true,
       data: {
-        loanAmount,
-        term,
-        interestRate,
-        interestModel: product.interestModel,
-        // Fees
-        legalFee,
-        legalFeeType: product.legalFeeType,
-        stampingFee,
-        stampingFeeType: product.stampingFeeType,
-        totalFees,
-        netDisbursement,
-        // Repayment
-        monthlyPayment,
-        totalInterest,
-        totalPayable,
+        loanAmount: preview.loanAmount,
+        term: preview.term,
+        interestRate: preview.interestRate,
+        interestModel: preview.interestModel,
+        legalFee: preview.legalFee,
+        legalFeeType: preview.legalFeeType,
+        stampingFee: preview.stampingFee,
+        stampingFeeType: preview.stampingFeeType,
+        totalFees: preview.totalFees,
+        netDisbursement: preview.netDisbursement,
+        monthlyPayment: preview.monthlyPayment,
+        totalInterest: preview.totalInterest,
+        totalPayable: preview.totalPayable,
       },
     });
   } catch (error) {
@@ -3592,6 +3556,16 @@ router.post('/:loanId/disburse', async (req, res, next) => {
       );
     }
 
+    if (!loan.agreementPath) {
+      throw new BadRequestError('Signed loan agreement is not uploaded yet.');
+    }
+
+    if (loan.signedAgreementReviewStatus !== 'APPROVED') {
+      throw new BadRequestError(
+        'Signed loan agreement must be approved before disbursement. Ask the borrower to upload the signed agreement or approve it in the loan admin screen.'
+      );
+    }
+
     // Generate disbursement reference if not provided
     const dateStr = disbursementDate.toISOString().split('T')[0].replace(/-/g, '');
     const disbursementReference = reference || `DIS-${dateStr}-${loan.id.substring(0, 8).toUpperCase()}`;
@@ -3870,7 +3844,7 @@ router.get('/:loanId/disbursement-proof', async (req, res, next) => {
 // Loan Agreement Endpoints
 // ============================================
 
-import { generateLoanAgreement, generateGuarantorAgreement, LoanForAgreement, computeScheduleTotal } from '../../lib/pdfService.js';
+import { generateGuarantorAgreement, computeScheduleTotal } from '../../lib/pdfService.js';
 import {
   saveAgreementFile,
   getAgreementFile,
@@ -3893,157 +3867,19 @@ import {
 router.get('/:loanId/generate-agreement', async (req, res, next) => {
   try {
     const { loanId } = req.params;
-    
-    // Accept required query parameter for agreement date (the agreed disbursement date)
-    const { agreementDate: agreementDateParam } = req.query;
+    const agreementDateParam =
+      typeof req.query.agreementDate === 'string' ? req.query.agreementDate : undefined;
 
-    const loan = await prisma.loan.findFirst({
-      where: {
-        id: loanId,
-        tenantId: req.tenantId,
-      },
-      include: {
-        borrower: {
-          include: {
-            directors: {
-              orderBy: { order: 'asc' },
-            },
-          },
-        },
-        product: true,
-        tenant: true,
-      },
+    const { buffer, filename } = await buildLoanAgreementPdfBuffer({
+      tenantId: req.tenantId!,
+      loanId,
+      agreementDateParam,
     });
-
-    if (!loan) {
-      throw new NotFoundError('Loan');
-    }
-
-    // Helper function to calculate first repayment date (1 month after agreement date)
-    const calculateFirstRepaymentDate = (agreementDate: Date): Date => {
-      return addMonthsClamped(agreementDate, 1);
-    };
-
-    // Calculate dates from agreement date parameter or stored agreement date
-    let agreementDate: Date | null = null;
-    let firstRepaymentDate: Date | null = null;
-    let monthlyRepaymentDay: number | null = null;
-    
-    // Use query parameter if provided
-    if (agreementDateParam !== undefined) {
-      if (typeof agreementDateParam !== 'string') {
-        throw new BadRequestError('Invalid agreementDate. Expected YYYY-MM-DD.');
-      }
-
-      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(agreementDateParam);
-      if (!match) {
-        throw new BadRequestError('Invalid agreementDate. Expected YYYY-MM-DD.');
-      }
-      const year = Number(match[1]);
-      const month = Number(match[2]);
-      const day = Number(match[3]);
-      const parsedDate = new Date(Date.UTC(year, month - 1, day));
-      const isValidDate =
-        parsedDate.getUTCFullYear() === year &&
-        parsedDate.getUTCMonth() === month - 1 &&
-        parsedDate.getUTCDate() === day;
-      if (!isValidDate) {
-        throw new BadRequestError('Invalid agreementDate. Expected YYYY-MM-DD.');
-      }
-
-      agreementDate = parsedDate;
-      firstRepaymentDate = calculateFirstRepaymentDate(parsedDate);
-      monthlyRepaymentDay = firstRepaymentDate.getUTCDate();
-
-      // Save the agreement date to the loan. If the date changes, invalidate
-      // guarantor generation markers so fresh PDFs must be regenerated.
-      const agreementDateChanged =
-        (loan.agreementDate?.getTime() ?? null) !== parsedDate.getTime();
-
-      if (agreementDateChanged) {
-        await prisma.$transaction([
-          prisma.loan.update({
-            where: { id: loan.id },
-            data: { agreementDate: parsedDate },
-          }),
-          prisma.loanGuarantor.updateMany({
-            where: {
-              tenantId: req.tenantId!,
-              loanId: loan.id,
-            },
-            data: { agreementGeneratedAt: null },
-          }),
-        ]);
-      } else {
-        await prisma.loan.update({
-          where: { id: loan.id },
-          data: { agreementDate: parsedDate },
-        });
-      }
-    }
-    
-    // If no query param, try to use existing agreement date
-    if (!agreementDate && loan.agreementDate) {
-      agreementDate = loan.agreementDate;
-      firstRepaymentDate = calculateFirstRepaymentDate(loan.agreementDate);
-      monthlyRepaymentDay = firstRepaymentDate.getUTCDate();
-    }
-
-    // Prepare loan data for PDF generation (agreementDate required for "Hari dan tahun Perjanjian ini")
-    if (!agreementDate) {
-      throw new BadRequestError('Agreement date is required. Provide agreementDate query parameter (YYYY-MM-DD) or ensure the loan has a stored agreement date.');
-    }
-    const loanData: LoanForAgreement = {
-      id: loan.id,
-      principalAmount: loan.principalAmount,
-      interestRate: loan.interestRate,
-      term: loan.term,
-      agreementDate,
-      firstRepaymentDate,
-      monthlyRepaymentDay,
-      borrower: {
-        name: loan.borrower.name,
-        icNumber: loan.borrower.icNumber,
-        address: loan.borrower.address,
-        type: loan.borrower.borrowerType,
-        borrowerType: loan.borrower.borrowerType,
-        companyName: loan.borrower.companyName,
-        companyRegistrationNumber: loan.borrower.ssmRegistrationNo,
-        directors: loan.borrower.directors.map((director) => ({
-          name: director.name,
-          icNumber: director.icNumber,
-          position: director.position,
-        })),
-      },
-      tenant: {
-        name: loan.tenant.name,
-        registrationNumber: loan.tenant.registrationNumber,
-        licenseNumber: loan.tenant.licenseNumber,
-        businessAddress: loan.tenant.businessAddress,
-      },
-      product: {
-        interestModel: loan.product.interestModel,
-        loanScheduleType: loan.product.loanScheduleType,
-      },
-      collateralType: loan.collateralType,
-      collateralValue: loan.collateralValue ? Number(loan.collateralValue) : null,
-    };
-
-    // Generate the PDF (automatically selects Jadual J or K template)
-    const pdfBuffer = await generateLoanAgreement(loanData);
-
-    // Generate filename with schedule type
-    const scheduleLabel = loan.product.loanScheduleType === 'JADUAL_K' ? 'Jadual_K' : 'Jadual_J';
-    const borrowerName = loan.borrower.borrowerType === 'CORPORATE' && loan.borrower.companyName
-      ? loan.borrower.companyName
-      : loan.borrower.name;
-    const sanitizedName = borrowerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
-    const filename = `${scheduleLabel}_Agreement_${sanitizedName}_${loanId.substring(0, 8)}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', pdfBuffer.length);
-    res.send(pdfBuffer);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
   } catch (error) {
     next(error);
   }
@@ -4105,6 +3941,10 @@ router.post('/:loanId/agreement', async (req, res, next) => {
         agreementSize: buffer.length,
         agreementUploadedAt: new Date(),
         agreementVersion: newVersion,
+        signedAgreementReviewStatus: 'APPROVED',
+        signedAgreementReviewedAt: new Date(),
+        signedAgreementReviewerMemberId: req.memberId ?? null,
+        signedAgreementReviewNotes: null,
       },
     });
 
@@ -4140,6 +3980,103 @@ router.post('/:loanId/agreement', async (req, res, next) => {
         agreementUploadedAt: updatedLoan.agreementUploadedAt,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const signedAgreementReviewBodySchema = z.object({
+  notes: z.string().max(2000).optional(),
+});
+
+/**
+ * POST /api/loans/:loanId/signed-agreement/approve
+ * Admin approves the borrower-uploaded signed agreement so disbursement can proceed.
+ */
+router.post('/:loanId/signed-agreement/approve', requireAdmin, async (req, res, next) => {
+  try {
+    const loanId = String(req.params.loanId);
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: req.tenantId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (loan.status !== 'PENDING_DISBURSEMENT') {
+      throw new BadRequestError('Can only approve the signed agreement while the loan is pending disbursement');
+    }
+    if (!loan.agreementPath) {
+      throw new BadRequestError('No signed agreement file to approve');
+    }
+
+    const updated = await prisma.loan.update({
+      where: { id: loanId },
+      data: {
+        signedAgreementReviewStatus: 'APPROVED',
+        signedAgreementReviewedAt: new Date(),
+        signedAgreementReviewerMemberId: req.memberId ?? null,
+        signedAgreementReviewNotes: null,
+      },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'APPROVE_SIGNED_AGREEMENT',
+      entityType: 'Loan',
+      entityId: loanId,
+      previousData: { signedAgreementReviewStatus: loan.signedAgreementReviewStatus },
+      newData: { signedAgreementReviewStatus: 'APPROVED' },
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/loans/:loanId/signed-agreement/reject
+ * Admin rejects the signed agreement; borrower must upload a replacement.
+ */
+router.post('/:loanId/signed-agreement/reject', requireAdmin, async (req, res, next) => {
+  try {
+    const loanId = String(req.params.loanId);
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: req.tenantId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (loan.status !== 'PENDING_DISBURSEMENT') {
+      throw new BadRequestError('Can only reject the signed agreement while the loan is pending disbursement');
+    }
+
+    const { notes } = signedAgreementReviewBodySchema.parse(req.body ?? {});
+
+    const updated = await prisma.loan.update({
+      where: { id: loanId },
+      data: {
+        signedAgreementReviewStatus: 'REJECTED',
+        signedAgreementReviewedAt: new Date(),
+        signedAgreementReviewerMemberId: req.memberId ?? null,
+        signedAgreementReviewNotes: notes ?? null,
+      },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'REJECT_SIGNED_AGREEMENT',
+      entityType: 'Loan',
+      entityId: loanId,
+      previousData: { signedAgreementReviewStatus: loan.signedAgreementReviewStatus },
+      newData: { signedAgreementReviewStatus: 'REJECTED', signedAgreementReviewNotes: notes ?? null },
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
   } catch (error) {
     next(error);
   }

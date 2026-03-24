@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ClipboardList } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
 import { Button } from "../../../../components/ui/button";
-import { fetchBorrowerMe } from "../../../../lib/borrower-auth-client";
+import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "../../../../lib/borrower-auth-client";
+import { fetchLoanCenterOverview } from "../../../../lib/borrower-loans-client";
+import { listBorrowerApplications } from "../../../../lib/borrower-applications-client";
 
 function OnboardingBanner() {
   const [show, setShow] = useState(false);
@@ -76,7 +78,57 @@ function OnboardingBanner() {
   );
 }
 
+function formatRm(n: number): string {
+  return `RM ${n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export default function DashboardPage() {
+  const [kpis, setKpis] = useState<{
+    active: number;
+    outstanding: number;
+    nextLabel: string;
+    nextSub: string;
+    appCount: number;
+  } | null>(null);
+
+  const loadKpis = useCallback(async () => {
+    try {
+      const [ov, apps] = await Promise.all([
+        fetchLoanCenterOverview(),
+        listBorrowerApplications({ pageSize: 100 }),
+      ]);
+      if (!ov.success) return;
+      const s = ov.data.summary;
+      const nextLabel =
+        s.nextPaymentDue != null
+          ? new Date(s.nextPaymentDue).toLocaleDateString("en-MY", { day: "numeric", month: "short" })
+          : "—";
+      const nextSub =
+        s.nextPaymentAmount != null
+          ? formatRm(s.nextPaymentAmount)
+          : "No upcoming payments";
+      setKpis({
+        active: s.activeLoanCount,
+        outstanding: s.totalOutstanding,
+        nextLabel,
+        nextSub,
+        appCount: apps.success ? apps.data.length : 0,
+      });
+    } catch {
+      setKpis(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadKpis();
+  }, [loadKpis]);
+
+  useEffect(() => {
+    const onSwitch = () => void loadKpis();
+    window.addEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
+    return () => window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
+  }, [loadKpis]);
+
   return (
     <div className="space-y-8">
       <div>
@@ -94,8 +146,10 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Active Loan</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">0</p>
-            <p className="text-xs text-muted-foreground">No active loans</p>
+            <p className="text-2xl font-bold">{kpis?.active ?? "—"}</p>
+            <p className="text-xs text-muted-foreground">
+              {kpis && kpis.active === 0 ? "No active loans" : "Loans in repayment"}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -103,7 +157,9 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Outstanding Balance</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">RM 0</p>
+            <p className="text-2xl font-bold">
+              {kpis != null ? formatRm(kpis.outstanding) : "—"}
+            </p>
             <p className="text-xs text-muted-foreground">Total outstanding</p>
           </CardContent>
         </Card>
@@ -112,8 +168,8 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Next Payment</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">—</p>
-            <p className="text-xs text-muted-foreground">No upcoming payments</p>
+            <p className="text-2xl font-bold">{kpis?.nextLabel ?? "—"}</p>
+            <p className="text-xs text-muted-foreground">{kpis?.nextSub ?? "Loading…"}</p>
           </CardContent>
         </Card>
         <Card>
@@ -121,7 +177,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Applications</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">0</p>
+            <p className="text-2xl font-bold">{kpis?.appCount ?? "—"}</p>
             <p className="text-xs text-muted-foreground">Total applications</p>
           </CardContent>
         </Card>
@@ -137,7 +193,11 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground text-sm">
-              No recent activity. Complete onboarding to get started.
+              Visit{" "}
+              <Link href="/loans" className="text-primary font-medium underline">
+                My Loans
+              </Link>{" "}
+              for schedules, payments, and application status.
             </p>
           </CardContent>
         </Card>
@@ -150,7 +210,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground text-sm">
-              No recent payments or applications.
+              Track repayments and milestones on the My Loans page.
             </p>
           </CardContent>
         </Card>

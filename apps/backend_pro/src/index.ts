@@ -31,6 +31,8 @@ import kreditSubscriptionPaymentDecisionWebhookRoutes from './modules/webhooks/k
 import kreditSubscriptionDatesWebhookRoutes from './modules/webhooks/kreditSubscriptionDatesWebhook.js';
 import internalAdminRoutes from './modules/internalAdmin/routes.js';
 import borrowerAuthRoutes from './modules/borrower-auth/routes.js';
+import borrowerApplicationRoutes from './modules/borrower-applications/routes.js';
+import borrowerLoanRoutes from './modules/borrower-loans/routes.js';
 
 validateConfig();
 
@@ -114,6 +116,8 @@ app.use('/api/referrals', referralsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/internal/kredit/admin', internalAdminRoutes);
 app.use('/api/borrower-auth', borrowerAuthRoutes);
+app.use('/api/borrower-auth', borrowerApplicationRoutes);
+app.use('/api/borrower-auth', borrowerLoanRoutes);
 
 // Error handling
 app.use(errorHandler);

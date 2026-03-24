@@ -12,6 +12,7 @@ import { performBorrowerUpdate, updateBorrowerSchema } from '../borrowers/borrow
 import { createKycSession, refreshKycSession } from '../truestack-kyc/publicApiClient.js';
 import { ingestTruestackKycDocuments } from '../truestack-kyc/ingestKycDocuments.js';
 import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
+import { resolveProTenant, requireActiveBorrower } from './borrowerContext.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -114,26 +115,6 @@ const onboardingSchema = z.object({
     position: z.string().max(100).optional(),
   })).min(0).max(10).optional(),
 }).merge(addressFieldsSchema);
-
-async function resolveProTenant() {
-  if (config.proTenantId) {
-    const t = await prisma.tenant.findUnique({ where: { id: config.proTenantId } });
-    if (t) return t;
-  }
-  let t = await prisma.tenant.findFirst({ where: { slug: config.proTenantSlug } });
-  if (!t) {
-    // Auto-create pro tenant for borrower_pro when missing (no tenant for user account;
-    // tenant is only used to host borrower profiles)
-    t = await prisma.tenant.create({
-      data: {
-        name: 'Borrower Pro',
-        slug: config.proTenantSlug,
-        type: 'PPW',
-      },
-    });
-  }
-  return t;
-}
 
 function buildLegacyAddress(data: {
   addressLine1: string | null;
@@ -544,69 +525,6 @@ router.get('/cross-tenant-insights', async (req, res, next) => {
     next(e);
   }
 });
-
-/** Ensure active borrower exists and user has link. Returns { borrowerId, tenant }. */
-async function requireActiveBorrower(req: {
-  borrowerUser?: {
-    userId: string;
-    activeBorrowerId?: string | null;
-    sessionToken?: string | null;
-    sessionId?: string;
-  };
-}) {
-  const tenant = await resolveProTenant();
-  let activeBorrowerId = req.borrowerUser?.activeBorrowerId ?? null;
-
-  // Self-heal when session lost activeBorrowerId but linked profile exists.
-  if (!activeBorrowerId) {
-    const firstLink = await prisma.borrowerProfileLink.findFirst({
-      where: {
-        userId: req.borrowerUser!.userId,
-        tenantId: tenant.id,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    if (!firstLink) {
-      throw new BadRequestError('No active borrower profile. Please complete onboarding first.');
-    }
-
-    activeBorrowerId = firstLink.borrowerId;
-    req.borrowerUser!.activeBorrowerId = activeBorrowerId;
-
-    const sessionToken = req.borrowerUser?.sessionToken;
-    const sessionId = req.borrowerUser?.sessionId;
-    if (sessionToken) {
-      const updated = await prisma.session.updateMany({
-        where: { userId: req.borrowerUser!.userId, token: sessionToken },
-        data: { activeBorrowerId },
-      });
-      if (updated.count === 0 && sessionId) {
-        await prisma.session.update({
-          where: { id: sessionId },
-          data: { activeBorrowerId },
-        });
-      }
-    } else if (sessionId) {
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { activeBorrowerId },
-      });
-    }
-  }
-
-  const link = await prisma.borrowerProfileLink.findFirst({
-    where: {
-      userId: req.borrowerUser!.userId,
-      borrowerId: activeBorrowerId,
-      tenantId: tenant.id,
-    },
-  });
-  if (!link) {
-    throw new NotFoundError('Borrower profile not found or not linked to you');
-  }
-  return { borrowerId: activeBorrowerId, tenant };
-}
 
 /** GET /api/borrower-auth/borrower - fetch full borrower details for active borrower */
 router.get('/borrower', async (req, res, next) => {

@@ -46,6 +46,14 @@ enum LoanStatus {
   WRITTEN_OFF
 }
 
+/** Admin review of borrower-uploaded signed loan agreement before disbursement */
+enum SignedAgreementReviewStatus {
+  NONE // No signed file, or not applicable yet
+  PENDING // Uploaded; awaiting admin approval
+  APPROVED
+  REJECTED
+}
+
 enum RepaymentStatus {
   PENDING
   PARTIAL
@@ -706,6 +714,11 @@ model Loan {
   agreementSize         Int?      // File size in bytes
   agreementUploadedAt   DateTime? // When agreement was uploaded
   agreementVersion      Int       @default(0) // Version counter for audit trail
+
+  signedAgreementReviewStatus     SignedAgreementReviewStatus @default(NONE)
+  signedAgreementReviewedAt       DateTime?
+  signedAgreementReviewerMemberId String? // Better Auth user id of reviewer
+  signedAgreementReviewNotes      String? // e.g. rejection reason
 
   // Stamp certificate (uploaded by admin before disbursement)
   stampCertPath         String?   // Path to stamp certificate file (local or S3)

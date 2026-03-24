@@ -3585,6 +3585,8 @@ export default function BorrowerDetailPage() {
               borrowerType={borrower.borrowerType}
               borrowerName={borrower.name}
               borrowerIcNumber={borrower.icNumber}
+              borrowerVerificationStatus={borrower.verificationStatus}
+              borrowerDocumentVerified={borrower.documentVerified}
               directors={borrower.directors}
               refreshKey={trueIdentityRefreshKey}
             />

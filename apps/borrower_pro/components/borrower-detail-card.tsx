@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
 import {
   Pencil,
   Save,
@@ -113,11 +119,25 @@ function SectionCard({
   );
 }
 
-interface BorrowerDetailCardProps {
-  onRefresh?: () => void;
+export interface BorrowerDetailCardHandle {
+  refresh: () => Promise<void>;
+  startEdit: () => void;
 }
 
-export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
+interface BorrowerDetailCardProps {
+  onRefresh?: () => void;
+  /** Hide the inline "Edit" in the card header when the page provides its own Edit Borrower button */
+  hideInlineEditButton?: boolean;
+  onEditingChange?: (editing: boolean) => void;
+}
+
+export const BorrowerDetailCard = forwardRef<
+  BorrowerDetailCardHandle,
+  BorrowerDetailCardProps
+>(function BorrowerDetailCard(
+  { onRefresh, hideInlineEditButton, onEditingChange },
+  ref
+) {
   const [borrower, setBorrower] = useState<BorrowerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -132,7 +152,7 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
   const identityLocked =
     Boolean(borrower && isIndividual && isIndividualIdentityLocked(borrower));
 
-  const loadBorrower = async () => {
+  const loadBorrower = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetchBorrower();
@@ -150,19 +170,36 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const updateEditing = useCallback(
+    (next: boolean) => {
+      setEditing(next);
+      onEditingChange?.(next);
+    },
+    [onEditingChange]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      refresh: () => loadBorrower(),
+      startEdit: () => updateEditing(true),
+    }),
+    [loadBorrower, updateEditing]
+  );
 
   useEffect(() => {
-    loadBorrower();
-  }, []);
+    void loadBorrower();
+  }, [loadBorrower]);
 
   // Re-fetch when user switches borrower profile (e.g. Individual → Corporate)
   useEffect(() => {
-    const handler = () => loadBorrower();
+    const handler = () => void loadBorrower();
     window.addEventListener(BORROWER_PROFILE_SWITCHED_EVENT, handler);
     return () =>
       window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, handler);
-  }, []);
+  }, [loadBorrower]);
 
   useEffect(() => {
     if (borrower) {
@@ -204,7 +241,7 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
       const res = await updateBorrower(payload);
       if (res.success) {
         setBorrower(res.data);
-        setEditing(false);
+        updateEditing(false);
         setErrors({});
         onRefresh?.();
         toast.success("Borrower updated");
@@ -224,7 +261,7 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
         setCorporateForm(borrowerToCorporateForm(borrower));
       }
     }
-    setEditing(false);
+    updateEditing(false);
     setErrors({});
   };
 
@@ -410,10 +447,12 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
             </div>
           </div>
         </div>
-        <Button variant="outline" onClick={() => setEditing(true)}>
-          <Pencil className="h-4 w-4 mr-2" />
-          Edit
-        </Button>
+        {!hideInlineEditButton ? (
+          <Button variant="outline" onClick={() => updateEditing(true)}>
+            <Pencil className="h-4 w-4 mr-2" />
+            Edit
+          </Button>
+        ) : null}
       </div>
 
       {/* View mode: Individual - matches admin borrowers [id] layout */}
@@ -623,7 +662,7 @@ export function BorrowerDetailCard({ onRefresh }: BorrowerDetailCardProps) {
       )}
     </div>
   );
-}
+});
 
 function isIndividualFormData(d: IndividualFormData | CorporateFormData): d is IndividualFormData {
   return "documentType" in d && "dateOfBirth" in d;

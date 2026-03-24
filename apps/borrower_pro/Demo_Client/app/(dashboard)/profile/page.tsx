@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { BorrowerDetailCard } from "../../../../components/borrower-detail-card";
+import { Pencil } from "lucide-react";
+import {
+  BorrowerDetailCard,
+  type BorrowerDetailCardHandle,
+} from "../../../../components/borrower-detail-card";
 import { TruestackKycCard } from "../../../../components/truestack-kyc-card";
 import { DigitalSigningComingSoonCard } from "../../../../components/digital-signing-coming-soon-card";
 import { BorrowerDocumentsCard } from "../../../../components/borrower-documents-card";
+import { RefreshButton } from "../../../../components/ui/refresh-button";
+import { Button } from "../../../../components/ui/button";
 import {
   fetchBorrowerMe,
   switchBorrowerProfile,
@@ -15,13 +21,20 @@ import { fetchBorrower } from "../../../../lib/borrower-api-client";
 
 export default function YourProfilePage() {
   const router = useRouter();
+  const cardRef = useRef<BorrowerDetailCardHandle>(null);
   const [borrowerType, setBorrowerType] = useState<"INDIVIDUAL" | "CORPORATE" | null>(null);
   const [loading, setLoading] = useState(true);
-  const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
 
-  const bumpDocumentsRefresh = useCallback(() => {
-    setDocumentsRefreshKey((k) => k + 1);
+  const bumpDataRefresh = useCallback(() => {
+    setDataRefreshKey((k) => k + 1);
   }, []);
+
+  const handleToolbarRefresh = useCallback(async () => {
+    await cardRef.current?.refresh();
+    bumpDataRefresh();
+  }, [bumpDataRefresh]);
 
   const loadSettings = async () => {
     let cancelled = false;
@@ -125,18 +138,49 @@ export default function YourProfilePage() {
 
   return (
     <div className="space-y-6">
+      {!profileEditing ? (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-heading font-bold tracking-tight">Your profile</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              View and update your borrower details
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <RefreshButton
+              onRefresh={handleToolbarRefresh}
+              showToast
+              showLabel
+              successMessage="Profile refreshed"
+            />
+            <Button onClick={() => cardRef.current?.startEdit()}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit Borrower
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column - Borrower details (matches admin borrowers [id] layout) */}
         <div className="lg:col-span-2 space-y-6">
-          <BorrowerDetailCard />
+          <BorrowerDetailCard
+            ref={cardRef}
+            hideInlineEditButton
+            onEditingChange={setProfileEditing}
+            onRefresh={bumpDataRefresh}
+          />
         </div>
         {/* Right column - TrueIdentity & Documents */}
         <div className="space-y-6">
-          <TruestackKycCard onStatusLoaded={bumpDocumentsRefresh} />
+          <TruestackKycCard
+            onStatusLoaded={bumpDataRefresh}
+            refreshKey={dataRefreshKey}
+          />
           <DigitalSigningComingSoonCard />
           <BorrowerDocumentsCard
             borrowerType={borrowerType}
-            externalRefreshKey={documentsRefreshKey}
+            externalRefreshKey={dataRefreshKey}
           />
         </div>
       </div>

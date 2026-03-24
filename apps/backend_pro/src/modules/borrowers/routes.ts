@@ -30,6 +30,7 @@ import { AddOnService } from '../../lib/addOnService.js';
 import { requestVerificationSession } from '../trueidentity/adminWebhookClient.js';
 import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
+import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
 
 const router = Router();
 
@@ -1105,11 +1106,15 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
       const expiresAt = ts.expires_at ? new Date(ts.expires_at) : null;
 
       await prisma.$transaction(async (tx) => {
+        // Do not expire completed+approved rows (audit + status API can prefer them after retries)
         await tx.truestackKycSession.updateMany({
           where: {
             tenantId: req.tenantId!,
             borrowerId,
             directorId: targetDirectorId,
+            NOT: {
+              AND: [{ status: 'completed' }, { result: 'approved' }],
+            },
           },
           data: {
             status: 'expired',
@@ -1315,18 +1320,19 @@ router.get('/:borrowerId/verify/status', async (req, res, next) => {
           orderBy: { createdAt: 'desc' },
         });
         const directors = borrower.directors.map((d) => {
-          const row = kycRows.find((r) => r.directorId === d.id);
+          const rowsForDirector = kycRows.filter((r) => r.directorId === d.id);
+          const row = pickBestTruestackKycSession(rowsForDirector);
           return {
             id: d.id,
             name: d.name,
             icNumber: d.icNumber,
             position: d.position,
             status: row?.status ?? d.trueIdentityStatus ?? null,
-            result: d.trueIdentityResult ?? null,
-            rejectMessage: d.trueIdentityRejectMessage ?? null,
+            result: row?.result ?? d.trueIdentityResult ?? null,
+            rejectMessage: row?.rejectMessage ?? d.trueIdentityRejectMessage ?? null,
             onboardingUrl: row?.onboardingUrl ?? d.trueIdentityOnboardingUrl ?? null,
             expiresAt: (row?.expiresAt ?? d.trueIdentityExpiresAt)?.toISOString() ?? null,
-            lastWebhookAt: d.trueIdentityLastWebhookAt?.toISOString() ?? null,
+            lastWebhookAt: (row?.lastWebhookAt ?? d.trueIdentityLastWebhookAt)?.toISOString() ?? null,
           };
         });
         res.json({
@@ -1355,20 +1361,22 @@ router.get('/:borrowerId/verify/status', async (req, res, next) => {
     }
 
     if (config.productMode === 'pro') {
-      const latest = await prisma.truestackKycSession.findFirst({
+      const individualRows = await prisma.truestackKycSession.findMany({
         where: { borrowerId, tenantId: req.tenantId!, directorId: null },
         orderBy: { createdAt: 'desc' },
       });
+      const latest = pickBestTruestackKycSession(individualRows);
       res.json({
         success: true,
         data: {
           borrowerType: 'INDIVIDUAL' as const,
           status: latest?.status ?? borrower.trueIdentityStatus ?? null,
-          result: borrower.trueIdentityResult ?? null,
-          rejectMessage: borrower.trueIdentityRejectMessage ?? null,
+          // Prefer session row (updated by webhook) so admin UI matches borrower self-service
+          result: latest?.result ?? borrower.trueIdentityResult ?? null,
+          rejectMessage: latest?.rejectMessage ?? borrower.trueIdentityRejectMessage ?? null,
           onboardingUrl: latest?.onboardingUrl ?? borrower.trueIdentityOnboardingUrl ?? null,
           expiresAt: (latest?.expiresAt ?? borrower.trueIdentityExpiresAt)?.toISOString() ?? null,
-          lastWebhookAt: borrower.trueIdentityLastWebhookAt?.toISOString() ?? null,
+          lastWebhookAt: (latest?.lastWebhookAt ?? borrower.trueIdentityLastWebhookAt)?.toISOString() ?? null,
         },
       });
       return;

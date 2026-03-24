@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { FileText, Upload, Download, Trash2 } from "lucide-react";
+import { FileText, Image, Upload, Download, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import {
@@ -38,9 +38,14 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function getDocIcon(mimeType: string) {
-  if (/^image\//.test(mimeType)) return "🖼️";
-  return "📄";
+function getDocumentIcon(mimeType: string) {
+  if (/^image\//i.test(mimeType)) return Image;
+  if (mimeType === "application/pdf") return FileText;
+  return FileText;
+}
+
+function isPreviewableImage(mimeType: string): boolean {
+  return /^image\/(jpeg|jpg|png|webp)$/i.test(mimeType);
 }
 
 const ALL_DOCUMENTS_VALUE = "__all__";
@@ -249,33 +254,56 @@ export function BorrowerDocumentsCard({
           </div>
         ) : (
           <div className="space-y-3">
-            {docsInCategory.map((doc) => (
+            {docsInCategory.map((doc) => {
+              const href = docUrl(doc.path);
+              const showThumb = isPreviewableImage(doc.mimeType);
+              const DocIcon = getDocumentIcon(doc.mimeType);
+              const displayName = doc.originalName || doc.filename || "Document";
+              return (
               <div
                 key={doc.id}
                 className="flex items-start gap-4 p-3 border rounded-lg min-w-0 overflow-hidden"
               >
-                <div className="shrink-0 w-10 h-10 rounded-md bg-muted/50 border border-border flex items-center justify-center text-lg">
-                  {getDocIcon(doc.mimeType)}
-                </div>
+                {showThumb ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 w-20 h-20 rounded-md overflow-hidden bg-muted/15 border border-border/30 block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    title="Open full size"
+                  >
+                    <img
+                      src={href}
+                      alt={getDocumentLabel(doc.category, borrowerType)}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </a>
+                ) : (
+                  <div className="shrink-0 w-10 h-10 rounded-md bg-muted/15 border border-border/30 flex items-center justify-center">
+                    <DocIcon className="h-5 w-5 text-foreground" />
+                  </div>
+                )}
                 <div className="flex-1 min-w-0 overflow-hidden">
-                  <p className="text-sm font-medium truncate">
+                  <p className="text-sm font-medium truncate" title={getDocumentLabel(doc.category, borrowerType)}>
                     {getDocumentLabel(doc.category, borrowerType)}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {doc.originalName || doc.filename} • {formatFileSize(doc.size)}
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 min-w-0" title={displayName}>
+                    <span className="truncate">{displayName}</span>
+                    <span className="shrink-0">• {formatFileSize(doc.size)}</span>
                   </p>
                   <a
-                    href={docUrl(doc.path)}
+                    href={href}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-primary hover:underline mt-1 inline-block"
                   >
-                    Open / Download
+                    Open full size
                   </a>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <a
-                    href={docUrl(doc.path)}
+                    href={href}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-muted-foreground hover:text-foreground"
@@ -294,7 +322,8 @@ export function BorrowerDocumentsCard({
                   </Button>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </CardContent>

@@ -14,6 +14,8 @@ export interface TruestackKycSessionRow {
   result: string | null;
   rejectMessage: string | null;
   lastWebhookAt: string | null;
+  /** May be absent on older API responses; prefer `updatedAt` when sorting. */
+  createdAt?: string | null;
   updatedAt: string;
 }
 

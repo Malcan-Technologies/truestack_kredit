@@ -11,6 +11,7 @@ import { assertIdentityDocumentMutationAllowed } from '../../lib/identityLock.js
 import { performBorrowerUpdate, updateBorrowerSchema } from '../borrowers/borrowerUpdateService.js';
 import { createKycSession, refreshKycSession } from '../truestack-kyc/publicApiClient.js';
 import { ingestTruestackKycDocuments } from '../truestack-kyc/ingestKycDocuments.js';
+import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -877,6 +878,9 @@ router.post('/kyc/sessions', async (req, res, next) => {
           tenantId: tenant.id,
           borrowerId,
           directorId: targetDirectorId,
+          NOT: {
+            AND: [{ status: 'completed' }, { result: 'approved' }],
+          },
         },
         data: {
           status: 'expired',
@@ -950,6 +954,7 @@ router.get('/kyc/status', async (req, res, next) => {
         result: true,
         rejectMessage: true,
         lastWebhookAt: true,
+        createdAt: true,
         updatedAt: true,
       },
     });
@@ -959,12 +964,15 @@ router.get('/kyc/status', async (req, res, next) => {
       select: { borrowerType: true },
     });
 
+    const individualRows = sessions.filter((s) => s.directorId === null);
+    const latest = pickBestTruestackKycSession(individualRows) ?? sessions[0] ?? null;
+
     res.json({
       success: true,
       data: {
         borrowerType: borrower?.borrowerType ?? 'INDIVIDUAL',
         sessions,
-        latest: sessions[0] ?? null,
+        latest,
       },
     });
   } catch (e) {

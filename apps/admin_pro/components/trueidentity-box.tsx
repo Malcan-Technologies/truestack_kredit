@@ -49,6 +49,8 @@ interface Director {
   icNumber: string;
   position: string | null;
   order: number;
+  trueIdentityStatus?: string | null;
+  trueIdentityResult?: string | null;
 }
 
 interface TrueIdentityBoxProps {
@@ -56,9 +58,51 @@ interface TrueIdentityBoxProps {
   borrowerType: string;
   borrowerName: string;
   borrowerIcNumber: string;
+  borrowerVerificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED" | null;
+  borrowerDocumentVerified?: boolean;
   directors?: Director[];
   /** Increment to trigger refetch (e.g. when parent refresh is clicked) */
   refreshKey?: number;
+}
+
+function isApproved(status: string | null | undefined, result: string | null | undefined): boolean {
+  return status === "completed" && result === "approved";
+}
+
+function applyIndividualVerifiedFallback(
+  status: VerifyStatusResponse | null,
+  verified: boolean
+): VerifyStatusResponse | null {
+  if (!verified) return status;
+  if (status?.borrowerType === "CORPORATE") return status;
+  if (status?.borrowerType === "INDIVIDUAL" && isApproved(status.status, status.result)) return status;
+  return {
+    borrowerType: "INDIVIDUAL",
+    status: "completed",
+    result: "approved",
+    rejectMessage: null,
+    onboardingUrl: null,
+    expiresAt: null,
+    lastWebhookAt: status?.borrowerType === "INDIVIDUAL" ? status.lastWebhookAt : null,
+  };
+}
+
+function applyDirectorVerifiedFallback(
+  director: DirectorVerifyStatus,
+  sourceDirector?: Director
+): DirectorVerifyStatus {
+  if (!sourceDirector || !isApproved(sourceDirector.trueIdentityStatus, sourceDirector.trueIdentityResult)) {
+    return director;
+  }
+  if (isApproved(director.status, director.result)) return director;
+  return {
+    ...director,
+    status: "completed",
+    result: "approved",
+    rejectMessage: null,
+    onboardingUrl: null,
+    expiresAt: null,
+  };
 }
 
 // ============================================
@@ -413,6 +457,8 @@ export function TrueIdentityBox({
   borrowerType,
   borrowerName,
   borrowerIcNumber,
+  borrowerVerificationStatus,
+  borrowerDocumentVerified,
   directors = [],
   refreshKey,
 }: TrueIdentityBoxProps) {
@@ -420,21 +466,22 @@ export function TrueIdentityBox({
   const [status, setStatus] = useState<VerifyStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     try {
-      setLoading(true);
+      if (!quiet) setLoading(true);
       const res = await api.get<VerifyStatusResponse>(
         `/api/borrowers/${borrowerId}/verify/status`
       );
       if (res.success && res.data) {
         setStatus(res.data);
-      } else {
+      } else if (!quiet) {
         setStatus(null);
       }
     } catch {
-      setStatus(null);
+      if (!quiet) setStatus(null);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [borrowerId]);
 
@@ -468,9 +515,45 @@ export function TrueIdentityBox({
 
   useEffect(() => {
     if (isActive) {
-      fetchStatus();
+      void fetchStatus();
     }
   }, [isActive, fetchStatus, directorsKey, refreshKey]);
+
+  // While KYC is in progress, poll + refetch on tab focus (matches borrower self-service freshness)
+  useEffect(() => {
+    if (!isActive || !status) return;
+
+    const inFlight =
+      status.borrowerType === "INDIVIDUAL"
+        ? status.status === "pending" ||
+          status.status === "processing" ||
+          (status.status === "completed" && !status.result)
+        : status.borrowerType === "CORPORATE" &&
+          status.directors.some(
+            (d) =>
+              d.status === "pending" ||
+              d.status === "processing" ||
+              (d.status === "completed" && !d.result)
+          );
+
+    if (!inFlight) return;
+
+    const t = setInterval(() => {
+      void fetchStatus({ quiet: true });
+    }, 8000);
+
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void fetchStatus({ quiet: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [isActive, status, fetchStatus]);
 
   const handleSendVerificationIndividual = async () => {
     const res = await api.post<{
@@ -517,11 +600,35 @@ export function TrueIdentityBox({
 
   const inactive = isActive === false;
   const isCorporate = borrowerType === "CORPORATE";
+  const borrowerVerified =
+    borrowerVerificationStatus === "FULLY_VERIFIED" ||
+    (!borrowerVerificationStatus && borrowerDocumentVerified === true);
+  const effectiveStatus = applyIndividualVerifiedFallback(status, borrowerVerified);
+  const effectiveDirectors =
+    status?.borrowerType === "CORPORATE"
+      ? status.directors.map((director) =>
+          applyDirectorVerifiedFallback(
+            director,
+            directors.find((d) => d.id === director.id)
+          )
+        )
+      : directors.map((d) => ({
+          id: d.id,
+          name: d.name,
+          icNumber: d.icNumber,
+          position: d.position,
+          status: isApproved(d.trueIdentityStatus, d.trueIdentityResult) ? "completed" : null,
+          result: isApproved(d.trueIdentityStatus, d.trueIdentityResult) ? "approved" : null,
+          rejectMessage: null,
+          onboardingUrl: null,
+          expiresAt: null,
+          lastWebhookAt: null,
+        }));
 
   // Header status badge: for individual show single status; for corporate show aggregate
   const statusBadge = () => {
-    if (isCorporate && status?.borrowerType === "CORPORATE") {
-      const directors = status.directors;
+    if (isCorporate) {
+      const directors = effectiveDirectors;
       const allVerified = directors.length > 0 && directors.every(
         (d) => d?.status === "completed" && d?.result === "approved"
       );
@@ -571,8 +678,8 @@ export function TrueIdentityBox({
         </Badge>
       );
     }
-    if (status?.borrowerType === "INDIVIDUAL") {
-      const s = status;
+    if (effectiveStatus?.borrowerType === "INDIVIDUAL") {
+      const s = effectiveStatus;
       const isVerified = s.status === "completed" && s.result === "approved";
       const isRejected = s.status === "completed" && s.result === "rejected";
       const isFailed = s.status === "failed";
@@ -664,21 +771,7 @@ export function TrueIdentityBox({
               </p>
             ) : (
               <>
-                {(status?.borrowerType === "CORPORATE"
-                  ? status.directors
-                  : directors.map((d) => ({
-                      id: d.id,
-                      name: d.name,
-                      icNumber: d.icNumber,
-                      position: d.position,
-                      status: null,
-                      result: null,
-                      rejectMessage: null,
-                      onboardingUrl: null,
-                      expiresAt: null,
-                      lastWebhookAt: null,
-                    }))
-                ).map((director) => (
+                {effectiveDirectors.map((director) => (
                   <DirectorVerificationCard
                     key={director.id}
                     director={director}
@@ -690,15 +783,15 @@ export function TrueIdentityBox({
               </>
             )}
           </div>
-        ) : status?.borrowerType === "INDIVIDUAL" ? (
+        ) : effectiveStatus?.borrowerType === "INDIVIDUAL" ? (
           <div className="space-y-3">
-            {status.result === "rejected" && status.rejectMessage && (
+            {effectiveStatus.result === "rejected" && effectiveStatus.rejectMessage && (
               <div className="flex flex-col gap-1 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5">
                 <p className="text-sm font-medium">Verification rejected</p>
-                <p className="text-xs text-muted-foreground">{status.rejectMessage}</p>
+                <p className="text-xs text-muted-foreground">{effectiveStatus.rejectMessage}</p>
               </div>
             )}
-            {status.status === "failed" && (
+            {effectiveStatus.status === "failed" && (
               <div className="flex flex-col gap-1 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5">
                 <p className="text-sm font-medium">Verification failed</p>
                 <p className="text-xs text-muted-foreground">
@@ -706,18 +799,18 @@ export function TrueIdentityBox({
                 </p>
               </div>
             )}
-            {status.onboardingUrl && status.status !== "completed" && status.status !== "expired" && (
+            {effectiveStatus.onboardingUrl && effectiveStatus.status !== "completed" && effectiveStatus.status !== "expired" && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
                   Share the QR code or link with the borrower to complete verification.
                 </p>
                 <div className="flex flex-col items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 p-4">
-                  <QRCodeSVG value={status.onboardingUrl} size={140} level="M" />
+                  <QRCodeSVG value={effectiveStatus.onboardingUrl} size={140} level="M" />
                   <Button
                     variant="outline"
                     size="sm"
                     className="w-full gap-1.5"
-                    onClick={() => handleCopyLink(status.onboardingUrl!)}
+                    onClick={() => handleCopyLink(effectiveStatus.onboardingUrl!)}
                   >
                     <Copy className="h-3.5 w-3.5" />
                     Copy link
@@ -725,7 +818,7 @@ export function TrueIdentityBox({
                 </div>
               </div>
             )}
-            {status.status === "expired" && (
+            {effectiveStatus.status === "expired" && (
               <div className="space-y-2 mb-3 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 p-3 opacity-60">
                 <p className="text-xs text-muted-foreground line-through">
                   Verification link has expired
@@ -738,11 +831,11 @@ export function TrueIdentityBox({
             <IndividualVerificationCard
               borrowerName={borrowerName}
               borrowerIcNumber={borrowerIcNumber}
-              status={status}
+              status={effectiveStatus}
               onSendVerification={handleSendVerificationIndividual}
               onCopyLink={handleCopyLink}
             />
-            {(status.status === "processing" || status.status === "pending") && (
+            {(effectiveStatus.status === "processing" || effectiveStatus.status === "pending") && (
               <p className="text-xs text-muted-foreground">
                 Borrower is completing verification. Status will update when done.
               </p>

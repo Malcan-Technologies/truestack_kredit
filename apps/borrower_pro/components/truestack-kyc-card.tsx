@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Fingerprint,
   Copy,
@@ -53,11 +53,29 @@ type DirectorKycState = {
   externalSessionId: string | null;
 };
 
+function sessionSortKey(s: TruestackKycSessionRow): string {
+  return s.createdAt ?? s.updatedAt ?? "";
+}
+
+/** Prefer completed+approved over newer pending rows (e.g. after Retry KYC). */
+function pickBestSession(rows: TruestackKycSessionRow[]): TruestackKycSessionRow | undefined {
+  if (rows.length === 0) return undefined;
+  const approved = rows.filter((s) => s.status === "completed" && s.result === "approved");
+  if (approved.length > 0) {
+    return approved.reduce((a, b) => {
+      const ta = a.updatedAt ?? a.createdAt ?? "";
+      const tb = b.updatedAt ?? b.createdAt ?? "";
+      return ta > tb ? a : b;
+    });
+  }
+  return [...rows].sort((a, b) => sessionSortKey(b).localeCompare(sessionSortKey(a)))[0];
+}
+
 function latestSessionForDirector(
   sessions: TruestackKycSessionRow[],
   directorId: string
 ): TruestackKycSessionRow | undefined {
-  return sessions.find((s) => s.directorId === directorId);
+  return pickBestSession(sessions.filter((s) => s.directorId === directorId));
 }
 
 function mergeDirectorWithSessions(
@@ -93,7 +111,7 @@ type IndividualKycState = {
 function individualStateFromSessions(
   sessions: TruestackKycSessionRow[]
 ): IndividualKycState {
-  const s = sessions.find((row) => !row.directorId);
+  const s = pickBestSession(sessions.filter((row) => !row.directorId));
   return {
     status: s?.status ?? null,
     result: s?.result ?? null,
@@ -469,14 +487,18 @@ function IndividualKycBottomActions({
 
 export function TruestackKycCard({
   onStatusLoaded,
+  refreshKey,
 }: {
   /** Called when KYC status may have new borrower documents (e.g. completed approved). */
   onStatusLoaded?: () => void;
+  /** Increment to reload KYC + borrower snapshot (e.g. page toolbar refresh). */
+  refreshKey?: number;
 } = {}) {
   const [borrower, setBorrower] = useState<BorrowerDetail | null>(null);
   const [kyc, setKyc] = useState<TruestackKycStatusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hadApprovedSessionRef = useRef<boolean | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -504,13 +526,27 @@ export function TruestackKycCard({
       setError(e instanceof Error ? e.message : "Failed to load profile");
     } finally {
       setLoading(false);
-      if (bumpDocs) onStatusLoaded?.();
+      // Only notify parent when KYC transitions into an approved state.
+      // Otherwise the parent refresh key can cause a fetch loop.
+      if (hadApprovedSessionRef.current === null) {
+        hadApprovedSessionRef.current = bumpDocs;
+      } else {
+        if (!hadApprovedSessionRef.current && bumpDocs) {
+          onStatusLoaded?.();
+        }
+        hadApprovedSessionRef.current = bumpDocs;
+      }
     }
   }, [onStatusLoaded]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === 0) return;
+    void load();
+  }, [refreshKey, load]);
 
   useEffect(() => {
     const onSwitch = () => {

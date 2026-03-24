@@ -51,6 +51,7 @@ import {
 import { canAccessPage } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
 import { api } from "@/lib/api";
+import { TENANT_DATA_UPDATED_EVENT } from "@/lib/tenant-events";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,7 @@ import { APP_VERSION } from "@/lib/version";
 interface Membership {
   role: string;
   tenantName?: string;
+  tenantLogoUrl?: string | null;
 }
 
 interface NavItem {
@@ -179,19 +181,6 @@ export default function DashboardLayout({
   };
 
   useEffect(() => {
-    // Redirect to login if not authenticated
-    if (!isPending && !session) {
-      router.push("/login");
-      return;
-    }
-
-    // Ensure active tenant is set and fetch membership info
-    if (session) {
-      ensureActiveTenantAndFetchMembership();
-    }
-  }, [session, isPending, router]);
-
-  useEffect(() => {
     if (pathname.startsWith("/dashboard/modules")) {
       setExpandedNavGroups((prev) => ({ ...prev, "/dashboard/modules": true }));
     }
@@ -251,14 +240,14 @@ export default function DashboardLayout({
     return () => window.removeEventListener("loans-count-changed", handler);
   }, [fetchLoansPendingDisbursementCount]);
 
-  const ensureActiveTenantAndFetchMembership = async () => {
+  const ensureActiveTenantAndFetchMembership = useCallback(async () => {
     try {
       const membershipsRes = await fetch("/api/proxy/auth/memberships", {
         credentials: "include",
       });
 
       if (membershipsRes.status === 401) {
-        setMembership({ role: "NONE", tenantName: undefined });
+        setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
         setHasTenants(false);
         setMembershipCheckComplete(true);
         return;
@@ -268,7 +257,7 @@ export default function DashboardLayout({
       try {
         membershipsData = await membershipsRes.json();
       } catch {
-        setMembership({ role: "NONE", tenantName: undefined });
+        setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
         setHasTenants(false);
         setMembershipCheckComplete(true);
         return;
@@ -278,7 +267,7 @@ export default function DashboardLayout({
         !membershipsData.success ||
         !membershipsData.data?.memberships?.length
       ) {
-        setMembership({ role: "NONE", tenantName: undefined });
+        setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
         setHasTenants(false);
         setMembershipCheckComplete(true);
         return;
@@ -287,7 +276,12 @@ export default function DashboardLayout({
       setHasTenants(true);
 
       if (!membershipsData.data.activeTenantId) {
-        const firstTenant = membershipsData.data.memberships[0] as { tenantId: string; role: string; tenantName?: string };
+        const firstTenant = membershipsData.data.memberships[0] as {
+          tenantId: string;
+          role: string;
+          tenantName?: string;
+          tenantLogoUrl?: string | null;
+        };
         await fetch("/api/proxy/auth/switch-tenant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -297,12 +291,17 @@ export default function DashboardLayout({
         setMembership({
           role: firstTenant.role,
           tenantName: firstTenant.tenantName,
+          tenantLogoUrl: firstTenant.tenantLogoUrl ?? null,
         });
         setMembershipCheckComplete(true);
         return;
       }
 
-      const activeMembership = (membershipsData.data.memberships as { tenantId: string; tenantName?: string }[]).find(
+      const activeMembership = (membershipsData.data.memberships as {
+        tenantId: string;
+        tenantName?: string;
+        tenantLogoUrl?: string | null;
+      }[]).find(
         (m) => m.tenantId === membershipsData.data!.activeTenantId,
       );
 
@@ -312,15 +311,17 @@ export default function DashboardLayout({
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
+          const tenant = data.data.tenant as
+            | { subscriptionStatus?: string; status?: string; logoUrl?: string | null }
+            | null
+            | undefined;
           setMembership({
             role: data.data.user.role,
             tenantName:
               activeMembership?.tenantName || data.data.user.tenantName,
+            tenantLogoUrl:
+              activeMembership?.tenantLogoUrl ?? tenant?.logoUrl ?? null,
           });
-          const tenant = data.data.tenant as
-            | { subscriptionStatus?: string; status?: string }
-            | null
-            | undefined;
           const isPro = process.env.NEXT_PUBLIC_PRODUCT_MODE === "pro";
           if (isPro) {
             setSubscriptionStatus(tenant?.status === "SUSPENDED" ? "SUSPENDED" : "PAID");
@@ -336,12 +337,38 @@ export default function DashboardLayout({
       }
     } catch (error) {
       console.error("Failed to fetch membership:", error);
-      setMembership({ role: "NONE", tenantName: undefined });
+      setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
       setHasTenants(false);
     } finally {
       setMembershipCheckComplete(true);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const handleTenantDataUpdated = () => {
+      void ensureActiveTenantAndFetchMembership();
+    };
+
+    window.addEventListener(TENANT_DATA_UPDATED_EVENT, handleTenantDataUpdated);
+    return () => {
+      window.removeEventListener(TENANT_DATA_UPDATED_EVENT, handleTenantDataUpdated);
+    };
+  }, [session, ensureActiveTenantAndFetchMembership]);
+
+  useEffect(() => {
+    // Redirect to login if not authenticated
+    if (!isPending && !session) {
+      router.push("/login");
+      return;
+    }
+
+    // Ensure active tenant is set and fetch membership info
+    if (session) {
+      void ensureActiveTenantAndFetchMembership();
+    }
+  }, [session, isPending, router, ensureActiveTenantAndFetchMembership]);
 
   const handleLogout = async () => {
     await signOut();
@@ -371,6 +398,8 @@ export default function DashboardLayout({
   }
 
   const user = session.user;
+  const tenantDisplayName = membership?.tenantName ?? "Organization";
+  const tenantInitial = tenantDisplayName.slice(0, 1).toUpperCase() || "?";
 
   const pathRequiresMembershipCheck = PATHS_REQUIRING_MEMBERSHIP.some(
     (p) => pathname === p || pathname.startsWith(p + "/"),
@@ -399,7 +428,7 @@ export default function DashboardLayout({
           )}
         >
           <div className="flex flex-col h-full">
-            {/* Single-tenant Pro: show org name only (no tenant switching) */}
+            {/* Single-tenant Pro: show org branding only (no tenant switching) */}
             <div
               className={cn(
                 "border-b border-border shrink-0",
@@ -407,12 +436,47 @@ export default function DashboardLayout({
               )}
             >
               {!sidebarCollapsed ? (
-                <p className="text-xs font-medium text-muted-foreground truncate" title={membership?.tenantName}>
-                  {membership?.tenantName ?? "Organization"}
-                </p>
+                <div className="flex items-center gap-3">
+                  <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-background">
+                    {membership?.tenantLogoUrl ? (
+                      <Image
+                        src={membership.tenantLogoUrl}
+                        alt={`${tenantDisplayName} logo`}
+                        fill
+                        className="object-contain p-1"
+                      />
+                    ) : (
+                      <span className="text-sm font-semibold text-muted-foreground">
+                        {tenantInitial}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 space-y-1.5">
+                    <Badge
+                      variant="outline"
+                      className="w-fit border-0 bg-black px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white hover:bg-black"
+                    >
+                      Admin portal
+                    </Badge>
+                    <p className="truncate text-sm font-semibold" title={tenantDisplayName}>
+                      {tenantDisplayName}
+                    </p>
+                  </div>
+                </div>
               ) : (
-                <div className="h-8 w-8 rounded-md bg-secondary flex items-center justify-center text-[10px] font-semibold text-muted-foreground">
-                  {(membership?.tenantName ?? "?").slice(0, 1).toUpperCase()}
+                <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-border bg-background">
+                  {membership?.tenantLogoUrl ? (
+                    <Image
+                      src={membership.tenantLogoUrl}
+                      alt={`${tenantDisplayName} logo`}
+                      fill
+                      className="object-contain p-1"
+                    />
+                  ) : (
+                    <span className="text-sm font-semibold text-muted-foreground">
+                      {tenantInitial}
+                    </span>
+                  )}
                 </div>
               )}
             </div>

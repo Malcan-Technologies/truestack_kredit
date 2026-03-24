@@ -25,6 +25,7 @@ import {
 import { AppDropdownMenuContent } from "../../../components/ui/app-dropdown-menu";
 import { BorrowerSwitcher } from "../../../components/borrower-switcher";
 import { NavbarCorner } from "../../../components/navbar-corner";
+import { SidebarLenderBranding } from "../../../components/sidebar-lender-branding";
 import { ThemeToggle } from "../../../components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
@@ -105,7 +106,10 @@ export default function DashboardLayout({
       >
         <div className="flex flex-col h-full">
           <div className="p-4 border-b border-border">
-            <BorrowerSwitcher />
+            <div className="space-y-3">
+              <SidebarLenderBranding />
+              <BorrowerSwitcher />
+            </div>
           </div>
 
           <nav className="flex-1 py-4 px-2 space-y-1">

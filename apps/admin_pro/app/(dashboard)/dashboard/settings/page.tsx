@@ -32,6 +32,7 @@ import {
 import Link from "next/link";
 import { useSession } from "@/lib/auth-client";
 import { useTenantContext } from "@/components/tenant-context";
+import { dispatchTenantDataUpdated } from "@/lib/tenant-events";
 import { formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
 import { canManageSettings } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
@@ -240,6 +241,8 @@ export default function SettingsPage() {
         toast.success("Tenant information updated successfully");
         setShowEditTenant(false);
         fetchData();
+        refreshTenantData();
+        dispatchTenantDataUpdated();
       } else {
         toast.error(res.error || "Failed to update tenant");
       }
@@ -283,6 +286,7 @@ export default function SettingsPage() {
         fetchData();
         // Notify other components (like sidebar) to refresh tenant data
         refreshTenantData();
+        dispatchTenantDataUpdated();
       } else {
         toast.error(res.error || "Failed to upload logo");
       }
@@ -312,6 +316,7 @@ export default function SettingsPage() {
         fetchData();
         // Notify other components (like sidebar) to refresh tenant data
         refreshTenantData();
+        dispatchTenantDataUpdated();
       } else {
         toast.error(res.error || "Failed to delete logo");
       }

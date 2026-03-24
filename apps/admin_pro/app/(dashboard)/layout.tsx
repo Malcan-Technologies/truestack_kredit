@@ -456,7 +456,7 @@ export default function DashboardLayout({
                       variant="outline"
                       className="w-fit border-0 bg-black px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white hover:bg-black"
                     >
-                      Admin portal
+                      Admin
                     </Badge>
                     <p className="truncate text-sm font-semibold" title={tenantDisplayName}>
                       {tenantDisplayName}

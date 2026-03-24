@@ -142,7 +142,13 @@ export function individualFormToPayload(
     bankName: data.bankName || undefined,
     bankNameOther: data.bankNameOther || undefined,
     bankAccountNo: data.bankAccountNo || undefined,
-    monthlyIncome: data.monthlyIncome ? parseFloat(data.monthlyIncome) : null,
+    monthlyIncome:
+      data.monthlyIncome.trim() === ""
+        ? null
+        : (() => {
+            const n = parseFloat(data.monthlyIncome);
+            return Number.isNaN(n) ? null : n;
+          })(),
     emergencyContactName: data.emergencyContactName || undefined,
     emergencyContactPhone: data.emergencyContactPhone || undefined,
     emergencyContactRelationship: data.emergencyContactRelationship || undefined,

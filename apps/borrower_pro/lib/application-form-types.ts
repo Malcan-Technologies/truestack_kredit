@@ -81,4 +81,6 @@ export interface LoanApplicationDetail {
   product: BorrowerProduct;
   documents: ApplicationDocumentRow[];
   borrower?: Record<string, unknown>;
+  /** Set when application is approved and a loan exists */
+  loan?: { id: string; status: string } | null;
 }

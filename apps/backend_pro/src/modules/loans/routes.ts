@@ -3566,6 +3566,12 @@ router.post('/:loanId/disburse', async (req, res, next) => {
       );
     }
 
+    if (!loan.attestationCompletedAt) {
+      throw new BadRequestError(
+        'Borrower attestation must be completed before disbursement. Ask the borrower to finish attestation in the borrower portal.'
+      );
+    }
+
     // Generate disbursement reference if not provided
     const dateStr = disbursementDate.toISOString().split('T')[0].replace(/-/g, '');
     const disbursementReference = reference || `DIS-${dateStr}-${loan.id.substring(0, 8).toUpperCase()}`;

@@ -54,6 +54,15 @@ enum SignedAgreementReviewStatus {
   REJECTED
 }
 
+/** Borrower attestation (video and/or online lawyer meeting) before agreement signing */
+enum AttestationStatus {
+  NOT_STARTED
+  VIDEO_COMPLETED // Video watched; borrower may proceed or request a meeting
+  MEETING_REQUESTED
+  MEETING_SCHEDULED
+  COMPLETED
+}
+
 enum RepaymentStatus {
   PENDING
   PARTIAL
@@ -719,6 +728,17 @@ model Loan {
   signedAgreementReviewedAt       DateTime?
   signedAgreementReviewerMemberId String? // Better Auth user id of reviewer
   signedAgreementReviewNotes      String? // e.g. rejection reason
+
+  // Borrower attestation (video / online meeting) before signing — see AttestationStatus
+  attestationStatus                AttestationStatus @default(NOT_STARTED)
+  attestationVideoCompletedAt      DateTime?
+  attestationMeetingRequestedAt    DateTime?
+  attestationMeetingScheduledAt      DateTime?
+  attestationMeetingStartAt          DateTime?
+  attestationMeetingEndAt            DateTime?
+  attestationMeetingLink             String?
+  attestationGoogleCalendarEventId   String?
+  attestationCompletedAt             DateTime?
 
   // Stamp certificate (uploaded by admin before disbursement)
   stampCertPath         String?   // Path to stamp certificate file (local or S3)

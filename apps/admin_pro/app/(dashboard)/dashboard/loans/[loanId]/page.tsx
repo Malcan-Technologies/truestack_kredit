@@ -185,6 +185,9 @@ interface Loan {
   signedAgreementReviewStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
   signedAgreementReviewedAt?: string | null;
   signedAgreementReviewNotes?: string | null;
+  attestationCompletedAt?: string | null;
+  attestationStatus?: string;
+  attestationMeetingLink?: string | null;
   // Stamp certificate fields
   stampCertPath: string | null;
   stampCertOriginalName: string | null;
@@ -1679,20 +1682,24 @@ export default function LoanDetailPage() {
   const allGuarantorAgreementsGenerated = pendingGuarantorAgreementGeneration.length === 0;
   const hasSignedAgreementFile = Boolean(loan.agreementPath);
   const signedAgreementApproved = (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED";
+  const attestationComplete = Boolean(loan.attestationCompletedAt);
   const canDisburseLoan =
     Boolean(loan.agreementDate) &&
+    attestationComplete &&
     (!hasGuarantors || allGuarantorAgreementsGenerated) &&
     hasSignedAgreementFile &&
     signedAgreementApproved;
   const disbursementDisabledReason = !loan.agreementDate
     ? "Generate the agreement PDF first to fix the agreement date before disbursement"
-    : hasGuarantors && !allGuarantorAgreementsGenerated
-      ? "Generate all guarantor agreement PDFs before disbursement"
-      : !hasSignedAgreementFile
-        ? "Upload the signed loan agreement PDF"
-        : !signedAgreementApproved
-          ? "Approve the borrower’s signed agreement (or upload on their behalf) before disbursement"
-          : undefined;
+    : !attestationComplete
+      ? "Borrower must complete attestation (video or lawyer meeting) in the borrower portal before disbursement"
+      : hasGuarantors && !allGuarantorAgreementsGenerated
+        ? "Generate all guarantor agreement PDFs before disbursement"
+        : !hasSignedAgreementFile
+          ? "Upload the signed loan agreement PDF"
+          : !signedAgreementApproved
+            ? "Approve the borrower’s signed agreement (or upload on their behalf) before disbursement"
+            : undefined;
 
   // ============================================
   // Main Render

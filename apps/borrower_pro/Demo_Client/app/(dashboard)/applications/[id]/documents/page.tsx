@@ -81,7 +81,7 @@ export default function ApplicationDocumentsPage() {
             </p>
           </div>
           <p className="text-sm text-muted-foreground">
-            Upload PDF, PNG, or JPG up to 50MB per file. You can add or replace files here while your
+            Upload PDF, PNG, or JPG up to 5MB per file. You can add or replace files here while your
             application is still under review.
           </p>
           <ApplicationDocumentsCard

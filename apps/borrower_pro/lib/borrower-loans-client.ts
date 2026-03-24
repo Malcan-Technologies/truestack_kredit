@@ -86,6 +86,93 @@ export function borrowerLoanViewSignedAgreementUrl(loanId: string): string {
   return `${BASE}/loans/${encodeURIComponent(loanId)}/agreement`;
 }
 
+export async function postAttestationVideoComplete(loanId: string): Promise<{
+  success: boolean;
+  data: unknown;
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/video-complete`,
+    { method: "POST", credentials: "include" }
+  );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not record video completion");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function postAttestationProceedToSigning(loanId: string): Promise<{
+  success: boolean;
+  data: unknown;
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/proceed-to-signing`,
+    { method: "POST", credentials: "include" }
+  );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not continue to signing");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function postAttestationRequestMeeting(loanId: string): Promise<{
+  success: boolean;
+  data: unknown;
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/request-meeting`,
+    { method: "POST", credentials: "include" }
+  );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not request meeting");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function postAttestationScheduleMeeting(
+  loanId: string,
+  body: { startAt: string; endAt?: string }
+): Promise<{
+  success: boolean;
+  data: { loan: unknown; meetLink: string; htmlLink: string; startAt: string; endAt: string };
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/schedule-meeting`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    }
+  );
+  const json = await parseJson<{
+    success: boolean;
+    data?: { loan: unknown; meetLink: string; htmlLink: string; startAt: string; endAt: string };
+    error?: string;
+  }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not schedule meeting");
+  }
+  return { success: true, data: json.data! };
+}
+
+export async function postAttestationCompleteMeeting(loanId: string): Promise<{
+  success: boolean;
+  data: unknown;
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/complete-meeting`,
+    { method: "POST", credentials: "include" }
+  );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not complete meeting");
+  }
+  return { success: true, data: json.data };
+}
+
 export async function uploadBorrowerSignedAgreement(
   loanId: string,
   file: File

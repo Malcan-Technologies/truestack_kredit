@@ -301,6 +301,7 @@ router.get('/applications', async (req, res, next) => {
               interestRate: true,
             },
           },
+          loan: { select: { id: true, status: true } },
         },
       }),
       prisma.loanApplication.count({ where }),
@@ -522,6 +523,12 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
       applicationId,
       application.product
     );
+
+    if (!requiredDocumentsCompleteAtSubmit) {
+      throw new BadRequestError(
+        'Upload all required documents (as configured for this product) before submitting.'
+      );
+    }
 
     const updated = await prisma.loanApplication.update({
       where: { id: applicationId },

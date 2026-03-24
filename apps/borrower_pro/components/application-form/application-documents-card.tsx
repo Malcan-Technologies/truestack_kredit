@@ -71,7 +71,8 @@ export function ApplicationDocumentsCard({
         <div>
           <CardTitle>Document upload</CardTitle>
           <CardDescription>
-            Upload PDF, PNG, or JPG up to 50MB per file. Categories come from the product configuration.
+            Upload PDF, PNG, or JPG up to 5MB per file. Required categories are set by your lender for
+            this product.
           </CardDescription>
         </div>
         {showOptionalBadge && (

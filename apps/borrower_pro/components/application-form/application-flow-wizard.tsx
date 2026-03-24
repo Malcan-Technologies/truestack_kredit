@@ -117,7 +117,7 @@ export function ApplicationFlowWizard() {
   >["data"] | null>(null);
   const [reviewPreview, setReviewPreview] = useState<LoanPreviewData | null>(null);
 
-  const [docDialog, setDocDialog] = useState<"none" | "optional" | "required">("none");
+  const [docDialog, setDocDialog] = useState<"none" | "optional">("none");
 
   const selectedProduct = useMemo(
     () => products.find((p) => p.id === selectedProductId) ?? null,
@@ -242,6 +242,14 @@ export function ApplicationFlowWizard() {
     setBorrowerType(bt);
     if (bt === "INDIVIDUAL") {
       setIndividualForm(borrowerToIndividualForm(res.data));
+      const inc = res.data.monthlyIncome;
+      if (inc === null || inc === undefined) {
+        setNoMonthlyIncome(false);
+      } else if (Number(inc) === 0) {
+        setNoMonthlyIncome(true);
+      } else {
+        setNoMonthlyIncome(false);
+      }
     } else {
       setCorporateForm(borrowerToCorporateForm(res.data));
     }
@@ -410,16 +418,12 @@ export function ApplicationFlowWizard() {
   const documentsStepContinueLabel = useMemo(() => {
     if (!reviewApp) return "Continue";
     const cats = new Set((reviewApp.documents ?? []).map((d) => d.category));
-    const hasRequired = requiredDocs.some((d) => d.required);
     const uploadedCount = reviewApp.documents?.length ?? 0;
     if (
       requiredDocs.length > 0 &&
       allDocumentsOptional(requiredDocs) &&
       uploadedCount === 0
     ) {
-      return "Continue without uploading";
-    }
-    if (hasRequired && !requiredDocumentsSatisfied(requiredDocs, cats)) {
       return "Continue without uploading";
     }
     return "Continue";
@@ -431,12 +435,12 @@ export function ApplicationFlowWizard() {
     const hasRequired = requiredDocs.some((d) => d.required);
     const uploadedCount = reviewApp.documents?.length ?? 0;
 
-    if (requiredDocumentsSatisfied(requiredDocs, cats)) {
-      setStep(4);
+    if (hasRequired && !requiredDocumentsSatisfied(requiredDocs, cats)) {
+      toast.error("Upload all required documents (marked with *) before continuing.");
       return;
     }
-    if (hasRequired) {
-      setDocDialog("required");
+    if (requiredDocumentsSatisfied(requiredDocs, cats)) {
+      setStep(4);
       return;
     }
     if (uploadedCount === 0) {
@@ -451,14 +455,13 @@ export function ApplicationFlowWizard() {
     setStep(4);
   };
 
-  const handleConfirmDeferRequired = () => {
-    setDocDialog("none");
-    setStep(4);
-  };
-
   const handleSubmitFinal = async () => {
     if (!applicationId || !consent) {
       toast.error("Please accept the terms to submit");
+      return;
+    }
+    if (requiredDocsMissing) {
+      toast.error("Upload all required documents before submitting.");
       return;
     }
     setSaving(true);
@@ -750,12 +753,13 @@ export function ApplicationFlowWizard() {
           {step === 3 && applicationId && reviewApp && selectedProduct && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Required items are marked with *. You can upload everything now, or continue and add
-                the rest later from{" "}
+                Required items are marked with * (set by your lender). You must upload every required
+                document before you can continue to review and submit. Optional items can be added
+                later from{" "}
                 <Link href="/applications" className="text-primary underline font-medium">
                   Applications
-                </Link>{" "}
-                (including after you submit, while the application is still under review).
+                </Link>
+                .
               </p>
               <ApplicationDocumentsCard
                 applicationId={applicationId}
@@ -775,10 +779,9 @@ export function ApplicationFlowWizard() {
               </CardHeader>
               <CardContent className="space-y-6">
                 {requiredDocsMissing && (
-                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
-                    Some required documents are still missing. You can submit now and upload them from
-                    your Applications list before the loan is reviewed — missing files may delay
-                    processing.
+                  <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    Required documents are still missing. Go back to the documents step and upload
+                    every item marked * (set by your lender for this product).
                   </div>
                 )}
                 <div className="space-y-2">
@@ -890,7 +893,7 @@ export function ApplicationFlowWizard() {
 
         {/* Sidebar: product terms */}
         {selectedProduct && (
-          <Card className="lg:sticky lg:top-4">
+          <Card className="lg:sticky lg:top-24 lg:self-start z-0 shadow-sm">
             <CardHeader>
               <CardTitle className="text-base">{selectedProduct.name}</CardTitle>
               <CardDescription>
@@ -976,7 +979,11 @@ export function ApplicationFlowWizard() {
             </Button>
           )}
           {step === 4 && (
-            <Button type="button" disabled={saving || !consent} onClick={() => void handleSubmitFinal()}>
+            <Button
+              type="button"
+              disabled={saving || !consent || requiredDocsMissing}
+              onClick={() => void handleSubmitFinal()}
+            >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit application"}
             </Button>
           )}
@@ -1006,28 +1013,6 @@ export function ApplicationFlowWizard() {
         </div>
       )}
 
-      {docDialog === "required" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <Card className="max-w-md w-full">
-            <CardHeader>
-              <CardTitle>Upload required documents later?</CardTitle>
-              <CardDescription>
-                Some required document types are still empty. You can continue to review and submit
-                now, then upload the remaining files from your Applications list before the loan is
-                reviewed. Missing documents may delay processing.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setDocDialog("none")}>
-                Go back
-              </Button>
-              <Button type="button" onClick={handleConfirmDeferRequired}>
-                Continue
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      )}
     </div>
   );
 }

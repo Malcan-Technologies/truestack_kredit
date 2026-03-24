@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
-  Banknote,
-  Calendar,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -15,7 +13,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
@@ -208,47 +205,12 @@ export function LoanCenterPage() {
         </div>
       </div>
 
-      {overview && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryCard
-            icon={<Wallet className="h-4 w-4" />}
-            label="Total paid"
-            value={formatRm(overview.summary.totalPaid)}
-            sub="Across active loans"
-          />
-          <SummaryCard
-            icon={<Banknote className="h-4 w-4" />}
-            label="Outstanding"
-            value={formatRm(overview.summary.totalOutstanding)}
-            sub="Principal + interest + fees due"
-          />
-          <SummaryCard
-            icon={<Calendar className="h-4 w-4" />}
-            label="Next payment"
-            value={
-              overview.summary.nextPaymentDue
-                ? new Date(overview.summary.nextPaymentDue).toLocaleDateString("en-MY")
-                : "—"
-            }
-            sub={
-              overview.summary.nextPaymentAmount != null
-                ? formatRm(overview.summary.nextPaymentAmount)
-                : "No upcoming"
-            }
-          />
-          <SummaryCard
-            icon={<CreditCard className="h-4 w-4" />}
-            label="Active loans"
-            value={String(overview.summary.activeLoanCount)}
-            sub="Currently servicing"
-          />
-        </div>
-      )}
-
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Loans & applications</CardTitle>
-          <CardDescription>Filter by status. Counts update when your profile changes.</CardDescription>
+          <CardDescription>
+          Filter by status. Summary totals (paid, outstanding, etc.) are on the dashboard.
+        </CardDescription>
         </CardHeader>
         <CardContent>
           {loading && !overview ? (
@@ -312,31 +274,6 @@ export function LoanCenterPage() {
   );
 }
 
-function SummaryCard({
-  icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  sub: string;
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-        <span className="text-primary">{icon}</span>
-      </CardHeader>
-      <CardContent>
-        <p className="text-2xl font-bold">{value}</p>
-        <p className="text-xs text-muted-foreground mt-1">{sub}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
 function LoanListPane({
   items,
   render,
@@ -367,6 +304,7 @@ function LoanListPane({
 
 function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
   const review = loan.signedAgreementReviewStatus ?? "NONE";
+  const attestationDone = !!loan.attestationCompletedAt;
   const reviewLabel =
     review === "APPROVED"
       ? "Signed agreement approved"
@@ -396,11 +334,18 @@ function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
             <p className="font-semibold">{loan.term} months</p>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">{reviewLabel}</p>
+        <p className="text-sm text-muted-foreground">
+          {!attestationDone && (
+            <span className="block text-amber-800 dark:text-amber-200 mb-1">
+              Complete attestation (video or lawyer meeting) before signing the agreement.
+            </span>
+          )}
+          {reviewLabel}
+        </p>
         <Button asChild size="sm">
           <Link href={`/loans/${loan.id}`}>
             <FileText className="h-4 w-4 mr-2" />
-            Agreement & signing
+            {attestationDone ? "Agreement & signing" : "Attestation & agreement"}
           </Link>
         </Button>
       </CardContent>

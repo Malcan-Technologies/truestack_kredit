@@ -23,6 +23,14 @@ export interface LoanCenterOverview {
 /** Admin review of borrower-uploaded signed agreement (pre-disbursement) */
 export type SignedAgreementReviewStatus = "NONE" | "PENDING" | "APPROVED" | "REJECTED";
 
+/** Loan attestation (video / lawyer meeting) before agreement signing */
+export type AttestationStatus =
+  | "NOT_STARTED"
+  | "VIDEO_COMPLETED"
+  | "MEETING_REQUESTED"
+  | "MEETING_SCHEDULED"
+  | "COMPLETED";
+
 export interface BorrowerLoanListItem {
   id: string;
   principalAmount: string;
@@ -36,6 +44,8 @@ export interface BorrowerLoanListItem {
   /** Present on list/detail from API for pending-disbursement workflow */
   agreementDate?: string | null;
   signedAgreementReviewStatus?: SignedAgreementReviewStatus;
+  attestationStatus?: AttestationStatus;
+  attestationCompletedAt?: string | null;
   progress: {
     paidCount: number;
     totalRepayments: number;
@@ -59,6 +69,15 @@ export interface BorrowerLoanDetail {
   signedAgreementReviewStatus?: SignedAgreementReviewStatus;
   signedAgreementReviewedAt: string | null;
   signedAgreementReviewNotes: string | null;
+  attestationStatus?: AttestationStatus;
+  attestationVideoCompletedAt?: string | null;
+  attestationMeetingRequestedAt?: string | null;
+  attestationMeetingScheduledAt?: string | null;
+  attestationMeetingStartAt?: string | null;
+  attestationMeetingEndAt?: string | null;
+  attestationMeetingLink?: string | null;
+  attestationGoogleCalendarEventId?: string | null;
+  attestationCompletedAt?: string | null;
 }
 
 export interface BorrowerLoanMetrics {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -16,15 +16,19 @@ import { BORROWER_PROFILE_SWITCHED_EVENT } from "../../../../lib/borrower-auth-c
 import { listBorrowerApplications } from "../../../../lib/borrower-applications-client";
 import type { LoanApplicationDetail } from "../../../../lib/application-form-types";
 import { toAmountNumber } from "../../../../lib/application-form-validation";
+import { cn } from "@/lib/utils";
+
+type AppFilter = "all" | "draft" | "submitted";
 
 export default function ApplicationsPage() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<LoanApplicationDetail[]>([]);
+  const [filter, setFilter] = useState<AppFilter>("all");
 
   const loadApplications = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await listBorrowerApplications({ pageSize: 50 });
+      const res = await listBorrowerApplications({ pageSize: 100 });
       if (res.success) setRows(res.data);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load applications");
@@ -44,6 +48,23 @@ export default function ApplicationsPage() {
     window.addEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
     return () => window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
   }, [loadApplications]);
+
+  const filtered = useMemo(() => {
+    switch (filter) {
+      case "draft":
+        return rows.filter((a) => a.status === "DRAFT");
+      case "submitted":
+        return rows.filter((a) => a.status === "SUBMITTED");
+      default:
+        return rows;
+    }
+  }, [rows, filter]);
+
+  const filterButtons: { id: AppFilter; label: string }[] = [
+    { id: "all", label: "All" },
+    { id: "draft", label: "Draft" },
+    { id: "submitted", label: "Submitted" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -65,27 +86,46 @@ export default function ApplicationsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Your applications</CardTitle>
-          <CardDescription>Submitted and draft applications for your active borrower profile.</CardDescription>
+          <CardDescription>
+            Draft and submitted applications for your active borrower profile. After approval, continue
+            in <Link href="/loans" className="text-primary underline font-medium">Loans</Link> for
+            attestation and signing.
+          </CardDescription>
+          <div className="flex flex-wrap gap-2 pt-2">
+            {filterButtons.map((b) => (
+              <Button
+                key={b.id}
+                type="button"
+                variant={filter === b.id ? "secondary" : "outline"}
+                size="sm"
+                className={cn(filter === b.id && "ring-2 ring-primary/30")}
+                onClick={() => setFilter(b.id)}
+              >
+                {b.label}
+              </Button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : rows.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
-              No applications yet.{" "}
+              No applications in this filter.{" "}
               <Link href="/applications/apply" className="text-primary underline font-medium">
                 Start an application
               </Link>
             </p>
           ) : (
             <ul className="divide-y divide-border">
-              {rows.map((app) => {
+              {filtered.map((app) => {
                 const canUploadDocuments =
                   app.status === "DRAFT" ||
                   app.status === "SUBMITTED" ||
                   app.status === "UNDER_REVIEW";
+                const loanId = app.loan?.id;
                 return (
                   <li
                     key={app.id}
@@ -108,6 +148,13 @@ export default function ApplicationsPage() {
                         {app.status === "DRAFT" && (
                           <Button variant="secondary" size="sm" asChild>
                             <Link href={`/applications/apply?applicationId=${app.id}`}>Continue</Link>
+                          </Button>
+                        )}
+                        {app.status === "APPROVED" && (
+                          <Button size="sm" asChild>
+                            <Link href={loanId ? `/loans/${loanId}` : "/loans"}>
+                              Continue in Loans
+                            </Link>
                           </Button>
                         )}
                       </div>

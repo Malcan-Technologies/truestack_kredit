@@ -1,16 +1,22 @@
 import type { BorrowerDetail, TruestackKycSessionRow } from "./borrower-api-client";
 
-/** Matches backend `isIndividualIdentityLocked` — TrueIdentity approved only. */
+/**
+ * Matches backend `isIndividualIdentityLocked` — fully verified individual
+ * (TrueStack KYC completed+approved and/or `documentVerified`), aligned with admin.
+ */
 export function isIndividualIdentityLocked(borrower: {
   borrowerType: string;
+  documentVerified?: boolean;
+  verificationStatus?: string | null;
   trueIdentityStatus?: string | null;
   trueIdentityResult?: string | null;
 }): boolean {
   if (borrower.borrowerType !== "INDIVIDUAL") return false;
-  return (
+  if (borrower.verificationStatus === "FULLY_VERIFIED") return true;
+  const truestackApproved =
     borrower.trueIdentityStatus === "completed" &&
-    borrower.trueIdentityResult === "approved"
-  );
+    borrower.trueIdentityResult === "approved";
+  return truestackApproved || borrower.documentVerified === true;
 }
 
 export function isCorporateIdentityDocumentLocked(

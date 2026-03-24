@@ -40,16 +40,19 @@ export function getBorrowerVerificationSummary(borrower: {
 
 /**
  * True when individual identity fields must not be edited.
- * Locked only after TrueIdentity KYC completes with approval — not for legacy
- * `documentVerified` or other paths until TI has approved.
+ * Matches "fully verified" in {@link getBorrowerVerificationSummary} (TrueStack KYC
+ * approved and/or `documentVerified`), same idea as admin disabling IC when verified.
  */
 export function isIndividualIdentityLocked(borrower: {
   borrowerType: string;
+  documentVerified: boolean;
   trueIdentityStatus: string | null;
   trueIdentityResult: string | null;
+  directors?: Array<{
+    trueIdentityStatus: string | null;
+    trueIdentityResult: string | null;
+  }>;
 }): boolean {
   if (borrower.borrowerType !== 'INDIVIDUAL') return false;
-  return (
-    borrower.trueIdentityStatus === 'completed' && borrower.trueIdentityResult === 'approved'
-  );
+  return getBorrowerVerificationSummary(borrower) === 'FULLY_VERIFIED';
 }

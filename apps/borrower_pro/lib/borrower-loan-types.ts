@@ -34,12 +34,15 @@ export type AttestationStatus =
   | "MEETING_SCHEDULED"
   | "COMPLETED";
 
+export type LoanChannel = "ONLINE" | "PHYSICAL";
+
 export interface BorrowerLoanListItem {
   id: string;
   principalAmount: string;
   interestRate: string;
   term: number;
   status: string;
+  loanChannel?: LoanChannel;
   disbursementDate: string | null;
   createdAt: string;
   product: { id: string; name: string; loanScheduleType?: string | null };
@@ -62,6 +65,7 @@ export interface BorrowerLoanListItem {
 export interface BorrowerLoanDetail {
   id: string;
   status: string;
+  loanChannel?: LoanChannel;
   principalAmount: unknown;
   term: number;
   product: { id: string; name: string; loanScheduleType?: string | null };
@@ -86,6 +90,7 @@ export interface BorrowerLoanDetail {
   attestationMeetingStartAt?: string | null;
   attestationMeetingEndAt?: string | null;
   attestationMeetingLink?: string | null;
+  attestationMeetingNotes?: string | null;
   attestationGoogleCalendarEventId?: string | null;
   attestationCompletedAt?: string | null;
   attestationCancellationReason?: string | null;

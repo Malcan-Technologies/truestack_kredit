@@ -2,8 +2,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import {
   ATTESTATION_TIMEZONE,
-  AVAILABILITY_HORIZON_DAYS,
   DEFAULT_OFFICE_HOURS,
+  MAX_AVAILABILITY_HORIZON_DAYS,
   type OfficeHoursConfig,
   SLOT_DURATION_MINUTES,
   SLOT_STEP_MINUTES,
@@ -27,12 +27,16 @@ function parseOfficeHoursJson(json: Prisma.JsonValue | null | undefined): Office
     typeof o.slotStepMinutes === 'number' ? o.slotStepMinutes : SLOT_STEP_MINUTES;
   const slotDurationMinutes =
     typeof o.slotDurationMinutes === 'number' ? o.slotDurationMinutes : SLOT_DURATION_MINUTES;
+  let horizon =
+    typeof o.availabilityHorizonDays === 'number' ? o.availabilityHorizonDays : DEFAULT_OFFICE_HOURS.availabilityHorizonDays;
+  horizon = Math.max(1, Math.min(MAX_AVAILABILITY_HORIZON_DAYS, Math.floor(horizon)));
   return {
     weekdays: weekdays.length ? weekdays : DEFAULT_OFFICE_HOURS.weekdays,
     start,
     end,
     slotStepMinutes,
     slotDurationMinutes,
+    availabilityHorizonDays: horizon,
   };
 }
 
@@ -161,10 +165,11 @@ export async function listAvailableAttestationSlots(params: {
   loanId: string;
 }): Promise<{ slots: AttestationSlot[]; source: 'google_free_busy' | 'office_hours_fallback' }> {
   const config = await getTenantOfficeHoursConfig(params.tenantId);
+  const horizonDays = config.availabilityHorizonDays;
   const now = new Date();
   const dayStart = getMalaysiaStartOfDay(now);
   const timeMin = addMinutes(now, 60); // buffer: don't book last minute
-  const timeMax = addMalaysiaDays(dayStart, AVAILABILITY_HORIZON_DAYS);
+  const timeMax = addMalaysiaDays(dayStart, horizonDays);
   const timeMaxEnd = new Date(timeMax.getTime() + 24 * 60 * 60 * 1000);
 
   const { busy: rawBusy, usedGoogle } = await collectBlockingIntervals({
@@ -181,7 +186,7 @@ export async function listAvailableAttestationSlots(params: {
 
   const slots: AttestationSlot[] = [];
 
-  for (let day = 0; day < AVAILABILITY_HORIZON_DAYS; day++) {
+  for (let day = 0; day < horizonDays; day++) {
     const d = addMalaysiaDays(dayStart, day);
     const wd = getIsoWeekdayInMalaysia(d);
     if (!config.weekdays.includes(wd)) continue;

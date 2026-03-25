@@ -124,40 +124,35 @@ export default function TrueSendModulePage() {
     );
   }, [paymentReminderDays, latePaymentNoticeDays, initialPaymentReminderDays, initialLatePaymentNoticeDays]);
 
-  const fetchTrueSendMeta = async (): Promise<{ enabled: boolean | null; emailSentCount: number | null }> => {
+  /** Email stats from billing add-ons API (Pro: TrueSend is included; no add-on purchase). */
+  const fetchTrueSendEmailStats = async (): Promise<number | null> => {
     try {
       const addOnRes = await api.get<BillingAddOnsResponse>("/billing/add-ons");
       if (!addOnRes.success || !addOnRes.data?.addOns) {
-        return { enabled: null, emailSentCount: null };
+        return null;
       }
-      return {
-        enabled: addOnRes.data.addOns.some((item) => item.addOnType === "TRUESEND" && item.status === "ACTIVE"),
-        emailSentCount: addOnRes.data.emailStats?.total ?? 0,
-      };
+      return addOnRes.data.emailStats?.total ?? 0;
     } catch {
-      return { enabled: null, emailSentCount: null };
+      return null;
     }
   };
 
   const loadModuleSettings = async () => {
     setLoading(true);
     try {
-      const meta = await fetchTrueSendMeta();
+      const emailTotal = await fetchTrueSendEmailStats();
       const res = await api.get<TrueSendModuleData>("/tenants/modules/truesend");
       if (!res.success || !res.data) {
-        if (meta.enabled !== null) {
-          setEnabled(meta.enabled);
-        }
-        if (meta.emailSentCount !== null) {
-          setEmailSentCount(meta.emailSentCount);
+        if (emailTotal !== null) {
+          setEmailSentCount(emailTotal);
         }
         toast.error(res.error || "Failed to load TrueSend settings");
         return;
       }
 
-      setEnabled(meta.enabled ?? res.data.enabled);
-      if (meta.emailSentCount !== null) {
-        setEmailSentCount(meta.emailSentCount);
+      setEnabled(res.data.enabled);
+      if (emailTotal !== null) {
+        setEmailSentCount(emailTotal);
       }
       setConstraints({
         maxReminderFrequencyCount: res.data.constraints.maxReminderFrequencyCount,
@@ -172,12 +167,9 @@ export default function TrueSendModulePage() {
       setInitialLatePaymentNoticeDays(res.data.settings.latePaymentNoticeDays.map(String));
       setErrors({});
     } catch {
-      const meta = await fetchTrueSendMeta();
-      if (meta.enabled !== null) {
-        setEnabled(meta.enabled);
-      }
-      if (meta.emailSentCount !== null) {
-        setEmailSentCount(meta.emailSentCount);
+      const emailTotal = await fetchTrueSendEmailStats();
+      if (emailTotal !== null) {
+        setEmailSentCount(emailTotal);
       }
       toast.error("Failed to load TrueSend settings");
     } finally {
@@ -244,12 +236,9 @@ export default function TrueSendModulePage() {
       setErrors({});
       setIsEditing(false);
       toast.success("TrueSend settings updated");
-      const meta = await fetchTrueSendMeta();
-      if (meta.enabled !== null) {
-        setEnabled(meta.enabled);
-      }
-      if (meta.emailSentCount !== null) {
-        setEmailSentCount(meta.emailSentCount);
+      const emailTotal = await fetchTrueSendEmailStats();
+      if (emailTotal !== null) {
+        setEmailSentCount(emailTotal);
       }
     } catch {
       toast.error("Failed to save TrueSend settings");
@@ -308,7 +297,7 @@ export default function TrueSendModulePage() {
               {enabled ? "Enabled" : "Disabled"}
             </Badge>
             <Button asChild type="button" variant="outline">
-              <Link href="/dashboard/settings">Manage Add-ons</Link>
+              <Link href="/dashboard/settings">Organization settings</Link>
             </Button>
             {isEditing ? (
               <>
@@ -345,12 +334,7 @@ export default function TrueSendModulePage() {
           <div className="rounded-lg border border-border bg-neutral-100 dark:bg-neutral-800/50 px-4 py-3 text-sm text-muted flex items-start gap-2">
             <Info className="h-4 w-4 mt-0.5 shrink-0" />
             <span>
-              TrueSend™ add-on is not active. You can view settings, but updates are blocked until the add-on is enabled.
-              {" "}
-              <Link href="/dashboard/settings" className="inline-flex items-center gap-1 font-medium text-foreground underline hover:text-muted-foreground">
-                Manage on Plan page
-              </Link>
-              .
+              TrueSend™ is unavailable because this organization is not active. Contact support if this is unexpected.
             </span>
           </div>
         )}

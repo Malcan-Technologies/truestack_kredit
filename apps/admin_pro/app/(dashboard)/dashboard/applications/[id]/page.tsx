@@ -91,6 +91,7 @@ interface Application {
   amount: string;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
   notes: string | null;
   actualInterestRate: string | null;
   actualTerm: number | null;
@@ -765,10 +766,13 @@ export default function ApplicationDetailPage() {
             Back
           </Button>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-heading font-bold text-gradient">
                 Application
               </h1>
+              <Badge variant="outline" className="text-xs">
+                {application.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}
+              </Badge>
               <Badge variant={statusColors[application.status]}>
                 {application.status.replace(/_/g, " ")}
               </Badge>

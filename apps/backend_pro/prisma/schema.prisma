@@ -77,6 +77,9 @@ enum AttestationProposalSource {
 enum AttestationCancellationReason {
   WITHDRAWN
   REJECTED_AFTER_ATTESTATION
+  PROPOSAL_REJECTED_BY_LENDER
+  /** Lender did not respond before proposal deadline (cron) */
+  PROPOSAL_DEADLINE_EXPIRED
 }
 
 enum RepaymentStatus {
@@ -92,6 +95,12 @@ enum InterestModel {
   RULE_78
   DECLINING_BALANCE
   EFFECTIVE_RATE
+}
+
+/** Online vs in-branch / physical loan handling (attestation and ops) */
+enum LoanChannel {
+  ONLINE
+  PHYSICAL
 }
 
 enum EventStatus {
@@ -632,6 +641,8 @@ model LoanApplication {
   collateralType  String?  // e.g., "Kenderaan", "Hartanah", "Mesin", "Peralatan", etc.
   collateralValue Decimal? @db.Decimal(12, 2) // Estimated value of collateral in RM
 
+  loanChannel LoanChannel @default(ONLINE)
+
   // Relations
   tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   borrower  Borrower              @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
@@ -716,6 +727,7 @@ model Loan {
   actualTerm       Int? // Optional internal schedule term in months for alternate operational view
   disbursementDate DateTime?
   status           LoanStatus @default(PENDING_DISBURSEMENT)
+  loanChannel      LoanChannel @default(ONLINE)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
@@ -764,6 +776,8 @@ model Loan {
   attestationMeetingStartAt          DateTime?
   attestationMeetingEndAt            DateTime?
   attestationMeetingLink             String?
+  /// Optional instructions when meeting link is set manually (not from Google Calendar)
+  attestationMeetingNotes            String?
   attestationGoogleCalendarEventId   String?
   attestationMeetingReminder24hSentAt DateTime?
   attestationCompletedAt             DateTime?

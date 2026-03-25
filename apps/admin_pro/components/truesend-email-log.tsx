@@ -85,9 +85,13 @@ export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) 
     }
   }, [loanId]);
 
-  // Fetch add-on status
+  // Pro: TrueSend is included with the license (no separate add-on purchase).
   useEffect(() => {
     const checkAddOn = async () => {
+      if (process.env.NEXT_PUBLIC_PRODUCT_MODE === "pro") {
+        setTrueSendActive(true);
+        return;
+      }
       try {
         const res = await api.get<{
           addOns: Array<{ addOnType: string; status: string }>;

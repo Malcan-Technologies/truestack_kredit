@@ -73,6 +73,7 @@ export interface LoanApplicationDetail {
   amount: unknown;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
   notes: string | null;
   collateralType: string | null;
   collateralValue: unknown;

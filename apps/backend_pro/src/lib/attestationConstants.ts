@@ -2,11 +2,14 @@
 export const ATTESTATION_TIMEZONE = 'Asia/Kuala_Lumpur';
 
 export const PROPOSAL_DEADLINE_MS = 12 * 60 * 60 * 1000;
-export const MAX_BORROWER_ATTESTATION_PROPOSALS = 5;
+/** Borrower may propose a slot at most once per loan */
+export const MAX_BORROWER_ATTESTATION_PROPOSALS = 1;
 export const SLOT_STEP_MINUTES = 30;
 export const SLOT_DURATION_MINUTES = 60;
-/** How far ahead to offer slots */
-export const AVAILABILITY_HORIZON_DAYS = 14;
+/** Default horizon when tenant JSON omits it (admin can set 1–7 in office hours JSON) */
+export const DEFAULT_AVAILABILITY_HORIZON_DAYS = 7;
+/** Hard cap for configurable horizon (days of slot availability) */
+export const MAX_AVAILABILITY_HORIZON_DAYS = 7;
 
 export type OfficeHoursConfig = {
   weekdays: number[]; // 1=Mon .. 7=Sun (ISO weekday)
@@ -14,6 +17,8 @@ export type OfficeHoursConfig = {
   end: string; // "17:00"
   slotStepMinutes: number;
   slotDurationMinutes: number;
+  /** How many calendar days ahead to offer slots (1–7), default 7 */
+  availabilityHorizonDays: number;
 };
 
 export const DEFAULT_OFFICE_HOURS: OfficeHoursConfig = {
@@ -22,4 +27,5 @@ export const DEFAULT_OFFICE_HOURS: OfficeHoursConfig = {
   end: '17:00',
   slotStepMinutes: SLOT_STEP_MINUTES,
   slotDurationMinutes: SLOT_DURATION_MINUTES,
+  availabilityHorizonDays: DEFAULT_AVAILABILITY_HORIZON_DAYS,
 };

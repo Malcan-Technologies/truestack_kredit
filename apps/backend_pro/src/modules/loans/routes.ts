@@ -496,6 +496,7 @@ const createApplicationSchema = z.object({
   notes: z.string().max(1000).optional(),
   collateralType: z.string().max(200).optional(),
   collateralValue: z.number().positive().optional(),
+  loanChannel: z.enum(['ONLINE', 'PHYSICAL']).optional(),
   guarantorIds: z.array(z.string()).max(5).optional(),
   enableInternalSchedule: z.boolean().optional().default(false),
   actualInterestRate: z.number().positive().max(100).optional(),
@@ -508,6 +509,7 @@ const updateApplicationSchema = z.object({
   notes: z.string().max(1000).optional(),
   collateralType: z.string().max(200).optional().nullable(),
   collateralValue: z.number().positive().optional().nullable(),
+  loanChannel: z.enum(['ONLINE', 'PHYSICAL']).optional(),
 });
 
 const disburseSchema = z.object({
@@ -832,6 +834,8 @@ router.post('/applications', async (req, res, next) => {
         term: applicationTerm,
         notes: data.notes,
         status: 'DRAFT',
+        // Admin-created applications are treated as branch / physical-origin unless explicitly overridden.
+        loanChannel: data.loanChannel ?? 'PHYSICAL',
         actualInterestRate,
         actualTerm,
         collateralType: data.collateralType,
@@ -1309,6 +1313,7 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
           actualInterestRate,
           actualTerm,
           status: 'PENDING_DISBURSEMENT',
+          loanChannel: application.loanChannel,
           collateralType: application.collateralType,
           collateralValue: application.collateralValue,
           guarantors: application.guarantors.length > 0
@@ -1968,11 +1973,24 @@ const attestationOfficeHoursPutSchema = z.object({
   end: z.string().regex(/^\d{2}:\d{2}$/),
   slotStepMinutes: z.number().int().positive().optional(),
   slotDurationMinutes: z.number().int().positive().optional(),
+  /** How many days ahead to show slots (1–7) */
+  availabilityHorizonDays: z.number().int().min(1).max(7).optional(),
 });
+
+const acceptAttestationProposalBodySchema = z
+  .object({
+    mode: z.enum(['google', 'manual']).optional(),
+    manualMeetingUrl: z.string().min(1).max(2048).optional(),
+    manualMeetingNotes: z.string().max(2000).optional(),
+  })
+  .optional();
 
 const attestationCounterSchema = z.object({
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
+  mode: z.enum(['google', 'manual']),
+  manualMeetingUrl: z.string().min(1).max(2048).optional(),
+  manualMeetingNotes: z.string().max(2000).optional(),
 });
 
 /**
@@ -2065,9 +2083,18 @@ router.post('/:loanId/attestation/accept-proposal', async (req, res, next) => {
       throw new BadRequestError('Member context required');
     }
 
+    const body = acceptAttestationProposalBodySchema.parse(req.body);
+
     let result;
     try {
-      result = await adminAcceptBorrowerProposal({ loanId, tenantId, memberId });
+      result = await adminAcceptBorrowerProposal({
+        loanId,
+        tenantId,
+        memberId,
+        mode: body?.mode,
+        manualMeetingUrl: body?.manualMeetingUrl,
+        manualMeetingNotes: body?.manualMeetingNotes,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg === 'GOOGLE_CALENDAR_NOT_CONFIGURED') {
@@ -2078,6 +2105,9 @@ router.post('/:loanId/attestation/accept-proposal', async (req, res, next) => {
       }
       if (msg.startsWith('Google Calendar auth failed') || msg.startsWith('Google Calendar:')) {
         throw new BadRequestError(msg);
+      }
+      if (msg === 'MANUAL_MEETING_URL_REQUIRED') {
+        throw new BadRequestError('Provide a meeting URL for manual scheduling.');
       }
       throw err;
     }
@@ -2121,6 +2151,9 @@ router.post('/:loanId/attestation/counter-proposal', async (req, res, next) => {
         memberId,
         startAt,
         endAt,
+        mode: body.mode,
+        manualMeetingUrl: body.manualMeetingUrl,
+        manualMeetingNotes: body.manualMeetingNotes,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -2129,6 +2162,15 @@ router.post('/:loanId/attestation/counter-proposal', async (req, res, next) => {
       }
       if (msg === 'INVALID_ATTESTATION_STATE') {
         throw new BadRequestError('Counter is only allowed when a borrower proposal is pending.');
+      }
+      if (msg === 'GOOGLE_CALENDAR_NOT_CONFIGURED') {
+        throw new BadRequestError('Google Calendar is not configured. Use manual meeting link or configure Calendar.');
+      }
+      if (msg === 'MANUAL_MEETING_URL_REQUIRED') {
+        throw new BadRequestError('Provide a meeting URL for manual scheduling.');
+      }
+      if (msg.startsWith('Google Calendar auth failed') || msg.startsWith('Google Calendar:')) {
+        throw new BadRequestError(msg);
       }
       throw err;
     }

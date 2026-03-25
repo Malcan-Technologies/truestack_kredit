@@ -94,7 +94,7 @@ export async function proposeBorrowerSlot(params: {
   if (!loan) throw new Error('NOT_FOUND');
   if (loan.status !== 'PENDING_DISBURSEMENT') throw new Error('INVALID_LOAN_STATUS');
   if (loan.attestationCompletedAt) throw new Error('ATTESTATION_ALREADY_COMPLETE');
-  if (!['MEETING_REQUESTED', 'PROPOSAL_EXPIRED'].includes(loan.attestationStatus)) {
+  if (loan.attestationStatus !== 'MEETING_REQUESTED') {
     throw new Error('INVALID_ATTESTATION_STATE');
   }
   if (loan.attestationBorrowerProposalCount >= MAX_BORROWER_ATTESTATION_PROPOSALS) {
@@ -135,6 +135,9 @@ export async function adminAcceptBorrowerProposal(params: {
   loanId: string;
   tenantId: string;
   memberId: string;
+  mode?: 'google' | 'manual';
+  manualMeetingUrl?: string;
+  manualMeetingNotes?: string;
 }): Promise<{ loan: unknown; meetLink: string }> {
   const loan = await prisma.loan.findFirst({
     where: { id: params.loanId, tenantId: params.tenantId },
@@ -147,6 +150,40 @@ export async function adminAcceptBorrowerProposal(params: {
   if (loan.status !== 'PENDING_DISBURSEMENT') throw new Error('INVALID_LOAN_STATUS');
   if (loan.attestationStatus !== 'SLOT_PROPOSED') throw new Error('INVALID_ATTESTATION_STATE');
   if (!loan.attestationProposalStartAt || !loan.attestationProposalEndAt) throw new Error('NO_PROPOSAL');
+
+  const mode = params.mode ?? 'google';
+
+  if (mode === 'manual') {
+    const url = params.manualMeetingUrl?.trim();
+    if (!url) throw new Error('MANUAL_MEETING_URL_REQUIRED');
+    const notes = params.manualMeetingNotes?.trim() || null;
+    const updated = await prisma.loan.update({
+      where: { id: params.loanId },
+      data: {
+        attestationStatus: 'MEETING_SCHEDULED',
+        attestationMeetingScheduledAt: new Date(),
+        attestationMeetingStartAt: loan.attestationProposalStartAt,
+        attestationMeetingEndAt: loan.attestationProposalEndAt,
+        attestationMeetingLink: url,
+        attestationMeetingNotes: notes,
+        attestationGoogleCalendarEventId: null,
+        attestationProposalStartAt: null,
+        attestationProposalEndAt: null,
+        attestationProposalDeadlineAt: null,
+        attestationProposalSource: null,
+        attestationAssignedMemberId: params.memberId,
+      },
+    });
+    await notifyBorrowerEmail({
+      tenantId: params.tenantId,
+      borrowerId: loan.borrowerId,
+      subject: 'Your attestation meeting is confirmed',
+      body:
+        `Your meeting is scheduled.\n\nJoin link: ${url}` +
+        (notes ? `\n\nNotes: ${notes}` : ''),
+    });
+    return { loan: updated, meetLink: url };
+  }
 
   if (!isGoogleMeetConfigured()) {
     throw new Error('GOOGLE_CALENDAR_NOT_CONFIGURED');
@@ -168,6 +205,7 @@ export async function adminAcceptBorrowerProposal(params: {
       attestationMeetingStartAt: meet.startAt,
       attestationMeetingEndAt: meet.endAt,
       attestationMeetingLink: meet.meetLink,
+      attestationMeetingNotes: null,
       attestationGoogleCalendarEventId: meet.eventId,
       attestationProposalStartAt: null,
       attestationProposalEndAt: null,
@@ -193,11 +231,18 @@ export async function adminCounterProposal(params: {
   memberId: string;
   startAt: Date;
   endAt: Date;
+  mode: 'google' | 'manual';
+  manualMeetingUrl?: string;
+  manualMeetingNotes?: string;
 }): Promise<unknown> {
   if (params.endAt <= params.startAt) throw new Error('INVALID_RANGE');
 
   const loan = await prisma.loan.findFirst({
     where: { id: params.loanId, tenantId: params.tenantId },
+    include: {
+      borrower: { select: { email: true } },
+      product: { select: { name: true } },
+    },
   });
   if (!loan) throw new Error('NOT_FOUND');
   if (loan.status !== 'PENDING_DISBURSEMENT') throw new Error('INVALID_LOAN_STATUS');
@@ -210,16 +255,64 @@ export async function adminCounterProposal(params: {
     endAt: params.endAt,
   });
 
-  const deadline = new Date(Date.now() + PROPOSAL_DEADLINE_MS);
+  if (params.mode === 'manual') {
+    const url = params.manualMeetingUrl?.trim();
+    if (!url) throw new Error('MANUAL_MEETING_URL_REQUIRED');
+    const notes = params.manualMeetingNotes?.trim() || null;
+    const updated = await prisma.loan.update({
+      where: { id: params.loanId },
+      data: {
+        attestationStatus: 'MEETING_SCHEDULED',
+        attestationMeetingScheduledAt: new Date(),
+        attestationMeetingStartAt: params.startAt,
+        attestationMeetingEndAt: params.endAt,
+        attestationMeetingLink: url,
+        attestationMeetingNotes: notes,
+        attestationGoogleCalendarEventId: null,
+        attestationProposalStartAt: null,
+        attestationProposalEndAt: null,
+        attestationProposalDeadlineAt: null,
+        attestationProposalSource: null,
+        attestationAssignedMemberId: params.memberId,
+      },
+    });
+    await notifyBorrowerEmail({
+      tenantId: params.tenantId,
+      borrowerId: loan.borrowerId,
+      subject: 'Your attestation meeting is scheduled',
+      body:
+        `Your lender scheduled a meeting.\n\nJoin link: ${url}` +
+        (notes ? `\n\nNotes: ${notes}` : ''),
+    });
+    return updated;
+  }
+
+  if (!isGoogleMeetConfigured()) {
+    throw new Error('GOOGLE_CALENDAR_NOT_CONFIGURED');
+  }
+
+  const meet = await createGoogleMeetEvent({
+    summary: `Loan attestation — ${loan.product?.name ?? 'Loan'} (${loan.id.slice(0, 8)})`,
+    description: `Borrower attestation meeting. Loan ID: ${loan.id}`,
+    startAt: params.startAt,
+    endAt: params.endAt,
+    attendeeEmail: loan.borrower.email || undefined,
+  });
 
   const updated = await prisma.loan.update({
     where: { id: params.loanId },
     data: {
-      attestationStatus: 'COUNTER_PROPOSED',
-      attestationProposalStartAt: params.startAt,
-      attestationProposalEndAt: params.endAt,
-      attestationProposalDeadlineAt: deadline,
-      attestationProposalSource: 'ADMIN_COUNTER',
+      attestationStatus: 'MEETING_SCHEDULED',
+      attestationMeetingScheduledAt: new Date(),
+      attestationMeetingStartAt: meet.startAt,
+      attestationMeetingEndAt: meet.endAt,
+      attestationMeetingLink: meet.meetLink,
+      attestationMeetingNotes: null,
+      attestationGoogleCalendarEventId: meet.eventId,
+      attestationProposalStartAt: null,
+      attestationProposalEndAt: null,
+      attestationProposalDeadlineAt: null,
+      attestationProposalSource: null,
       attestationAssignedMemberId: params.memberId,
     },
   });
@@ -227,8 +320,8 @@ export async function adminCounterProposal(params: {
   await notifyBorrowerEmail({
     tenantId: params.tenantId,
     borrowerId: loan.borrowerId,
-    subject: 'Alternative attestation meeting time proposed',
-    body: `Your lender proposed a different meeting time. Please accept or decline in your borrower portal within 12 hours.`,
+    subject: 'Your attestation meeting is scheduled',
+    body: `Your lender scheduled a meeting. Join link: ${meet.meetLink}`,
   });
 
   return updated;
@@ -267,6 +360,7 @@ export async function borrowerAcceptCounter(params: {
       attestationMeetingStartAt: meet.startAt,
       attestationMeetingEndAt: meet.endAt,
       attestationMeetingLink: meet.meetLink,
+      attestationMeetingNotes: null,
       attestationGoogleCalendarEventId: meet.eventId,
       attestationProposalStartAt: null,
       attestationProposalEndAt: null,
@@ -326,22 +420,38 @@ export async function adminRejectProposal(params: {
   if (!loan) throw new Error('NOT_FOUND');
   if (loan.attestationStatus !== 'SLOT_PROPOSED') throw new Error('INVALID_ATTESTATION_STATE');
 
+  if (loan.attestationGoogleCalendarEventId) {
+    try {
+      await deleteCalendarEvent(loan.attestationGoogleCalendarEventId);
+    } catch (e) {
+      console.warn('[attestation] delete calendar on reject', e);
+    }
+  }
+
   const updated = await prisma.loan.update({
     where: { id: params.loanId },
     data: {
-      attestationStatus: 'MEETING_REQUESTED',
+      status: 'CANCELLED',
+      attestationStatus: 'NOT_STARTED',
+      attestationCancellationReason: 'PROPOSAL_REJECTED_BY_LENDER',
+      attestationCancelledAt: new Date(),
+      attestationCancelledByUserId: null,
       attestationProposalStartAt: null,
       attestationProposalEndAt: null,
       attestationProposalDeadlineAt: null,
       attestationProposalSource: null,
+      attestationMeetingLink: null,
+      attestationMeetingNotes: null,
+      attestationGoogleCalendarEventId: null,
     },
   });
 
   await notifyBorrowerEmail({
     tenantId: params.tenantId,
     borrowerId: loan.borrowerId,
-    subject: 'Attestation meeting slot update',
-    body: `Your proposed meeting time was not accepted. Please choose another slot in the borrower portal.`,
+    subject: 'Loan application withdrawn',
+    body:
+      'Your proposed attestation meeting time was not accepted. This loan has been cancelled. Contact your lender if you have questions.',
   });
 
   return updated;
@@ -363,18 +473,26 @@ export async function expirePendingProposals(): Promise<{ expired: number }> {
     await prisma.loan.update({
       where: { id: p.id },
       data: {
-        attestationStatus: 'PROPOSAL_EXPIRED',
+        status: 'CANCELLED',
+        attestationStatus: 'NOT_STARTED',
+        attestationCancellationReason: 'PROPOSAL_DEADLINE_EXPIRED',
+        attestationCancelledAt: new Date(),
+        attestationCancelledByUserId: null,
         attestationProposalStartAt: null,
         attestationProposalEndAt: null,
         attestationProposalDeadlineAt: null,
         attestationProposalSource: null,
+        attestationMeetingLink: null,
+        attestationMeetingNotes: null,
+        attestationGoogleCalendarEventId: null,
       },
     });
     await notifyBorrowerEmail({
       tenantId: p.tenantId,
       borrowerId: p.borrowerId,
-      subject: 'Attestation meeting proposal expired',
-      body: `Your meeting time proposal expired (no response within 12 hours). Please choose a new slot in the borrower portal.`,
+      subject: 'Loan application closed',
+      body:
+        'Your attestation meeting proposal expired because there was no response in time. This loan has been cancelled. Contact your lender if you have questions.',
     });
     expired += 1;
   }
@@ -415,6 +533,7 @@ export async function cancelLoanFromBorrower(params: {
       attestationProposalDeadlineAt: null,
       attestationProposalSource: null,
       attestationMeetingLink: null,
+      attestationMeetingNotes: null,
       attestationGoogleCalendarEventId: null,
     },
   });

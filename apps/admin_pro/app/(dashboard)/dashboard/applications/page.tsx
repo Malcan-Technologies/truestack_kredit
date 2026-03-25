@@ -33,6 +33,7 @@ interface Application {
   amount: string;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
   notes: string | null;
   createdAt: string;
   borrower: {
@@ -311,12 +312,13 @@ function ApplicationsPageContent() {
         <CardContent className="p-0">
           {loading ? (
             <TableSkeleton
-              headers={["Borrower", "Product", "Amount", "Term", "Status", "Created"]}
+              headers={["Borrower", "Product", "Amount", "Term", "Channel", "Status", "Created"]}
               columns={[
                 { width: "w-32", subLine: true },
                 { width: "w-24" },
                 { width: "w-20" },
                 { width: "w-16" },
+                { width: "w-14" },
                 { badge: true, width: "w-20" },
                 { width: "w-20" },
               ]}
@@ -355,6 +357,7 @@ function ApplicationsPageContent() {
                       {sortField === "term" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
                     </button>
                   </TableHead>
+                  <TableHead>Channel</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>
                     <button onClick={() => toggleSort("created")} className="flex items-center gap-1 hover:text-foreground transition-colors">
@@ -398,6 +401,11 @@ function ApplicationsPageContent() {
                     <TableCell>{app.product.name}</TableCell>
                     <TableCell>{formatCurrency(Number(app.amount))}</TableCell>
                     <TableCell>{app.term} months</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[10px]">
+                        {app.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={statusColors[app.status]}>
                         {app.status.replace(/_/g, " ")}

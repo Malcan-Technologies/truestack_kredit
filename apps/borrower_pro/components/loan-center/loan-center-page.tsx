@@ -330,6 +330,9 @@ function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
           <p className="text-xs text-muted-foreground font-mono mt-1">ID: {shortId(loan.id)}</p>
         </div>
         <div className="flex flex-col items-end gap-1">
+          <Badge variant="outline" className="text-[10px]">
+            {loan.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
+          </Badge>
           <Badge variant="outline">Pending disbursement</Badge>
           <Badge variant="secondary" className="text-[10px]">
             {loanJourneyPhaseLabel(journeyPhase)}
@@ -388,7 +391,12 @@ function LoanCard({
           </CardTitle>
           <p className="text-xs text-muted-foreground font-mono mt-1">ID: {shortId(loan.id)}</p>
         </div>
-        <Badge variant="outline">{loan.status}</Badge>
+        <div className="flex flex-col items-end gap-1">
+          <Badge variant="outline" className="text-[10px]">
+            {loan.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
+          </Badge>
+          <Badge variant="outline">{loan.status}</Badge>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid sm:grid-cols-3 gap-3 text-sm">

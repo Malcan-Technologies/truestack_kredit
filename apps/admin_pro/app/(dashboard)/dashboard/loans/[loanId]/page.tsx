@@ -155,6 +155,7 @@ interface Loan {
   interestRate: string;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
   disbursementDate: string | null;
   disbursementReference: string | null;
   disbursementProofPath: string | null;
@@ -1715,8 +1716,11 @@ export default function LoanDetailPage() {
             Back
           </Button>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-heading font-bold text-gradient">Loan</h1>
+              <Badge variant="outline" className="text-xs">
+                {loan.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}
+              </Badge>
               <Badge variant={loanStatusColors[loan.status]} className="flex items-center gap-1">
                 {getStatusIcon(loan.status)}
                 {loan.status.replace(/_/g, " ")}

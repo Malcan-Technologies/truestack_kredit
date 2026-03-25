@@ -27,6 +27,7 @@ const createApplicationSchema = z.object({
   notes: z.string().max(1000).optional(),
   collateralType: z.string().max(200).optional(),
   collateralValue: z.number().positive().optional(),
+  loanChannel: z.enum(['ONLINE', 'PHYSICAL']).optional(),
 });
 
 const updateApplicationSchema = z.object({
@@ -36,6 +37,7 @@ const updateApplicationSchema = z.object({
   notes: z.string().max(1000).optional().nullable(),
   collateralType: z.string().max(200).optional().nullable(),
   collateralValue: z.number().positive().optional().nullable(),
+  loanChannel: z.enum(['ONLINE', 'PHYSICAL']).optional(),
 });
 
 function productEligibleForBorrower(product: Product, borrowerType: string): boolean {
@@ -222,6 +224,7 @@ router.post('/applications', async (req, res, next) => {
         status: 'DRAFT',
         collateralType: data.collateralType,
         collateralValue: data.collateralValue,
+        loanChannel: data.loanChannel ?? 'ONLINE',
       },
       include: {
         borrower: {
@@ -453,6 +456,7 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
         ...(data.notes !== undefined ? { notes: data.notes } : {}),
         ...(data.collateralType !== undefined ? { collateralType: data.collateralType } : {}),
         ...(data.collateralValue !== undefined ? { collateralValue: data.collateralValue } : {}),
+        ...(data.loanChannel !== undefined ? { loanChannel: data.loanChannel } : {}),
       },
       include: {
         borrower: {

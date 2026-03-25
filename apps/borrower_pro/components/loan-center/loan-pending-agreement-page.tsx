@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -12,8 +12,6 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  Pause,
-  Play,
   Upload,
   Video,
   Users,
@@ -30,11 +28,8 @@ import {
   borrowerLoanGenerateAgreementUrl,
   borrowerLoanViewSignedAgreementUrl,
   uploadBorrowerSignedAgreement,
-  postAttestationVideoComplete,
   postAttestationProceedToSigning,
   postAttestationRequestMeeting,
-  getAttestationAvailability,
-  postAttestationProposeSlot,
   postAttestationAcceptCounter,
   postAttestationDeclineCounter,
   postAttestationCompleteMeeting,
@@ -46,8 +41,6 @@ import type {
   AttestationStatus,
 } from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
-
-const ATTESTATION_VIDEO_SRC = "/attestation/attestation-video.mp4";
 
 function formatRm(v: unknown): string {
   const n = toAmountNumber(v);
@@ -101,17 +94,6 @@ export function LoanPendingAgreementPage() {
   const [agreementDate, setAgreementDate] = useState("");
   const [uploading, setUploading] = useState(false);
   const [attestBusy, setAttestBusy] = useState(false);
-  const [videoError, setVideoError] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  /** Furthest timestamp the user has watched; used to block skipping ahead without native controls. */
-  const maxWatchedSecRef = useRef(0);
-  const [videoPlaying, setVideoPlaying] = useState(false);
-  const [videoProgressPct, setVideoProgressPct] = useState(0);
-  const [slots, setSlots] = useState<Array<{ startAt: string; endAt: string }>>([]);
-  const [slotsSource, setSlotsSource] = useState<string>("");
-  const [selectedSlotStart, setSelectedSlotStart] = useState<string | null>(null);
-  const [slotsLoading, setSlotsLoading] = useState(false);
-
   const refresh = useCallback(async () => {
     if (!loanId) return;
     const r = await getBorrowerLoan(loanId);
@@ -119,30 +101,6 @@ export function LoanPendingAgreementPage() {
       setLoan(r.data);
     }
   }, [loanId]);
-
-  const loadSlots = useCallback(async () => {
-    if (!loanId) return;
-    setSlotsLoading(true);
-    try {
-      const r = await getAttestationAvailability(loanId);
-      if (r.success) {
-        setSlots(r.data.slots);
-        setSlotsSource(r.data.source);
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load availability");
-    } finally {
-      setSlotsLoading(false);
-    }
-  }, [loanId]);
-
-  useEffect(() => {
-    if (!loan) return;
-    const st = loan.attestationStatus;
-    if (st === "MEETING_REQUESTED" || st === "PROPOSAL_EXPIRED") {
-      void loadSlots();
-    }
-  }, [loan?.attestationStatus, loan, loadSlots]);
 
   useEffect(() => {
     if (!loanId) {
@@ -166,10 +124,6 @@ export function LoanPendingAgreementPage() {
     return () => {
       cancelled = true;
     };
-  }, [loanId]);
-
-  useEffect(() => {
-    maxWatchedSecRef.current = 0;
   }, [loanId]);
 
   useEffect(() => {
@@ -252,150 +206,21 @@ export function LoanPendingAgreementPage() {
     }
   };
 
-  /** Persists playhead across refresh and new tabs (sessionStorage is cleared when the tab closes). */
-  const videoStorageKey = loanId ? `attestation-video-position-${loanId}` : "";
-
-  const persistVideoPosition = useCallback(() => {
-    const v = videoRef.current;
-    if (!v || !videoStorageKey) return;
-    try {
-      localStorage.setItem(videoStorageKey, String(v.currentTime));
-    } catch {
-      /* ignore */
-    }
-  }, [videoStorageKey]);
-
-  useEffect(() => {
-    if (!videoStorageKey || !loan) return;
-    const st = loan.attestationStatus ?? "NOT_STARTED";
-    if (st !== "NOT_STARTED") {
-      try {
-        localStorage.removeItem(videoStorageKey);
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [videoStorageKey, loan?.attestationStatus]);
-
-  useEffect(() => {
-    if (!videoStorageKey) return;
-    const onHide = () => {
-      if (document.visibilityState === "hidden") persistVideoPosition();
-    };
-    const onPageHide = () => persistVideoPosition();
-    document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", onPageHide);
-    return () => {
-      document.removeEventListener("visibilitychange", onHide);
-      window.removeEventListener("pagehide", onPageHide);
-    };
-  }, [videoStorageKey, persistVideoPosition]);
-
-  const onVideoTimeUpdate = () => {
-    const v = videoRef.current;
-    if (!v || !v.duration) return;
-    if (v.currentTime > maxWatchedSecRef.current) {
-      maxWatchedSecRef.current = v.currentTime;
-    }
-    const p = (v.currentTime / v.duration) * 100;
-    setVideoProgressPct(Math.min(100, Math.round(p * 10) / 10));
-    persistVideoPosition();
-  };
-
-  const onVideoSeeked = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.currentTime > maxWatchedSecRef.current + 0.05) {
-      v.currentTime = maxWatchedSecRef.current;
-    }
-  };
-
-  const onVideoLoaded = () => {
-    const v = videoRef.current;
-    if (!v || !videoStorageKey) return;
-    try {
-      let saved = localStorage.getItem(videoStorageKey);
-      if (!saved) {
-        const legacy = sessionStorage.getItem(videoStorageKey);
-        if (legacy) {
-          localStorage.setItem(videoStorageKey, legacy);
-          sessionStorage.removeItem(videoStorageKey);
-          saved = legacy;
-        }
-      }
-      if (!saved) {
-        const legacyOldKey = sessionStorage.getItem(`attestation-video-${loanId}`);
-        if (legacyOldKey) {
-          localStorage.setItem(videoStorageKey, legacyOldKey);
-          sessionStorage.removeItem(`attestation-video-${loanId}`);
-          saved = legacyOldKey;
-        }
-      }
-      if (saved) {
-        const t = parseFloat(saved);
-        if (!Number.isNaN(t) && v.duration && t <= v.duration + 1) {
-          v.currentTime = Math.min(t, Math.max(0, v.duration - 0.25));
-          maxWatchedSecRef.current = v.currentTime;
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const toggleVideoPlay = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) void v.play();
-    else v.pause();
-  };
-
-  /** Local dev only: jump to end so "Confirm video complete" can be tested without watching. */
-  const devSkipVideoToEnd = () => {
-    if (process.env.NODE_ENV !== "development") return;
-    const v = videoRef.current;
-    if (!v || !Number.isFinite(v.duration) || v.duration <= 0) {
-      toast.error("Video not ready.");
-      return;
-    }
-    maxWatchedSecRef.current = v.duration;
-    v.currentTime = v.duration;
-    setVideoProgressPct(100);
-    persistVideoPosition();
-  };
-
-  const onVideoComplete = () => {
-    const v = videoRef.current;
-    if (!v || !v.duration) {
-      toast.error("Video not ready.");
-      return;
-    }
-    const p = (v.currentTime / v.duration) * 100;
-    if (p < 99.5 && !v.ended) {
-      toast.error("Watch the full video (100%) before continuing.");
-      return;
-    }
-    void runAttest(
-      () => postAttestationVideoComplete(loanId, { watchedPercent: 100 }),
-      "Video attestation complete."
-    );
-  };
-
   const onProceedSigning = () =>
     runAttest(() => postAttestationProceedToSigning(loanId), "You can now download and sign the agreement.");
 
-  const onRequestMeeting = () =>
-    runAttest(() => postAttestationRequestMeeting(loanId), "Meeting request recorded.");
-
-  const onProposeSlot = () => {
-    if (!selectedSlotStart) {
-      toast.error("Choose an available time slot.");
-      return;
+  const onRequestMeeting = async () => {
+    setAttestBusy(true);
+    try {
+      await postAttestationRequestMeeting(loanId);
+      toast.success("Meeting requested — choose a time.");
+      await refresh();
+      router.push(`/loans/${loanId}/schedule-meeting`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setAttestBusy(false);
     }
-    void runAttest(
-      () => postAttestationProposeSlot(loanId, { startAt: selectedSlotStart }),
-      "Slot proposed. Your lender will confirm or suggest another time."
-    );
   };
 
   const onAcceptCounter = () =>
@@ -445,8 +270,11 @@ export function LoanPendingAgreementPage() {
           Back
         </Button>
         <p className="text-sm text-muted-foreground">
-          This loan was cancelled
-          {loan.attestationCancellationReason ? ` (${loan.attestationCancellationReason})` : ""}.
+          {loan.attestationCancellationReason === "PROPOSAL_REJECTED_BY_LENDER"
+            ? "Your meeting proposal was not accepted and this loan has been cancelled."
+            : loan.attestationCancellationReason === "PROPOSAL_DEADLINE_EXPIRED"
+              ? "The attestation proposal expired without a response and this loan has been cancelled."
+              : `This loan was cancelled${loan.attestationCancellationReason ? ` (${loan.attestationCancellationReason})` : ""}.`}
         </p>
       </div>
     );
@@ -485,9 +313,14 @@ export function LoanPendingAgreementPage() {
               {loan.product?.name ?? "Loan"} · {formatRm(loan.principalAmount)} · {loan.term} months
             </p>
           </div>
-          <Badge variant="secondary" className="shrink-0 w-fit">
-            {!loan.attestationCompletedAt ? "Pending Attestation" : "Pending disbursement"}
-          </Badge>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <Badge variant="outline" className="shrink-0 w-fit">
+              {loan.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}
+            </Badge>
+            <Badge variant="secondary" className="shrink-0 w-fit">
+              {!loan.attestationCompletedAt ? "Pending Attestation" : "Pending disbursement"}
+            </Badge>
+          </div>
         </div>
       </div>
 
@@ -539,105 +372,36 @@ export function LoanPendingAgreementPage() {
               Step 1 — Attestation
             </CardTitle>
             <CardDescription>
-              Watch the full attestation video (mandatory). Then you may accept terms and continue, or
-              request an online meeting. Meet links are issued only after your lender confirms a time.
+              You may watch the attestation video, or request an online meeting first. Meet links are sent
+              after your lender confirms a time.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {attestationStatus === "NOT_STARTED" && (
-              <p className="text-sm text-muted-foreground">
-                Start with the video below. You cannot skip ahead of watching the full video.
-              </p>
-            )}
-
-            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-              <Label className="text-xs text-muted-foreground">Attestation video</Label>
-              {!videoError ? (
-                <div className="space-y-2">
-                  <video
-                    ref={videoRef}
-                    className="w-full max-h-[280px] rounded-md bg-black/80 cursor-pointer"
-                    controls={false}
-                    disablePictureInPicture
-                    playsInline
-                    preload="metadata"
-                    tabIndex={-1}
-                    src={ATTESTATION_VIDEO_SRC}
-                    onClick={() => toggleVideoPlay()}
-                    onError={() => setVideoError(true)}
-                    onLoadedMetadata={onVideoLoaded}
-                    onTimeUpdate={onVideoTimeUpdate}
-                    onSeeked={onVideoSeeked}
-                    onPlay={() => setVideoPlaying(true)}
-                    onPause={() => setVideoPlaying(false)}
-                    onEnded={() => {
-                      setVideoProgressPct(100);
-                      const v = videoRef.current;
-                      if (v?.duration) maxWatchedSecRef.current = v.duration;
-                    }}
-                  >
-                    <track kind="captions" />
-                  </video>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      className="gap-1.5"
-                      onClick={() => toggleVideoPlay()}
-                      aria-label={videoPlaying ? "Pause video" : "Play video"}
-                    >
-                      {videoPlaying ? (
-                        <>
-                          <Pause className="h-4 w-4" />
-                          Pause
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-4 w-4" />
-                          Play
-                        </>
-                      )}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      Use play/pause only — you cannot skip ahead until the video has played through.
-                    </span>
-                  </div>
-                  {process.env.NODE_ENV === "development" && (
-                    <div className="pt-2 border-t border-dashed border-border/60">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="text-xs border-amber-500/40 text-amber-900 dark:text-amber-100"
-                        onClick={devSkipVideoToEnd}
-                      >
-                        Dev: skip to 100%
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-md p-3">
-                  Video file not found. Add <code className="text-xs">public/attestation/attestation-video.mp4</code>{" "}
-                  to the borrower app, then refresh.
+              <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                <p className="text-sm font-medium">Choose how to start</p>
+                <p className="text-xs text-muted-foreground">
+                  Start by watching the attestation video or request an online meeting immediately.
                 </p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Progress: {videoProgressPct.toFixed(1)}% (100% required)
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={attestBusy || attestationStatus !== "NOT_STARTED"}
-                  onClick={() => void onVideoComplete()}
-                >
-                  {attestBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Confirm video complete
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button type="button" asChild>
+                    <Link href={`/loans/${loanId}/watch-video`}>
+                      <Video className="h-4 w-4 mr-2" />
+                      Watch a video
+                    </Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void onRequestMeeting()}
+                    disabled={attestBusy}
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Request Online Meeting
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
 
             {attestationStatus === "VIDEO_COMPLETED" && (
               <div className="flex flex-col gap-3">
@@ -652,7 +416,7 @@ export function LoanPendingAgreementPage() {
                     disabled={attestBusy}
                   >
                     <Users className="h-4 w-4 mr-2" />
-                    Request online meeting instead
+                    Request meeting — choose a time
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-2 border-t pt-4">
@@ -670,56 +434,18 @@ export function LoanPendingAgreementPage() {
               </div>
             )}
 
-            {(attestationStatus === "MEETING_REQUESTED" || attestationStatus === "PROPOSAL_EXPIRED") && (
+            {attestationStatus === "MEETING_REQUESTED" && (
               <div className="space-y-3 rounded-lg border p-4 bg-background">
                 <p className="text-sm font-medium flex items-center gap-2">
                   <Calendar className="h-4 w-4" />
-                  {attestationStatus === "PROPOSAL_EXPIRED"
-                    ? "Previous proposal expired — pick a new slot"
-                    : "Choose a meeting time"}
+                  Choose a meeting time
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Availability: {slotsSource === "google_free_busy" ? "Google Calendar" : "office hours"}. Each
-                  booking is 60 minutes (Malaysia time).
+                  Pick an available slot on the scheduling page (one proposal per loan).
                 </p>
-                {slotsLoading ? (
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                ) : slots.length === 0 ? (
-                  <p className="text-sm text-amber-700 dark:text-amber-200">No open slots right now. Try again later.</p>
-                ) : (
-                  <div className="grid gap-2 max-h-56 overflow-y-auto">
-                    {slots.map((s) => (
-                      <label
-                        key={s.startAt}
-                        className={cn(
-                          "flex items-center gap-2 rounded-md border p-2 text-sm cursor-pointer",
-                          selectedSlotStart === s.startAt ? "border-primary bg-primary/5" : "border-border"
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name="slot"
-                          checked={selectedSlotStart === s.startAt}
-                          onChange={() => setSelectedSlotStart(s.startAt)}
-                        />
-                        <span>
-                          {new Date(s.startAt).toLocaleString("en-MY", { timeZone: "Asia/Kuala_Lumpur" })} —{" "}
-                          {new Date(s.endAt).toLocaleTimeString("en-MY", {
-                            timeZone: "Asia/Kuala_Lumpur",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-                <Button type="button" onClick={() => void onProposeSlot()} disabled={attestBusy || !selectedSlotStart}>
-                  Propose this slot
+                <Button type="button" asChild>
+                  <Link href={`/loans/${loanId}/schedule-meeting`}>Open schedule page</Link>
                 </Button>
-                <p className="text-xs text-muted-foreground">
-                  Proposals: {loan.attestationBorrowerProposalCount ?? 0} / 5
-                </p>
               </div>
             )}
 
@@ -784,11 +510,16 @@ export function LoanPendingAgreementPage() {
                     {loan.attestationMeetingEndAt ? ` — ${formatDate(loan.attestationMeetingEndAt)}` : ""}
                   </p>
                 )}
+                {loan.attestationMeetingNotes ? (
+                  <p className="text-xs text-muted-foreground border rounded-md p-2 bg-muted/30">
+                    {loan.attestationMeetingNotes}
+                  </p>
+                ) : null}
                 {loan.attestationMeetingLink ? (
                   <Button type="button" variant="outline" size="sm" asChild>
                     <a href={loan.attestationMeetingLink} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-4 w-4 mr-2" />
-                      Join Google Meet
+                      Join meeting
                     </a>
                   </Button>
                 ) : (

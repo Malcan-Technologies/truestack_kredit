@@ -689,7 +689,7 @@ router.get('/loans/:loanId/attestation/availability', async (req, res, next) => 
     if (loan.status !== 'PENDING_DISBURSEMENT' || loan.attestationCompletedAt) {
       throw new BadRequestError('Availability is not available for this loan.');
     }
-    if (!['MEETING_REQUESTED', 'PROPOSAL_EXPIRED'].includes(loan.attestationStatus)) {
+    if (loan.attestationStatus !== 'MEETING_REQUESTED') {
       throw new BadRequestError('Request a meeting before choosing a slot.');
     }
 
@@ -726,7 +726,7 @@ router.post('/loans/:loanId/attestation/propose-slot', async (req, res, next) =>
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg === 'MAX_PROPOSALS_REACHED') {
-        throw new BadRequestError('Maximum number of slot proposals reached (5).');
+        throw new BadRequestError('You have already used your one-time slot proposal for this loan.');
       }
       if (msg === 'SLOT_NO_LONGER_AVAILABLE') {
         throw new BadRequestError('That slot is no longer available. Choose another time.');
@@ -941,8 +941,11 @@ router.post('/loans/:loanId/attestation/request-meeting', async (req, res, next)
     if (loan.status !== 'PENDING_DISBURSEMENT') {
       throw new BadRequestError('Attestation is only available while the loan is pending disbursement');
     }
-    if (loan.attestationStatus !== 'VIDEO_COMPLETED') {
-      throw new BadRequestError('Complete the attestation video before requesting a meeting.');
+    if (!['NOT_STARTED', 'VIDEO_COMPLETED'].includes(loan.attestationStatus)) {
+      if (loan.attestationStatus === 'MEETING_REQUESTED') {
+        return res.json({ success: true, data: loan });
+      }
+      throw new BadRequestError('A meeting cannot be requested at this step.');
     }
     if (loan.attestationCompletedAt) {
       throw new BadRequestError('Attestation is already complete.');
@@ -952,7 +955,7 @@ router.post('/loans/:loanId/attestation/request-meeting', async (req, res, next)
       where: { id: loanId },
       data: {
         attestationStatus: 'MEETING_REQUESTED',
-        attestationMeetingRequestedAt: new Date(),
+        attestationMeetingRequestedAt: loan.attestationMeetingRequestedAt ?? new Date(),
       },
     });
 

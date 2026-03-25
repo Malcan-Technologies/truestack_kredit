@@ -7,5 +7,9 @@ export const metadata: Metadata = {
 };
 
 export default function TruekreditProLayout({ children }: { children: React.ReactNode }) {
-  return <RestrictedAccessControl>{children}</RestrictedAccessControl>;
+  return (
+    <RestrictedAccessControl>
+      <div className="mx-auto w-full max-w-6xl">{children}</div>
+    </RestrictedAccessControl>
+  );
 }

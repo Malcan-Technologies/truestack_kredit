@@ -44,6 +44,7 @@ interface Loan {
   interestRate: string;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
   /** When set, borrower has finished attestation; until then, PENDING_DISBURSEMENT shows as “Pending Attestation” in the UI. */
   attestationCompletedAt?: string | null;
   disbursementDate: string | null;
@@ -610,6 +611,7 @@ function LoansPageContent() {
                       {sortField === "lateFees" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
                     </button>
                   </TableHead>
+                  <TableHead>Channel</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>
                     <button onClick={() => toggleSort("disbursed")} className="flex items-center gap-1 hover:text-foreground transition-colors">
@@ -737,6 +739,11 @@ function LoansPageContent() {
                       ) : (
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                        {loan.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5 flex-wrap">

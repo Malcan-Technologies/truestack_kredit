@@ -81,6 +81,18 @@ async function getAccessToken(): Promise<string> {
           `Original: ${raw}`
       );
     }
+    if (lower.includes('unauthorized_client')) {
+      throw new Error(
+        'Google Calendar auth failed (unauthorized_client). Fix domain-wide delegation: (1) Google Cloud → IAM → ' +
+          'Service Accounts → open this service account → enable Domain-wide delegation → copy the numeric Client ID ' +
+          '(same as "client_id" in the service account JSON key). (2) Google Admin → Security → API controls → ' +
+          'Domain-wide delegation → Add the API client → paste that Client ID. (3) OAuth scopes must match the app exactly ' +
+          '(comma-separated, no spaces): https://www.googleapis.com/auth/calendar.events,' +
+          'https://www.googleapis.com/auth/calendar.freebusy — do NOT use calendar.readonly instead of freebusy. ' +
+          '(4) Super Admin must save; wait 5–15 minutes. ' +
+          `Original: ${raw}`
+      );
+    }
     throw err;
   }
 }

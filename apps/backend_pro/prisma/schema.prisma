@@ -44,6 +44,7 @@ enum LoanStatus {
   COMPLETED
   DEFAULTED
   WRITTEN_OFF
+  CANCELLED // Borrower withdrew or loan cancelled before disbursement (e.g. after attestation)
 }
 
 /** Admin review of borrower-uploaded signed loan agreement before disbursement */
@@ -58,9 +59,24 @@ enum SignedAgreementReviewStatus {
 enum AttestationStatus {
   NOT_STARTED
   VIDEO_COMPLETED // Video watched; borrower may proceed or request a meeting
-  MEETING_REQUESTED
-  MEETING_SCHEDULED
-  COMPLETED
+  MEETING_REQUESTED // Wants a meeting; pick a slot from availability
+  SLOT_PROPOSED // Borrower picked a slot; firm DB hold; awaiting admin (12h)
+  COUNTER_PROPOSED // Admin countered with a different slot; borrower must accept/decline
+  PROPOSAL_EXPIRED // Hold expired; borrower can propose again (transient UI state, often cleared to MEETING_REQUESTED)
+  MEETING_SCHEDULED // Admin accepted; Google Calendar + Meet created
+  COMPLETED // Attestation done (video-only or post-meeting)
+}
+
+/** Who proposed the current attestation meeting slot */
+enum AttestationProposalSource {
+  BORROWER
+  ADMIN_COUNTER
+}
+
+/** Why attestation/loan was cancelled from borrower side */
+enum AttestationCancellationReason {
+  WITHDRAWN
+  REJECTED_AFTER_ATTESTATION
 }
 
 enum RepaymentStatus {
@@ -104,6 +120,8 @@ model Tenant {
   proLicenseActivatedAt DateTime @default(now())
   /// TrueSend email reminder / late-notice day configuration (JSON). Pro includes TrueSend; no separate add-on row.
   truesendSettings       Json?
+  /// Fallback office hours when Google Calendar free/busy is unavailable. JSON: { weekdays: number[], start: "HH:mm", end: "HH:mm", slotStepMinutes: 30, slotDurationMinutes: 60 }
+  attestationOfficeHoursJson Json?
   trueIdentityTenantSyncedAt DateTime? // When Admin tenant-created webhook was first sent
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
@@ -237,6 +255,7 @@ model TenantMember {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   auditLogs AuditLog[]
+  loansAttestationAssigned Loan[] @relation("AttestationAssignedMember")
 
   @@unique([userId, tenantId])
   @@index([userId])
@@ -732,13 +751,25 @@ model Loan {
   // Borrower attestation (video / online meeting) before signing — see AttestationStatus
   attestationStatus                AttestationStatus @default(NOT_STARTED)
   attestationVideoCompletedAt      DateTime?
+  attestationVideoWatchedPercent   Int               @default(0)
   attestationMeetingRequestedAt    DateTime?
+  /// Current proposed slot window (firm DB hold until accepted/expired/countered)
+  attestationProposalStartAt         DateTime?
+  attestationProposalEndAt           DateTime?
+  attestationProposalDeadlineAt      DateTime?
+  attestationProposalSource          AttestationProposalSource?
+  attestationBorrowerProposalCount   Int               @default(0)
+  attestationAssignedMemberId        String? // TenantMember.id
   attestationMeetingScheduledAt      DateTime?
   attestationMeetingStartAt          DateTime?
   attestationMeetingEndAt            DateTime?
   attestationMeetingLink             String?
   attestationGoogleCalendarEventId   String?
+  attestationMeetingReminder24hSentAt DateTime?
   attestationCompletedAt             DateTime?
+  attestationCancellationReason      AttestationCancellationReason?
+  attestationCancelledAt             DateTime?
+  attestationCancelledByUserId       String? // User.id (borrower account)
 
   // Stamp certificate (uploaded by admin before disbursement)
   stampCertPath         String?   // Path to stamp certificate file (local or S3)
@@ -781,11 +812,14 @@ model Loan {
   transactions     PaymentTransaction[]
   lateFeeEntries   LateFeeEntry[]
   emailLogs        EmailLog[] // TrueSend email delivery logs
+  attestationAssignedMember TenantMember? @relation("AttestationAssignedMember", fields: [attestationAssignedMemberId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([status])
   @@index([borrowerId])
   @@index([borrowerId, disbursementDate, tenantId])
+  @@index([tenantId, attestationStatus])
+  @@index([attestationProposalDeadlineAt])
 }
 
 model LoanGuarantor {

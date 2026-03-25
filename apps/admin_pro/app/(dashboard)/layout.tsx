@@ -13,6 +13,7 @@ import {
   Package,
   ClipboardList,
   Menu,
+  Calendar,
   HelpCircle,
   ScrollText,
   Calculator,
@@ -29,6 +30,7 @@ import {
   Blocks,
   Send,
   Fingerprint,
+  Sparkles,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -110,6 +112,21 @@ const navigationSections: NavSection[] = [
     ],
   },
   {
+    title: "TrueKredit Pro",
+    items: [
+      {
+        name: "Attestation meetings",
+        href: "/dashboard/truekredit-pro/attestation-meetings",
+        icon: Sparkles,
+      },
+      {
+        name: "Availability settings",
+        href: "/dashboard/truekredit-pro/availability",
+        icon: Calendar,
+      },
+    ],
+  },
+  {
     title: "Tools",
     items: [
       { name: "Calculator", href: "/dashboard/calculator", icon: Calculator },
@@ -139,6 +156,7 @@ const PATHS_REQUIRING_MEMBERSHIP = [
   "/dashboard/calculator",
   "/dashboard/admin-logs",
   "/dashboard/modules",
+  "/dashboard/truekredit-pro",
 ];
 
 function pathRequiresMembership(href: string): boolean {

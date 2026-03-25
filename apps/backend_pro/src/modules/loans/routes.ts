@@ -25,6 +25,12 @@ import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { buildInternalScheduleView, supportsInternalScheduleView } from './scheduleViewService.js';
 import { computeLoanApplicationPreview } from './loanApplicationPreviewService.js';
 import { buildLoanAgreementPdfBuffer } from './loanAgreementPdfService.js';
+import { getTenantOfficeHoursConfig } from '../../lib/attestationAvailability.js';
+import {
+  adminAcceptBorrowerProposal,
+  adminCounterProposal,
+  adminRejectProposal,
+} from '../../lib/attestationBookingService.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
@@ -1953,6 +1959,227 @@ router.get('/late-fee-logs', async (req, res, next) => {
     res.json({ success: true, data: logs });
   } catch (error) {
     next(error);
+  }
+});
+
+const attestationOfficeHoursPutSchema = z.object({
+  weekdays: z.array(z.number().int().min(1).max(7)),
+  start: z.string().regex(/^\d{2}:\d{2}$/),
+  end: z.string().regex(/^\d{2}:\d{2}$/),
+  slotStepMinutes: z.number().int().positive().optional(),
+  slotDurationMinutes: z.number().int().positive().optional(),
+});
+
+const attestationCounterSchema = z.object({
+  startAt: z.string().datetime(),
+  endAt: z.string().datetime(),
+});
+
+/**
+ * GET /api/loans/attestation/office-hours
+ * Fallback availability rules when Google free/busy is unavailable.
+ */
+router.get('/attestation/office-hours', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const config = await getTenantOfficeHoursConfig(tenantId);
+    res.json({ success: true, data: config });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * PUT /api/loans/attestation/office-hours
+ */
+router.put('/attestation/office-hours', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const body = attestationOfficeHoursPutSchema.parse(req.body);
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { attestationOfficeHoursJson: body },
+    });
+    await AuditService.log({
+      tenantId,
+      memberId: req.memberId,
+      action: 'ATTESTATION_OFFICE_HOURS_UPDATED',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      newData: body,
+      ipAddress: req.ip,
+    });
+    res.json({ success: true, data: body });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/loans/attestation-queue
+ * Loans with pending attestation meeting proposals (sorted by meeting requested time).
+ */
+router.get('/attestation-queue', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const loans = await prisma.loan.findMany({
+      where: {
+        tenantId,
+        status: 'PENDING_DISBURSEMENT',
+        attestationStatus: {
+          in: [
+            'MEETING_REQUESTED',
+            'SLOT_PROPOSED',
+            'COUNTER_PROPOSED',
+            'PROPOSAL_EXPIRED',
+            'MEETING_SCHEDULED',
+          ],
+        },
+        attestationCompletedAt: null,
+      },
+      orderBy: { attestationMeetingRequestedAt: 'asc' },
+      include: {
+        borrower: { select: { id: true, name: true, email: true, phone: true } },
+        product: { select: { name: true } },
+        attestationAssignedMember: {
+          select: { id: true, user: { select: { name: true, email: true } } },
+        },
+      },
+      take: 200,
+    });
+    res.json({ success: true, data: loans });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/loans/:loanId/attestation/accept-proposal
+ */
+router.post('/:loanId/attestation/accept-proposal', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { loanId } = req.params;
+    const memberId = req.memberId;
+    if (!memberId) {
+      throw new BadRequestError('Member context required');
+    }
+
+    let result;
+    try {
+      result = await adminAcceptBorrowerProposal({ loanId, tenantId, memberId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === 'GOOGLE_CALENDAR_NOT_CONFIGURED') {
+        throw new BadRequestError('Google Calendar is not configured for this tenant.');
+      }
+      if (msg === 'INVALID_ATTESTATION_STATE') {
+        throw new BadRequestError('No borrower proposal to accept.');
+      }
+      if (msg.startsWith('Google Calendar auth failed') || msg.startsWith('Google Calendar:')) {
+        throw new BadRequestError(msg);
+      }
+      throw err;
+    }
+
+    await AuditService.log({
+      tenantId,
+      memberId,
+      action: 'ADMIN_ATTESTATION_PROPOSAL_ACCEPTED',
+      entityType: 'Loan',
+      entityId: loanId,
+      newData: { meetLink: result.meetLink },
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/loans/:loanId/attestation/counter-proposal
+ */
+router.post('/:loanId/attestation/counter-proposal', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { loanId } = req.params;
+    const memberId = req.memberId;
+    if (!memberId) {
+      throw new BadRequestError('Member context required');
+    }
+    const body = attestationCounterSchema.parse(req.body);
+    const startAt = new Date(body.startAt);
+    const endAt = new Date(body.endAt);
+
+    let updated;
+    try {
+      updated = await adminCounterProposal({
+        loanId,
+        tenantId,
+        memberId,
+        startAt,
+        endAt,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === 'SLOT_NO_LONGER_AVAILABLE') {
+        throw new BadRequestError('That slot overlaps another booking. Choose another time.');
+      }
+      if (msg === 'INVALID_ATTESTATION_STATE') {
+        throw new BadRequestError('Counter is only allowed when a borrower proposal is pending.');
+      }
+      throw err;
+    }
+
+    await AuditService.log({
+      tenantId,
+      memberId,
+      action: 'ADMIN_ATTESTATION_COUNTER_PROPOSED',
+      entityType: 'Loan',
+      entityId: loanId,
+      newData: { startAt: startAt.toISOString(), endAt: endAt.toISOString() },
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/loans/:loanId/attestation/reject-proposal
+ */
+router.post('/:loanId/attestation/reject-proposal', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { loanId } = req.params;
+
+    let updated;
+    try {
+      updated = await adminRejectProposal({ loanId, tenantId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === 'INVALID_ATTESTATION_STATE') {
+        throw new BadRequestError('Nothing to reject.');
+      }
+      throw err;
+    }
+
+    await AuditService.log({
+      tenantId,
+      memberId: req.memberId,
+      action: 'ADMIN_ATTESTATION_PROPOSAL_REJECTED',
+      entityType: 'Loan',
+      entityId: loanId,
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
   }
 });
 

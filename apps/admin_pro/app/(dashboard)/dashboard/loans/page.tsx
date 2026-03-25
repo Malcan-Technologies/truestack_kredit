@@ -44,6 +44,8 @@ interface Loan {
   interestRate: string;
   term: number;
   status: string;
+  /** When set, borrower has finished attestation; until then, PENDING_DISBURSEMENT shows as “Pending Attestation” in the UI. */
+  attestationCompletedAt?: string | null;
   disbursementDate: string | null;
   createdAt: string;
   totalLateFees: string;
@@ -152,6 +154,19 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   DEFAULTED: "destructive",
   WRITTEN_OFF: "destructive",
 };
+
+function loanStatusDisplay(loan: Loan): {
+  label: string;
+  variant: "default" | "success" | "warning" | "destructive" | "info";
+} {
+  if (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt) {
+    return { label: "Pending Attestation", variant: "warning" };
+  }
+  return {
+    label: loan.status.replace(/_/g, " "),
+    variant: statusColors[loan.status] || "default",
+  };
+}
 
 function LoansPageContent() {
   const searchParams = useSearchParams();
@@ -611,6 +626,7 @@ function LoansPageContent() {
                     ? loan.borrower.companyName
                     : loan.borrower.name;
                   const progress = loan.progress;
+                  const statusUi = loanStatusDisplay(loan);
 
                   return (
                   <TableRow 
@@ -724,8 +740,8 @@ function LoansPageContent() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <Badge variant={statusColors[loan.status] || "default"}>
-                          {loan.status.replace(/_/g, " ")}
+                        <Badge variant={statusUi.variant}>
+                          {statusUi.label}
                         </Badge>
                         {loan.earlySettlementDate && loan.status === "COMPLETED" && (
                           <Badge variant="outline-success" className="text-xs">

@@ -28,6 +28,9 @@ const ROUTE_LABELS: Record<string, string> = {
   subscription: "Subscription",
   payment: "Payment",
   onboarding: "Onboarding",
+  "truekredit-pro": "TrueKredit Pro",
+  "attestation-meetings": "Attestation meetings",
+  availability: "Availability settings",
 };
 
 interface BreadcrumbItem {

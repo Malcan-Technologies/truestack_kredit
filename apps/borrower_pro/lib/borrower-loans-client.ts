@@ -86,13 +86,21 @@ export function borrowerLoanViewSignedAgreementUrl(loanId: string): string {
   return `${BASE}/loans/${encodeURIComponent(loanId)}/agreement`;
 }
 
-export async function postAttestationVideoComplete(loanId: string): Promise<{
+export async function postAttestationVideoComplete(
+  loanId: string,
+  body: { watchedPercent: number }
+): Promise<{
   success: boolean;
   data: unknown;
 }> {
   const res = await fetch(
     `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/video-complete`,
-    { method: "POST", credentials: "include" }
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    }
   );
   const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
   if (!res.ok) {
@@ -131,15 +139,31 @@ export async function postAttestationRequestMeeting(loanId: string): Promise<{
   return { success: true, data: json.data };
 }
 
-export async function postAttestationScheduleMeeting(
-  loanId: string,
-  body: { startAt: string; endAt?: string }
-): Promise<{
+export async function getAttestationAvailability(loanId: string): Promise<{
   success: boolean;
-  data: { loan: unknown; meetLink: string; htmlLink: string; startAt: string; endAt: string };
+  data: { slots: Array<{ startAt: string; endAt: string }>; source: string };
 }> {
   const res = await fetch(
-    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/schedule-meeting`,
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/availability`,
+    { credentials: "include" }
+  );
+  const json = await parseJson<{
+    success: boolean;
+    data?: { slots: Array<{ startAt: string; endAt: string }>; source: string };
+    error?: string;
+  }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not load availability");
+  }
+  return { success: true, data: json.data! };
+}
+
+export async function postAttestationProposeSlot(
+  loanId: string,
+  body: { startAt: string }
+): Promise<{ success: boolean; data: unknown }> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/propose-slot`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -147,15 +171,65 @@ export async function postAttestationScheduleMeeting(
       body: JSON.stringify(body),
     }
   );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not propose slot");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function postAttestationAcceptCounter(loanId: string): Promise<{
+  success: boolean;
+  data: { loan: unknown; meetLink: string };
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/accept-counter`,
+    { method: "POST", credentials: "include" }
+  );
   const json = await parseJson<{
     success: boolean;
-    data?: { loan: unknown; meetLink: string; htmlLink: string; startAt: string; endAt: string };
+    data?: { loan: unknown; meetLink: string };
     error?: string;
   }>(res);
   if (!res.ok) {
-    throw new Error(json.error || "Could not schedule meeting");
+    throw new Error(json.error || "Could not accept");
   }
   return { success: true, data: json.data! };
+}
+
+export async function postAttestationDeclineCounter(loanId: string): Promise<{
+  success: boolean;
+  data: unknown;
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/decline-counter`,
+    { method: "POST", credentials: "include" }
+  );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not decline");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function postAttestationCancelLoan(
+  loanId: string,
+  body: { reason: "WITHDRAWN" | "REJECTED_AFTER_ATTESTATION" }
+): Promise<{ success: boolean; data: unknown }> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/cancel-loan`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    }
+  );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not cancel loan");
+  }
+  return { success: true, data: json.data };
 }
 
 export async function postAttestationCompleteMeeting(loanId: string): Promise<{

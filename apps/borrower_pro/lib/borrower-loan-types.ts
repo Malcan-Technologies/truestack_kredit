@@ -28,6 +28,9 @@ export type AttestationStatus =
   | "NOT_STARTED"
   | "VIDEO_COMPLETED"
   | "MEETING_REQUESTED"
+  | "SLOT_PROPOSED"
+  | "COUNTER_PROPOSED"
+  | "PROPOSAL_EXPIRED"
   | "MEETING_SCHEDULED"
   | "COMPLETED";
 
@@ -46,6 +49,7 @@ export interface BorrowerLoanListItem {
   signedAgreementReviewStatus?: SignedAgreementReviewStatus;
   attestationStatus?: AttestationStatus;
   attestationCompletedAt?: string | null;
+  attestationCancellationReason?: string | null;
   progress: {
     paidCount: number;
     totalRepayments: number;
@@ -71,13 +75,20 @@ export interface BorrowerLoanDetail {
   signedAgreementReviewNotes: string | null;
   attestationStatus?: AttestationStatus;
   attestationVideoCompletedAt?: string | null;
+  attestationVideoWatchedPercent?: number;
   attestationMeetingRequestedAt?: string | null;
+  attestationProposalStartAt?: string | null;
+  attestationProposalEndAt?: string | null;
+  attestationProposalDeadlineAt?: string | null;
+  attestationProposalSource?: "BORROWER" | "ADMIN_COUNTER" | null;
+  attestationBorrowerProposalCount?: number;
   attestationMeetingScheduledAt?: string | null;
   attestationMeetingStartAt?: string | null;
   attestationMeetingEndAt?: string | null;
   attestationMeetingLink?: string | null;
   attestationGoogleCalendarEventId?: string | null;
   attestationCompletedAt?: string | null;
+  attestationCancellationReason?: string | null;
 }
 
 export interface BorrowerLoanMetrics {

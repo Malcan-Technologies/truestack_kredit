@@ -33,6 +33,7 @@ import type { LoanCenterOverview } from "../../lib/borrower-loan-types";
 import type { BorrowerLoanListItem } from "../../lib/borrower-loan-types";
 import type { LoanApplicationDetail } from "../../lib/application-form-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
+import { deriveLoanJourneyPhase, loanJourneyPhaseLabel } from "../../lib/loan-journey-phase";
 
 export type LoanCenterTab =
   | "active"
@@ -305,6 +306,13 @@ function LoanListPane({
 function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
   const review = loan.signedAgreementReviewStatus ?? "NONE";
   const attestationDone = !!loan.attestationCompletedAt;
+  const journeyPhase = deriveLoanJourneyPhase({
+    applicationStatus: loan.application?.status,
+    loanStatus: loan.status,
+    attestationCompletedAt: loan.attestationCompletedAt,
+    signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
+    agreementPath: undefined,
+  });
   const reviewLabel =
     review === "APPROVED"
       ? "Signed agreement approved"
@@ -321,7 +329,12 @@ function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
           <CardTitle className="text-base">{loan.product?.name ?? "Loan"}</CardTitle>
           <p className="text-xs text-muted-foreground font-mono mt-1">ID: {shortId(loan.id)}</p>
         </div>
-        <Badge variant="outline">Pending disbursement</Badge>
+        <div className="flex flex-col items-end gap-1">
+          <Badge variant="outline">Pending disbursement</Badge>
+          <Badge variant="secondary" className="text-[10px]">
+            {loanJourneyPhaseLabel(journeyPhase)}
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid sm:grid-cols-2 gap-3 text-sm">
@@ -338,6 +351,9 @@ function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
           {!attestationDone && (
             <span className="block text-amber-800 dark:text-amber-200 mb-1">
               Complete attestation (video or lawyer meeting) before signing the agreement.
+              {loan.attestationStatus ? (
+                <span className="block text-xs mt-1 font-mono">Status: {loan.attestationStatus}</span>
+              ) : null}
             </span>
           )}
           {reviewLabel}

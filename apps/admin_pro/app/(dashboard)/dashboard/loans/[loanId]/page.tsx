@@ -1804,6 +1804,19 @@ export default function LoanDetailPage() {
                   <div>
                     <p className="font-medium text-amber-600">Pending disbursement</p>
                     <p className="text-xs text-muted-foreground">Awaiting disbursement</p>
+                    {!attestationComplete && (
+                      <p className="text-xs mt-2">
+                        <Link
+                          href={`/dashboard/truekredit-pro/attestation-meetings/${loan.id}`}
+                          className="text-primary underline hover:no-underline"
+                        >
+                          Attestation meetings
+                        </Link>
+                        {loan.attestationStatus ? (
+                          <span className="text-muted-foreground"> · {loan.attestationStatus}</span>
+                        ) : null}
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : metrics ? (

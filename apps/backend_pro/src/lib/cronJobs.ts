@@ -9,6 +9,10 @@ import cron from 'node-cron';
 import { LateFeeProcessor } from './lateFeeProcessor.js';
 import { PaymentReminderProcessor } from './paymentReminderProcessor.js';
 import { LatePaymentNoticeProcessor } from './latePaymentNoticeProcessor.js';
+import {
+  processAttestationProposalExpiry,
+  processAttestationMeetingReminders,
+} from './attestationCronProcessors.js';
 
 /**
  * Initialize all cron jobs.
@@ -67,4 +71,31 @@ export function initCronJobs(): void {
   });
 
   console.log('  ✓ TrueSend payment reminders: 9:00 AM MYT daily');
+
+  // Attestation: expire pending proposals every 15 minutes
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      await processAttestationProposalExpiry();
+    } catch (error) {
+      console.error('[CRON] Attestation proposal expiry failed:', error);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+  console.log('  ✓ Attestation proposal expiry: every 15 min MYT');
+
+  // Attestation: 24h meeting reminders hourly
+  cron.schedule('0 * * * *', async () => {
+    try {
+      const r = await processAttestationMeetingReminders();
+      if (r.sent > 0) {
+        console.log(`[CRON] Attestation 24h reminders sent: ${r.sent}`);
+      }
+    } catch (error) {
+      console.error('[CRON] Attestation meeting reminders failed:', error);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+  console.log('  ✓ Attestation meeting 24h reminders: hourly MYT');
 }

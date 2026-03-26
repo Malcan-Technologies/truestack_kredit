@@ -205,7 +205,10 @@ export function OnboardingWizard() {
   const [hydrated, setHydrated] = useState(false);
 
   const [step, setStep] = useState<OnboardingStep>(0);
+<<<<<<< HEAD
   const [resumeStep, setResumeStep] = useState<1 | 2 | 3>(1);
+=======
+>>>>>>> 73477fc (refactor(onboarding): enhance onboarding wizard with step normalization and improved UI for intro step)
   const [loading, setLoading] = useState(false);
   const [hasIndividual, setHasIndividual] = useState(false);
   const [profileCount, setProfileCount] = useState(0);
@@ -227,8 +230,12 @@ export function OnboardingWizard() {
   useEffect(() => {
     const saved = loadDraft();
     if (saved) {
+<<<<<<< HEAD
       const savedStep = normalizeStep(saved.step);
       setResumeStep(savedStep === 0 ? 1 : savedStep);
+=======
+      setStep(normalizeStep(saved.step));
+>>>>>>> 73477fc (refactor(onboarding): enhance onboarding wizard with step normalization and improved UI for intro step)
       setBorrowerDetailSubStep(saved.borrowerDetailSubStep);
       setBorrowerType(saved.borrowerType);
       setIndividualFormData(saved.individualFormData);
@@ -476,6 +483,7 @@ export function OnboardingWizard() {
   }
 
   return (
+<<<<<<< HEAD
     <div className="pb-10 w-full min-w-0 max-w-4xl mx-auto space-y-6">
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
@@ -483,11 +491,24 @@ export function OnboardingWizard() {
             {isIntroStep
               ? "Welcome to your borrower account"
               : "Let's set up your borrower profile"}
+=======
+    <div className="pb-10 max-w-4xl mx-auto">
+      <div className="flex items-start justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-2xl font-heading font-bold">
+            {isIntroStep
+              ? "Welcome to your borrower account"
+              : "Let&apos;s set up your borrower profile"}
+>>>>>>> 73477fc (refactor(onboarding): enhance onboarding wizard with step normalization and improved UI for intro step)
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isIntroStep
               ? "A quick onboarding is all it takes before you can start using everything in the app."
+<<<<<<< HEAD
               : "We'll walk you through a few steps. You can save and come back anytime."}
+=======
+              : "We&apos;ll walk you through a few steps. You can save and come back anytime."}
+>>>>>>> 73477fc (refactor(onboarding): enhance onboarding wizard with step normalization and improved UI for intro step)
           </p>
         </div>
         {!isIntroStep ? (
@@ -564,7 +585,11 @@ export function OnboardingWizard() {
                   ) : (
                     <div />
                   )}
+<<<<<<< HEAD
                   <Button onClick={() => setStep(resumeStep)}>
+=======
+                  <Button onClick={() => setStep(1)}>
+>>>>>>> 73477fc (refactor(onboarding): enhance onboarding wizard with step normalization and improved UI for intro step)
                     Continue <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>

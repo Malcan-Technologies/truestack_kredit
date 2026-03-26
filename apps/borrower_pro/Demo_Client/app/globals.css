@@ -87,3 +87,10 @@
     @apply font-heading;
   }
 }
+
+@layer utilities {
+  /* Match admin_pro — page title emphasis */
+  .text-gradient {
+    @apply text-foreground font-bold;
+  }
+}

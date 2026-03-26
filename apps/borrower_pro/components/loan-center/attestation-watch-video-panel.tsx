@@ -222,7 +222,7 @@ export function AttestationWatchVideoPanel() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 pb-12">
+    <div className="w-full min-w-0 space-y-6 pb-12">
       <Button variant="ghost" size="sm" asChild>
         <Link href={`/loans/${loanId}`}>
           <ArrowLeft className="h-4 w-4 mr-2" />
@@ -233,8 +233,8 @@ export function AttestationWatchVideoPanel() {
       <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-muted/30 p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Attestation video</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <h1 className="text-2xl font-heading font-bold text-gradient">Attestation video</h1>
+            <p className="text-muted text-base mt-1">
               {loan.product?.name ?? "Loan"} · {formatRm(loan.principalAmount)} · {loan.term} months
             </p>
           </div>

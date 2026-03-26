@@ -67,6 +67,12 @@ export default function AttestationMeetingDetailPage() {
     }
   };
 
+  const dispatchAttestationQueueChanged = () => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("attestation-queue-changed"));
+    }
+  };
+
   const onAcceptGoogle = async () => {
     if (!loanId) return;
     setBusy(true);
@@ -81,6 +87,7 @@ export default function AttestationMeetingDetailPage() {
       }
       toast.success("Meeting confirmed. Meet link created.");
       dispatchLoansChanged();
+      dispatchAttestationQueueChanged();
       await load();
     } finally {
       setBusy(false);
@@ -107,6 +114,7 @@ export default function AttestationMeetingDetailPage() {
       }
       toast.success("Meeting confirmed. Borrower notified.");
       dispatchLoansChanged();
+      dispatchAttestationQueueChanged();
       await load();
     } finally {
       setBusy(false);
@@ -124,6 +132,7 @@ export default function AttestationMeetingDetailPage() {
       }
       toast.success("Proposal rejected. Loan has been cancelled.");
       dispatchLoansChanged();
+      dispatchAttestationQueueChanged();
       await load();
     } finally {
       setBusy(false);
@@ -166,6 +175,7 @@ export default function AttestationMeetingDetailPage() {
       }
       toast.success("Meeting scheduled and sent to borrower.");
       dispatchLoansChanged();
+      dispatchAttestationQueueChanged();
       await load();
     } finally {
       setBusy(false);
@@ -187,7 +197,7 @@ export default function AttestationMeetingDetailPage() {
   const maxProposals = 1;
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 p-6">
+    <div className="mx-auto w-full min-w-0 max-w-5xl xl:max-w-6xl space-y-6 p-4 sm:p-6">
       <Button variant="ghost" size="sm" asChild>
         <Link href="/dashboard/truekredit-pro/attestation-meetings">
           <ArrowLeft className="h-4 w-4 mr-2" />

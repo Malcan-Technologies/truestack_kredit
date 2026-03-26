@@ -7,10 +7,10 @@ import {
   fetchLenderInfo,
   resolveBorrowerLenderLogoSrc,
   type LenderInfo,
-} from "../../../../lib/borrower-auth-client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
-import { Badge } from "../../../../components/ui/badge";
-import { PhoneDisplay } from "../../../../components/ui/phone-display";
+} from "@borrower_pro/lib/borrower-auth-client";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@borrower_pro/components/ui/card";
+import { Badge } from "@borrower_pro/components/ui/badge";
+import { PhoneDisplay } from "@borrower_pro/components/ui/phone-display";
 import { APP_VERSION } from "@/lib/version";
 
 const POLICY_LINKS = [

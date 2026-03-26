@@ -122,3 +122,18 @@ variable "seed_owner_email" {
 variable "seed_owner_name" {
   type = string
 }
+
+variable "email_from_name" {
+  type    = string
+  default = "TrueKredit"
+}
+
+variable "email_from_address" {
+  type    = string
+  default = "kredit-no-reply@send.truestack.my"
+}
+
+variable "truestack_kyc_api_base_url" {
+  type    = string
+  default = "https://api.truestack.my"
+}

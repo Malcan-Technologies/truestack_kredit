@@ -11,6 +11,7 @@ import {
   CreditCard,
   FileText,
   Loader2,
+  LogOut,
   Plus,
   RefreshCw,
 } from "lucide-react";
@@ -43,6 +44,8 @@ export type LoanCenterTab =
   | "incomplete"
   | "rejected";
 
+type EndedApplicationsFilter = "all" | "rejected" | "withdrawn";
+
 function formatRm(v: unknown): string {
   const n = toAmountNumber(v);
   return `RM ${n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -52,15 +55,21 @@ function shortId(id: string): string {
   return id.slice(0, 8).toUpperCase();
 }
 
+function formatApplicationStatusLabel(status: string): string {
+  if (status === "CANCELLED") return "Withdrawn";
+  return status.replace(/_/g, " ");
+}
+
 export function LoanCenterPage() {
   const [tab, setTab] = useState<LoanCenterTab>("active");
+  const [endedFilter, setEndedFilter] = useState<EndedApplicationsFilter>("all");
   const tabList: { id: LoanCenterTab; label: string }[] = [
     { id: "active", label: "Active" },
     { id: "pending_disbursement", label: "Before payout" },
     { id: "discharged", label: "Discharged" },
     { id: "applications", label: "Applications" },
     { id: "incomplete", label: "Incomplete" },
-    { id: "rejected", label: "Rejected" },
+    { id: "rejected", label: "Rejected & withdrawn" },
   ];
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<LoanCenterOverview | null>(null);
@@ -101,6 +110,10 @@ export function LoanCenterPage() {
     return () => window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
   }, [loadAll]);
 
+  useEffect(() => {
+    if (tab !== "rejected") setEndedFilter("all");
+  }, [tab]);
+
   const incomplete = useMemo(
     () => applications.filter((a) => a.status === "DRAFT"),
     [applications]
@@ -113,6 +126,21 @@ export function LoanCenterPage() {
     () => applications.filter((a) => ["REJECTED", "CANCELLED"].includes(a.status)),
     [applications]
   );
+
+  const lenderRejectedCount = useMemo(
+    () => rejectedApps.filter((a) => a.status === "REJECTED").length,
+    [rejectedApps]
+  );
+  const withdrawnCount = useMemo(
+    () => rejectedApps.filter((a) => a.status === "CANCELLED").length,
+    [rejectedApps]
+  );
+
+  const filteredEndedApps = useMemo(() => {
+    if (endedFilter === "all") return rejectedApps;
+    if (endedFilter === "rejected") return rejectedApps.filter((a) => a.status === "REJECTED");
+    return rejectedApps.filter((a) => a.status === "CANCELLED");
+  }, [rejectedApps, endedFilter]);
 
   const counts = overview?.counts;
 
@@ -177,7 +205,70 @@ export function LoanCenterPage() {
         );
       case "rejected":
         return (
-          <ApplicationListPane apps={rejectedApps} onChanged={() => void loadAll()} variant="rejected" />
+          <div className="space-y-4">
+            <div
+              className="flex flex-wrap gap-2"
+              role="group"
+              aria-label="Filter rejected and withdrawn applications"
+            >
+              <Button
+                type="button"
+                variant={endedFilter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setEndedFilter("all")}
+              >
+                All
+                <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 tabular-nums">
+                  {rejectedApps.length}
+                </Badge>
+              </Button>
+              <Button
+                type="button"
+                variant={endedFilter === "rejected" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setEndedFilter("rejected")}
+              >
+                Rejected
+                <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 tabular-nums">
+                  {lenderRejectedCount}
+                </Badge>
+              </Button>
+              <Button
+                type="button"
+                variant={endedFilter === "withdrawn" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setEndedFilter("withdrawn")}
+              >
+                Withdrawn
+                <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 tabular-nums">
+                  {withdrawnCount}
+                </Badge>
+              </Button>
+            </div>
+            <ApplicationListPane
+              apps={filteredEndedApps}
+              onChanged={() => void loadAll()}
+              variant="rejected"
+              emptyTitle={
+                rejectedApps.length === 0
+                  ? undefined
+                  : filteredEndedApps.length === 0
+                    ? endedFilter === "rejected"
+                      ? "No rejected applications"
+                      : endedFilter === "withdrawn"
+                        ? "No withdrawn applications"
+                        : undefined
+                    : undefined
+              }
+              emptyDescription={
+                rejectedApps.length === 0
+                  ? undefined
+                  : filteredEndedApps.length === 0 && endedFilter !== "all"
+                    ? "Try another filter or choose All."
+                    : undefined
+              }
+            />
+          </div>
         );
       default:
         return null;
@@ -192,10 +283,8 @@ export function LoanCenterPage() {
             <FileText className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Your Loans</h1>
-            <p className="text-sm text-primary font-medium mt-0.5">
-              Active and completed loans
-            </p>
+            <h1 className="text-2xl font-heading font-bold text-gradient">Your Loans</h1>
+            <p className="text-muted text-base mt-1">Active and completed loans</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -438,21 +527,27 @@ function ApplicationListPane({
   onChanged,
   emptyCta,
   variant,
+  emptyTitle,
+  emptyDescription,
 }: {
   apps: LoanApplicationDetail[];
   onChanged: () => void;
   emptyCta?: React.ReactNode;
   variant?: "rejected";
+  emptyTitle?: string;
+  emptyDescription?: string;
 }) {
   if (apps.length === 0) {
+    const defaultRejectedCopy =
+      variant === "rejected"
+        ? "No rejected or withdrawn applications."
+        : "No applications in this category.";
     return (
       <div className="text-center py-12">
         <Clock className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
-        <h3 className="text-lg font-semibold">Nothing here</h3>
+        <h3 className="text-lg font-semibold">{emptyTitle ?? "Nothing here"}</h3>
         <p className="text-sm text-muted-foreground mt-1 mb-6">
-          {variant === "rejected"
-            ? "No rejected or withdrawn applications."
-            : "No applications in this category."}
+          {emptyDescription ?? defaultRejectedCopy}
         </p>
         {emptyCta}
       </div>
@@ -462,7 +557,7 @@ function ApplicationListPane({
   return (
     <div className="space-y-4">
       {apps.map((app) => (
-        <ApplicationCard key={app.id} app={app} onChanged={onChanged} variant={variant} />
+        <ApplicationCard key={app.id} app={app} onChanged={onChanged} />
       ))}
     </div>
   );
@@ -471,11 +566,9 @@ function ApplicationListPane({
 function ApplicationCard({
   app,
   onChanged,
-  variant,
 }: {
   app: LoanApplicationDetail;
   onChanged: () => void;
-  variant?: "rejected";
 }) {
   const [open, setOpen] = useState(false);
   const [timeline, setTimeline] = useState<
@@ -513,21 +606,32 @@ function ApplicationCard({
     }
   };
 
-  const isRejected = variant === "rejected" || app.status === "REJECTED" || app.status === "CANCELLED";
+  const isRejectedByLender = app.status === "REJECTED";
+  const isWithdrawn = app.status === "CANCELLED";
 
   return (
-    <Card className={isRejected ? "border-destructive/30 bg-destructive/[0.03]" : undefined}>
+    <Card
+      className={
+        isRejectedByLender
+          ? "border-destructive/30 bg-destructive/[0.03]"
+          : isWithdrawn
+            ? "border-border bg-muted/15"
+            : undefined
+      }
+    >
       <CardHeader className="flex flex-row items-start justify-between gap-2">
         <div>
           <CardTitle className="text-base flex items-center gap-2">
-            {isRejected ? (
+            {isRejectedByLender ? (
               <AlertTriangle className="h-4 w-4 text-destructive" />
+            ) : isWithdrawn ? (
+              <LogOut className="h-4 w-4 text-muted-foreground" />
             ) : (
               <FileText className="h-4 w-4 text-primary" />
             )}
             {app.product?.name ?? "Application"}
           </CardTitle>
-          <p className={`text-xs font-mono mt-1 ${isRejected ? "text-destructive" : "text-muted-foreground"}`}>
+          <p className={`text-xs font-mono mt-1 ${isRejectedByLender ? "text-destructive" : "text-muted-foreground"}`}>
             ID: {shortId(app.id)}
           </p>
         </div>
@@ -551,7 +655,7 @@ function ApplicationCard({
           </div>
           <div className="rounded-lg border bg-muted/30 p-3">
             <p className="text-xs text-muted-foreground">Status</p>
-            <p className="font-semibold uppercase">{app.status.replace(/_/g, " ")}</p>
+            <p className="font-semibold uppercase">{formatApplicationStatusLabel(app.status)}</p>
           </div>
         </div>
         <Button variant="ghost" size="sm" className="w-full" onClick={() => setOpen(!open)}>

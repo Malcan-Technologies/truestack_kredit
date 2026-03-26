@@ -1,15 +1,15 @@
 "use client";
 
-import { AccountProfileCard } from "../../../../components/account-profile-card";
-import { AccountSecurityCard } from "../../../../components/account-security-card";
-import { AccountLoginActivityCard } from "../../../../components/account-login-activity-card";
+import { AccountProfileCard } from "@borrower_pro/components/account-profile-card";
+import { AccountSecurityCard } from "@borrower_pro/components/account-security-card";
+import { AccountLoginActivityCard } from "@borrower_pro/components/account-login-activity-card";
 
 export default function AccountPage() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">My account</h2>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-2xl font-heading font-bold text-gradient">My account</h1>
+        <p className="text-muted text-base mt-1">
           Manage your login, security, and account information
         </p>
       </div>

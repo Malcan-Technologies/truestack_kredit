@@ -14,15 +14,15 @@ import {
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "../../../components/ui/button";
+import { Button } from "@borrower_pro/components/ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
-} from "../../../components/ui/card";
-import { OnboardingProgress } from "../../../components/onboarding-progress";
+} from "@borrower_pro/components/ui/card";
+import { OnboardingProgress } from "@borrower_pro/components/onboarding-progress";
 import {
   IdentityCard,
   PersonalCard,
@@ -34,34 +34,34 @@ import {
   CompanyContactCard,
   CompanyAdditionalCard,
   DirectorsCard,
-} from "../../../components/borrower-form";
-import type { BorrowerDetailsSubStep } from "../../../components/borrower-details-sub-stepper";
+} from "@borrower_pro/components/borrower-form";
+import type { BorrowerDetailsSubStep } from "@borrower_pro/components/borrower-details-sub-stepper";
 import {
   fetchBorrowerMe,
   submitOnboarding,
   type OnboardingPayload,
-} from "../../../lib/borrower-auth-client";
+} from "@borrower_pro/lib/borrower-auth-client";
 import {
   initialIndividualFormData,
   initialCorporateFormData,
-} from "../../../lib/borrower-form-initial";
+} from "@borrower_pro/lib/borrower-form-initial";
 import {
   validateIndividualForm,
   validateCorporateForm,
   validateIndividualFormStep,
   validateCorporateFormStep,
-} from "../../../lib/borrower-form-validation";
+} from "@borrower_pro/lib/borrower-form-validation";
 import type {
   IndividualFormData,
   CorporateFormData,
-} from "../../../lib/borrower-form-types";
+} from "@borrower_pro/lib/borrower-form-types";
 import {
   getOptionLabel,
   formatDate,
   formatAddress,
   formatCurrency,
-} from "../../../lib/borrower-form-display";
-import { cn } from "@/lib/utils";
+} from "@borrower_pro/lib/borrower-form-display";
+import { cn } from "@borrower_pro/lib/utils";
 
 const DRAFT_KEY = "onboarding_draft";
 const DISMISSED_KEY = "onboarding_dismissed";
@@ -476,10 +476,10 @@ export function OnboardingWizard() {
   }
 
   return (
-    <div className="pb-10 max-w-4xl mx-auto">
+    <div className="pb-10 w-full min-w-0 max-w-4xl mx-auto space-y-6">
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-heading font-bold">
+          <h1 className="text-2xl font-heading font-bold text-gradient">
             {isIntroStep
               ? "Welcome to your borrower account"
               : "Let's set up your borrower profile"}

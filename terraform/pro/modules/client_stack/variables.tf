@@ -158,3 +158,20 @@ variable "log_retention_days" {
   type    = number
   default = 14
 }
+
+# Outbound email (Resend) — used by backend_pro notifications
+variable "email_from_name" {
+  type    = string
+  default = "TrueKredit"
+}
+
+variable "email_from_address" {
+  type    = string
+  default = "kredit-no-reply@send.truestack.my"
+}
+
+# TrueStack public KYC API host (non-secret; API key is in Secrets Manager)
+variable "truestack_kyc_api_base_url" {
+  type    = string
+  default = "https://api.truestack.my"
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -496,45 +496,61 @@ export function ApplicationFlowWizard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Apply for a Loan</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-2xl font-heading font-bold text-gradient">Apply for a Loan</h1>
+        <p className="text-muted text-base mt-1">
           Complete the steps below to submit your loan application.
         </p>
       </div>
 
-      {/* Stepper */}
-      <div className="flex flex-wrap gap-2 justify-between items-start border-b border-border pb-4">
-        {STEPS.map((s, i) => {
-          const Icon = s.icon;
-          const active = i === step;
-          const done = i < step;
-          return (
-            <div
-              key={s.id}
-              className={cn(
-                "flex flex-col items-center gap-1 min-w-[100px] max-w-[140px] text-center",
-                active && "text-primary",
-                done && "text-foreground",
-                !active && !done && "text-muted-foreground"
-              )}
-            >
-              <div
-                className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm",
-                  active && "border-primary bg-primary/10",
-                  done && "border-primary bg-primary text-primary-foreground",
-                  !active && !done && "border-dashed border-muted-foreground/40"
+      {/* Stepper — dashed connectors show progression toward the next step */}
+      <div className="border-b border-border pb-4">
+        <div className="flex w-full min-w-0 flex-nowrap items-start justify-center gap-0 overflow-x-auto pb-1 [scrollbar-width:thin]">
+          {STEPS.map((s, i) => {
+            const Icon = s.icon;
+            const active = i === step;
+            const done = i < step;
+            return (
+              <Fragment key={s.id}>
+                <div
+                  className={cn(
+                    "flex w-[5.25rem] shrink-0 flex-col items-center gap-1 text-center sm:w-28",
+                    active && "text-primary",
+                    done && "text-foreground",
+                    !active && !done && "text-muted-foreground"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 text-sm bg-background",
+                      active && "border-primary bg-primary/10",
+                      done && "border-primary bg-primary text-primary-foreground",
+                      !active && !done && "border-dashed border-muted-foreground/40"
+                    )}
+                  >
+                    {done ? <Check className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
+                  </div>
+                  <span className="text-xs font-medium leading-tight">{s.label}</span>
+                </div>
+                {i < STEPS.length - 1 && (
+                  <div
+                    className="flex h-10 min-w-[8px] flex-1 items-center sm:min-w-[16px] md:min-w-[24px]"
+                    aria-hidden
+                  >
+                    <div
+                      className={cn(
+                        "h-0 w-full border-t-2 border-dashed",
+                        step > i ? "border-primary/45" : "border-muted-foreground/35"
+                      )}
+                    />
+                  </div>
                 )}
-              >
-                {done ? <Check className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
-              </div>
-              <span className="text-xs font-medium leading-tight">{s.label}</span>
-            </div>
-          );
-        })}
+              </Fragment>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(280px,22rem)] xl:grid-cols-[1fr_minmax(300px,24rem)] gap-6 lg:gap-8 items-start">
         <div className="space-y-6 min-w-0">
           {step === 0 && (
             <Card>
@@ -891,11 +907,16 @@ export function ApplicationFlowWizard() {
           )}
         </div>
 
-        {/* Sidebar: product terms */}
+        {/* Sidebar: product terms — top aligns below dashboard header (h-16); max-height + scroll avoids title clipping under sticky header */}
         {selectedProduct && (
-          <Card className="lg:sticky lg:top-24 lg:self-start z-0 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">{selectedProduct.name}</CardTitle>
+          <Card
+            className={cn(
+              "shadow-sm lg:self-start lg:z-10",
+              "lg:sticky lg:top-16 lg:max-h-[calc(100dvh-5rem)] lg:overflow-y-auto lg:overscroll-contain"
+            )}
+          >
+            <CardHeader className="space-y-1.5">
+              <CardTitle className="text-base leading-snug">{selectedProduct.name}</CardTitle>
               <CardDescription>
                 RM {toAmountNumber(selectedProduct.minAmount).toLocaleString()} – RM{" "}
                 {toAmountNumber(selectedProduct.maxAmount).toLocaleString()}

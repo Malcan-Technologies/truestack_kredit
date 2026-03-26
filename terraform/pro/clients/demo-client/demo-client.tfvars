@@ -37,3 +37,8 @@ migrations_task_name  = "truekredit-demo-client-migrations"
 pro_tenant_slug  = "demo-company"
 seed_owner_email = "admin@demo.com"
 seed_owner_name  = "Demo Owner"
+
+# backend_pro .env parity (non-secret)
+email_from_name            = "TrueKredit"
+email_from_address         = "kredit-no-reply@send.truestack.my"
+truestack_kyc_api_base_url = "https://api.truestack.my"

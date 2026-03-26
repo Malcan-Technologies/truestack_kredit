@@ -65,4 +65,9 @@ module "client_stack" {
   pro_tenant_slug  = var.pro_tenant_slug
   seed_owner_email = var.seed_owner_email
   seed_owner_name  = var.seed_owner_name
+
+  # Match apps’ .env (non-secret; secrets stay in AWS Secrets Manager)
+  email_from_name            = var.email_from_name
+  email_from_address         = var.email_from_address
+  truestack_kyc_api_base_url = var.truestack_kyc_api_base_url
 }

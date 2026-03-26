@@ -105,7 +105,7 @@ export default function AvailabilitySettingsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 p-6 text-center">
+    <div className="mx-auto w-full min-w-0 max-w-3xl xl:max-w-4xl space-y-6 p-4 sm:p-6 text-center">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Availability settings</h1>
         <p className="text-sm text-muted-foreground mt-1">

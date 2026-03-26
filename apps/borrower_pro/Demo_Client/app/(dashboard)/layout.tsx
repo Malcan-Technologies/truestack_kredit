@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { fetchBorrowerMe } from "../../../lib/borrower-auth-client";
+import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
+import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
 import Link from "next/link";
 import {
   Building2,
@@ -14,20 +15,21 @@ import {
   Menu,
   UserCircle,
 } from "lucide-react";
-import { useSession, signOut } from "@/lib/auth-client";
-import { Button } from "../../../components/ui/button";
+import { useSession, signOut } from "@borrower_pro/lib/auth-client";
+import { Button } from "@borrower_pro/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "../../../components/ui/dropdown-menu";
-import { AppDropdownMenuContent } from "../../../components/ui/app-dropdown-menu";
-import { BorrowerSwitcher } from "../../../components/borrower-switcher";
-import { NavbarCorner } from "../../../components/navbar-corner";
-import { SidebarLenderBranding } from "../../../components/sidebar-lender-branding";
-import { ThemeToggle } from "../../../components/theme-toggle";
-import { cn } from "@/lib/utils";
+} from "@borrower_pro/components/ui/dropdown-menu";
+import { AppDropdownMenuContent } from "@borrower_pro/components/ui/app-dropdown-menu";
+import { BorrowerSwitcher } from "@borrower_pro/components/borrower-switcher";
+import { NavbarCorner } from "@borrower_pro/components/navbar-corner";
+import { SidebarLenderBranding } from "@borrower_pro/components/sidebar-lender-branding";
+import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
+import { Badge } from "@borrower_pro/components/ui/badge";
+import { cn } from "@borrower_pro/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 
 const navItems = [
@@ -46,6 +48,18 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { data: session, isPending } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [beforePayoutCount, setBeforePayoutCount] = useState(0);
+
+  const refreshLoanOverview = useCallback(async () => {
+    try {
+      const r = await fetchLoanCenterOverview();
+      if (r.success && r.data?.counts) {
+        setBeforePayoutCount(r.data.counts.pendingDisbursementLoans);
+      }
+    } catch {
+      /* sidebar stays usable without badge */
+    }
+  }, []);
 
   useEffect(() => {
     if (!isPending && !session) {
@@ -69,6 +83,17 @@ export default function DashboardLayout({
       })
       .catch(() => {});
   }, [session, isPending, pathname, router]);
+
+  useEffect(() => {
+    if (!session) return;
+    void refreshLoanOverview();
+  }, [session, pathname, refreshLoanOverview]);
+
+  useEffect(() => {
+    const onSwitch = () => void refreshLoanOverview();
+    window.addEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
+    return () => window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
+  }, [refreshLoanOverview]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -130,7 +155,16 @@ export default function DashboardLayout({
                   )}
                 >
                   <item.icon className="h-5 w-5 shrink-0" />
-                  {item.name}
+                  <span className="flex-1 min-w-0">{item.name}</span>
+                  {item.href === "/loans" && beforePayoutCount > 0 ? (
+                    <Badge
+                      variant="secondary"
+                      className="h-5 min-w-5 shrink-0 px-1.5 text-xs"
+                      title="Loans before payout"
+                    >
+                      {beforePayoutCount > 99 ? "99+" : beforePayoutCount}
+                    </Badge>
+                  ) : null}
                 </Link>
               );
             })}
@@ -196,7 +230,7 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <div className="lg:pl-64 relative">
+      <div className="relative min-h-screen bg-background lg:pl-64">
         <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-sm border-b border-border">
           <NavbarCorner className="hidden lg:block" />
           <div className="flex items-center justify-between h-full px-4">
@@ -231,7 +265,9 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-5xl p-4 lg:p-8">{children}</main>
+        <main className="w-full min-w-0 p-4 sm:p-5 md:px-6 md:py-6 lg:px-7 lg:py-8 xl:px-9 xl:py-8 2xl:px-11">
+          {children}
+        </main>
       </div>
     </div>
   );

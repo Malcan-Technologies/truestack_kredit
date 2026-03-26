@@ -1,0 +1,44 @@
+#!/bin/sh
+# Prisma database operations runner for backend_pro ECS task.
+
+set -e
+
+cd /app/apps/backend_pro
+
+echo "=========================================="
+echo "Pro Database Operations Runner"
+echo "=========================================="
+echo ""
+
+if [ -z "$DATABASE_URL" ]; then
+  echo "ERROR: DATABASE_URL environment variable is not set"
+  exit 1
+fi
+
+echo "DATABASE_URL is set."
+echo ""
+
+if [ "$RESET_DATABASE" = "true" ]; then
+  echo "Resetting database (RESET_DATABASE=true)..."
+  npx prisma migrate reset --force --skip-seed --schema=prisma/schema.prisma
+  echo "Database reset complete."
+  echo ""
+fi
+
+if [ "$SKIP_MIGRATIONS" = "true" ]; then
+  echo "Skipping migrations (SKIP_MIGRATIONS=true)"
+else
+  echo "Running prisma migrate deploy..."
+  npx prisma migrate deploy --schema=prisma/schema.prisma
+  echo "Migrations complete."
+fi
+
+if [ "$SEED_DATABASE" = "true" ]; then
+  echo ""
+  echo "Running production database seed..."
+  npm run db:seed:prod
+  echo "Seed complete."
+fi
+
+echo ""
+echo "Database operations finished."

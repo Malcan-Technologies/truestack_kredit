@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "apps/admin/**"
+      - "apps/backend/**"
+      - "packages/shared/**"
+      - "apps/backend/prisma/**"
+      - "Dockerfile.migrations"
+      - "scripts/run-prisma-migrations.sh"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
     inputs:
       action:

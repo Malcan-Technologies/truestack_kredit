@@ -685,10 +685,6 @@ resource "aws_ecs_task_definition" "backend" {
       }
     }
   ])
-
-  lifecycle {
-    ignore_changes = [container_definitions]
-  }
 }
 
 resource "aws_ecs_task_definition" "admin" {
@@ -848,8 +844,10 @@ resource "aws_ecs_service" "backend" {
   deployment_maximum_percent         = 200
   deployment_minimum_healthy_percent = 100
 
+  # Track task_definition so env/secrets (e.g. Google Calendar) from Terraform reach running tasks.
+  # Keep desired_count ignored if you scale the service outside Terraform.
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [desired_count]
   }
 }
 

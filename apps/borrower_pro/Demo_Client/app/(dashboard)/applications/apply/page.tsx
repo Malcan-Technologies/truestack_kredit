@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { Button } from "../../../../../components/ui/button";
-import { ApplicationFlowWizard } from "../../../../../components/application-form";
+import { Button } from "@borrower_pro/components/ui/button";
+import { ApplicationFlowWizard } from "@borrower_pro/components/application-form";
 
 export default function ApplyForLoanPage() {
   return (

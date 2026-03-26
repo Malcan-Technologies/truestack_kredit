@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { signIn } from "@/lib/auth-client";
-import { Button } from "../../../../components/ui/button";
-import { Input } from "../../../../components/ui/input";
-import { Label } from "../../../../components/ui/label";
+import { signIn } from "@borrower_pro/lib/auth-client";
+import { Button } from "@borrower_pro/components/ui/button";
+import { Input } from "@borrower_pro/components/ui/input";
+import { Label } from "@borrower_pro/components/ui/label";
 import {
   Card,
   CardContent,
@@ -13,7 +13,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "../../../../components/ui/card";
+} from "@borrower_pro/components/ui/card";
 import { toast } from "sonner";
 
 export default function SignInPage() {

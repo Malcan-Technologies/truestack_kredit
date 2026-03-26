@@ -144,12 +144,16 @@
     --sidebar-ring: 0 0% 98%;
   }
 
+  html {
+    @apply scroll-smooth;
+  }
+
   * {
     @apply border-border;
   }
 
   body {
-    @apply bg-background text-foreground font-body antialiased;
+    @apply bg-background text-foreground font-body antialiased min-h-dvh;
   }
 
   h1, h2, h3, h4, h5, h6 {

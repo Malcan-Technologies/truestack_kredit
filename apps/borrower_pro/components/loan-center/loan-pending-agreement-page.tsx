@@ -295,7 +295,7 @@ export function LoanPendingAgreementPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-8 pb-12">
+    <div className="w-full min-w-0 space-y-8 pb-12">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/loans">
@@ -308,8 +308,8 @@ export function LoanPendingAgreementPage() {
       <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-muted/30 p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Before payout</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <h1 className="text-2xl font-heading font-bold text-gradient">Before payout</h1>
+            <p className="text-muted text-base mt-1">
               {loan.product?.name ?? "Loan"} · {formatRm(loan.principalAmount)} · {loan.term} months
             </p>
           </div>

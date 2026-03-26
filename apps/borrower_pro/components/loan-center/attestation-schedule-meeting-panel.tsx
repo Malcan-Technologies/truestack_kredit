@@ -134,7 +134,7 @@ export function AttestationScheduleMeetingPanel() {
 
   if (loan.status === "CANCELLED") {
     return (
-      <div className="space-y-4 max-w-xl mx-auto p-6">
+      <div className="space-y-4 max-w-2xl mx-auto p-4 sm:p-6">
         <Button variant="ghost" size="sm" onClick={() => router.push("/loans")}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back
@@ -149,7 +149,7 @@ export function AttestationScheduleMeetingPanel() {
 
   if (loan.attestationStatus !== "MEETING_REQUESTED") {
     return (
-      <div className="space-y-4 max-w-xl mx-auto p-6">
+      <div className="space-y-4 max-w-2xl mx-auto p-4 sm:p-6">
         <Button variant="ghost" size="sm" asChild>
           <Link href={`/loans/${loanId}`}>
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -165,7 +165,7 @@ export function AttestationScheduleMeetingPanel() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 pb-12 px-4">
+    <div className="w-full min-w-0 space-y-6 pb-12">
       <Button variant="ghost" size="sm" asChild>
         <Link href={`/loans/${loanId}`}>
           <ArrowLeft className="h-4 w-4 mr-2" />
@@ -174,8 +174,8 @@ export function AttestationScheduleMeetingPanel() {
       </Button>
 
       <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-muted/30 p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight">Schedule attestation meeting</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-2xl font-heading font-bold text-gradient">Schedule attestation meeting</h1>
+        <p className="text-muted text-base mt-1">
           {loan.product?.name ?? "Loan"} · {formatRm(loan.principalAmount)} · {loan.term} months
         </p>
       </div>

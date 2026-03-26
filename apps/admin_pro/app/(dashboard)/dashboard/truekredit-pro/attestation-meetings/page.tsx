@@ -103,6 +103,9 @@ export default function AttestationMeetingsQueuePage() {
     const res = await api.get<QueueLoan[]>("/api/loans/attestation-queue");
     if (res.success && res.data) {
       setRows(res.data);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("attestation-queue-changed"));
+      }
     } else {
       setError(res.error ?? "Failed to load queue");
     }
@@ -142,7 +145,7 @@ export default function AttestationMeetingsQueuePage() {
   const selectedDayItems = itemsForDay(items, cursor);
 
   return (
-    <div className="mx-auto w-full space-y-6 p-6">
+    <div className="mx-auto w-full min-w-0 space-y-6 p-4 sm:p-6">
       <div className="text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Attestation meetings</h1>
         <p className="text-sm text-muted-foreground mt-1">

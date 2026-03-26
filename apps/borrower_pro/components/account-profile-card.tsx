@@ -5,7 +5,7 @@ import { UserCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { useSession, updateUser } from "@/lib/auth-client";
+import { useSession, updateUser } from "../lib/auth-client";
 import { formatDate } from "../lib/borrower-form-display";
 import { toast } from "sonner";
 

@@ -23,7 +23,8 @@ export async function fetchBorrowerMeServer(): Promise<BorrowerMeResponse | null
       headers: cookieHeader ? { cookie: cookieHeader } : {},
       cache: "no-store",
     });
-    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") || "";
+    if (!res.ok || !contentType.includes("application/json")) return null;
     return res.json();
   } catch {
     return null;

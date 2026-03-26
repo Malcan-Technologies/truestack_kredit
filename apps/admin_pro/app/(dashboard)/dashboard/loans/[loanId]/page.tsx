@@ -379,6 +379,20 @@ const loanStatusColors: Record<string, "default" | "success" | "warning" | "dest
   WRITTEN_OFF: "destructive",
 };
 
+/** Matches `loanStatusDisplay` on loans list (`/dashboard/loans`) — same label when attestation pending. */
+function loanDetailStatusDisplay(loan: {
+  status: string;
+  attestationCompletedAt?: string | null;
+}): { label: string; variant: "default" | "success" | "warning" | "destructive" | "info" } {
+  if (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt) {
+    return { label: "Pending Attestation", variant: "warning" };
+  }
+  return {
+    label: loan.status.replace(/_/g, " "),
+    variant: loanStatusColors[loan.status] || "default",
+  };
+}
+
 const repaymentStatusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   PENDING: "secondary" as "default",
   PARTIAL: "warning",
@@ -1684,6 +1698,8 @@ export default function LoanDetailPage() {
   const hasSignedAgreementFile = Boolean(loan.agreementPath);
   const signedAgreementApproved = (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED";
   const attestationComplete = Boolean(loan.attestationCompletedAt);
+  const isOnlineLoan = loan.loanChannel === "ONLINE";
+  const statusUi = loanDetailStatusDisplay(loan);
   const canDisburseLoan =
     Boolean(loan.agreementDate) &&
     attestationComplete &&
@@ -1691,15 +1707,21 @@ export default function LoanDetailPage() {
     hasSignedAgreementFile &&
     signedAgreementApproved;
   const disbursementDisabledReason = !loan.agreementDate
-    ? "Generate the agreement PDF first to fix the agreement date before disbursement"
+    ? isOnlineLoan
+      ? "Borrower must finish agreement steps in the borrower portal (agreement date fixed) before disbursement"
+      : "Generate the agreement PDF first to fix the agreement date before disbursement"
     : !attestationComplete
       ? "Borrower must complete attestation (video or lawyer meeting) in the borrower portal before disbursement"
       : hasGuarantors && !allGuarantorAgreementsGenerated
         ? "Generate all guarantor agreement PDFs before disbursement"
         : !hasSignedAgreementFile
-          ? "Upload the signed loan agreement PDF"
+          ? isOnlineLoan
+            ? "Borrower must upload the signed loan agreement in the borrower portal"
+            : "Upload the signed loan agreement PDF"
           : !signedAgreementApproved
-            ? "Approve the borrower’s signed agreement (or upload on their behalf) before disbursement"
+            ? isOnlineLoan
+              ? "Approve the borrower’s signed agreement before disbursement"
+              : "Approve the borrower’s signed agreement (or upload on their behalf) before disbursement"
             : undefined;
 
   // ============================================
@@ -1721,9 +1743,9 @@ export default function LoanDetailPage() {
               <Badge variant="outline" className="text-xs">
                 {loan.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}
               </Badge>
-              <Badge variant={loanStatusColors[loan.status]} className="flex items-center gap-1">
+              <Badge variant={statusUi.variant} className="flex items-center gap-1">
                 {getStatusIcon(loan.status)}
-                {loan.status.replace(/_/g, " ")}
+                {statusUi.label}
               </Badge>
             </div>
             <p className="text-muted-foreground">
@@ -1806,20 +1828,29 @@ export default function LoanDetailPage() {
                 <div className="flex items-center gap-3">
                   <Calendar className="h-5 w-5 text-amber-600 shrink-0" />
                   <div>
-                    <p className="font-medium text-amber-600">Pending disbursement</p>
-                    <p className="text-xs text-muted-foreground">Awaiting disbursement</p>
-                    {!attestationComplete && (
-                      <p className="text-xs mt-2">
-                        <Link
-                          href={`/dashboard/truekredit-pro/attestation-meetings/${loan.id}`}
-                          className="text-primary underline hover:no-underline"
-                        >
-                          Attestation meetings
-                        </Link>
-                        {loan.attestationStatus ? (
-                          <span className="text-muted-foreground"> · {loan.attestationStatus}</span>
-                        ) : null}
-                      </p>
+                    {!attestationComplete ? (
+                      <>
+                        <p className="font-medium text-amber-600">Pending Attestation</p>
+                        <p className="text-xs text-muted-foreground">
+                          Borrower must complete attestation before disbursement can proceed.
+                        </p>
+                        <p className="text-xs mt-2">
+                          <Link
+                            href={`/dashboard/truekredit-pro/attestation-meetings/${loan.id}`}
+                            className="text-primary underline hover:no-underline"
+                          >
+                            Attestation meetings
+                          </Link>
+                          {loan.attestationStatus ? (
+                            <span className="text-muted-foreground"> · {loan.attestationStatus}</span>
+                          ) : null}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium text-amber-600">Pending disbursement</p>
+                        <p className="text-xs text-muted-foreground">Awaiting disbursement</p>
+                      </>
                     )}
                   </div>
                 </div>
@@ -2340,8 +2371,122 @@ export default function LoanDetailPage() {
             </Card>
           </div>
 
+          {/* Online loans: agreement PDF / signing / stamp happen in borrower_pro — staff get view, download, approval only */}
+          {loan.status === "PENDING_DISBURSEMENT" && isOnlineLoan && (
+            <Card
+              className={
+                (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED"
+                  ? "border-emerald-200 dark:border-emerald-800"
+                  : loan.agreementPath
+                    ? "border-amber-200 dark:border-amber-800"
+                    : undefined
+              }
+            >
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <FileText className={`h-8 w-8 ${loan.agreementPath ? "text-emerald-600" : "text-muted-foreground"}`} />
+                  <div className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold">Signed loan agreement</h3>
+                      {loan.product.loanScheduleType === "JADUAL_K" ? (
+                        <Badge variant="default" className="text-xs">
+                          <ShieldCheck className="h-3 w-3 mr-1" />
+                          Jadual K
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">
+                          <Shield className="h-3 w-3 mr-1" />
+                          Jadual J
+                        </Badge>
+                      )}
+                      {loan.agreementPath ? (
+                        <Badge variant="verified" className="text-xs">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Received (v{loan.agreementVersion})
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">
+                          Awaiting borrower upload
+                        </Badge>
+                      )}
+                      {(loan.signedAgreementReviewStatus ?? "NONE") === "PENDING" && (
+                        <Badge variant="secondary" className="text-xs">
+                          Awaiting your approval
+                        </Badge>
+                      )}
+                      {(loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED" && (
+                        <Badge variant="verified" className="text-xs">
+                          Approved
+                        </Badge>
+                      )}
+                      {(loan.signedAgreementReviewStatus ?? "NONE") === "REJECTED" && (
+                        <Badge variant="destructive" className="text-xs">
+                          Rejected
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Generate, sign, and stamp flows run in the borrower portal. Use view or download once the borrower has uploaded the signed PDF.
+                      {loan.agreementPath
+                        ? ` Last received: ${formatDate(loan.agreementUploadedAt || "")}.`
+                        : ""}
+                    </p>
+                    {(loan.signedAgreementReviewStatus ?? "NONE") === "REJECTED" && loan.signedAgreementReviewNotes && (
+                      <p className="text-sm text-destructive mt-2">{loan.signedAgreementReviewNotes}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {loan.agreementPath ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            View
+                          </Button>
+                          <Button variant="outline" size="sm" asChild>
+                            <a
+                              href={`/api/proxy/loans/${loan.id}/agreement`}
+                              download={loan.agreementOriginalName || "signed-loan-agreement.pdf"}
+                            >
+                              <Download className="h-4 w-4 mr-2" />
+                              Download
+                            </a>
+                          </Button>
+                          {(loan.signedAgreementReviewStatus ?? "NONE") === "PENDING" && (
+                            <>
+                              <Button
+                                size="sm"
+                                onClick={() => void handleApproveSignedAgreement()}
+                                disabled={approvingSignedAgreement}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Approve signed agreement
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => setShowRejectSignedAgreementDialog(true)}
+                                disabled={approvingSignedAgreement}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No file yet — waiting for borrower upload.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Agreement Date (required before disbursement) */}
-          {loan.status === "PENDING_DISBURSEMENT" && (
+          {loan.status === "PENDING_DISBURSEMENT" && !isOnlineLoan && (
             <Card className={loan.agreementDate ? "border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"}>
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
@@ -2380,7 +2525,7 @@ export default function LoanDetailPage() {
           )}
 
           {/* Signed Loan Agreement — required before disbursement; borrower uploads for review */}
-          {loan.status === "PENDING_DISBURSEMENT" && (
+          {loan.status === "PENDING_DISBURSEMENT" && !isOnlineLoan && (
             <Card
               className={
                 (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED"
@@ -2611,7 +2756,7 @@ export default function LoanDetailPage() {
           )}
 
           {/* Stamp Certificate (optional upload before/after disbursement) */}
-          {loan.status === "PENDING_DISBURSEMENT" && (
+          {loan.status === "PENDING_DISBURSEMENT" && !isOnlineLoan && (
             <Card className={loan.stampCertPath ? "border-emerald-200 dark:border-emerald-800" : undefined}>
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
@@ -3347,6 +3492,10 @@ export default function LoanDetailPage() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Loan ID</span>
                 <span className="font-mono text-xs">{loan.id.slice(0, 12)}...</span>
+              </div>
+              <div className="flex justify-between items-start gap-2">
+                <span className="text-muted-foreground shrink-0">Status</span>
+                <span className="text-right font-medium">{statusUi.label}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Created</span>

@@ -71,12 +71,12 @@ variable "secrets_arn" {
 
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${var.project_name}-${var.environment}-backend"
-  retention_in_days = 30
+  retention_in_days = 14
 }
 
 resource "aws_cloudwatch_log_group" "frontend" {
   name              = "/ecs/${var.project_name}-${var.environment}-frontend"
-  retention_in_days = 30
+  retention_in_days = 14
 }
 
 resource "aws_ecs_cluster" "main" {
@@ -84,7 +84,7 @@ resource "aws_ecs_cluster" "main" {
 
   setting {
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
   }
 }
 
@@ -235,6 +235,7 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "STORAGE_TYPE", value = "s3" },
         { name = "S3_BUCKET", value = var.s3_bucket },
         { name = "AWS_REGION", value = var.aws_region },
+        { name = "UPLOAD_DIR", value = "/tmp/uploads" },
       ]
 
       secrets = [
@@ -262,6 +263,11 @@ resource "aws_ecs_task_definition" "backend" {
       }
     }
   ])
+
+  # GitHub Actions deploy overwrites task definitions (image tags, env). Do not revert live tasks on apply.
+  lifecycle {
+    ignore_changes = [container_definitions]
+  }
 }
 
 resource "aws_ecs_service" "backend" {
@@ -287,6 +293,11 @@ resource "aws_ecs_service" "backend" {
   deployment_minimum_healthy_percent = 100
 
   depends_on = [aws_iam_role_policy.s3_access]
+
+  # Deploy workflow registers new task definition revisions; do not revert the service.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 }
 
 resource "aws_ecs_task_definition" "frontend" {
@@ -338,6 +349,10 @@ resource "aws_ecs_task_definition" "frontend" {
       }
     }
   ])
+
+  lifecycle {
+    ignore_changes = [container_definitions]
+  }
 }
 
 resource "aws_ecs_service" "frontend" {
@@ -361,6 +376,10 @@ resource "aws_ecs_service" "frontend" {
 
   deployment_maximum_percent         = 200
   deployment_minimum_healthy_percent = 100
+
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 }
 
 resource "aws_ecs_task_definition" "migrations" {
@@ -396,6 +415,10 @@ resource "aws_ecs_task_definition" "migrations" {
       }
     }
   ])
+
+  lifecycle {
+    ignore_changes = [container_definitions]
+  }
 }
 
 output "cluster_name" {

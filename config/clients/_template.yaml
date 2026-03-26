@@ -1,0 +1,47 @@
+client_id: client-id
+client_type: external
+borrower_app: client-folder-name
+
+aws:
+  account_id: "123456789012"
+  region: ap-southeast-5
+  github_environment: pro-client-id
+
+deploy:
+  auto_deploy: false
+  platform_release: sha-to-pin
+  borrower_release: sha-to-pin
+
+ecr:
+  backend_repository: truekredit-client-id-backend-pro
+  admin_repository: truekredit-client-id-admin-pro
+  borrower_repository: truekredit-client-id-borrower
+
+ecs:
+  cluster: truekredit-client-id
+  backend_service: truekredit-client-id-backend
+  admin_service: truekredit-client-id-admin
+  borrower_service: truekredit-client-id-borrower
+  migrations_task: truekredit-client-id-migrations
+
+secrets:
+  app_secrets_arn: arn:aws:secretsmanager:ap-southeast-5:123456789012:secret:truekredit-client-id
+
+storage:
+  uploads_bucket: truekredit-uploads-client-id
+
+domains:
+  admin: admin.client-id.example.com
+  api: api.client-id.example.com
+  borrower: app.client-id.example.com
+
+pro_tenant:
+  slug: client-id
+  seed_owner_email: admin@client-id.example.com
+  seed_owner_name: Client Admin
+
+enabled_modules:
+  - origination
+  - repayments
+  - attestation
+  - signing

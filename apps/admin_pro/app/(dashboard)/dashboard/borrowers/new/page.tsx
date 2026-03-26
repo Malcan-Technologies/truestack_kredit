@@ -1,0 +1,2233 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import {
+  ArrowLeft,
+  User,
+  Phone,
+  Building2,
+  Save,
+  Briefcase,
+  Plus,
+  Trash2,
+  Share2,
+  Sparkles,
+  ExternalLink,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { PhoneInput } from "@/components/ui/phone-input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  InstagramIcon,
+  TikTokIcon,
+  FacebookIcon,
+  LinkedInIcon,
+  XTwitterIcon,
+} from "@/components/ui/social-media-icons";
+import { api } from "@/lib/api";
+import { DEFAULT_COUNTRY_CODE, getCountryOptions, getStateOptions } from "@/lib/address-options";
+import { formatRelativeTime } from "@/lib/utils";
+
+// ============================================
+// Types
+// ============================================
+
+interface Borrower {
+  id: string;
+  name: string;
+}
+
+type BorrowerPerformanceRiskLevel = "NO_HISTORY" | "GOOD" | "WATCH" | "HIGH_RISK" | "DEFAULTED";
+
+type DataConsistencyLevel = "EXACT_MATCH" | "ALMOST_FULL_MATCH" | "PARTIAL_MATCH" | "NOT_MATCHING" | "NOT_AVAILABLE";
+
+interface CrossTenantInsights {
+  hasHistory: boolean;
+  otherLenderCount: number;
+  lenderNames: string[];
+  totalLoans: number;
+  activeLoans: number;
+  completedLoans: number;
+  defaultedLoans: number;
+  latePaymentsCount?: number;
+  totalBorrowedRange: string | null;
+  paymentPerformance: {
+    rating: BorrowerPerformanceRiskLevel;
+    onTimeRateRange: string | null;
+  };
+  lastBorrowedAt: string | null;
+  lastActivityAt: string | null;
+  nameConsistency?: DataConsistencyLevel;
+  phoneConsistency?: DataConsistencyLevel;
+  addressConsistency?: DataConsistencyLevel;
+  loanDetails?: CrossTenantLoanInsight[];
+  recentLoans?: CrossTenantLoanInsight[];
+  loans?: CrossTenantLoanInsight[];
+}
+
+interface CrossTenantLoanInsight {
+  id?: string;
+  lenderName?: string | null;
+  tenantName?: string | null;
+  loanAmountRange?: string | null;
+  principalAmountRange?: string | null;
+  amountRange?: string | null;
+  status?: string | null;
+  paymentPerformance?: {
+    onTimeRateRange?: string | null;
+  };
+  agreementDate?: string | null;
+  disbursementDate?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  lastActivityAt?: string | null;
+}
+
+interface IndividualFormData {
+  name: string;
+  icNumber: string;
+  documentType: string;
+  phone: string;
+  email: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postcode: string;
+  country: string;
+  dateOfBirth: string;
+  gender: string;
+  race: string;
+  educationLevel: string;
+  occupation: string;
+  employmentStatus: string;
+  bankName: string;
+  bankNameOther: string;
+  bankAccountNo: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  emergencyContactRelationship: string;
+  monthlyIncome: string;
+  instagram: string;
+  tiktok: string;
+  facebook: string;
+  linkedin: string;
+  xTwitter: string;
+}
+
+interface CorporateFormData {
+  name: string; // Authorized rep name
+  icNumber: string; // SSM registration number
+  phone: string;
+  email: string;
+  companyName: string;
+  ssmRegistrationNo: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postcode: string;
+  country: string;
+  bumiStatus: string;
+  authorizedRepName: string;
+  authorizedRepIc: string;
+  companyPhone: string;
+  companyEmail: string;
+  natureOfBusiness: string;
+  dateOfIncorporation: string;
+  paidUpCapital: string;
+  numberOfEmployees: string;
+  bankName: string;
+  bankNameOther: string;
+  bankAccountNo: string;
+  instagram: string;
+  tiktok: string;
+  facebook: string;
+  linkedin: string;
+  xTwitter: string;
+  directors: Array<{
+    name: string;
+    icNumber: string;
+    position: string;
+  }>;
+}
+
+const initialIndividualFormData: IndividualFormData = {
+  name: "",
+  icNumber: "",
+  documentType: "IC",
+  phone: "",
+  email: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  postcode: "",
+  country: DEFAULT_COUNTRY_CODE,
+  dateOfBirth: "",
+  gender: "",
+  race: "",
+  educationLevel: "",
+  occupation: "",
+  employmentStatus: "",
+  bankName: "",
+  bankNameOther: "",
+  bankAccountNo: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
+  emergencyContactRelationship: "",
+  monthlyIncome: "",
+  instagram: "",
+  tiktok: "",
+  facebook: "",
+  linkedin: "",
+  xTwitter: "",
+};
+
+const initialCorporateFormData: CorporateFormData = {
+  name: "",
+  icNumber: "",
+  phone: "",
+  email: "",
+  companyName: "",
+  ssmRegistrationNo: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  postcode: "",
+  country: DEFAULT_COUNTRY_CODE,
+  bumiStatus: "",
+  authorizedRepName: "",
+  authorizedRepIc: "",
+  companyPhone: "",
+  companyEmail: "",
+  natureOfBusiness: "",
+  dateOfIncorporation: "",
+  paidUpCapital: "",
+  numberOfEmployees: "",
+  bankName: "",
+  bankNameOther: "",
+  bankAccountNo: "",
+  instagram: "",
+  tiktok: "",
+  facebook: "",
+  linkedin: "",
+  xTwitter: "",
+  directors: [{ name: "", icNumber: "", position: "" }],
+};
+
+// ============================================
+// Helper Functions
+// ============================================
+
+function extractDateFromIC(icNumber: string): string | null {
+  const cleanIC = icNumber.replace(/[-\s]/g, "");
+  if (cleanIC.length < 6 || !/^\d{6}/.test(cleanIC)) {
+    return null;
+  }
+  const yearPart = cleanIC.substring(0, 2);
+  const monthPart = cleanIC.substring(2, 4);
+  const dayPart = cleanIC.substring(4, 6);
+  const month = parseInt(monthPart, 10);
+  const day = parseInt(dayPart, 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  const yearNum = parseInt(yearPart, 10);
+  const fullYear = yearNum >= 0 && yearNum <= 30 ? 2000 + yearNum : 1900 + yearNum;
+  return `${fullYear}-${monthPart}-${dayPart}`;
+}
+
+function extractGenderFromIC(icNumber: string): string | null {
+  const cleanIC = icNumber.replace(/[-\s]/g, "");
+  if (cleanIC.length < 12) return null;
+  const lastDigit = parseInt(cleanIC.charAt(cleanIC.length - 1), 10);
+  if (isNaN(lastDigit)) return null;
+  return lastDigit % 2 === 1 ? "MALE" : "FEMALE";
+}
+
+function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | null | undefined) {
+  switch (riskLevel) {
+    case "DEFAULTED":
+      return { label: "Defaulted", variant: "destructive" as const };
+    case "HIGH_RISK":
+      return { label: "High Risk", variant: "warning" as const };
+    case "WATCH":
+      return { label: "Watch", variant: "info" as const };
+    case "GOOD":
+      return { label: "Good", variant: "success" as const };
+    default:
+      return { label: "No History", variant: "outline" as const };
+  }
+}
+
+function formatLoanStatusLabel(status: string | null | undefined) {
+  if (!status) return null;
+
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getCrossTenantLoanTimestamp(loan: CrossTenantLoanInsight) {
+  const candidate =
+    loan.disbursementDate ??
+    loan.agreementDate ??
+    loan.createdAt ??
+    loan.updatedAt ??
+    loan.lastActivityAt;
+
+  if (!candidate) return null;
+
+  const timestamp = new Date(candidate).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function getCrossTenantLoanItems(insights: CrossTenantInsights | null | undefined) {
+  const loanItems =
+    insights?.loanDetails ??
+    insights?.recentLoans ??
+    insights?.loans ??
+    [];
+
+  return [...loanItems].sort((a, b) => {
+    const aTime = getCrossTenantLoanTimestamp(a) ?? 0;
+    const bTime = getCrossTenantLoanTimestamp(b) ?? 0;
+    return bTime - aTime;
+  });
+}
+
+function getCrossTenantLoanLenderName(loan: CrossTenantLoanInsight) {
+  return loan.lenderName?.trim() || loan.tenantName?.trim() || "Other lender";
+}
+
+function getCrossTenantLoanAmountRange(loan: CrossTenantLoanInsight) {
+  return (
+    loan.loanAmountRange?.trim() ||
+    loan.principalAmountRange?.trim() ||
+    loan.amountRange?.trim() ||
+    null
+  );
+}
+
+function getConsistencyMeta(level: DataConsistencyLevel | null | undefined): {
+  label: string;
+  variant: "success" | "warning" | "destructive" | "outline" | "info";
+  showAlert: boolean;
+} {
+  switch (level) {
+    case "EXACT_MATCH":
+      return { label: "Exact match", variant: "success", showAlert: false };
+    case "ALMOST_FULL_MATCH":
+      return { label: "Almost full match", variant: "success", showAlert: false };
+    case "PARTIAL_MATCH":
+      return { label: "Partial match", variant: "warning", showAlert: true };
+    case "NOT_MATCHING":
+      return { label: "Not matching", variant: "destructive", showAlert: true };
+    default:
+      return { label: "Not available", variant: "outline", showAlert: false };
+  }
+}
+
+/** Maps on-time rate range (e.g. "80-90%") to Badge variant for color. */
+function getPaymentPerformanceBadgeVariant(
+  onTimeRateRange: string | null | undefined
+): "success" | "warning" | "destructive" | "outline" {
+  if (!onTimeRateRange?.trim()) return "outline";
+  const match = onTimeRateRange.match(/^(\d+)/);
+  const lower = match ? parseInt(match[1], 10) : NaN;
+  if (Number.isNaN(lower)) return "outline";
+  if (lower >= 80) return "success";
+  if (lower >= 50) return "warning";
+  return "destructive";
+}
+
+// ============================================
+// Option Constants
+// ============================================
+
+const DOCUMENT_TYPE_OPTIONS = [
+  { value: "IC", label: "IC (MyKad)" },
+  { value: "PASSPORT", label: "Passport" },
+];
+
+const BANK_OPTIONS = [
+  { value: "MAYBANK", label: "Maybank" },
+  { value: "CIMB", label: "CIMB Bank" },
+  { value: "PUBLIC_BANK", label: "Public Bank" },
+  { value: "RHB", label: "RHB Bank" },
+  { value: "HONG_LEONG", label: "Hong Leong Bank" },
+  { value: "AMBANK", label: "AmBank" },
+  { value: "BANK_ISLAM", label: "Bank Islam" },
+  { value: "BANK_RAKYAT", label: "Bank Rakyat" },
+  { value: "BSN", label: "BSN" },
+  { value: "AFFIN", label: "Affin Bank" },
+  { value: "ALLIANCE", label: "Alliance Bank" },
+  { value: "OCBC", label: "OCBC Bank" },
+  { value: "UOB", label: "UOB" },
+  { value: "HSBC", label: "HSBC" },
+  { value: "STANDARD_CHARTERED", label: "Standard Chartered" },
+  { value: "AGROBANK", label: "Agrobank" },
+  { value: "MUAMALAT", label: "Bank Muamalat" },
+  { value: "OTHER", label: "Lain-lain (Other)" },
+];
+
+const GENDER_OPTIONS = [
+  { value: "MALE", label: "Male" },
+  { value: "FEMALE", label: "Female" },
+];
+
+const RACE_OPTIONS = [
+  { value: "MELAYU", label: "Melayu" },
+  { value: "CINA", label: "Cina" },
+  { value: "INDIA", label: "India" },
+  { value: "LAIN_LAIN", label: "Lain-lain" },
+  { value: "BUMIPUTRA_SABAH_SARAWAK", label: "Bumiputra Sabah/Sarawak" },
+  { value: "BUKAN_WARGANEGARA", label: "Bukan Warganegara" },
+];
+
+const EDUCATION_OPTIONS = [
+  { value: "NO_FORMAL", label: "Tiada Pendidikan Formal" },
+  { value: "PRIMARY", label: "Sekolah Rendah" },
+  { value: "SECONDARY", label: "Sekolah Menengah" },
+  { value: "DIPLOMA", label: "Diploma" },
+  { value: "DEGREE", label: "Ijazah Sarjana Muda" },
+  { value: "POSTGRADUATE", label: "Pasca Siswazah" },
+];
+
+const EMPLOYMENT_OPTIONS = [
+  { value: "EMPLOYED", label: "Bekerja" },
+  { value: "SELF_EMPLOYED", label: "Bekerja Sendiri" },
+  { value: "UNEMPLOYED", label: "Tidak Bekerja" },
+  { value: "RETIRED", label: "Bersara" },
+  { value: "STUDENT", label: "Pelajar" },
+];
+
+const BUMI_STATUS_OPTIONS = [
+  { value: "BUMI", label: "Bumiputera" },
+  { value: "BUKAN_BUMI", label: "Bukan Bumiputera" },
+  { value: "ASING", label: "Asing" },
+];
+
+const RELATIONSHIP_OPTIONS = [
+  { value: "SPOUSE", label: "Spouse" },
+  { value: "PARENT", label: "Parent" },
+  { value: "SIBLING", label: "Sibling" },
+  { value: "CHILD", label: "Child" },
+  { value: "FRIEND", label: "Friend" },
+  { value: "OTHER", label: "Other" },
+];
+
+/** Bank account: digits only, 8-17 digits */
+const BANK_ACCOUNT_REGEX = /^\d{8,17}$/;
+
+/** Postcode: digits only */
+const POSTCODE_REGEX = /^\d+$/;
+
+// ============================================
+// Field Component
+// ============================================
+
+interface FieldProps {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  type?: "text" | "email" | "date" | "select" | "number";
+  /** For type="number": "int" or "float". Default "int" */
+  numberMode?: "int" | "float";
+  error?: string;
+  disabled?: boolean;
+  placeholder?: string;
+  options?: { value: string; label: string }[];
+  required?: boolean;
+  className?: string;
+}
+
+function Field({ 
+  label, 
+  value, 
+  onChange, 
+  type = "text",
+  numberMode = "int",
+  error,
+  disabled,
+  placeholder,
+  options,
+  required = true,
+  className,
+}: FieldProps) {
+  if (type === "select" && options) {
+    return (
+      <div className={className}>
+        <Label className="text-xs text-muted-foreground">{label} {required && "*"}</Label>
+        <Select value={value} onValueChange={onChange} disabled={disabled}>
+          <SelectTrigger className={error ? "border-red-500" : ""}>
+            <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      </div>
+    );
+  }
+
+  if (type === "number") {
+    const numValue: number | "" = value === "" ? "" : (numberMode === "float" ? (parseFloat(value) || 0) : (parseInt(value, 10) || 0));
+    return (
+      <div className={className}>
+        <Label className="text-xs text-muted-foreground">{label} {required && "*"}</Label>
+        <NumericInput
+          mode={numberMode}
+          value={numValue}
+          onChange={(v: import("@/components/ui/numeric-input").NumericInputValue) => onChange(v === "" ? "" : String(v))}
+          placeholder={placeholder}
+          disabled={disabled}
+          className={error ? "border-red-500" : ""}
+        />
+        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className={className}>
+      <Label className="text-xs text-muted-foreground">{label} {required && "*"}</Label>
+      <Input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        className={error ? "border-red-500" : ""}
+      />
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+    </div>
+  );
+}
+
+// ============================================
+// Main Component
+// ============================================
+
+export default function NewBorrowerPage() {
+  const router = useRouter();
+
+  const [saving, setSaving] = useState(false);
+  const [borrowerType, setBorrowerType] = useState<"INDIVIDUAL" | "CORPORATE">("INDIVIDUAL");
+  const [individualFormData, setIndividualFormData] = useState<IndividualFormData>(initialIndividualFormData);
+  const [corporateFormData, setCorporateFormData] = useState<CorporateFormData>(initialCorporateFormData);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [noMonthlyIncome, setNoMonthlyIncome] = useState(false);
+  const [crossTenantInsights, setCrossTenantInsights] = useState<CrossTenantInsights | null>(null);
+  const [crossTenantInsightsLoading, setCrossTenantInsightsLoading] = useState(false);
+
+  const isIC = individualFormData.documentType === "IC";
+  const countryOptions = getCountryOptions();
+  const individualStateOptions = getStateOptions(individualFormData.country);
+  const corporateStateOptions = getStateOptions(corporateFormData.country);
+  const trueSightIdentifier = borrowerType === "INDIVIDUAL"
+    ? (isIC ? individualFormData.icNumber.replace(/\D/g, "") : "")
+    : corporateFormData.ssmRegistrationNo.trim();
+  const trueSightLookupReady =
+    borrowerType === "INDIVIDUAL"
+      ? isIC && trueSightIdentifier.length === 12
+      : trueSightIdentifier.length >= 3;
+  const trueSightNameInput = borrowerType === "INDIVIDUAL"
+    ? individualFormData.name.trim()
+    : corporateFormData.companyName.trim();
+  const trueSightPhoneInput = borrowerType === "INDIVIDUAL"
+    ? individualFormData.phone.trim()
+    : corporateFormData.companyPhone.trim();
+  const trueSightAddressInput = useMemo(
+    () =>
+      borrowerType === "INDIVIDUAL"
+        ? {
+            addressLine1: individualFormData.addressLine1.trim(),
+            addressLine2: individualFormData.addressLine2.trim(),
+            city: individualFormData.city.trim(),
+            state: individualFormData.state.trim(),
+            postcode: individualFormData.postcode.trim(),
+          }
+        : {
+            addressLine1: corporateFormData.addressLine1.trim(),
+            addressLine2: corporateFormData.addressLine2.trim(),
+            city: corporateFormData.city.trim(),
+            state: corporateFormData.state.trim(),
+            postcode: corporateFormData.postcode.trim(),
+          },
+    [
+      borrowerType,
+      individualFormData.addressLine1,
+      individualFormData.addressLine2,
+      individualFormData.city,
+      individualFormData.state,
+      individualFormData.postcode,
+      corporateFormData.addressLine1,
+      corporateFormData.addressLine2,
+      corporateFormData.city,
+      corporateFormData.state,
+      corporateFormData.postcode,
+    ]
+  );
+  const trueSightNameReady = trueSightNameInput.length > 0;
+  const trueSightPhoneReady = trueSightPhoneInput.length > 0;
+
+  const handleIcNumberChange = (value: string) => {
+    const currentIsIC = individualFormData.documentType === "IC";
+    const cleanValue = currentIsIC ? value.replace(/\D/g, "").substring(0, 12) : value;
+    
+    const updates: Partial<IndividualFormData> = { icNumber: cleanValue };
+    
+    if (currentIsIC) {
+      const extractedDate = extractDateFromIC(cleanValue);
+      if (extractedDate) {
+        updates.dateOfBirth = extractedDate;
+      }
+      const extractedGender = extractGenderFromIC(cleanValue);
+      if (extractedGender) {
+        updates.gender = extractedGender;
+      }
+    }
+    
+    setIndividualFormData((prev) => ({ ...prev, ...updates }));
+    if (validationErrors.icNumber) {
+      setValidationErrors((prev) => ({ ...prev, icNumber: "" }));
+    }
+  };
+
+  const handleDocumentTypeChange = (value: string) => {
+    if (value === "PASSPORT") {
+      setIndividualFormData((prev) => ({
+        ...prev,
+        documentType: value,
+        dateOfBirth: "",
+        gender: "",
+      }));
+    } else {
+      const extractedDate = extractDateFromIC(individualFormData.icNumber);
+      const extractedGender = extractGenderFromIC(individualFormData.icNumber);
+      setIndividualFormData((prev) => ({
+        ...prev,
+        documentType: value,
+        dateOfBirth: extractedDate || prev.dateOfBirth,
+        gender: extractedGender || prev.gender,
+      }));
+    }
+  };
+
+  const validateIndividualForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    const data = individualFormData;
+    if (!data.name.trim()) errors.name = "Name is required";
+    if (!data.icNumber.trim()) errors.icNumber = "IC/Passport number is required";
+    else if (data.documentType === "IC") {
+      const cleanIC = data.icNumber.replace(/\D/g, "");
+      if (cleanIC.length !== 12) errors.icNumber = "IC number must be exactly 12 digits";
+    }
+    if (!data.phone.trim()) errors.phone = "Phone number is required";
+    if (!data.email.trim()) errors.email = "Email is required";
+    if (!data.addressLine1.trim()) errors.addressLine1 = "Address line 1 is required";
+    if (!data.city.trim()) errors.city = "City is required";
+    if (!data.postcode.trim()) errors.postcode = "Postcode is required";
+    else if (!POSTCODE_REGEX.test(data.postcode)) errors.postcode = "Postcode must contain numbers only";
+    if (!data.country) errors.country = "Country is required";
+    if (data.country && getStateOptions(data.country).length > 0 && !data.state) errors.state = "State is required";
+    if (!data.dateOfBirth) errors.dateOfBirth = "Date of birth is required";
+    if (!data.gender) errors.gender = "Gender is required";
+    if (!data.race) errors.race = "Race is required";
+    if (!data.educationLevel) errors.educationLevel = "Education level is required";
+    if (!data.occupation.trim()) errors.occupation = "Occupation is required";
+    if (!data.employmentStatus) errors.employmentStatus = "Employment status is required";
+    if (!noMonthlyIncome) {
+      if (!data.monthlyIncome.trim()) errors.monthlyIncome = "Monthly income is required";
+      else if (isNaN(parseFloat(data.monthlyIncome)) || parseFloat(data.monthlyIncome) < 0) errors.monthlyIncome = "Enter a valid income amount";
+    }
+    if (!data.bankName) errors.bankName = "Bank is required";
+    if (data.bankName === "OTHER" && !data.bankNameOther.trim()) {
+      errors.bankNameOther = "Bank name is required";
+    }
+    if (!data.bankAccountNo.trim()) errors.bankAccountNo = "Account number is required";
+    else if (!BANK_ACCOUNT_REGEX.test(data.bankAccountNo.replace(/\D/g, ""))) {
+      errors.bankAccountNo = "Account number must be 8-17 digits only";
+    }
+    
+    setValidationErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast.error("Please fill in all required fields");
+      return false;
+    }
+    return true;
+  };
+
+  const validateCorporateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    const data = corporateFormData;
+    if (!data.companyName.trim()) errors.companyName = "Company name is required";
+    if (!data.ssmRegistrationNo.trim()) errors.ssmRegistrationNo = "SSM registration number is required";
+    if (!data.addressLine1.trim()) errors.addressLine1 = "Address line 1 is required";
+    if (!data.city.trim()) errors.city = "City is required";
+    if (!data.postcode.trim()) errors.postcode = "Postcode is required";
+    else if (!POSTCODE_REGEX.test(data.postcode)) errors.postcode = "Postcode must contain numbers only";
+    if (!data.country) errors.country = "Country is required";
+    if (data.country && getStateOptions(data.country).length > 0 && !data.state) errors.state = "State is required";
+    if (!data.bumiStatus) errors.bumiStatus = "Taraf (Bumi status) is required for compliance";
+    if (!data.companyPhone.trim()) errors.companyPhone = "Company phone is required";
+    if (!data.companyEmail.trim()) errors.companyEmail = "Company email is required";
+    if (!data.bankName) errors.bankName = "Bank is required";
+    if (data.bankName === "OTHER" && !data.bankNameOther.trim()) {
+      errors.bankNameOther = "Bank name is required";
+    }
+    if (!data.bankAccountNo.trim()) errors.bankAccountNo = "Account number is required";
+    else if (!BANK_ACCOUNT_REGEX.test(data.bankAccountNo.replace(/\D/g, ""))) {
+      errors.bankAccountNo = "Account number must be 8-17 digits only";
+    }
+    if (!Array.isArray(data.directors) || data.directors.length < 1) {
+      errors.directors = "At least 1 director is required";
+    } else if (data.directors.length > 10) {
+      errors.directors = "Maximum 10 directors allowed";
+    } else {
+      data.directors.forEach((director, index) => {
+        if (!director.name.trim()) {
+          errors[`directorName_${index}`] = `Director ${index + 1} name is required`;
+        }
+        if (!director.icNumber.trim()) {
+          errors[`directorIc_${index}`] = `Director ${index + 1} IC number is required`;
+        } else {
+          const cleanIC = director.icNumber.replace(/\D/g, "");
+          if (cleanIC.length !== 12) {
+            errors[`directorIc_${index}`] = `Director ${index + 1} IC must be exactly 12 digits`;
+          }
+        }
+      });
+    }
+    
+    setValidationErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast.error("Please fill in all required fields");
+      return false;
+    }
+    return true;
+  };
+
+  const handleSave = async () => {
+    if (borrowerType === "INDIVIDUAL") {
+      if (!validateIndividualForm()) return;
+    } else {
+      if (!validateCorporateForm()) return;
+    }
+    
+    setSaving(true);
+    try {
+      let payload: Record<string, unknown>;
+
+      if (borrowerType === "INDIVIDUAL") {
+        const data = individualFormData;
+        payload = {
+          borrowerType: "INDIVIDUAL",
+          name: data.name,
+          icNumber: data.icNumber,
+          documentType: data.documentType,
+          phone: data.phone || undefined,
+          email: data.email || undefined,
+          addressLine1: data.addressLine1 || undefined,
+          addressLine2: data.addressLine2 || undefined,
+          city: data.city || undefined,
+          state: data.state || undefined,
+          postcode: data.postcode || undefined,
+          country: data.country || undefined,
+          dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth).toISOString() : undefined,
+          gender: data.gender || undefined,
+          race: data.race || undefined,
+          educationLevel: data.educationLevel || undefined,
+          occupation: data.occupation || undefined,
+          employmentStatus: data.employmentStatus || undefined,
+          bankName: data.bankName || undefined,
+          bankNameOther: data.bankName === "OTHER" ? (data.bankNameOther || undefined) : undefined,
+          bankAccountNo: data.bankAccountNo || undefined,
+          emergencyContactName: data.emergencyContactName || undefined,
+          emergencyContactPhone: data.emergencyContactPhone || undefined,
+          emergencyContactRelationship: data.emergencyContactRelationship || undefined,
+          monthlyIncome: noMonthlyIncome ? 0 : (data.monthlyIncome.trim() !== "" ? parseFloat(data.monthlyIncome) : undefined),
+          instagram: data.instagram?.trim() || undefined,
+          tiktok: data.tiktok?.trim() || undefined,
+          facebook: data.facebook?.trim() || undefined,
+          linkedin: data.linkedin?.trim() || undefined,
+          xTwitter: data.xTwitter?.trim() || undefined,
+        };
+      } else {
+        const data = corporateFormData;
+        const primaryDirector = data.directors[0];
+        payload = {
+          borrowerType: "CORPORATE",
+          name: primaryDirector?.name || data.authorizedRepName, // Rep name as primary name
+          icNumber: data.ssmRegistrationNo, // SSM as primary identifier
+          documentType: "IC", // Default for the authorized rep
+          phone: data.companyPhone || undefined,
+          email: data.companyEmail || undefined,
+          addressLine1: data.addressLine1 || undefined,
+          addressLine2: data.addressLine2 || undefined,
+          city: data.city || undefined,
+          state: data.state || undefined,
+          postcode: data.postcode || undefined,
+          country: data.country || undefined,
+          companyName: data.companyName || undefined,
+          ssmRegistrationNo: data.ssmRegistrationNo || undefined,
+          businessAddress: data.addressLine1 || undefined,
+          bumiStatus: data.bumiStatus || undefined,
+          authorizedRepName: primaryDirector?.name || data.authorizedRepName || undefined,
+          authorizedRepIc: primaryDirector?.icNumber || data.authorizedRepIc || undefined,
+          companyPhone: data.companyPhone || undefined,
+          companyEmail: data.companyEmail || undefined,
+          natureOfBusiness: data.natureOfBusiness || undefined,
+          dateOfIncorporation: data.dateOfIncorporation ? new Date(data.dateOfIncorporation).toISOString() : undefined,
+          paidUpCapital: data.paidUpCapital ? parseFloat(data.paidUpCapital) : undefined,
+          numberOfEmployees: data.numberOfEmployees ? parseInt(data.numberOfEmployees) : undefined,
+          bankName: data.bankName || undefined,
+          bankNameOther: data.bankName === "OTHER" ? (data.bankNameOther || undefined) : undefined,
+          bankAccountNo: data.bankAccountNo || undefined,
+          directors: data.directors.map((director) => ({
+            name: director.name.trim(),
+            icNumber: director.icNumber.trim(),
+            position: director.position.trim() || undefined,
+          })),
+          instagram: data.instagram?.trim() || undefined,
+          tiktok: data.tiktok?.trim() || undefined,
+          facebook: data.facebook?.trim() || undefined,
+          linkedin: data.linkedin?.trim() || undefined,
+          xTwitter: data.xTwitter?.trim() || undefined,
+        };
+      }
+
+      const res = await api.post<Borrower>("/api/borrowers", payload);
+      if (res.success && res.data) {
+        toast.success("Borrower created successfully");
+        router.push(`/dashboard/borrowers/${res.data.id}`);
+      } else {
+        toast.error(res.error || "Failed to create borrower");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBorrowerTypeChange = (type: "INDIVIDUAL" | "CORPORATE") => {
+    setBorrowerType(type);
+    setValidationErrors({});
+    setNoMonthlyIncome(false);
+  };
+
+  useEffect(() => {
+    if (!trueSightLookupReady) {
+      setCrossTenantInsights(null);
+      setCrossTenantInsightsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCrossTenantInsightsLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          borrowerType,
+          identifier: trueSightIdentifier,
+        });
+        if (trueSightNameReady) {
+          params.set("name", trueSightNameInput);
+        }
+        if (trueSightPhoneReady) {
+          params.set("phone", trueSightPhoneInput);
+        }
+        if (trueSightAddressInput.addressLine1.length > 0) {
+          params.set("addressLine1", trueSightAddressInput.addressLine1);
+        }
+        if (trueSightAddressInput.addressLine2.length > 0) {
+          params.set("addressLine2", trueSightAddressInput.addressLine2);
+        }
+        if (trueSightAddressInput.city.length > 0) {
+          params.set("city", trueSightAddressInput.city);
+        }
+        if (trueSightAddressInput.state.length > 0) {
+          params.set("state", trueSightAddressInput.state);
+        }
+        if (trueSightAddressInput.postcode.length > 0) {
+          params.set("postcode", trueSightAddressInput.postcode);
+        }
+        const res = await api.get<CrossTenantInsights>(
+          `/api/borrowers/cross-tenant-insights/lookup?${params.toString()}`
+        );
+        if (cancelled) return;
+
+        if (res.success && res.data) {
+          setCrossTenantInsights(res.data);
+        } else {
+          setCrossTenantInsights(null);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Failed to fetch TrueSight insights:", error);
+        setCrossTenantInsights(null);
+      } finally {
+        if (!cancelled) {
+          setCrossTenantInsightsLoading(false);
+        }
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    borrowerType,
+    trueSightIdentifier,
+    trueSightLookupReady,
+    trueSightNameInput,
+    trueSightPhoneInput,
+    trueSightAddressInput,
+    trueSightNameReady,
+    trueSightPhoneReady,
+  ]);
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+          <div>
+            <h1 className="text-2xl font-heading font-bold text-gradient">New Borrower</h1>
+            <p className="text-muted-foreground">
+              Create a new borrower record
+            </p>
+          </div>
+        </div>
+        <Button onClick={handleSave} disabled={saving}>
+          <Save className="h-4 w-4 mr-2" />
+          {saving ? "Creating..." : "Create Borrower"}
+        </Button>
+      </div>
+
+      {/* Borrower Type Selector */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Borrower Type</CardTitle>
+          <CardDescription>Select the type of borrower you want to create</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4">
+            <Button
+              variant={borrowerType === "INDIVIDUAL" ? "default" : "outline"}
+              className="flex-1 h-auto py-4"
+              onClick={() => handleBorrowerTypeChange("INDIVIDUAL")}
+            >
+              <User className="h-5 w-5 mr-2" />
+              <div className="text-left">
+                <div className="font-medium">Individual</div>
+                <div className={`text-xs ${borrowerType === "INDIVIDUAL" ? "opacity-80" : "text-muted-foreground"}`}>
+                  Personal borrower with IC/Passport
+                </div>
+              </div>
+            </Button>
+            <Button
+              variant={borrowerType === "CORPORATE" ? "default" : "outline"}
+              className="flex-1 h-auto py-4"
+              onClick={() => handleBorrowerTypeChange("CORPORATE")}
+            >
+              <Building2 className="h-5 w-5 mr-2" />
+              <div className="text-left">
+                <div className="font-medium">Corporate</div>
+                <div className={`text-xs ${borrowerType === "CORPORATE" ? "opacity-80" : "text-muted-foreground"}`}>
+                  Company/Business with SSM registration
+                </div>
+              </div>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - Form */}
+        <div className="lg:col-span-2 space-y-6">
+          {borrowerType === "INDIVIDUAL" ? (
+            <>
+              {/* Identity Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-muted-foreground" />
+                    Identity Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field
+                      label="Name"
+                      value={individualFormData.name}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, name: val }));
+                        if (validationErrors.name) setValidationErrors((prev) => ({ ...prev, name: "" }));
+                      }}
+                      error={validationErrors.name}
+                      placeholder="Full name"
+                    />
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Document Type *</Label>
+                      <Select value={individualFormData.documentType} onValueChange={handleDocumentTypeChange}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DOCUMENT_TYPE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">
+                        {isIC ? "IC Number" : "Passport Number"} *
+                      </Label>
+                      <Input
+                        value={individualFormData.icNumber}
+                        onChange={(e) => handleIcNumberChange(e.target.value)}
+                        placeholder={isIC ? "880101011234" : "A12345678"}
+                        className={validationErrors.icNumber ? "border-red-500" : ""}
+                      />
+                      {validationErrors.icNumber && (
+                        <p className="text-xs text-red-500 mt-1">{validationErrors.icNumber}</p>
+                      )}
+                      {isIC && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Enter 12 digits only. DOB and gender auto-extracted.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Personal Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-muted-foreground" />
+                    Personal Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field
+                      label="Date of Birth"
+                      value={individualFormData.dateOfBirth}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, dateOfBirth: val }));
+                        if (validationErrors.dateOfBirth) setValidationErrors((prev) => ({ ...prev, dateOfBirth: "" }));
+                      }}
+                      type="date"
+                      error={validationErrors.dateOfBirth}
+                      disabled={isIC && !!extractDateFromIC(individualFormData.icNumber)}
+                    />
+                    <Field
+                      label="Gender"
+                      value={individualFormData.gender}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, gender: val }));
+                        if (validationErrors.gender) setValidationErrors((prev) => ({ ...prev, gender: "" }));
+                      }}
+                      type="select"
+                      options={GENDER_OPTIONS}
+                      error={validationErrors.gender}
+                      disabled={isIC && !!extractGenderFromIC(individualFormData.icNumber)}
+                    />
+                    <Field
+                      label="Race"
+                      value={individualFormData.race}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, race: val }));
+                        if (validationErrors.race) setValidationErrors((prev) => ({ ...prev, race: "" }));
+                      }}
+                      type="select"
+                      options={RACE_OPTIONS}
+                      error={validationErrors.race}
+                    />
+                    <Field
+                      label="Education"
+                      value={individualFormData.educationLevel}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, educationLevel: val }));
+                        if (validationErrors.educationLevel) setValidationErrors((prev) => ({ ...prev, educationLevel: "" }));
+                      }}
+                      type="select"
+                      options={EDUCATION_OPTIONS}
+                      error={validationErrors.educationLevel}
+                    />
+                    <Field
+                      label="Occupation"
+                      value={individualFormData.occupation}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, occupation: val }));
+                        if (validationErrors.occupation) setValidationErrors((prev) => ({ ...prev, occupation: "" }));
+                      }}
+                      error={validationErrors.occupation}
+                      placeholder="e.g., Accountant"
+                    />
+                    <Field
+                      label="Employment Status"
+                      value={individualFormData.employmentStatus}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, employmentStatus: val }));
+                        if (validationErrors.employmentStatus) setValidationErrors((prev) => ({ ...prev, employmentStatus: "" }));
+                      }}
+                      type="select"
+                      options={EMPLOYMENT_OPTIONS}
+                      error={validationErrors.employmentStatus}
+                    />
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Monthly Income (RM) *</Label>
+                      <NumericInput
+                        mode="float"
+                        value={noMonthlyIncome ? 0 : (individualFormData.monthlyIncome === "" ? "" : (parseFloat(individualFormData.monthlyIncome) || 0))}
+                        onChange={(v: import("@/components/ui/numeric-input").NumericInputValue) => {
+                          setIndividualFormData((prev) => ({ ...prev, monthlyIncome: v === "" ? "" : String(v) }));
+                          if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
+                        }}
+                        placeholder="e.g., 3500"
+                        disabled={noMonthlyIncome}
+                        className={validationErrors.monthlyIncome ? "border-red-500" : ""}
+                      />
+                      {validationErrors.monthlyIncome && (
+                        <p className="text-xs text-red-500 mt-1">{validationErrors.monthlyIncome}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-2">
+                        <Checkbox
+                          id="no-monthly-income"
+                          checked={noMonthlyIncome}
+                          onCheckedChange={(checked) => {
+                            setNoMonthlyIncome(checked === true);
+                            if (checked) {
+                              setIndividualFormData((prev) => ({ ...prev, monthlyIncome: "0" }));
+                              if (validationErrors.monthlyIncome) setValidationErrors((prev) => ({ ...prev, monthlyIncome: "" }));
+                            } else {
+                              setIndividualFormData((prev) => ({ ...prev, monthlyIncome: "" }));
+                            }
+                          }}
+                        />
+                        <label htmlFor="no-monthly-income" className="text-xs text-muted-foreground cursor-pointer">
+                          No monthly income (Tiada Pendapatan)
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Contact Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Phone className="h-5 w-5 text-muted-foreground" />
+                    Contact Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Phone *</Label>
+                      <PhoneInput
+                        value={individualFormData.phone || undefined}
+                        onChange={(val: string | undefined) => {
+                          setIndividualFormData((prev) => ({ ...prev, phone: val ?? "" }));
+                          if (validationErrors.phone) setValidationErrors((prev) => ({ ...prev, phone: "" }));
+                        }}
+                        error={!!validationErrors.phone}
+                        placeholder="16 4818800"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">e.g. 16 4818800</p>
+                      {validationErrors.phone && (
+                        <p className="text-xs text-red-500 mt-1">{validationErrors.phone}</p>
+                      )}
+                    </div>
+                    <Field
+                      label="Email"
+                      value={individualFormData.email}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, email: val }));
+                        if (validationErrors.email) setValidationErrors((prev) => ({ ...prev, email: "" }));
+                      }}
+                      type="email"
+                      error={validationErrors.email}
+                      placeholder="email@example.com"
+                    />
+                    <Field
+                      label="Address Line 1"
+                      value={individualFormData.addressLine1}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, addressLine1: val }));
+                        if (validationErrors.addressLine1) setValidationErrors((prev) => ({ ...prev, addressLine1: "" }));
+                      }}
+                      error={validationErrors.addressLine1}
+                      placeholder="Street, building, unit"
+                    />
+                    <Field
+                      label="Address Line 2 (optional)"
+                      value={individualFormData.addressLine2}
+                      onChange={(val) => setIndividualFormData((prev) => ({ ...prev, addressLine2: val }))}
+                      placeholder="Apartment, suite, floor"
+                      required={false}
+                    />
+                    <Field
+                      label="City"
+                      value={individualFormData.city}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, city: val }));
+                        if (validationErrors.city) setValidationErrors((prev) => ({ ...prev, city: "" }));
+                      }}
+                      error={validationErrors.city}
+                      placeholder="City"
+                    />
+                    <Field
+                      label="Postcode"
+                      value={individualFormData.postcode}
+                      onChange={(val) => {
+                        const digitsOnly = val.replace(/\D/g, "");
+                        setIndividualFormData((prev) => ({ ...prev, postcode: digitsOnly }));
+                        if (validationErrors.postcode) setValidationErrors((prev) => ({ ...prev, postcode: "" }));
+                      }}
+                      error={validationErrors.postcode}
+                      placeholder="Postal code (numbers only)"
+                    />
+                    <Field
+                      label="Country"
+                      value={individualFormData.country}
+                      onChange={(val) => {
+                        const nextStateOptions = getStateOptions(val);
+                        setIndividualFormData((prev) => ({
+                          ...prev,
+                          country: val,
+                          state: nextStateOptions.some((option) => option.value === prev.state) ? prev.state : "",
+                        }));
+                        if (validationErrors.country || validationErrors.state) {
+                          setValidationErrors((prev) => ({ ...prev, country: "", state: "" }));
+                        }
+                      }}
+                      type="select"
+                      options={countryOptions}
+                      error={validationErrors.country}
+                    />
+                    <Field
+                      label="State"
+                      value={individualFormData.state}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ ...prev, state: val }));
+                        if (validationErrors.state) setValidationErrors((prev) => ({ ...prev, state: "" }));
+                      }}
+                      type="select"
+                      options={individualStateOptions}
+                      error={validationErrors.state}
+                      disabled={!individualFormData.country || individualStateOptions.length === 0}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Bank Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
+                    Bank Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field
+                      label="Bank"
+                      value={individualFormData.bankName}
+                      onChange={(val) => {
+                        setIndividualFormData((prev) => ({ 
+                          ...prev, 
+                          bankName: val,
+                          bankNameOther: val === "OTHER" ? prev.bankNameOther : ""
+                        }));
+                        if (validationErrors.bankName) setValidationErrors((prev) => ({ ...prev, bankName: "" }));
+                      }}
+                      type="select"
+                      options={BANK_OPTIONS}
+                      error={validationErrors.bankName}
+                    />
+                    {individualFormData.bankName === "OTHER" && (
+                      <Field
+                        label="Bank Name"
+                        value={individualFormData.bankNameOther}
+                        onChange={(val) => {
+                          setIndividualFormData((prev) => ({ ...prev, bankNameOther: val }));
+                          if (validationErrors.bankNameOther) setValidationErrors((prev) => ({ ...prev, bankNameOther: "" }));
+                        }}
+                        error={validationErrors.bankNameOther}
+                        placeholder="Enter bank name"
+                      />
+                    )}
+                    <Field
+                      label="Account Number"
+                      value={individualFormData.bankAccountNo}
+                      onChange={(val) => {
+                        const clean = val.replace(/\D/g, "").substring(0, 17);
+                        setIndividualFormData((prev) => ({ ...prev, bankAccountNo: clean }));
+                        if (validationErrors.bankAccountNo) setValidationErrors((prev) => ({ ...prev, bankAccountNo: "" }));
+                      }}
+                      error={validationErrors.bankAccountNo}
+                      placeholder="8-17 digits"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Emergency Contact */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Phone className="h-5 w-5 text-muted-foreground" />
+                    Emergency Contact
+                  </CardTitle>
+                  <CardDescription>Optional</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Name</Label>
+                      <Input
+                        value={individualFormData.emergencyContactName}
+                        onChange={(e) => setIndividualFormData((prev) => ({ ...prev, emergencyContactName: e.target.value }))}
+                        placeholder="Contact name"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Phone</Label>
+                      <PhoneInput
+                        value={individualFormData.emergencyContactPhone || undefined}
+                        onChange={(val: string | undefined) => setIndividualFormData((prev) => ({ ...prev, emergencyContactPhone: val ?? "" }))}
+                        placeholder="16 4818800"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">e.g. 16 4818800</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Relationship</Label>
+                      <Select 
+                        value={individualFormData.emergencyContactRelationship} 
+                        onValueChange={(val) => setIndividualFormData((prev) => ({ ...prev, emergencyContactRelationship: val }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RELATIONSHIP_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <>
+              {/* Company Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
+                    Company Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field
+                      label="Company Name"
+                      value={corporateFormData.companyName}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, companyName: val }));
+                        if (validationErrors.companyName) setValidationErrors((prev) => ({ ...prev, companyName: "" }));
+                      }}
+                      error={validationErrors.companyName}
+                      placeholder="Company Sdn Bhd"
+                    />
+                    <Field
+                      label="SSM Registration No"
+                      value={corporateFormData.ssmRegistrationNo}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, ssmRegistrationNo: val, icNumber: val }));
+                        if (validationErrors.ssmRegistrationNo) setValidationErrors((prev) => ({ ...prev, ssmRegistrationNo: "" }));
+                      }}
+                      error={validationErrors.ssmRegistrationNo}
+                      placeholder="202001012345 (1234567-X)"
+                    />
+                    <Field
+                      label="Taraf (Bumi Status)"
+                      value={corporateFormData.bumiStatus}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, bumiStatus: val }));
+                        if (validationErrors.bumiStatus) setValidationErrors((prev) => ({ ...prev, bumiStatus: "" }));
+                      }}
+                      type="select"
+                      options={BUMI_STATUS_OPTIONS}
+                      error={validationErrors.bumiStatus}
+                    />
+                    <Field
+                      label="Nature of Business"
+                      value={corporateFormData.natureOfBusiness}
+                      onChange={(val) => setCorporateFormData((prev) => ({ ...prev, natureOfBusiness: val }))}
+                      placeholder="e.g., Retail, Manufacturing"
+                      required={false}
+                    />
+                    <Field
+                      label="Date of Incorporation"
+                      value={corporateFormData.dateOfIncorporation}
+                      onChange={(val) => setCorporateFormData((prev) => ({ ...prev, dateOfIncorporation: val }))}
+                      type="date"
+                      required={false}
+                    />
+                    <Field
+                      label="Address Line 1"
+                      value={corporateFormData.addressLine1}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, addressLine1: val }));
+                        if (validationErrors.addressLine1) setValidationErrors((prev) => ({ ...prev, addressLine1: "" }));
+                      }}
+                      error={validationErrors.addressLine1}
+                      placeholder="Business address"
+                      className="col-span-2"
+                    />
+                    <Field
+                      label="Address Line 2 (optional)"
+                      value={corporateFormData.addressLine2}
+                      onChange={(val) => setCorporateFormData((prev) => ({ ...prev, addressLine2: val }))}
+                      placeholder="Suite, floor, building"
+                      required={false}
+                      className="col-span-2"
+                    />
+                    <Field
+                      label="City"
+                      value={corporateFormData.city}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, city: val }));
+                        if (validationErrors.city) setValidationErrors((prev) => ({ ...prev, city: "" }));
+                      }}
+                      error={validationErrors.city}
+                      placeholder="City"
+                    />
+                    <Field
+                      label="Postcode"
+                      value={corporateFormData.postcode}
+                      onChange={(val) => {
+                        const digitsOnly = val.replace(/\D/g, "");
+                        setCorporateFormData((prev) => ({ ...prev, postcode: digitsOnly }));
+                        if (validationErrors.postcode) setValidationErrors((prev) => ({ ...prev, postcode: "" }));
+                      }}
+                      error={validationErrors.postcode}
+                      placeholder="Postal code (numbers only)"
+                    />
+                    <Field
+                      label="Country"
+                      value={corporateFormData.country}
+                      onChange={(val) => {
+                        const nextStateOptions = getStateOptions(val);
+                        setCorporateFormData((prev) => ({
+                          ...prev,
+                          country: val,
+                          state: nextStateOptions.some((option) => option.value === prev.state) ? prev.state : "",
+                        }));
+                        if (validationErrors.country || validationErrors.state) {
+                          setValidationErrors((prev) => ({ ...prev, country: "", state: "" }));
+                        }
+                      }}
+                      type="select"
+                      options={countryOptions}
+                      error={validationErrors.country}
+                    />
+                    <Field
+                      label="State"
+                      value={corporateFormData.state}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ ...prev, state: val }));
+                        if (validationErrors.state) setValidationErrors((prev) => ({ ...prev, state: "" }));
+                      }}
+                      type="select"
+                      options={corporateStateOptions}
+                      error={validationErrors.state}
+                      disabled={!corporateFormData.country || corporateStateOptions.length === 0}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Additional Details & Company Contact - Side by Side */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Additional Company Details */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Briefcase className="h-5 w-5 text-muted-foreground" />
+                      Additional Company Details
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 gap-4">
+                      <Field
+                        label="Paid-up Capital (RM)"
+                        value={corporateFormData.paidUpCapital}
+                        onChange={(val) => setCorporateFormData((prev) => ({ ...prev, paidUpCapital: val }))}
+                        type="number"
+                        numberMode="float"
+                        placeholder="100000"
+                        required={false}
+                      />
+                      <Field
+                        label="Number of Employees"
+                        value={corporateFormData.numberOfEmployees}
+                        onChange={(val) => setCorporateFormData((prev) => ({ ...prev, numberOfEmployees: val }))}
+                        type="number"
+                        placeholder="10"
+                        required={false}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Company Contact */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Phone className="h-5 w-5 text-muted-foreground" />
+                      Company Contact
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Company Phone *</Label>
+                        <PhoneInput
+                          value={corporateFormData.companyPhone || undefined}
+                          onChange={(val: string | undefined) => {
+                            const v = val ?? "";
+                            setCorporateFormData((prev) => ({ ...prev, companyPhone: v, phone: v }));
+                            if (validationErrors.companyPhone) setValidationErrors((prev) => ({ ...prev, companyPhone: "" }));
+                          }}
+                          error={!!validationErrors.companyPhone}
+                          placeholder="16 4818800"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">e.g. 16 4818800</p>
+                        {validationErrors.companyPhone && (
+                          <p className="text-xs text-red-500 mt-1">{validationErrors.companyPhone}</p>
+                        )}
+                      </div>
+                      <Field
+                        label="Company Email"
+                        value={corporateFormData.companyEmail}
+                        onChange={(val) => {
+                          setCorporateFormData((prev) => ({ ...prev, companyEmail: val, email: val }));
+                          if (validationErrors.companyEmail) setValidationErrors((prev) => ({ ...prev, companyEmail: "" }));
+                        }}
+                        type="email"
+                        error={validationErrors.companyEmail}
+                        placeholder="info@company.com"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Company Directors - Full Width */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-muted-foreground" />
+                    Company Directors
+                  </CardTitle>
+                  <CardDescription>
+                    Add 1 to 10 directors. The first director will be used as authorized representative.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {corporateFormData.directors.map((director, index) => (
+                      <div key={`director-${index}`} className="rounded-lg border p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium">
+                            Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              if (corporateFormData.directors.length <= 1) return;
+                              setCorporateFormData((prev) => {
+                                const nextDirectors = prev.directors.filter((_, i) => i !== index);
+                                const firstDirector = nextDirectors[0];
+                                return {
+                                  ...prev,
+                                  directors: nextDirectors,
+                                  authorizedRepName: firstDirector?.name || "",
+                                  authorizedRepIc: firstDirector?.icNumber || "",
+                                  name: firstDirector?.name || "",
+                                };
+                              });
+                            }}
+                            disabled={corporateFormData.directors.length <= 1}
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Remove
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <Field
+                            label="Director Name"
+                            value={director.name}
+                            onChange={(val) => {
+                              setCorporateFormData((prev) => {
+                                const nextDirectors = [...prev.directors];
+                                nextDirectors[index] = { ...nextDirectors[index], name: val };
+                                return {
+                                  ...prev,
+                                  directors: nextDirectors,
+                                  authorizedRepName: index === 0 ? val : prev.authorizedRepName,
+                                  name: index === 0 ? val : prev.name,
+                                };
+                              });
+                              if (validationErrors[`directorName_${index}`]) {
+                                setValidationErrors((prev) => ({ ...prev, [`directorName_${index}`]: "" }));
+                              }
+                              if (validationErrors.directors) {
+                                setValidationErrors((prev) => ({ ...prev, directors: "" }));
+                              }
+                            }}
+                            error={validationErrors[`directorName_${index}`]}
+                            placeholder="Full name"
+                          />
+                          <div>
+                            <Field
+                              label="Director IC Number"
+                              value={director.icNumber}
+                              onChange={(val) => {
+                                const cleanVal = val.replace(/\D/g, "").substring(0, 12);
+                                setCorporateFormData((prev) => {
+                                  const nextDirectors = [...prev.directors];
+                                  nextDirectors[index] = { ...nextDirectors[index], icNumber: cleanVal };
+                                  return {
+                                    ...prev,
+                                    directors: nextDirectors,
+                                    authorizedRepIc: index === 0 ? cleanVal : prev.authorizedRepIc,
+                                  };
+                                });
+                                if (validationErrors[`directorIc_${index}`]) {
+                                  setValidationErrors((prev) => ({ ...prev, [`directorIc_${index}`]: "" }));
+                                }
+                                if (validationErrors.directors) {
+                                  setValidationErrors((prev) => ({ ...prev, directors: "" }));
+                                }
+                              }}
+                              error={validationErrors[`directorIc_${index}`]}
+                              placeholder="880101011234"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Enter 12 digits only (e.g., 880101011234)
+                            </p>
+                          </div>
+                          <Field
+                            label="Position"
+                            value={director.position}
+                            onChange={(val) => {
+                              setCorporateFormData((prev) => {
+                                const nextDirectors = [...prev.directors];
+                                nextDirectors[index] = { ...nextDirectors[index], position: val };
+                                return { ...prev, directors: nextDirectors };
+                              });
+                            }}
+                            placeholder="e.g., Director"
+                            required={false}
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    {validationErrors.directors && (
+                      <p className="text-xs text-red-500">{validationErrors.directors}</p>
+                    )}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (corporateFormData.directors.length >= 10) return;
+                        setCorporateFormData((prev) => ({
+                          ...prev,
+                          directors: [...prev.directors, { name: "", icNumber: "", position: "" }],
+                        }));
+                        if (validationErrors.directors) {
+                          setValidationErrors((prev) => ({ ...prev, directors: "" }));
+                        }
+                      }}
+                      disabled={corporateFormData.directors.length >= 10}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Director
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      {corporateFormData.directors.length}/10 directors
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Bank Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
+                    Bank Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field
+                      label="Bank"
+                      value={corporateFormData.bankName}
+                      onChange={(val) => {
+                        setCorporateFormData((prev) => ({ 
+                          ...prev, 
+                          bankName: val,
+                          bankNameOther: val === "OTHER" ? prev.bankNameOther : ""
+                        }));
+                        if (validationErrors.bankName) setValidationErrors((prev) => ({ ...prev, bankName: "" }));
+                      }}
+                      type="select"
+                      options={BANK_OPTIONS}
+                      error={validationErrors.bankName}
+                    />
+                    {corporateFormData.bankName === "OTHER" && (
+                      <Field
+                        label="Bank Name"
+                        value={corporateFormData.bankNameOther}
+                        onChange={(val) => {
+                          setCorporateFormData((prev) => ({ ...prev, bankNameOther: val }));
+                          if (validationErrors.bankNameOther) setValidationErrors((prev) => ({ ...prev, bankNameOther: "" }));
+                        }}
+                        error={validationErrors.bankNameOther}
+                        placeholder="Enter bank name"
+                      />
+                    )}
+                    <Field
+                      label="Account Number"
+                      value={corporateFormData.bankAccountNo}
+                      onChange={(val) => {
+                        const clean = val.replace(/\D/g, "").substring(0, 17);
+                        setCorporateFormData((prev) => ({ ...prev, bankAccountNo: clean }));
+                        if (validationErrors.bankAccountNo) setValidationErrors((prev) => ({ ...prev, bankAccountNo: "" }));
+                      }}
+                      error={validationErrors.bankAccountNo}
+                      placeholder="8-17 digits"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {/* Social Media Profiles - same width as form cards above */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Share2 className="h-5 w-5 text-muted-foreground" />
+                Social Media Profiles
+              </CardTitle>
+              <CardDescription>Optional profile links</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <InstagramIcon className="h-4 w-4" />
+                    Instagram
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.instagram : corporateFormData.instagram}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, instagram: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, instagram: val }));
+                      }}
+                      placeholder="https://instagram.com/username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.instagram : corporateFormData.instagram)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <TikTokIcon className="h-4 w-4" />
+                    TikTok
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.tiktok : corporateFormData.tiktok}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, tiktok: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, tiktok: val }));
+                      }}
+                      placeholder="https://tiktok.com/@username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.tiktok : corporateFormData.tiktok)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <FacebookIcon className="h-4 w-4" />
+                    Facebook
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.facebook : corporateFormData.facebook}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, facebook: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, facebook: val }));
+                      }}
+                      placeholder="https://facebook.com/username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.facebook : corporateFormData.facebook)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <LinkedInIcon className="h-4 w-4" />
+                    LinkedIn
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.linkedin : corporateFormData.linkedin}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, linkedin: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, linkedin: val }));
+                      }}
+                      placeholder="https://linkedin.com/in/username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.linkedin : corporateFormData.linkedin)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground flex items-center gap-2">
+                    <XTwitterIcon className="h-4 w-4" />
+                    X (Twitter)
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      value={borrowerType === "INDIVIDUAL" ? individualFormData.xTwitter : corporateFormData.xTwitter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        borrowerType === "INDIVIDUAL"
+                          ? setIndividualFormData((prev) => ({ ...prev, xTwitter: val }))
+                          : setCorporateFormData((prev) => ({ ...prev, xTwitter: val }));
+                      }}
+                      placeholder="https://x.com/username"
+                      className="flex-1"
+                    />
+                    {(() => {
+                      const val = (borrowerType === "INDIVIDUAL" ? individualFormData.xTwitter : corporateFormData.xTwitter)?.trim();
+                      return val ? (
+                        <a
+                          href={val.startsWith("http") ? val : `https://${val}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 p-2 rounded-md border border-input bg-background hover:bg-accent"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column - Tips */}
+        <div className="space-y-6">
+          <Card className="border-purple-500/60 shadow-[0_0_25px_rgba(139,92,246,0.35)]">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-muted-foreground" />
+                TrueSight™
+              </CardTitle>
+              <CardDescription>
+                Cross-tenant insights while creating a borrower
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!trueSightLookupReady ? (
+                <div className="rounded-lg border border-dashed border-border px-3 py-2.5">
+                  <p className="text-sm text-muted-foreground">
+                    {borrowerType === "INDIVIDUAL"
+                      ? (isIC
+                          ? "Enter a complete 12-digit IC number to preview TrueSight data."
+                          : "TrueSight preview is available for IC numbers only.")
+                      : "Enter the SSM registration number to preview TrueSight data."}
+                  </p>
+                </div>
+              ) : crossTenantInsightsLoading ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-4 w-2/3 rounded bg-muted" />
+                  <div className="h-12 w-full rounded-lg bg-muted" />
+                  <div className="h-4 w-4/5 rounded bg-muted" />
+                  <div className="h-4 w-3/5 rounded bg-muted" />
+                </div>
+              ) : !crossTenantInsights ? (
+                <p className="text-sm text-muted-foreground">
+                  Unable to load TrueSight data right now.
+                </p>
+              ) : !crossTenantInsights.hasHistory ? (
+                <div className="rounded-lg border border-border px-3 py-2.5">
+                  <p className="text-sm font-medium">No borrowing history with other lenders</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    We could not find disbursed loans for this identifier outside your tenant.
+                  </p>
+                </div>
+              ) : (() => {
+                const ratingMeta = getPerformanceBadgeMeta(crossTenantInsights.paymentPerformance.rating);
+                const crossTenantLoanItems = getCrossTenantLoanItems(crossTenantInsights);
+                const visibleCrossTenantLoanItems = crossTenantLoanItems.slice(0, 5);
+                return (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-border px-3 py-2.5">
+                    <p className="text-sm font-medium">
+                      Borrowed from {crossTenantInsights.otherLenderCount} other lender
+                      {crossTenantInsights.otherLenderCount === 1 ? "" : "s"}
+                    </p>
+                    {crossTenantInsights.lenderNames.length > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Lenders: {crossTenantInsights.lenderNames.join(", ")}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-border px-3 py-2.5">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+                      Data consistency with other lenders
+                    </p>
+                    <div className="space-y-1.5 text-sm">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground">Name: </span>
+                        {!trueSightNameReady ? (
+                          <span className="text-muted-foreground">Awaiting input</span>
+                        ) : (
+                          <Badge variant={getConsistencyMeta(crossTenantInsights.nameConsistency).variant} className="text-xs">
+                            {getConsistencyMeta(crossTenantInsights.nameConsistency).label}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground">Phone (exact): </span>
+                        {!trueSightPhoneReady ? (
+                          <span className="text-muted-foreground">Awaiting input</span>
+                        ) : (
+                          <Badge variant={getConsistencyMeta(crossTenantInsights.phoneConsistency).variant} className="text-xs">
+                            {getConsistencyMeta(crossTenantInsights.phoneConsistency).label}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-muted-foreground">Address: </span>
+                        <Badge variant={getConsistencyMeta(crossTenantInsights.addressConsistency).variant} className="text-xs">
+                          {getConsistencyMeta(crossTenantInsights.addressConsistency).label}
+                        </Badge>
+                      </div>
+                      {(getConsistencyMeta(crossTenantInsights.nameConsistency).showAlert ||
+                        getConsistencyMeta(crossTenantInsights.phoneConsistency).showAlert ||
+                        getConsistencyMeta(crossTenantInsights.addressConsistency).showAlert) && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Name and address allow partial/almost-full matching. Phone requires an exact match. Verify if needed.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border px-3 py-2.5 space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Total Borrowed Range</p>
+                    <p className="text-sm font-medium">
+                      {crossTenantInsights.totalBorrowedRange ?? "Not available"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border px-3 py-2.5 space-y-1">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Overall risk (all-time)</p>
+                    <p className="text-xs text-muted-foreground">
+                      Includes defaults and late payments across all matched loans. Recent behaviour may differ.
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant={ratingMeta.variant}>{ratingMeta.label}</Badge>
+                      {crossTenantInsights.paymentPerformance.onTimeRateRange && (
+                        <span className="text-xs text-muted-foreground">
+                          On-time {crossTenantInsights.paymentPerformance.onTimeRateRange} (all loans)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-sm">
+                    <span className="font-medium tabular-nums">{crossTenantInsights.activeLoans}</span>
+                    <span className="text-muted-foreground"> Active</span>
+                    <span className="text-muted-foreground/60 mx-2">·</span>
+                    <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {crossTenantInsights.completedLoans}
+                    </span>
+                    <span className="text-muted-foreground"> Completed</span>
+                    <span className="text-muted-foreground/60 mx-2">·</span>
+                    <span className="font-medium tabular-nums text-red-600 dark:text-red-400">
+                      {crossTenantInsights.defaultedLoans}
+                    </span>
+                    <span className="text-muted-foreground"> Defaulted</span>
+                    <span className="text-muted-foreground/60 mx-2">·</span>
+                    <span className="font-medium tabular-nums">{crossTenantInsights.latePaymentsCount ?? 0}</span>
+                    <span className="text-muted-foreground"> Late</span>
+                  </p>
+
+                  {visibleCrossTenantLoanItems.length > 0 && (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                          Latest loans across other lenders
+                        </p>
+                        {crossTenantLoanItems.length > visibleCrossTenantLoanItems.length && (
+                          <p className="text-xs text-muted-foreground">
+                            Showing latest {visibleCrossTenantLoanItems.length} of {crossTenantLoanItems.length}
+                          </p>
+                        )}
+                      </div>
+                      <div className="rounded-lg border border-border overflow-hidden">
+                        <Table className="text-xs">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-[10px] py-2">Lender</TableHead>
+                              <TableHead className="text-[10px] py-2">Status</TableHead>
+                              <TableHead className="text-[10px] py-2">Borrowed</TableHead>
+                              <TableHead className="text-[10px] py-2">Amount</TableHead>
+                              <TableHead className="text-[10px] py-2">On-time (this loan)</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {visibleCrossTenantLoanItems.map((loan, index) => {
+                              const loanDate =
+                                loan.disbursementDate ??
+                                loan.agreementDate ??
+                                loan.createdAt ??
+                                loan.updatedAt;
+                              const statusLabel = formatLoanStatusLabel(loan.status);
+
+                              return (
+                                <TableRow
+                                  key={loan.id ?? `${getCrossTenantLoanLenderName(loan)}-${loanDate ?? "unknown"}-${index}`}
+                                  className="text-xs"
+                                >
+                                  <TableCell className="py-2 font-medium text-xs">
+                                    {getCrossTenantLoanLenderName(loan)}
+                                  </TableCell>
+                                  <TableCell className="py-2">
+                                    {statusLabel ? (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                        {statusLabel}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-muted-foreground">-</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="py-2 text-xs text-muted-foreground">
+                                    {loanDate ? formatRelativeTime(loanDate) : "-"}
+                                  </TableCell>
+                                  <TableCell className="py-2 text-xs">
+                                    {getCrossTenantLoanAmountRange(loan) ?? "-"}
+                                  </TableCell>
+                                  <TableCell className="py-2">
+                                    {loan.paymentPerformance?.onTimeRateRange ? (
+                                      <Badge
+                                        variant={getPaymentPerformanceBadgeVariant(loan.paymentPerformance.onTimeRateRange)}
+                                        className="text-[10px] px-1.5 py-0"
+                                      >
+                                        {loan.paymentPerformance.onTimeRateRange}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                        -
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>
+                      {crossTenantInsights.lastBorrowedAt
+                        ? `Last borrowed ${formatRelativeTime(crossTenantInsights.lastBorrowedAt)}`
+                        : "No agreement date found on matched loans"}
+                    </p>
+                    <p>
+                      {crossTenantInsights.lastActivityAt
+                        ? `Last payment ${formatRelativeTime(crossTenantInsights.lastActivityAt)}`
+                        : "No recent payment activity"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-dashed border-border px-3 py-2.5 space-y-1.5">
+                    <p className="text-xs text-muted-foreground">
+                      <strong className="text-foreground/80">Match criteria:</strong> Borrowers matched by{" "}
+                      {borrowerType === "CORPORATE" ? "SSM" : "IC"} number only.
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Data is aggregated across the platform. Loan amounts remain bucketed into
+                      ranges, and TrueSight may show only the latest 5 matched loans.
+                    </p>
+                  </div>
+                </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Tips</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              {borrowerType === "INDIVIDUAL" ? (
+                <>
+                  <p>
+                    <strong className="text-foreground">IC Number:</strong> Enter 12 digits without dashes. Date of birth and gender will be automatically extracted.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Passport:</strong> For non-Malaysian borrowers, select Passport and enter the details manually.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Required Fields:</strong> All fields marked with * are mandatory for compliance reporting.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>
+                    <strong className="text-foreground">SSM Number:</strong> Enter the company registration number exactly as shown on the SSM certificate.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Authorized Representative:</strong> This person will be the main contact for the loan and must be authorized to sign on behalf of the company.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Documents:</strong> You can upload identity documents after creating the borrower profile.
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

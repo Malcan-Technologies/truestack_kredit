@@ -1,0 +1,101 @@
+/**
+ * Cron Jobs
+ * 
+ * Scheduled tasks for the backend server.
+ * All times use Asia/Kuala_Lumpur timezone (GMT+8).
+ */
+
+import cron from 'node-cron';
+import { LateFeeProcessor } from './lateFeeProcessor.js';
+import { PaymentReminderProcessor } from './paymentReminderProcessor.js';
+import { LatePaymentNoticeProcessor } from './latePaymentNoticeProcessor.js';
+import {
+  processAttestationProposalExpiry,
+  processAttestationMeetingReminders,
+} from './attestationCronProcessors.js';
+
+/**
+ * Initialize all cron jobs.
+ * Called once from the server entry point.
+ */
+export function initCronJobs(): void {
+  console.log('⏰ Initializing cron jobs...');
+
+  // Late fee processing: 12:30 AM Malaysia Time daily
+  // node-cron supports timezone option directly
+  cron.schedule('30 0 * * *', async () => {
+    console.log('[CRON] Starting daily late fee processing...');
+    try {
+      const result = await LateFeeProcessor.processLateFees('CRON');
+      if (result.skippedReason) {
+        console.log(`[CRON] Late fee processing skipped: ${result.skippedReason}`);
+      } else {
+        console.log(
+          `[CRON] Late fee processing complete: ` +
+          `${result.loansProcessed} loans, ${result.feesCalculated} fees, ` +
+          `RM ${result.totalFeeAmount.toFixed(2)} total, ` +
+          `${result.arrearsLettersGenerated} arrears letters, ` +
+          `${result.defaultReadyLoans} ready for default, ` +
+          `${result.processingTimeMs}ms`
+        );
+      }
+      if (result.errors.length > 0) {
+        console.error(`[CRON] Late fee processing errors:`, result.errors);
+      }
+    } catch (error) {
+      console.error('[CRON] Late fee processing failed:', error);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+
+  console.log('  ✓ Late fee processing: 12:30 AM MYT daily');
+
+  // TrueSend payment reminders: 9:00 AM Malaysia Time daily
+  cron.schedule('0 9 * * *', async () => {
+    console.log('[CRON] Starting TrueSend payment reminders...');
+    try {
+      const result = await PaymentReminderProcessor.processReminders();
+      console.log(
+        `[CRON] Payment reminders complete: ` +
+        `${result.tenantsChecked} tenants, ${result.remindersSent} reminders sent`
+      );
+      if (result.errors.length > 0) {
+        console.error(`[CRON] Payment reminder errors:`, result.errors);
+      }
+    } catch (error) {
+      console.error('[CRON] Payment reminders failed:', error);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+
+  console.log('  ✓ TrueSend payment reminders: 9:00 AM MYT daily');
+
+  // Attestation: expire pending proposals every 15 minutes
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      await processAttestationProposalExpiry();
+    } catch (error) {
+      console.error('[CRON] Attestation proposal expiry failed:', error);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+  console.log('  ✓ Attestation proposal expiry: every 15 min MYT');
+
+  // Attestation: 24h meeting reminders hourly
+  cron.schedule('0 * * * *', async () => {
+    try {
+      const r = await processAttestationMeetingReminders();
+      if (r.sent > 0) {
+        console.log(`[CRON] Attestation 24h reminders sent: ${r.sent}`);
+      }
+    } catch (error) {
+      console.error('[CRON] Attestation meeting reminders failed:', error);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+  console.log('  ✓ Attestation meeting 24h reminders: hourly MYT');
+}

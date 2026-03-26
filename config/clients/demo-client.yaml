@@ -1,0 +1,47 @@
+client_id: demo-client
+client_type: demo
+borrower_app: Demo_Client
+
+aws:
+  account_id: "491694399426"
+  region: ap-southeast-5
+  github_environment: pro-demo-client
+
+deploy:
+  auto_deploy: true
+  platform_release: latest
+  borrower_release: latest
+
+ecr:
+  backend_repository: truekredit-demo-client-backend-pro
+  admin_repository: truekredit-demo-client-admin-pro
+  borrower_repository: truekredit-demo-client-borrower
+
+ecs:
+  cluster: truekredit-demo-client
+  backend_service: truekredit-demo-client-backend
+  admin_service: truekredit-demo-client-admin
+  borrower_service: truekredit-demo-client-borrower
+  migrations_task: truekredit-demo-client-migrations
+
+secrets:
+  app_secrets_arn: arn:aws:secretsmanager:ap-southeast-5:491694399426:secret:truekredit-demo-client-Wu2ju8
+
+storage:
+  uploads_bucket: truekredit-uploads-demo-client
+
+domains:
+  admin: demo-admin.truestack.my
+  api: demo-api.truestack.my
+  borrower: demo.truestack.my
+
+pro_tenant:
+  slug: demo-company
+  seed_owner_email: admin@demo.com
+  seed_owner_name: Demo Owner
+
+enabled_modules:
+  - origination
+  - repayments
+  - attestation
+  - signing

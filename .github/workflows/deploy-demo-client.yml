@@ -1,0 +1,823 @@
+name: Deploy Demo Client
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/admin_pro/**"
+      - "apps/backend_pro/**"
+      - "apps/borrower_pro/**"
+      - "packages/**"
+      - "config/clients/demo-client.yaml"
+      - "Dockerfile.migrations.pro"
+      - "scripts/run-prisma-migrations-pro.sh"
+      - ".github/workflows/deploy-demo-client.yml"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - deploy-only
+          - backend-only
+          - admin-only
+          - borrower-only
+          - db-migrate
+          - db-seed
+          - db-migrate-and-seed
+          - db-reset-and-seed
+      skip_migrations:
+        description: "Skip auto-migrations (for full deploy only)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CLIENT_CONFIG_PATH: config/clients/demo-client.yaml
+
+jobs:
+  load-config:
+    name: Load Demo Client Config
+    runs-on: ubuntu-latest
+
+    outputs:
+      github_environment: ${{ steps.config.outputs.github_environment }}
+      aws_region: ${{ steps.config.outputs.aws_region }}
+      borrower_app: ${{ steps.config.outputs.borrower_app }}
+      ecr_backend: ${{ steps.config.outputs.ecr_backend }}
+      ecr_admin: ${{ steps.config.outputs.ecr_admin }}
+      ecr_borrower: ${{ steps.config.outputs.ecr_borrower }}
+      ecs_cluster: ${{ steps.config.outputs.ecs_cluster }}
+      ecs_backend_service: ${{ steps.config.outputs.ecs_backend_service }}
+      ecs_admin_service: ${{ steps.config.outputs.ecs_admin_service }}
+      ecs_borrower_service: ${{ steps.config.outputs.ecs_borrower_service }}
+      ecs_migrations_task: ${{ steps.config.outputs.ecs_migrations_task }}
+      app_secrets_arn: ${{ steps.config.outputs.app_secrets_arn }}
+      uploads_bucket: ${{ steps.config.outputs.uploads_bucket }}
+      admin_url: ${{ steps.config.outputs.admin_url }}
+      backend_url: ${{ steps.config.outputs.backend_url }}
+      borrower_url: ${{ steps.config.outputs.borrower_url }}
+      pro_tenant_slug: ${{ steps.config.outputs.pro_tenant_slug }}
+      seed_owner_email: ${{ steps.config.outputs.seed_owner_email }}
+      seed_owner_name: ${{ steps.config.outputs.seed_owner_name }}
+      backend_log_group: ${{ steps.config.outputs.backend_log_group }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Parse client config
+        id: config
+        run: |
+          ruby -ryaml -e '
+            cfg = YAML.load_file(ENV.fetch("CLIENT_CONFIG_PATH"))
+            outputs = {
+              "github_environment" => cfg.dig("aws", "github_environment"),
+              "aws_region" => cfg.dig("aws", "region"),
+              "borrower_app" => cfg.fetch("borrower_app"),
+              "ecr_backend" => cfg.dig("ecr", "backend_repository"),
+              "ecr_admin" => cfg.dig("ecr", "admin_repository"),
+              "ecr_borrower" => cfg.dig("ecr", "borrower_repository"),
+              "ecs_cluster" => cfg.dig("ecs", "cluster"),
+              "ecs_backend_service" => cfg.dig("ecs", "backend_service"),
+              "ecs_admin_service" => cfg.dig("ecs", "admin_service"),
+              "ecs_borrower_service" => cfg.dig("ecs", "borrower_service"),
+              "ecs_migrations_task" => cfg.dig("ecs", "migrations_task"),
+              "app_secrets_arn" => cfg.dig("secrets", "app_secrets_arn"),
+              "uploads_bucket" => cfg.dig("storage", "uploads_bucket"),
+              "admin_url" => "https://#{cfg.dig("domains", "admin")}",
+              "backend_url" => "https://#{cfg.dig("domains", "api")}",
+              "borrower_url" => "https://#{cfg.dig("domains", "borrower")}",
+              "pro_tenant_slug" => cfg.dig("pro_tenant", "slug"),
+              "seed_owner_email" => cfg.dig("pro_tenant", "seed_owner_email"),
+              "seed_owner_name" => cfg.dig("pro_tenant", "seed_owner_name"),
+              "backend_log_group" => "/ecs/#{cfg.dig("ecs", "backend_service")}"
+            }
+
+            File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |f|
+              outputs.each do |key, value|
+                raise "Missing config value for #{key}" if value.nil? || value.to_s.empty?
+                f.puts("#{key}=#{value}")
+              end
+            end
+          '
+
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    if: |
+      github.event.inputs.action != 'deploy-only' &&
+      github.event.inputs.action != 'db-migrate' &&
+      github.event.inputs.action != 'db-seed' &&
+      github.event.inputs.action != 'db-migrate-and-seed' &&
+      github.event.inputs.action != 'db-reset-and-seed'
+
+    outputs:
+      backend_changed: ${{ steps.changes.outputs.backend_changed }}
+      admin_changed: ${{ steps.changes.outputs.admin_changed }}
+      borrower_changed: ${{ steps.changes.outputs.borrower_changed }}
+      migrations_changed: ${{ steps.changes.outputs.migrations_changed }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed paths
+        id: changes
+        run: |
+          echo "Detecting changed files..."
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BASE_SHA="${{ github.event.before }}"
+            if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+              BASE_SHA=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+            fi
+          else
+            BASE_SHA=$(git merge-base HEAD origin/main 2>/dev/null || git rev-parse HEAD~1)
+          fi
+
+          if [ -z "$BASE_SHA" ]; then
+            echo "backend_changed=true" >> "$GITHUB_OUTPUT"
+            echo "admin_changed=true" >> "$GITHUB_OUTPUT"
+            echo "borrower_changed=true" >> "$GITHUB_OUTPUT"
+            echo "migrations_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD)
+          echo "$CHANGED_FILES"
+
+          if echo "$CHANGED_FILES" | grep -qE "^(apps/backend_pro/|packages/|config/clients/demo-client\.yaml|Dockerfile\.migrations\.pro|scripts/run-prisma-migrations-pro\.sh)"; then
+            echo "backend_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if echo "$CHANGED_FILES" | grep -qE "^(apps/admin_pro/|packages/|config/clients/demo-client\.yaml)"; then
+            echo "admin_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "admin_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if echo "$CHANGED_FILES" | grep -qE "^(apps/borrower_pro/|packages/|config/clients/demo-client\.yaml)"; then
+            echo "borrower_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "borrower_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if echo "$CHANGED_FILES" | grep -qE "^apps/backend_pro/prisma/"; then
+            echo "migrations_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "migrations_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-backend:
+    name: Build Backend Pro
+    runs-on: ubuntu-latest
+    needs: [load-config, detect-changes]
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      ECR_REPOSITORY_BACKEND: ${{ needs.load-config.outputs.ecr_backend }}
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
+      github.event.inputs.action != 'admin-only' &&
+      github.event.inputs.action != 'borrower-only' &&
+      github.event.inputs.action != 'db-migrate' &&
+      github.event.inputs.action != 'db-seed' &&
+      github.event.inputs.action != 'db-migrate-and-seed' &&
+      github.event.inputs.action != 'db-reset-and-seed' &&
+      (
+        github.event.inputs.action == 'backend-only' ||
+        github.event.inputs.action == 'full' ||
+        github.event.inputs.action == 'deploy-only' ||
+        needs.detect-changes.outputs.backend_changed == 'true'
+      )
+
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      image: ${{ steps.build.outputs.image || steps.latest.outputs.image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        if: github.event.inputs.action != 'deploy-only'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        id: build
+        if: github.event.inputs.action != 'deploy-only'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f apps/backend_pro/Dockerfile \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" .
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Use latest image for deploy-only
+        id: latest
+        if: github.event.inputs.action == 'deploy-only'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest" >> "$GITHUB_OUTPUT"
+
+  build-admin:
+    name: Build Admin Pro
+    runs-on: ubuntu-latest
+    needs: [load-config, detect-changes]
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      ECR_REPOSITORY_ADMIN: ${{ needs.load-config.outputs.ecr_admin }}
+      ADMIN_URL: ${{ needs.load-config.outputs.admin_url }}
+      BACKEND_URL: ${{ needs.load-config.outputs.backend_url }}
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
+      github.event.inputs.action != 'backend-only' &&
+      github.event.inputs.action != 'borrower-only' &&
+      github.event.inputs.action != 'db-migrate' &&
+      github.event.inputs.action != 'db-seed' &&
+      github.event.inputs.action != 'db-migrate-and-seed' &&
+      github.event.inputs.action != 'db-reset-and-seed' &&
+      (
+        github.event.inputs.action == 'admin-only' ||
+        github.event.inputs.action == 'full' ||
+        github.event.inputs.action == 'deploy-only' ||
+        needs.detect-changes.outputs.admin_changed == 'true'
+      )
+
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      image: ${{ steps.build.outputs.image || steps.latest.outputs.image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        if: github.event.inputs.action != 'deploy-only'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push admin image
+        id: build
+        if: github.event.inputs.action != 'deploy-only'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f apps/admin_pro/Dockerfile \
+            --build-arg NEXT_PUBLIC_API_URL="${{ env.BACKEND_URL }}" \
+            --build-arg NEXT_PUBLIC_APP_URL="${{ env.ADMIN_URL }}" \
+            --build-arg BACKEND_URL="${{ env.BACKEND_URL }}" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$IMAGE_TAG" .
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$IMAGE_TAG" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:latest"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Use latest image for deploy-only
+        id: latest
+        if: github.event.inputs.action == 'deploy-only'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:latest" >> "$GITHUB_OUTPUT"
+
+  build-borrower:
+    name: Build Demo Borrower App
+    runs-on: ubuntu-latest
+    needs: [load-config, detect-changes]
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      BORROWER_APP: ${{ needs.load-config.outputs.borrower_app }}
+      ECR_REPOSITORY_BORROWER: ${{ needs.load-config.outputs.ecr_borrower }}
+      BORROWER_URL: ${{ needs.load-config.outputs.borrower_url }}
+      BACKEND_URL: ${{ needs.load-config.outputs.backend_url }}
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
+      github.event.inputs.action != 'backend-only' &&
+      github.event.inputs.action != 'admin-only' &&
+      github.event.inputs.action != 'db-migrate' &&
+      github.event.inputs.action != 'db-seed' &&
+      github.event.inputs.action != 'db-migrate-and-seed' &&
+      github.event.inputs.action != 'db-reset-and-seed' &&
+      (
+        github.event.inputs.action == 'borrower-only' ||
+        github.event.inputs.action == 'full' ||
+        github.event.inputs.action == 'deploy-only' ||
+        needs.detect-changes.outputs.borrower_changed == 'true'
+      )
+
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      image: ${{ steps.build.outputs.image || steps.latest.outputs.image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        if: github.event.inputs.action != 'deploy-only'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push borrower image
+        id: build
+        if: github.event.inputs.action != 'deploy-only'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f apps/borrower_pro/Dockerfile \
+            --build-arg BORROWER_APP="${{ env.BORROWER_APP }}" \
+            --build-arg NEXT_PUBLIC_APP_URL="${{ env.BORROWER_URL }}" \
+            --build-arg NEXT_PUBLIC_BACKEND_URL="${{ env.BACKEND_URL }}" \
+            --build-arg BACKEND_URL="${{ env.BACKEND_URL }}" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$IMAGE_TAG" .
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$IMAGE_TAG" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:latest"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Use latest image for deploy-only
+        id: latest
+        if: github.event.inputs.action == 'deploy-only'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:latest" >> "$GITHUB_OUTPUT"
+
+  db-operations:
+    name: Demo Client Database Operations
+    runs-on: ubuntu-latest
+    needs: [load-config, detect-changes]
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      ECR_REPOSITORY_BACKEND: ${{ needs.load-config.outputs.ecr_backend }}
+      ECS_CLUSTER: ${{ needs.load-config.outputs.ecs_cluster }}
+      ECS_SERVICE_BACKEND: ${{ needs.load-config.outputs.ecs_backend_service }}
+      ECS_TASK_MIGRATIONS: ${{ needs.load-config.outputs.ecs_migrations_task }}
+      PRO_TENANT_SLUG: ${{ needs.load-config.outputs.pro_tenant_slug }}
+      PROD_DEMO_OWNER_EMAIL: ${{ needs.load-config.outputs.seed_owner_email }}
+      PROD_DEMO_OWNER_NAME: ${{ needs.load-config.outputs.seed_owner_name }}
+      BACKEND_LOG_GROUP: ${{ needs.load-config.outputs.backend_log_group }}
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      (
+        github.event.inputs.action == 'db-migrate' ||
+        github.event.inputs.action == 'db-seed' ||
+        github.event.inputs.action == 'db-migrate-and-seed' ||
+        github.event.inputs.action == 'db-reset-and-seed' ||
+        (
+          github.event.inputs.action != 'admin-only' &&
+          github.event.inputs.action != 'borrower-only' &&
+          github.event.inputs.action != 'deploy-only' &&
+          github.event.inputs.skip_migrations != 'true' &&
+          needs.detect-changes.outputs.migrations_changed == 'true'
+        )
+      )
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push migrations image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f Dockerfile.migrations.pro \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG-migrations" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest-migrations" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG-migrations"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest-migrations"
+
+      - name: Determine operation type
+        id: operation
+        run: |
+          ACTION="${{ github.event.inputs.action }}"
+
+          if [ "$ACTION" = "db-migrate" ] || [ "$ACTION" = "db-migrate-and-seed" ] || [ "$ACTION" = "db-reset-and-seed" ] || [ "$ACTION" = "full" ] || [ -z "$ACTION" ]; then
+            echo "run_migrations=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_migrations=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$ACTION" = "db-seed" ] || [ "$ACTION" = "db-migrate-and-seed" ] || [ "$ACTION" = "db-reset-and-seed" ]; then
+            echo "run_seed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_seed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$ACTION" = "db-reset-and-seed" ]; then
+            echo "run_reset=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_reset=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run database task
+        id: run-db-task
+        run: |
+          TASK_DEF_ARN=$(aws ecs describe-task-definition \
+            --task-definition "${{ env.ECS_TASK_MIGRATIONS }}" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          SUBNETS=$(aws ecs describe-services \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --services "${{ env.ECS_SERVICE_BACKEND }}" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' \
+            --output text | tr '\t' ',')
+
+          SECURITY_GROUPS=$(aws ecs describe-services \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --services "${{ env.ECS_SERVICE_BACKEND }}" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups' \
+            --output text | tr '\t' ',')
+
+          RUN_MIGRATIONS="${{ steps.operation.outputs.run_migrations }}"
+          RUN_SEED="${{ steps.operation.outputs.run_seed }}"
+          RUN_RESET="${{ steps.operation.outputs.run_reset }}"
+
+          OVERRIDES='{"containerOverrides":[{"name":"migrations","environment":['
+          ENV_VARS='{"name":"PRO_TENANT_SLUG","value":"${{ env.PRO_TENANT_SLUG }}"}'
+
+          if [ "$RUN_MIGRATIONS" = "true" ]; then
+            ENV_VARS="$ENV_VARS,"'{"name":"RUN_MIGRATIONS","value":"true"}'
+          else
+            ENV_VARS="$ENV_VARS,"'{"name":"SKIP_MIGRATIONS","value":"true"}'
+          fi
+
+          if [ "$RUN_RESET" = "true" ]; then
+            ENV_VARS="$ENV_VARS,"'{"name":"RESET_DATABASE","value":"true"}'
+          fi
+
+          if [ "$RUN_SEED" = "true" ]; then
+            ENV_VARS="$ENV_VARS,"'{"name":"SEED_DATABASE","value":"true"}'
+            ENV_VARS="$ENV_VARS,"'{"name":"PROD_DEMO_OWNER_EMAIL","value":"${{ env.PROD_DEMO_OWNER_EMAIL }}"}'
+            ENV_VARS="$ENV_VARS,"'{"name":"PROD_DEMO_OWNER_NAME","value":"${{ env.PROD_DEMO_OWNER_NAME }}"}'
+          fi
+
+          OVERRIDES="$OVERRIDES$ENV_VARS]}]}"
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --task-definition "$TASK_DEF_ARN" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=DISABLED}" \
+            --overrides "$OVERRIDES" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "task_arn=$TASK_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for database task to complete
+        run: |
+          TASK_ARN="${{ steps.run-db-task.outputs.task_arn }}"
+          TASK_ID=$(echo "$TASK_ARN" | awk -F'/' '{print $NF}')
+
+          for i in {1..30}; do
+            STATUS=$(aws ecs describe-tasks \
+              --cluster "${{ env.ECS_CLUSTER }}" \
+              --tasks "$TASK_ARN" \
+              --query 'tasks[0].lastStatus' \
+              --output text)
+
+            if [ "$STATUS" = "STOPPED" ]; then
+              EXIT_CODE=$(aws ecs describe-tasks \
+                --cluster "${{ env.ECS_CLUSTER }}" \
+                --tasks "$TASK_ARN" \
+                --query 'tasks[0].containers[0].exitCode' \
+                --output text)
+
+              aws logs get-log-events \
+                --log-group-name "${{ env.BACKEND_LOG_GROUP }}" \
+                --log-stream-name "migrations/migrations/$TASK_ID" \
+                --limit 200 \
+                --query 'events[*].message' \
+                --output text 2>/dev/null || true
+
+              if [ "$EXIT_CODE" = "0" ]; then
+                exit 0
+              fi
+
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          echo "Database task timed out"
+          exit 1
+
+  deploy-backend:
+    name: Deploy Backend Pro
+    runs-on: ubuntu-latest
+    needs: [load-config, build-backend, db-operations]
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      ECS_CLUSTER: ${{ needs.load-config.outputs.ecs_cluster }}
+      ECS_SERVICE_BACKEND: ${{ needs.load-config.outputs.ecs_backend_service }}
+      ADMIN_URL: ${{ needs.load-config.outputs.admin_url }}
+      BORROWER_URL: ${{ needs.load-config.outputs.borrower_url }}
+      PRO_TENANT_SLUG: ${{ needs.load-config.outputs.pro_tenant_slug }}
+      UPLOADS_BUCKET: ${{ needs.load-config.outputs.uploads_bucket }}
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      needs.build-backend.result == 'success' &&
+      (needs.db-operations.result == 'success' || needs.db-operations.result == 'skipped')
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current backend task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ env.ECS_SERVICE_BACKEND }}" \
+            --query taskDefinition > task-definition-backend.json
+
+      - name: Update backend task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition-backend.json
+          container-name: backend
+          image: ${{ needs.build-backend.outputs.image }}
+          environment-variables: |
+            UPLOAD_DIR=/tmp/uploads
+            FRONTEND_URL=${{ env.ADMIN_URL }}
+            CORS_ORIGINS=${{ env.ADMIN_URL }},${{ env.BORROWER_URL }}
+            PRODUCT_MODE=pro
+            PRO_TENANT_SLUG=${{ env.PRO_TENANT_SLUG }}
+            STORAGE_TYPE=s3
+            S3_BUCKET=${{ env.UPLOADS_BUCKET }}
+            AWS_REGION=${{ env.AWS_REGION }}
+
+      - name: Deploy backend task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_BACKEND }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: false
+
+      - name: Ensure backend service is running
+        run: |
+          aws ecs update-service \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --service "${{ env.ECS_SERVICE_BACKEND }}" \
+            --desired-count 1 \
+            --force-new-deployment > /dev/null
+          aws ecs wait services-stable \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --services "${{ env.ECS_SERVICE_BACKEND }}"
+
+  deploy-admin:
+    name: Deploy Admin Pro
+    runs-on: ubuntu-latest
+    needs: [load-config, build-admin]
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      ECS_CLUSTER: ${{ needs.load-config.outputs.ecs_cluster }}
+      ECS_SERVICE_ADMIN: ${{ needs.load-config.outputs.ecs_admin_service }}
+      BACKEND_URL: ${{ needs.load-config.outputs.backend_url }}
+      ADMIN_URL: ${{ needs.load-config.outputs.admin_url }}
+      APP_SECRETS_ARN: ${{ needs.load-config.outputs.app_secrets_arn }}
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      needs.build-admin.result == 'success'
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current admin task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ env.ECS_SERVICE_ADMIN }}" \
+            --query taskDefinition > task-definition-admin.json
+
+      - name: Update admin task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition-admin.json
+          container-name: admin
+          image: ${{ needs.build-admin.outputs.image }}
+          environment-variables: |
+            BACKEND_URL=${{ env.BACKEND_URL }}
+            NEXT_PUBLIC_API_URL=${{ env.BACKEND_URL }}
+            NEXT_PUBLIC_APP_URL=${{ env.ADMIN_URL }}
+          secrets: |
+            DATABASE_URL=${{ env.APP_SECRETS_ARN }}:database_url::
+            BETTER_AUTH_SECRET=${{ env.APP_SECRETS_ARN }}:better_auth_secret::
+            RESEND_API_KEY=${{ env.APP_SECRETS_ARN }}:resend_api_key::
+
+      - name: Deploy admin task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_ADMIN }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: false
+
+      - name: Ensure admin service is running
+        run: |
+          aws ecs update-service \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --service "${{ env.ECS_SERVICE_ADMIN }}" \
+            --desired-count 1 \
+            --force-new-deployment > /dev/null
+          aws ecs wait services-stable \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --services "${{ env.ECS_SERVICE_ADMIN }}"
+
+  deploy-borrower:
+    name: Deploy Demo Borrower App
+    runs-on: ubuntu-latest
+    needs: [load-config, build-borrower]
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      ECS_CLUSTER: ${{ needs.load-config.outputs.ecs_cluster }}
+      ECS_SERVICE_BORROWER: ${{ needs.load-config.outputs.ecs_borrower_service }}
+      BACKEND_URL: ${{ needs.load-config.outputs.backend_url }}
+      BORROWER_URL: ${{ needs.load-config.outputs.borrower_url }}
+      APP_SECRETS_ARN: ${{ needs.load-config.outputs.app_secrets_arn }}
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      needs.build-borrower.result == 'success'
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current borrower task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ env.ECS_SERVICE_BORROWER }}" \
+            --query taskDefinition > task-definition-borrower.json
+
+      - name: Update borrower task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition-borrower.json
+          container-name: borrower
+          image: ${{ needs.build-borrower.outputs.image }}
+          environment-variables: |
+            BACKEND_URL=${{ env.BACKEND_URL }}
+            NEXT_PUBLIC_BACKEND_URL=${{ env.BACKEND_URL }}
+            NEXT_PUBLIC_APP_URL=${{ env.BORROWER_URL }}
+          secrets: |
+            DATABASE_URL=${{ env.APP_SECRETS_ARN }}:database_url::
+            BETTER_AUTH_SECRET=${{ env.APP_SECRETS_ARN }}:better_auth_secret::
+
+      - name: Deploy borrower task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_BORROWER }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: false
+
+      - name: Ensure borrower service is running
+        run: |
+          aws ecs update-service \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --service "${{ env.ECS_SERVICE_BORROWER }}" \
+            --desired-count 1 \
+            --force-new-deployment > /dev/null
+          aws ecs wait services-stable \
+            --cluster "${{ env.ECS_CLUSTER }}" \
+            --services "${{ env.ECS_SERVICE_BORROWER }}"
+
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs:
+      [
+        load-config,
+        detect-changes,
+        build-backend,
+        build-admin,
+        build-borrower,
+        db-operations,
+        deploy-backend,
+        deploy-admin,
+        deploy-borrower,
+      ]
+    if: always()
+
+    steps:
+      - name: Deployment summary
+        run: |
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Action: ${{ github.event.inputs.action || 'auto' }}"
+          echo "Backend changed: ${{ needs.detect-changes.outputs.backend_changed || 'n/a' }}"
+          echo "Admin changed: ${{ needs.detect-changes.outputs.admin_changed || 'n/a' }}"
+          echo "Borrower changed: ${{ needs.detect-changes.outputs.borrower_changed || 'n/a' }}"
+          echo "Migrations changed: ${{ needs.detect-changes.outputs.migrations_changed || 'n/a' }}"
+          echo "Build backend: ${{ needs.build-backend.result }}"
+          echo "Build admin: ${{ needs.build-admin.result }}"
+          echo "Build borrower: ${{ needs.build-borrower.result }}"
+          echo "DB operations: ${{ needs.db-operations.result }}"
+          echo "Deploy backend: ${{ needs.deploy-backend.result }}"
+          echo "Deploy admin: ${{ needs.deploy-admin.result }}"
+          echo "Deploy borrower: ${{ needs.deploy-borrower.result }}"

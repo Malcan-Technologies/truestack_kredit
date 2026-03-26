@@ -205,7 +205,6 @@ export function OnboardingWizard() {
   const [hydrated, setHydrated] = useState(false);
 
   const [step, setStep] = useState<OnboardingStep>(0);
-  const [resumeStep, setResumeStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [hasIndividual, setHasIndividual] = useState(false);
   const [profileCount, setProfileCount] = useState(0);
@@ -227,8 +226,7 @@ export function OnboardingWizard() {
   useEffect(() => {
     const saved = loadDraft();
     if (saved) {
-      const savedStep = normalizeStep(saved.step);
-      setResumeStep(savedStep === 0 ? 1 : savedStep);
+      setStep(normalizeStep(saved.step));
       setBorrowerDetailSubStep(saved.borrowerDetailSubStep);
       setBorrowerType(saved.borrowerType);
       setIndividualFormData(saved.individualFormData);
@@ -564,7 +562,7 @@ export function OnboardingWizard() {
                   ) : (
                     <div />
                   )}
-                  <Button onClick={() => setStep(resumeStep)}>
+                  <Button onClick={() => setStep(1)}>
                     Continue <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>

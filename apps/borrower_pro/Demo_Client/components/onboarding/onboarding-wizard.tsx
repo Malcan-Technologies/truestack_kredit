@@ -192,12 +192,19 @@ const GUIDED_TITLES: Record<
   },
 };
 
+type OnboardingStep = 0 | 1 | 2 | 3;
+
+function normalizeStep(value: number): OnboardingStep {
+  if (value === 1 || value === 2 || value === 3) return value;
+  return 0;
+}
+
 export function OnboardingWizard() {
   const router = useRouter();
 
   const [hydrated, setHydrated] = useState(false);
 
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<OnboardingStep>(0);
   const [loading, setLoading] = useState(false);
   const [hasIndividual, setHasIndividual] = useState(false);
   const [profileCount, setProfileCount] = useState(0);
@@ -219,7 +226,7 @@ export function OnboardingWizard() {
   useEffect(() => {
     const saved = loadDraft();
     if (saved) {
-      setStep(saved.step);
+      setStep(normalizeStep(saved.step));
       setBorrowerDetailSubStep(saved.borrowerDetailSubStep);
       setBorrowerType(saved.borrowerType);
       setIndividualFormData(saved.individualFormData);
@@ -424,6 +431,17 @@ export function OnboardingWizard() {
     borrowerType === "INDIVIDUAL" ? 3 : 5;
 
   const getCurrentTitle = (): { title: string; desc: string } => {
+    if (step === 0) {
+      return profileCount > 0
+        ? {
+            title: "Let's get your next borrower profile ready",
+            desc: "We'll ask for a few details so you can create another borrower profile with confidence.",
+          }
+        : {
+            title: "Before you jump in",
+            desc: "You'll need to complete a quick onboarding so we can set up your account before you access the rest of the app.",
+          };
+    }
     if (step === 1) {
       return {
         title: "What type of borrower are you?",
@@ -445,6 +463,7 @@ export function OnboardingWizard() {
   };
 
   const { title: currentTitle, desc: currentDesc } = getCurrentTitle();
+  const isIntroStep = step === 0;
 
   if (!hydrated) {
     return (
@@ -456,55 +475,100 @@ export function OnboardingWizard() {
 
   return (
     <div className="pb-10 max-w-4xl mx-auto">
-      {/* Welcome header + save & exit */}
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-heading font-bold">
-            Let&apos;s set up your borrower profile
+            {isIntroStep
+              ? "Welcome to your borrower account"
+              : "Let&apos;s set up your borrower profile"}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            We&apos;ll walk you through a few steps. You can save and come back anytime.
+            {isIntroStep
+              ? "A quick onboarding is all it takes before you can start using everything in the app."
+              : "We&apos;ll walk you through a few steps. You can save and come back anytime."}
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0 text-muted-foreground hover:text-foreground gap-2"
-          onClick={handleSaveAndExit}
-        >
-          <X className="h-4 w-4 sm:hidden" />
-          <Save className="h-4 w-4 hidden sm:block" />
-          <span className="hidden sm:inline">Save & Exit</span>
-        </Button>
+        {!isIntroStep ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 text-muted-foreground hover:text-foreground gap-2"
+            onClick={handleSaveAndExit}
+          >
+            <X className="h-4 w-4 sm:hidden" />
+            <Save className="h-4 w-4 hidden sm:block" />
+            <span className="hidden sm:inline">Save & Exit</span>
+          </Button>
+        ) : null}
       </div>
 
-      {/* Horizontal progress bar */}
-      <OnboardingProgress
-        mainStep={step as 1 | 2 | 3}
-        borrowerType={borrowerType}
-        subStep={borrowerDetailSubStep}
-        className="mb-8"
-      />
+      {!isIntroStep ? (
+        <OnboardingProgress
+          mainStep={step as 1 | 2 | 3}
+          borrowerType={borrowerType}
+          subStep={borrowerDetailSubStep}
+          className="mb-8"
+        />
+      ) : null}
 
       <div className="space-y-6">
-          {/* Step heading */}
-          <div className="flex items-center gap-3">
-            {step === 1 && profileCount > 0 ? (
-              <Button variant="ghost" size="icon" asChild>
-                <Link href="/dashboard">
-                  <ArrowLeft className="h-4 w-4" />
-                </Link>
-              </Button>
-            ) : null}
-            <div>
-              <h2 className="text-xl font-heading font-bold">
-                {currentTitle}
-              </h2>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {currentDesc}
-              </p>
+          {!isIntroStep ? (
+            <div className="flex items-center gap-3">
+              {step === 1 && profileCount > 0 ? (
+                <Button variant="ghost" size="icon" asChild>
+                  <Link href="/dashboard">
+                    <ArrowLeft className="h-4 w-4" />
+                  </Link>
+                </Button>
+              ) : null}
+              <div>
+                <h2 className="text-xl font-heading font-bold">
+                  {currentTitle}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {currentDesc}
+                </p>
+              </div>
             </div>
-          </div>
+          ) : null}
+
+          {step === 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{currentTitle}</CardTitle>
+                <CardDescription>{currentDesc}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="rounded-xl border border-border bg-muted/30 p-4">
+                  <p className="text-sm text-foreground">
+                    {profileCount > 0
+                      ? "The good news: this part is quick, and we'll guide you through it step by step."
+                      : "The good news: it only takes a few minutes, and we'll guide you through it one step at a time."}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    We'll ask for your borrower type, identity or company details,
+                    contact and address information, bank details, and a few optional
+                    extras like emergency contact or social profiles.
+                  </p>
+                </div>
+                <div className="flex justify-between">
+                  {profileCount > 0 ? (
+                    <Button variant="outline" asChild>
+                      <Link href="/dashboard">
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        Back to dashboard
+                      </Link>
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
+                  <Button onClick={() => setStep(1)}>
+                    Continue <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Step 1: Type selection */}
           {step === 1 && (

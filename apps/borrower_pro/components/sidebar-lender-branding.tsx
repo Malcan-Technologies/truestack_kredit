@@ -47,7 +47,7 @@ export function SidebarLenderBranding({
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-2 px-1 py-2 text-center",
+        "flex items-center justify-center px-1 py-2",
         className
       )}
     >
@@ -66,11 +66,6 @@ export function SidebarLenderBranding({
         ) : (
           <Building2 className="h-12 w-12 text-muted-foreground" />
         )}
-      </div>
-      <div className="min-w-0 w-full">
-        <p className="truncate text-base font-semibold leading-tight">
-          {lenderName}
-        </p>
       </div>
     </div>
   );

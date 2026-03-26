@@ -51,6 +51,131 @@ The `deploy-demo-client` workflow now reads the deployment target names, domains
 
 ---
 
+## How Deployment Works Now
+
+There are now 2 separate automatic deployment lanes on `main`:
+
+- `.github/workflows/deploy.yml` for the live SaaS platform
+- `.github/workflows/deploy-demo-client.yml` for the Pro `demo-client`
+
+This means a push to GitHub does **not** deploy everything.
+
+What happens depends on:
+
+- which branch receives the push
+- which files changed
+
+### 1. SaaS auto-deploy lane
+
+The SaaS workflow only runs on pushes to `main` when the changed files match SaaS paths such as:
+
+- `apps/admin/**`
+- `apps/backend/**`
+- `packages/shared/**`
+- `apps/backend/prisma/**`
+- `Dockerfile.migrations`
+- `scripts/run-prisma-migrations.sh`
+
+If a push only changes Pro paths, the SaaS workflow does not start.
+
+### 2. Demo-client auto-deploy lane
+
+The `demo-client` workflow only runs on pushes to `main` when the changed files match Pro paths such as:
+
+- `apps/admin_pro/**`
+- `apps/backend_pro/**`
+- `apps/borrower_pro/**`
+- `packages/**`
+- `config/clients/demo-client.yaml`
+- `Dockerfile.migrations.pro`
+- `scripts/run-prisma-migrations-pro.sh`
+- `.github/workflows/deploy-demo-client.yml`
+
+The workflow loads its deployment target from:
+
+```txt
+config/clients/demo-client.yaml
+```
+
+So it deploys to the ECS cluster, ECS services, ECR repositories, domains, and Secrets Manager ARN defined there.
+
+### 3. Which ECS service gets updated
+
+On a push to `main`, the demo workflow detects which part of Pro changed and updates the matching ECS service:
+
+- `apps/backend_pro/**` updates `truekredit-demo-client-backend`
+- `apps/admin_pro/**` updates `truekredit-demo-client-admin`
+- `apps/borrower_pro/**` updates `truekredit-demo-client-borrower`
+
+In addition:
+
+- `packages/**` is treated as shared code, so it can trigger rebuilds for more than one Pro app
+- `config/clients/demo-client.yaml` can trigger all 3 because it changes deployment targeting/config
+
+### 4. Database behavior
+
+The demo workflow has a separate database operations job for the migrations task family:
+
+- `truekredit-demo-client-migrations`
+
+Automatic behavior:
+
+- if `apps/backend_pro/prisma/**` changes on a push to `main`, the workflow can run database operations automatically
+
+Manual behavior:
+
+- `db-migrate`
+- `db-seed`
+- `db-migrate-and-seed`
+- `db-reset-and-seed`
+
+Use manual database actions when you want to control rollout timing, reseed the demo tenant, or rerun migrations without rebuilding every app.
+
+### 5. Manual deployment actions
+
+The workflow also supports `workflow_dispatch` so you can manually choose:
+
+- `full`
+- `deploy-only`
+- `backend-only`
+- `admin-only`
+- `borrower-only`
+- `db-migrate`
+- `db-seed`
+- `db-migrate-and-seed`
+- `db-reset-and-seed`
+
+Practical meaning:
+
+- `full` builds and deploys the relevant apps
+- `deploy-only` reuses the latest pushed images and only updates ECS
+- `backend-only`, `admin-only`, and `borrower-only` let you roll one service at a time
+- database actions run the migrations task without doing a normal app deploy
+
+### 6. What this means for normal day-to-day pushes
+
+Current expected behavior is:
+
+- push or merge SaaS changes to `main` -> only SaaS services deploy
+- push or merge Pro `demo-client` changes to `main` -> only `demo-client` services deploy
+- push or merge borrower-only `demo-client` changes to `main` -> borrower ECS service deploys
+- push or merge backend-only `demo-client` changes to `main` -> backend ECS service deploys
+- push or merge admin-only `demo-client` changes to `main` -> admin ECS service deploys
+
+So yes: once code is pushed to GitHub and lands on `main`, the correct ECS containers are updated automatically for the currently configured `demo-client` lane.
+
+### 7. What does not auto-deploy
+
+Right now:
+
+- feature branches do not auto-deploy this stack
+- external Pro clients do not auto-deploy by default
+- only `demo-client` is wired as the automatic Pro target
+
+That keeps `demo-client` as the canary lane for shared Pro code while avoiding accidental rollout to future external client accounts.
+
+---
+
 ## Cost-Minimized Default
 
 Follow the same proven minimal baseline used by the current SaaS platform unless a client explicitly pays for more.

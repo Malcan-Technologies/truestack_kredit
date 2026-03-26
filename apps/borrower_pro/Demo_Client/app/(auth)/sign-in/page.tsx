@@ -2,9 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { signIn } from "@/lib/auth-client";
-import { fetchBorrowerMe } from "../../../../lib/borrower-auth-client";
 import { Button } from "../../../../components/ui/button";
 import { Input } from "../../../../components/ui/input";
 import { Label } from "../../../../components/ui/label";
@@ -19,7 +17,6 @@ import {
 import { toast } from "sonner";
 
 export default function SignInPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -36,9 +33,7 @@ export default function SignInPage() {
       toast.success("Signed in successfully");
       // Small delay to ensure session cookie is set
       await new Promise((r) => setTimeout(r, 100));
-      router.refresh();
-      const res = await fetchBorrowerMe();
-      router.push(res?.success && res.data.profileCount > 0 ? "/dashboard" : "/onboarding");
+      window.location.replace("/");
     } finally {
       setLoading(false);
     }

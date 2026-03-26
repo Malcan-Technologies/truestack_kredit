@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth-client";
+import { getSession } from "@borrower_pro/lib/auth-client";
 import { fetchBorrowerMeServer } from "@/lib/borrower-auth-server";
-import { Button } from "../../components/ui/button";
+import { Button } from "@borrower_pro/components/ui/button";
 
 export default async function HomePage() {
   const { data: session } = await getSession();

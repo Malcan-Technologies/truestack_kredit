@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ClipboardList } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
-import { Button } from "../../../../components/ui/button";
-import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "../../../../lib/borrower-auth-client";
-import { fetchLoanCenterOverview } from "../../../../lib/borrower-loans-client";
-import { listBorrowerApplications } from "../../../../lib/borrower-applications-client";
+import { Card, CardContent, CardHeader, CardTitle } from "@borrower_pro/components/ui/card";
+import { Button } from "@borrower_pro/components/ui/button";
+import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
+import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
+import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
 
 function OnboardingBanner() {
   const [show, setShow] = useState(false);

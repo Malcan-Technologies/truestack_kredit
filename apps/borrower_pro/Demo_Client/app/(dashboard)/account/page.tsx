@@ -1,8 +1,8 @@
 "use client";
 
-import { AccountProfileCard } from "../../../../components/account-profile-card";
-import { AccountSecurityCard } from "../../../../components/account-security-card";
-import { AccountLoginActivityCard } from "../../../../components/account-login-activity-card";
+import { AccountProfileCard } from "@borrower_pro/components/account-profile-card";
+import { AccountSecurityCard } from "@borrower_pro/components/account-security-card";
+import { AccountLoginActivityCard } from "@borrower_pro/components/account-login-activity-card";
 
 export default function AccountPage() {
   return (

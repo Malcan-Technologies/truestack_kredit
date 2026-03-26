@@ -10,13 +10,13 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "../../../../components/ui/card";
-import { Button } from "../../../../components/ui/button";
-import { BORROWER_PROFILE_SWITCHED_EVENT } from "../../../../lib/borrower-auth-client";
-import { listBorrowerApplications } from "../../../../lib/borrower-applications-client";
-import type { LoanApplicationDetail } from "../../../../lib/application-form-types";
-import { toAmountNumber } from "../../../../lib/application-form-validation";
-import { cn } from "@/lib/utils";
+} from "@borrower_pro/components/ui/card";
+import { Button } from "@borrower_pro/components/ui/button";
+import { BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
+import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
+import type { LoanApplicationDetail } from "@borrower_pro/lib/application-form-types";
+import { toAmountNumber } from "@borrower_pro/lib/application-form-validation";
+import { cn } from "@borrower_pro/lib/utils";
 
 type AppFilter = "all" | "draft" | "submitted";
 

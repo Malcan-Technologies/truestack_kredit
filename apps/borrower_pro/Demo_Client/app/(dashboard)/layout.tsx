@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "../../../lib/borrower-auth-client";
-import { fetchLoanCenterOverview } from "../../../lib/borrower-loans-client";
+import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
+import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
 import Link from "next/link";
 import {
   Building2,
@@ -15,21 +15,21 @@ import {
   Menu,
   UserCircle,
 } from "lucide-react";
-import { useSession, signOut } from "@/lib/auth-client";
-import { Button } from "../../../components/ui/button";
+import { useSession, signOut } from "@borrower_pro/lib/auth-client";
+import { Button } from "@borrower_pro/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "../../../components/ui/dropdown-menu";
-import { AppDropdownMenuContent } from "../../../components/ui/app-dropdown-menu";
-import { BorrowerSwitcher } from "../../../components/borrower-switcher";
-import { NavbarCorner } from "../../../components/navbar-corner";
-import { SidebarLenderBranding } from "../../../components/sidebar-lender-branding";
-import { ThemeToggle } from "../../../components/theme-toggle";
-import { Badge } from "../../../components/ui/badge";
-import { cn } from "@/lib/utils";
+} from "@borrower_pro/components/ui/dropdown-menu";
+import { AppDropdownMenuContent } from "@borrower_pro/components/ui/app-dropdown-menu";
+import { BorrowerSwitcher } from "@borrower_pro/components/borrower-switcher";
+import { NavbarCorner } from "@borrower_pro/components/navbar-corner";
+import { SidebarLenderBranding } from "@borrower_pro/components/sidebar-lender-branding";
+import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
+import { Badge } from "@borrower_pro/components/ui/badge";
+import { cn } from "@borrower_pro/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 
 const navItems = [

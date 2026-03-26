@@ -6,18 +6,18 @@ import { Pencil } from "lucide-react";
 import {
   BorrowerDetailCard,
   type BorrowerDetailCardHandle,
-} from "../../../../components/borrower-detail-card";
-import { TruestackKycCard } from "../../../../components/truestack-kyc-card";
-import { DigitalSigningComingSoonCard } from "../../../../components/digital-signing-coming-soon-card";
-import { BorrowerDocumentsCard } from "../../../../components/borrower-documents-card";
-import { RefreshButton } from "../../../../components/ui/refresh-button";
-import { Button } from "../../../../components/ui/button";
+} from "@borrower_pro/components/borrower-detail-card";
+import { TruestackKycCard } from "@borrower_pro/components/truestack-kyc-card";
+import { DigitalSigningComingSoonCard } from "@borrower_pro/components/digital-signing-coming-soon-card";
+import { BorrowerDocumentsCard } from "@borrower_pro/components/borrower-documents-card";
+import { RefreshButton } from "@borrower_pro/components/ui/refresh-button";
+import { Button } from "@borrower_pro/components/ui/button";
 import {
   fetchBorrowerMe,
   switchBorrowerProfile,
   BORROWER_PROFILE_SWITCHED_EVENT,
-} from "../../../../lib/borrower-auth-client";
-import { fetchBorrower } from "../../../../lib/borrower-api-client";
+} from "@borrower_pro/lib/borrower-auth-client";
+import { fetchBorrower } from "@borrower_pro/lib/borrower-api-client";
 
 export default function YourProfilePage() {
   const router = useRouter();

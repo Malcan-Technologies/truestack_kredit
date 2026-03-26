@@ -3,9 +3,11 @@ import { auth } from "@/lib/auth-server";
 
 const PUBLIC_PATHS = ["/", "/health", "/sign-in", "/sign-up"];
 const AUTH_API_PREFIX = "/api/auth";
+const APP_API_PROXY_PREFIX = "/api/proxy";
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/" || pathname.startsWith(AUTH_API_PREFIX)) return true;
+  if (pathname.startsWith(APP_API_PROXY_PREFIX)) return true;
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)))
     return true;
   // Allow static files and _next

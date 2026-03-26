@@ -205,6 +205,7 @@ export function OnboardingWizard() {
   const [hydrated, setHydrated] = useState(false);
 
   const [step, setStep] = useState<OnboardingStep>(0);
+  const [resumeStep, setResumeStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [hasIndividual, setHasIndividual] = useState(false);
   const [profileCount, setProfileCount] = useState(0);
@@ -226,7 +227,8 @@ export function OnboardingWizard() {
   useEffect(() => {
     const saved = loadDraft();
     if (saved) {
-      setStep(normalizeStep(saved.step));
+      const savedStep = normalizeStep(saved.step);
+      setResumeStep(savedStep === 0 ? 1 : savedStep);
       setBorrowerDetailSubStep(saved.borrowerDetailSubStep);
       setBorrowerType(saved.borrowerType);
       setIndividualFormData(saved.individualFormData);
@@ -480,12 +482,12 @@ export function OnboardingWizard() {
           <h1 className="text-2xl font-heading font-bold text-gradient">
             {isIntroStep
               ? "Welcome to your borrower account"
-              : "Let&apos;s set up your borrower profile"}
+              : "Let's set up your borrower profile"}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isIntroStep
               ? "A quick onboarding is all it takes before you can start using everything in the app."
-              : "We&apos;ll walk you through a few steps. You can save and come back anytime."}
+              : "We'll walk you through a few steps. You can save and come back anytime."}
           </p>
         </div>
         {!isIntroStep ? (
@@ -562,7 +564,7 @@ export function OnboardingWizard() {
                   ) : (
                     <div />
                   )}
-                  <Button onClick={() => setStep(1)}>
+                  <Button onClick={() => setStep(resumeStep)}>
                     Continue <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>

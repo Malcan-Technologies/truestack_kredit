@@ -1,14 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth-client";
 import { fetchBorrowerMeServer } from "@/lib/borrower-auth-server";
 import { Button } from "../../components/ui/button";
 
 export default async function HomePage() {
-  const { data: session } = await getSession();
-  if (session?.user) {
-    const res = await fetchBorrowerMeServer();
-    if (res?.success && res.data.profileCount > 0) {
+  const res = await fetchBorrowerMeServer();
+  if (res?.success) {
+    if (res.data.profileCount > 0) {
       redirect("/dashboard");
     }
     redirect("/onboarding");

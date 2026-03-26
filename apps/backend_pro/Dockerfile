@@ -10,6 +10,9 @@ FROM base AS deps
 
 # Copy workspace manifests first for better layer caching.
 COPY package.json package-lock.json ./
+COPY apps/admin/package.json ./apps/admin/
+COPY apps/backend/package.json ./apps/backend/
+COPY apps/borrower_pro/Demo_Client/package.json ./apps/borrower_pro/Demo_Client/
 COPY apps/backend_pro/package.json ./apps/backend_pro/
 COPY apps/admin_pro/package.json ./apps/admin_pro/
 COPY packages/shared/package.json ./packages/shared/

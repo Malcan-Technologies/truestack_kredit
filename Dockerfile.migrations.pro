@@ -20,7 +20,6 @@ COPY apps/backend_pro/prisma ./apps/backend_pro/prisma
 COPY apps/backend_pro/package.json ./apps/backend_pro/package.json
 COPY apps/backend_pro/src ./apps/backend_pro/src
 COPY apps/backend_pro/tsconfig.json ./apps/backend_pro/tsconfig.json
-COPY apps/backend_pro/tsconfig.lint.json ./apps/backend_pro/tsconfig.lint.json
 COPY scripts/run-prisma-migrations-pro.sh ./scripts/run-prisma-migrations-pro.sh
 
 RUN chmod +x ./scripts/run-prisma-migrations-pro.sh

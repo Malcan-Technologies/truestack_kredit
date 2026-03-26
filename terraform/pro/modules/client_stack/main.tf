@@ -340,7 +340,7 @@ resource "random_password" "webhook" {
 
 locals {
   rds_secret   = jsondecode(data.aws_secretsmanager_secret_version.rds_master.secret_string)
-  database_url = "postgresql://${var.db_username}:${local.rds_secret.password}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${var.db_name}"
+  database_url = "postgresql://${var.db_username}:${urlencode(local.rds_secret.password)}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${var.db_name}"
 }
 
 resource "aws_secretsmanager_secret" "app" {

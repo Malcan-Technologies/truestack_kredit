@@ -455,14 +455,14 @@ export function OnboardingWizard() {
   }
 
   return (
-    <div className="pb-10 max-w-4xl mx-auto">
+    <div className="pb-10 w-full min-w-0 space-y-6">
       {/* Welcome header + save & exit */}
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-heading font-bold">
+          <h1 className="text-2xl font-heading font-bold text-gradient">
             Let&apos;s set up your borrower profile
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-muted text-base mt-1">
             We&apos;ll walk you through a few steps. You can save and come back anytime.
           </p>
         </div>

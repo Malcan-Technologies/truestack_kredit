@@ -141,10 +141,8 @@ export default function YourProfilePage() {
       {!profileEditing ? (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-heading font-bold tracking-tight">Your profile</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              View and update your borrower details
-            </p>
+            <h1 className="text-2xl font-heading font-bold text-gradient">Your profile</h1>
+            <p className="text-muted text-base mt-1">View and update your borrower details</p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
             <RefreshButton

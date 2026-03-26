@@ -6,10 +6,10 @@ import { AccountLoginActivityCard } from "../../../../components/account-login-a
 
 export default function AccountPage() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">My account</h2>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-2xl font-heading font-bold text-gradient">My account</h1>
+        <p className="text-muted text-base mt-1">
           Manage your login, security, and account information
         </p>
       </div>

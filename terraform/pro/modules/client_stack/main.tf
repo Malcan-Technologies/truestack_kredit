@@ -352,6 +352,9 @@ resource "aws_secretsmanager_secret" "app" {
   })
 }
 
+# Single JSON secret: ECS maps each key via valueFrom = "arn:...:json_key::"
+# Fill in empty strings in AWS console (or override via Terraform) for third-party keys.
+# Keys here must match the `secrets` blocks on backend/admin/borrower task definitions.
 resource "aws_secretsmanager_secret_version" "app" {
   secret_id = aws_secretsmanager_secret.app.id
   secret_string = jsonencode({
@@ -366,7 +369,21 @@ resource "aws_secretsmanager_secret_version" "app" {
     kredit_webhook_secret       = ""
     trueidentity_webhook_secret = ""
     kredit_internal_secret      = ""
+    # Google Calendar / Meet (attestation) — optional; leave blank if unused
+    google_service_account_email       = ""
+    google_service_account_private_key = ""
+    google_calendar_id                 = ""
+    google_calendar_impersonate_user   = ""
+    # TrueStack KYC (Bearer + webhook HMAC)
+    truestack_kyc_api_key        = ""
+    truestack_kyc_webhook_secret = ""
   })
+
+  # Secret values are managed in AWS Secrets Manager after bootstrap.
+  # Keep Terraform from overwriting manual updates on later applies.
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_iam_role_policy" "secrets_access" {
@@ -624,13 +641,20 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "NODE_ENV", value = "production" },
         { name = "PORT", value = tostring(var.backend_port) },
         { name = "FRONTEND_URL", value = "https://${var.admin_domain}" },
+        { name = "BETTER_AUTH_BASE_URL", value = "https://${var.admin_domain}" },
+        { name = "BETTER_AUTH_TRUSTED_ORIGINS", value = "https://${var.admin_domain},https://${var.borrower_domain}" },
         { name = "CORS_ORIGINS", value = "https://${var.admin_domain},https://${var.borrower_domain}" },
         { name = "PRODUCT_MODE", value = "pro" },
         { name = "PRO_TENANT_SLUG", value = var.pro_tenant_slug },
         { name = "STORAGE_TYPE", value = "s3" },
         { name = "S3_BUCKET", value = aws_s3_bucket.uploads.id },
         { name = "AWS_REGION", value = var.aws_region },
-        { name = "UPLOAD_DIR", value = "/tmp/uploads" }
+        { name = "UPLOAD_DIR", value = "/tmp/uploads" },
+        { name = "TRUESTACK_KYC_API_BASE_URL", value = var.truestack_kyc_api_base_url },
+        { name = "TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL", value = "https://${var.api_domain}" },
+        { name = "TRUESTACK_KYC_REDIRECT_URL", value = "https://${var.borrower_domain}/dashboard/profile" },
+        { name = "EMAIL_FROM_NAME", value = var.email_from_name },
+        { name = "EMAIL_FROM_ADDRESS", value = var.email_from_address }
       ]
       secrets = [
         { name = "DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.app.arn}:database_url::" },
@@ -640,10 +664,16 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:webhook_secret::" },
         { name = "RESEND_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:resend_api_key::" },
         { name = "RESEND_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:resend_webhook_secret::" },
-        { name = "trueidentity_admin_base_url", valueFrom = "${aws_secretsmanager_secret.app.arn}:trueidentity_admin_base_url::" },
-        { name = "kredit_webhook_secret", valueFrom = "${aws_secretsmanager_secret.app.arn}:kredit_webhook_secret::" },
-        { name = "trueidentity_webhook_secret", valueFrom = "${aws_secretsmanager_secret.app.arn}:trueidentity_webhook_secret::" },
-        { name = "kredit_internal_secret", valueFrom = "${aws_secretsmanager_secret.app.arn}:kredit_internal_secret::" }
+        { name = "TRUEIDENTITY_ADMIN_BASE_URL", valueFrom = "${aws_secretsmanager_secret.app.arn}:trueidentity_admin_base_url::" },
+        { name = "KREDIT_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:kredit_webhook_secret::" },
+        { name = "TRUEIDENTITY_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:trueidentity_webhook_secret::" },
+        { name = "KREDIT_INTERNAL_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:kredit_internal_secret::" },
+        { name = "GOOGLE_SERVICE_ACCOUNT_EMAIL", valueFrom = "${aws_secretsmanager_secret.app.arn}:google_service_account_email::" },
+        { name = "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:google_service_account_private_key::" },
+        { name = "GOOGLE_CALENDAR_ID", valueFrom = "${aws_secretsmanager_secret.app.arn}:google_calendar_id::" },
+        { name = "GOOGLE_CALENDAR_IMPERSONATE_USER", valueFrom = "${aws_secretsmanager_secret.app.arn}:google_calendar_impersonate_user::" },
+        { name = "TRUESTACK_KYC_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:truestack_kyc_api_key::" },
+        { name = "TRUESTACK_KYC_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:truestack_kyc_webhook_secret::" }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -686,7 +716,10 @@ resource "aws_ecs_task_definition" "admin" {
         { name = "PORT", value = tostring(var.admin_port) },
         { name = "BACKEND_URL", value = "https://${var.api_domain}" },
         { name = "NEXT_PUBLIC_API_URL", value = "https://${var.api_domain}" },
-        { name = "NEXT_PUBLIC_APP_URL", value = "https://${var.admin_domain}" }
+        { name = "NEXT_PUBLIC_APP_URL", value = "https://${var.admin_domain}" },
+        { name = "NEXT_PUBLIC_PRODUCT_MODE", value = "pro" },
+        { name = "S3_BUCKET", value = aws_s3_bucket.uploads.id },
+        { name = "AWS_REGION", value = var.aws_region }
       ]
       secrets = [
         { name = "DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.app.arn}:database_url::" },

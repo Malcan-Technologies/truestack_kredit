@@ -599,18 +599,28 @@ async function resolveValidGuarantors(
 // Note: Letter generation (discharge, arrears, default) is consolidated in letterService.ts
 
 /**
- * Get loan counts for action-needed badges (PENDING_DISBURSEMENT)
+ * Get loan counts for action-needed badges (PENDING_DISBURSEMENT, attestation proposals)
  * GET /api/loans/counts
  */
 router.get('/counts', async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const pendingDisbursement = await prisma.loan.count({
-      where: { tenantId, status: 'PENDING_DISBURSEMENT' },
-    });
+    const [pendingDisbursement, attestationSlotProposed] = await Promise.all([
+      prisma.loan.count({
+        where: { tenantId, status: 'PENDING_DISBURSEMENT' },
+      }),
+      prisma.loan.count({
+        where: {
+          tenantId,
+          status: 'PENDING_DISBURSEMENT',
+          attestationStatus: 'SLOT_PROPOSED',
+          attestationCompletedAt: null,
+        },
+      }),
+    ]);
     res.json({
       success: true,
-      data: { pendingDisbursement },
+      data: { pendingDisbursement, attestationSlotProposed },
     });
   } catch (error) {
     next(error);

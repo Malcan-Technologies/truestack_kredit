@@ -182,6 +182,7 @@ export default function DashboardLayout({
   });
   const [applicationsPendingCount, setApplicationsPendingCount] = useState(0);
   const [loansPendingDisbursementCount, setLoansPendingDisbursementCount] = useState(0);
+  const [attestationSlotProposedCount, setAttestationSlotProposedCount] = useState(0);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -224,25 +225,52 @@ export default function DashboardLayout({
     fetchApplicationsPendingCount();
   }, [fetchApplicationsPendingCount]);
 
-  const fetchLoansPendingDisbursementCount = useCallback(async () => {
+  const fetchLoanCounts = useCallback(async () => {
     if (!hasTenants) {
       setLoansPendingDisbursementCount(0);
+      setAttestationSlotProposedCount(0);
       return;
     }
-    api
-      .get<{ pendingDisbursement: number }>("/api/loans/counts")
-      .then((res) => {
-        if (res.success && res.data) {
-          setLoansPendingDisbursementCount(res.data.pendingDisbursement);
-        }
-      })
-      .catch(() => setLoansPendingDisbursementCount(0));
+    try {
+      const [countsRes, queueRes] = await Promise.all([
+        api.get<{ pendingDisbursement: number; attestationSlotProposed?: number }>("/api/loans/counts"),
+        api.get<Array<{ attestationStatus: string }>>("/api/loans/attestation-queue"),
+      ]);
+
+      if (countsRes.success && countsRes.data) {
+        setLoansPendingDisbursementCount(countsRes.data.pendingDisbursement ?? 0);
+      } else {
+        setLoansPendingDisbursementCount(0);
+      }
+
+      // Same source as Attestation meetings page: borrower-chosen slot awaiting admin (SLOT_PROPOSED)
+      if (queueRes.success && Array.isArray(queueRes.data)) {
+        setAttestationSlotProposedCount(
+          queueRes.data.filter((r) => r.attestationStatus === "SLOT_PROPOSED").length,
+        );
+      } else if (countsRes.success && countsRes.data?.attestationSlotProposed != null) {
+        setAttestationSlotProposedCount(countsRes.data.attestationSlotProposed);
+      } else {
+        setAttestationSlotProposedCount(0);
+      }
+    } catch {
+      setLoansPendingDisbursementCount(0);
+      setAttestationSlotProposedCount(0);
+    }
   }, [hasTenants]);
 
-  // Fetch loans pending disbursement count on mount and when count may have changed
+  // Fetch loan-related sidebar counts on mount and when count may have changed
   useEffect(() => {
-    fetchLoansPendingDisbursementCount();
-  }, [fetchLoansPendingDisbursementCount]);
+    void fetchLoanCounts();
+  }, [fetchLoanCounts]);
+
+  // Refresh attestation / loan badges when opening TrueKredit Pro (e.g. borrower proposed a slot while you were elsewhere)
+  useEffect(() => {
+    if (!hasTenants) return;
+    if (pathname.startsWith("/dashboard/truekredit-pro")) {
+      void fetchLoanCounts();
+    }
+  }, [pathname, hasTenants, fetchLoanCounts]);
 
   // Listen for count changes (approve, reject, return-to-draft on application detail)
   useEffect(() => {
@@ -251,12 +279,16 @@ export default function DashboardLayout({
     return () => window.removeEventListener("applications-count-changed", handler);
   }, [fetchApplicationsPendingCount]);
 
-  // Listen for loans count changes (disburse on loan detail, approve on application detail)
+  // Listen for loans / attestation queue count changes (disburse, attestation actions)
   useEffect(() => {
-    const handler = () => fetchLoansPendingDisbursementCount();
+    const handler = () => void fetchLoanCounts();
     window.addEventListener("loans-count-changed", handler);
-    return () => window.removeEventListener("loans-count-changed", handler);
-  }, [fetchLoansPendingDisbursementCount]);
+    window.addEventListener("attestation-queue-changed", handler);
+    return () => {
+      window.removeEventListener("loans-count-changed", handler);
+      window.removeEventListener("attestation-queue-changed", handler);
+    };
+  }, [fetchLoanCounts]);
 
   const ensureActiveTenantAndFetchMembership = useCallback(async () => {
     try {
@@ -729,6 +761,8 @@ export default function DashboardLayout({
 
                         const isApplications = item.href === "/dashboard/applications";
                         const isLoans = item.href === "/dashboard/loans";
+                        const isAttestationMeetings =
+                          item.href === "/dashboard/truekredit-pro/attestation-meetings";
                         const linkContent = (
                           <Link
                             key={item.name}
@@ -758,6 +792,11 @@ export default function DashboardLayout({
                                     {loansPendingDisbursementCount}
                                   </Badge>
                                 )}
+                                {isAttestationMeetings && attestationSlotProposedCount > 0 && (
+                                  <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-xs">
+                                    {attestationSlotProposedCount > 99 ? "99+" : attestationSlotProposedCount}
+                                  </Badge>
+                                )}
                               </>
                             )}
                             {sidebarCollapsed && isApplications && applicationsPendingCount > 0 && (
@@ -768,6 +807,11 @@ export default function DashboardLayout({
                             {sidebarCollapsed && isLoans && loansPendingDisbursementCount > 0 && (
                               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
                                 {loansPendingDisbursementCount > 99 ? "99+" : loansPendingDisbursementCount}
+                              </span>
+                            )}
+                            {sidebarCollapsed && isAttestationMeetings && attestationSlotProposedCount > 0 && (
+                              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                                {attestationSlotProposedCount > 99 ? "99+" : attestationSlotProposedCount}
                               </span>
                             )}
                           </Link>
@@ -789,6 +833,12 @@ export default function DashboardLayout({
                                 {isLoans && loansPendingDisbursementCount > 0 && (
                                   <p className="opacity-70 text-xs mt-1">
                                     {loansPendingDisbursementCount} pending disbursement
+                                  </p>
+                                )}
+                                {isAttestationMeetings && attestationSlotProposedCount > 0 && (
+                                  <p className="opacity-70 text-xs mt-1">
+                                    {attestationSlotProposedCount} proposed slot
+                                    {attestationSlotProposedCount === 1 ? "" : "s"} to review
                                   </p>
                                 )}
                               </TooltipContent>
@@ -974,7 +1024,12 @@ export default function DashboardLayout({
           </header>
 
           {/* Page content */}
-          <main id="dashboard-main" className="p-4 lg:p-8">{children}</main>
+          <main
+            id="dashboard-main"
+            className="w-full min-w-0 p-4 sm:p-5 md:px-6 md:py-6 lg:px-7 lg:py-8 xl:px-9 xl:py-8 2xl:px-11"
+          >
+            {children}
+          </main>
         </div>
       </div>
     </TenantProvider>

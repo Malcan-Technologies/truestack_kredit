@@ -72,10 +72,10 @@ export default function ApplicationDocumentsPage() {
           Documents cannot be changed while this application is {app.status.toLowerCase().replace(/_/g, " ")}.
         </p>
       ) : (
-        <div className="space-y-4 max-w-3xl">
+        <div className="space-y-4 w-full min-w-0">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Supporting documents</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <h1 className="text-2xl font-heading font-bold text-gradient">Supporting documents</h1>
+            <p className="text-muted text-base mt-1">
               {app.product?.name ?? "Application"} ·{" "}
               <span className="uppercase">{app.status}</span>
             </p>

@@ -1,3 +1,5 @@
+import type { BorrowerSemanticBadgeVariant } from "./loan-status-label";
+
 /**
  * Derived UI phase for borrower loan journey (matches backend rules).
  */
@@ -23,7 +25,11 @@ export function deriveLoanJourneyPhase(input: {
   if (app && ["DRAFT", "SUBMITTED", "UNDER_REVIEW"].includes(app)) {
     return app === "UNDER_REVIEW" ? "approval" : "application";
   }
-  if (!input.loanStatus || input.loanStatus === "PENDING_DISBURSEMENT") {
+  if (
+    !input.loanStatus ||
+    input.loanStatus === "PENDING_ATTESTATION" ||
+    input.loanStatus === "PENDING_DISBURSEMENT"
+  ) {
     if (!input.attestationCompletedAt) return "attestation";
     const review = input.signedAgreementReviewStatus ?? "NONE";
     if (!input.agreementPath || review === "NONE" || review === "REJECTED") return "signing";
@@ -48,4 +54,25 @@ export function loanJourneyPhaseLabel(phase: LoanJourneyPhase): string {
     cancelled: "Cancelled",
   };
   return labels[phase];
+}
+
+/** Journey phase badge colors aligned with admin semantic status styling. */
+export function loanJourneyPhaseBadgeVariant(phase: LoanJourneyPhase): BorrowerSemanticBadgeVariant {
+  switch (phase) {
+    case "attestation":
+    case "signing":
+    case "disbursement":
+      return "warning";
+    case "application":
+    case "approval":
+      return "info";
+    case "active":
+      return "default";
+    case "completed":
+      return "success";
+    case "cancelled":
+      return "destructive";
+    default:
+      return "default";
+  }
 }

@@ -38,6 +38,8 @@ enum ApplicationStatus {
 }
 
 enum LoanStatus {
+  /// Online applications only: borrower must complete attestation before agreement signing / disbursement prep
+  PENDING_ATTESTATION
   PENDING_DISBURSEMENT
   ACTIVE
   IN_ARREARS // Loan has overdue payments past arrearsPeriod
@@ -78,7 +80,7 @@ enum AttestationCancellationReason {
   WITHDRAWN
   REJECTED_AFTER_ATTESTATION
   PROPOSAL_REJECTED_BY_LENDER
-  /** Lender did not respond before proposal deadline (cron) */
+  /** Legacy: loan cancelled when proposal expired (older behaviour). No longer set by cron. */
   PROPOSAL_DEADLINE_EXPIRED
 }
 

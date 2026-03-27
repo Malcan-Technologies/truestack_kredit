@@ -28,6 +28,7 @@ import {
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
+import { formatLoanStatusLabelForDisplay } from "@/lib/loan-status-label";
 import { cn, formatCurrency, formatDate, formatSmartDateTime } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -45,7 +46,7 @@ interface Loan {
   term: number;
   status: string;
   loanChannel?: "ONLINE" | "PHYSICAL";
-  /** When set, borrower has finished attestation; until then, PENDING_DISBURSEMENT shows as “Pending Attestation” in the UI. */
+  /** When set, borrower has finished attestation; ONLINE loans use PENDING_ATTESTATION until then, or PENDING_DISBURSEMENT without completion for in-branch. */
   attestationCompletedAt?: string | null;
   disbursementDate: string | null;
   createdAt: string;
@@ -83,7 +84,11 @@ interface LateFeeStatus {
   loansReadyForDefault: number;
   loansInArrears: number;
   loansReadyToComplete: number;
-  loansPendingDisbursement: number;
+}
+
+interface LoanCounts {
+  pendingDisbursement: number;
+  pendingAttestation: number;
 }
 
 // Mini donut chart component
@@ -148,6 +153,7 @@ function ProgressDonut({
 }
 
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
+  PENDING_ATTESTATION: "warning",
   PENDING_DISBURSEMENT: "warning",
   ACTIVE: "default",
   IN_ARREARS: "warning",
@@ -160,13 +166,13 @@ function loanStatusDisplay(loan: Loan): {
   label: string;
   variant: "default" | "success" | "warning" | "destructive" | "info";
 } {
-  if (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt) {
-    return { label: "Pending Attestation", variant: "warning" };
-  }
-  return {
-    label: loan.status.replace(/_/g, " "),
-    variant: statusColors[loan.status] || "default",
-  };
+  const label = formatLoanStatusLabelForDisplay(loan);
+  const variant =
+    loan.status === "PENDING_ATTESTATION" ||
+    (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt)
+      ? "warning"
+      : statusColors[loan.status] || "default";
+  return { label, variant };
 }
 
 function LoansPageContent() {
@@ -177,6 +183,11 @@ function LoansPageContent() {
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>(initialFilter);
+
+  useEffect(() => {
+    const q = searchParams.get("filter");
+    if (q !== null) setFilter(q);
+  }, [searchParams]);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -189,6 +200,7 @@ function LoansPageContent() {
 
   // Late fee processing state
   const [lateFeeStatus, setLateFeeStatus] = useState<LateFeeStatus | null>(null);
+  const [loanCounts, setLoanCounts] = useState<LoanCounts>({ pendingDisbursement: 0, pendingAttestation: 0 });
   const [processingLateFees, setProcessingLateFees] = useState(false);
 
   // Sort state
@@ -250,13 +262,30 @@ function LoansPageContent() {
     }
   }, []);
 
+  const fetchLoanCounts = useCallback(async () => {
+    try {
+      const res = await api.get<LoanCounts & { attestationSlotProposed?: number }>("/api/loans/counts");
+      if (res.success && res.data) {
+        setLoanCounts({
+          pendingDisbursement: res.data.pendingDisbursement ?? 0,
+          pendingAttestation: res.data.pendingAttestation ?? 0,
+        });
+      } else {
+        setLoanCounts({ pendingDisbursement: 0, pendingAttestation: 0 });
+      }
+    } catch {
+      setLoanCounts({ pendingDisbursement: 0, pendingAttestation: 0 });
+    }
+  }, []);
+
   useEffect(() => {
     fetchLoans();
     fetchLateFeeStatus();
-  }, [fetchLoans, fetchLateFeeStatus]);
+    fetchLoanCounts();
+  }, [fetchLoans, fetchLateFeeStatus, fetchLoanCounts]);
 
   const handleRefresh = async () => {
-    await Promise.all([fetchLoans(), fetchLateFeeStatus()]);
+    await Promise.all([fetchLoans(), fetchLateFeeStatus(), fetchLoanCounts()]);
   };
 
   const handleProcessLateFees = async () => {
@@ -401,7 +430,8 @@ function LoansPageContent() {
 
       {/* Status Alert Bar */}
       {lateFeeStatus && (
-        lateFeeStatus.loansPendingDisbursement > 0 ||
+        loanCounts.pendingDisbursement > 0 ||
+        loanCounts.pendingAttestation > 0 ||
         lateFeeStatus.loansInArrears > 0 ||
         lateFeeStatus.loansReadyToComplete > 0 ||
         lateFeeStatus.loansReadyForDefault > 0
@@ -410,9 +440,15 @@ function LoansPageContent() {
           <AlertTriangle className="h-4 w-4 text-foreground shrink-0" />
           <div className="flex items-center gap-2 text-sm flex-wrap">
             {[
-              lateFeeStatus.loansPendingDisbursement > 0 && (
+              loanCounts.pendingAttestation > 0 && (
+                <span key="attestation" className="text-foreground font-medium">
+                  {loanCounts.pendingAttestation} loan
+                  {loanCounts.pendingAttestation !== 1 ? "s" : ""} pending attestation
+                </span>
+              ),
+              loanCounts.pendingDisbursement > 0 && (
                 <span key="pending" className="text-foreground font-medium">
-                  {lateFeeStatus.loansPendingDisbursement} loan{lateFeeStatus.loansPendingDisbursement !== 1 ? "s" : ""} pending disbursement
+                  {loanCounts.pendingDisbursement} loan{loanCounts.pendingDisbursement !== 1 ? "s" : ""} pending disbursement
                 </span>
               ),
               lateFeeStatus.loansInArrears > 0 && (
@@ -478,14 +514,26 @@ function LoansPageContent() {
         <span className="border-l border-border mx-1 h-6" />
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Action Needed</span>
         <Button
+          variant={filter === "PENDING_ATTESTATION" ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setFilter("PENDING_ATTESTATION"); setCurrentPage(1); }}
+        >
+          Pending Attestation
+          {loanCounts.pendingAttestation > 0 ? (
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {loanCounts.pendingAttestation}
+            </span>
+          ) : null}
+        </Button>
+        <Button
           variant={filter === "PENDING_DISBURSEMENT" ? "default" : "outline"}
           size="sm"
           onClick={() => { setFilter("PENDING_DISBURSEMENT"); setCurrentPage(1); }}
         >
           Pending Disbursement
-          {lateFeeStatus?.loansPendingDisbursement ? (
+          {loanCounts.pendingDisbursement > 0 ? (
             <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
-              {lateFeeStatus.loansPendingDisbursement}
+              {loanCounts.pendingDisbursement}
             </span>
           ) : null}
         </Button>
@@ -639,7 +687,7 @@ function LoansPageContent() {
                         ? "bg-emerald-500/[0.03] dark:bg-emerald-500/[0.04]"
                         : loan.readyForDefault && loan.status !== "DEFAULTED"
                         ? "bg-red-500/[0.03] dark:bg-red-500/[0.04]"
-                        : loan.status === "PENDING_DISBURSEMENT"
+                        : loan.status === "PENDING_DISBURSEMENT" || loan.status === "PENDING_ATTESTATION"
                         ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.04]"
                         : ""
                     )}
@@ -695,7 +743,7 @@ function LoansPageContent() {
                     <TableCell>{formatCurrency(Number(loan.principalAmount))}</TableCell>
                     <TableCell>{loan.term} months</TableCell>
                     <TableCell>
-                      {loan.status === "PENDING_DISBURSEMENT" ? (
+                      {loan.status === "PENDING_DISBURSEMENT" || loan.status === "PENDING_ATTESTATION" ? (
                         <span className="text-xs text-muted-foreground">-</span>
                       ) : progress ? (
                         <Tooltip>

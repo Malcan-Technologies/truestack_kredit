@@ -23,7 +23,11 @@ export function deriveLoanJourneyPhase(input: {
   if (app && ["DRAFT", "SUBMITTED", "UNDER_REVIEW"].includes(app)) {
     return app === "UNDER_REVIEW" ? "approval" : "application";
   }
-  if (!input.loanStatus || input.loanStatus === "PENDING_DISBURSEMENT") {
+  if (
+    !input.loanStatus ||
+    input.loanStatus === "PENDING_ATTESTATION" ||
+    input.loanStatus === "PENDING_DISBURSEMENT"
+  ) {
     if (!input.attestationCompletedAt) return "attestation";
     const review = input.signedAgreementReviewStatus ?? "NONE";
     if (!input.agreementPath || review === "NONE" || review === "REJECTED") return "signing";

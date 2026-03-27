@@ -115,7 +115,7 @@ export async function collectBlockingIntervals(params: {
     where: {
       tenantId: params.tenantId,
       ...(params.excludeLoanId ? { id: { not: params.excludeLoanId } } : {}),
-      status: 'PENDING_DISBURSEMENT',
+      status: { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
       OR: [
         {
           attestationStatus: { in: ['SLOT_PROPOSED', 'COUNTER_PROPOSED'] },

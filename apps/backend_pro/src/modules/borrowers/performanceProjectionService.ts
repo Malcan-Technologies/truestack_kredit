@@ -231,6 +231,7 @@ export async function recalculateBorrowerPerformanceProjection(
     }
 
     switch (loan.status) {
+      case 'PENDING_ATTESTATION':
       case 'PENDING_DISBURSEMENT':
         pendingDisbursementLoans++;
         break;

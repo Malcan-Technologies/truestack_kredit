@@ -837,7 +837,7 @@ router.get('/exports/lampiran-a-bulk', requireAdmin, async (req, res, next) => {
     const where: Record<string, unknown> = {
       tenantId,
       // Only include disbursed loans (not pending disbursement)
-      status: { notIn: ['PENDING_DISBURSEMENT'] },
+      status: { notIn: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
     };
 
     if (status) where.status = status;

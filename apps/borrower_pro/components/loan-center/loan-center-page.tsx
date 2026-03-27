@@ -34,7 +34,12 @@ import type { LoanCenterOverview } from "../../lib/borrower-loan-types";
 import type { BorrowerLoanListItem } from "../../lib/borrower-loan-types";
 import type { LoanApplicationDetail } from "../../lib/application-form-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
-import { deriveLoanJourneyPhase, loanJourneyPhaseLabel } from "../../lib/loan-journey-phase";
+import {
+  deriveLoanJourneyPhase,
+  loanJourneyPhaseBadgeVariant,
+  loanJourneyPhaseLabel,
+} from "../../lib/loan-journey-phase";
+import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 
 export type LoanCenterTab =
   | "active"
@@ -393,7 +398,6 @@ function LoanListPane({
 }
 
 function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
-  const review = loan.signedAgreementReviewStatus ?? "NONE";
   const attestationDone = !!loan.attestationCompletedAt;
   const journeyPhase = deriveLoanJourneyPhase({
     applicationStatus: loan.application?.status,
@@ -402,14 +406,6 @@ function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
     signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
     agreementPath: undefined,
   });
-  const reviewLabel =
-    review === "APPROVED"
-      ? "Signed agreement approved"
-      : review === "PENDING"
-        ? "Awaiting approval"
-        : review === "REJECTED"
-          ? "Rejected — upload again"
-          : "Agreement not complete";
 
   return (
     <Card>
@@ -422,8 +418,8 @@ function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
           <Badge variant="outline" className="text-[10px]">
             {loan.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
           </Badge>
-          <Badge variant="outline">Pending disbursement</Badge>
-          <Badge variant="secondary" className="text-[10px]">
+          <Badge variant={borrowerLoanStatusBadgeVariant(loan)}>{loanStatusBadgeLabelFromDb(loan)}</Badge>
+          <Badge variant={loanJourneyPhaseBadgeVariant(journeyPhase)} className="text-[10px]">
             {loanJourneyPhaseLabel(journeyPhase)}
           </Badge>
         </div>
@@ -439,17 +435,6 @@ function PendingDisbursementLoanCard({ loan }: { loan: BorrowerLoanListItem }) {
             <p className="font-semibold">{loan.term} months</p>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {!attestationDone && (
-            <span className="block text-amber-800 dark:text-amber-200 mb-1">
-              Complete attestation (video or lawyer meeting) before signing the agreement.
-              {loan.attestationStatus ? (
-                <span className="block text-xs mt-1 font-mono">Status: {loan.attestationStatus}</span>
-              ) : null}
-            </span>
-          )}
-          {reviewLabel}
-        </p>
         <Button asChild size="sm">
           <Link href={`/loans/${loan.id}`}>
             <FileText className="h-4 w-4 mr-2" />
@@ -484,7 +469,7 @@ function LoanCard({
           <Badge variant="outline" className="text-[10px]">
             {loan.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
           </Badge>
-          <Badge variant="outline">{loan.status}</Badge>
+          <Badge variant={borrowerLoanStatusBadgeVariant(loan)}>{loanStatusBadgeLabelFromDb(loan)}</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

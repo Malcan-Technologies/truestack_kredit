@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { formatLoanStatusLabelForDisplay, formatSnakeEnumTitle } from "@/lib/loan-status-label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 
 type LoanDetail = {
   id: string;
+  status: string;
+  attestationCompletedAt: string | null;
   loanChannel?: "ONLINE" | "PHYSICAL";
   attestationStatus: string;
   attestationMeetingRequestedAt: string | null;
@@ -211,7 +214,8 @@ export default function AttestationMeetingDetailPage() {
           {loan.borrower.name} · {loan.borrower.email ?? "—"}
         </p>
         <div className="flex flex-wrap gap-2 mt-2 justify-center">
-          <Badge>{loan.attestationStatus}</Badge>
+          <Badge variant="default">{formatLoanStatusLabelForDisplay(loan)}</Badge>
+          <Badge variant="secondary">{formatSnakeEnumTitle(loan.attestationStatus)}</Badge>
           <Badge variant="outline">{loan.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}</Badge>
         </div>
       </div>
@@ -236,7 +240,7 @@ export default function AttestationMeetingDetailPage() {
           )}
           {loan.attestationProposalDeadlineAt && (
             <p className="text-amber-800 dark:text-amber-200">
-              Respond by: {new Date(loan.attestationProposalDeadlineAt).toLocaleString()}
+              Confirm before slot starts: {new Date(loan.attestationProposalDeadlineAt).toLocaleString()}
             </p>
           )}
           {loan.attestationMeetingLink && (

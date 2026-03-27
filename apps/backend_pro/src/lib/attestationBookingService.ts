@@ -1,11 +1,8 @@
 import type { AttestationCancellationReason } from '@prisma/client';
 import type { Loan } from '@prisma/client';
 import { prisma } from './prisma.js';
-import {
-  MAX_BORROWER_ATTESTATION_PROPOSALS,
-  PROPOSAL_DEADLINE_MS,
-  SLOT_DURATION_MINUTES,
-} from './attestationConstants.js';
+import { isPreDisbursementLoanStatus } from './loanStatusHelpers.js';
+import { MAX_BORROWER_ATTESTATION_PROPOSALS, SLOT_DURATION_MINUTES } from './attestationConstants.js';
 import { collectBlockingIntervals } from './attestationAvailability.js';
 import { createGoogleMeetEvent, deleteCalendarEvent, isGoogleMeetConfigured } from './googleMeetCalendar.js';
 import { NotificationService } from '../modules/notifications/service.js';
@@ -92,7 +89,7 @@ export async function proposeBorrowerSlot(params: {
     include: { product: { select: { name: true } } },
   });
   if (!loan) throw new Error('NOT_FOUND');
-  if (loan.status !== 'PENDING_DISBURSEMENT') throw new Error('INVALID_LOAN_STATUS');
+  if (!isPreDisbursementLoanStatus(loan.status)) throw new Error('INVALID_LOAN_STATUS');
   if (loan.attestationCompletedAt) throw new Error('ATTESTATION_ALREADY_COMPLETE');
   if (loan.attestationStatus !== 'MEETING_REQUESTED') {
     throw new Error('INVALID_ATTESTATION_STATE');
@@ -108,7 +105,8 @@ export async function proposeBorrowerSlot(params: {
     endAt,
   });
 
-  const deadline = new Date(Date.now() + PROPOSAL_DEADLINE_MS);
+  /** Admin must confirm before this slot starts; if still pending at start time, proposal is cleared (loan stays active). */
+  const respondBy = params.startAt;
 
   const updated = await prisma.loan.update({
     where: { id: params.loanId },
@@ -116,7 +114,7 @@ export async function proposeBorrowerSlot(params: {
       attestationStatus: 'SLOT_PROPOSED',
       attestationProposalStartAt: params.startAt,
       attestationProposalEndAt: endAt,
-      attestationProposalDeadlineAt: deadline,
+      attestationProposalDeadlineAt: respondBy,
       attestationProposalSource: 'BORROWER',
       attestationBorrowerProposalCount: { increment: 1 },
     },
@@ -125,7 +123,7 @@ export async function proposeBorrowerSlot(params: {
   await notifyTenantAdminsEmail({
     tenantId: params.tenantId,
     subject: 'Attestation: borrower proposed a meeting slot',
-    body: `Loan ${params.loanId.slice(0, 8)} — borrower selected a slot. Respond within 12 hours in TrueKredit Pro → Attestation Meetings.`,
+    body: `Loan ${params.loanId.slice(0, 8)} — borrower selected a slot. Confirm before the slot starts in TrueKredit Pro → Attestation Meetings.`,
   });
 
   return updated as Loan;
@@ -147,7 +145,7 @@ export async function adminAcceptBorrowerProposal(params: {
     },
   });
   if (!loan) throw new Error('NOT_FOUND');
-  if (loan.status !== 'PENDING_DISBURSEMENT') throw new Error('INVALID_LOAN_STATUS');
+  if (!isPreDisbursementLoanStatus(loan.status)) throw new Error('INVALID_LOAN_STATUS');
   if (loan.attestationStatus !== 'SLOT_PROPOSED') throw new Error('INVALID_ATTESTATION_STATE');
   if (!loan.attestationProposalStartAt || !loan.attestationProposalEndAt) throw new Error('NO_PROPOSAL');
 
@@ -245,7 +243,7 @@ export async function adminCounterProposal(params: {
     },
   });
   if (!loan) throw new Error('NOT_FOUND');
-  if (loan.status !== 'PENDING_DISBURSEMENT') throw new Error('INVALID_LOAN_STATUS');
+  if (!isPreDisbursementLoanStatus(loan.status)) throw new Error('INVALID_LOAN_STATUS');
   if (loan.attestationStatus !== 'SLOT_PROPOSED') throw new Error('INVALID_ATTESTATION_STATE');
 
   await assertSlotStillFree({
@@ -457,43 +455,78 @@ export async function adminRejectProposal(params: {
   return updated;
 }
 
-export async function expirePendingProposals(): Promise<{ expired: number }> {
+const STALE_PROPOSAL_EXPIRY_EMAIL = {
+  subject: 'Your attestation meeting proposal expired',
+  body:
+    'The proposed meeting time passed without confirmation from your lender. Your loan is still active. Please open Borrower Pro and choose a new meeting time for attestation.',
+} as const;
+
+async function applyStaleProposalExpiry(loan: {
+  id: string;
+  tenantId: string;
+  borrowerId: string;
+}): Promise<void> {
+  await prisma.loan.update({
+    where: { id: loan.id },
+    data: {
+      attestationStatus: 'MEETING_REQUESTED',
+      attestationProposalStartAt: null,
+      attestationProposalEndAt: null,
+      attestationProposalDeadlineAt: null,
+      attestationProposalSource: null,
+      attestationBorrowerProposalCount: 0,
+    },
+  });
+  await notifyBorrowerEmail({
+    tenantId: loan.tenantId,
+    borrowerId: loan.borrowerId,
+    subject: STALE_PROPOSAL_EXPIRY_EMAIL.subject,
+    body: STALE_PROPOSAL_EXPIRY_EMAIL.body,
+  });
+}
+
+/**
+ * When the proposed slot start time is reached and the lender still has not accepted/countered,
+ * clear the proposal so the borrower can pick a new slot. Does not cancel the loan.
+ */
+export async function expireStaleAttestationProposalForLoan(params: {
+  loanId: string;
+  tenantId: string;
+  borrowerId?: string;
+}): Promise<void> {
+  const now = new Date();
+  const loan = await prisma.loan.findFirst({
+    where: {
+      id: params.loanId,
+      tenantId: params.tenantId,
+      ...(params.borrowerId ? { borrowerId: params.borrowerId } : {}),
+      status: { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
+      attestationCompletedAt: null,
+      attestationStatus: { in: ['SLOT_PROPOSED', 'COUNTER_PROPOSED'] },
+      attestationProposalStartAt: { lte: now },
+    },
+    select: { id: true, tenantId: true, borrowerId: true },
+  });
+  if (!loan) return;
+  await applyStaleProposalExpiry(loan);
+}
+
+export async function expirePendingProposals(params?: { tenantId?: string }): Promise<{ expired: number }> {
   const now = new Date();
   const pending = await prisma.loan.findMany({
     where: {
-      status: 'PENDING_DISBURSEMENT',
+      ...(params?.tenantId ? { tenantId: params.tenantId } : {}),
+      status: { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
+      attestationCompletedAt: null,
       attestationStatus: { in: ['SLOT_PROPOSED', 'COUNTER_PROPOSED'] },
-      attestationProposalDeadlineAt: { lt: now },
+      attestationProposalStartAt: { lte: now },
     },
-    select: { id: true, tenantId: true, borrowerId: true, attestationStatus: true },
+    select: { id: true, tenantId: true, borrowerId: true },
   });
 
   let expired = 0;
   for (const p of pending) {
-    await prisma.loan.update({
-      where: { id: p.id },
-      data: {
-        status: 'CANCELLED',
-        attestationStatus: 'NOT_STARTED',
-        attestationCancellationReason: 'PROPOSAL_DEADLINE_EXPIRED',
-        attestationCancelledAt: new Date(),
-        attestationCancelledByUserId: null,
-        attestationProposalStartAt: null,
-        attestationProposalEndAt: null,
-        attestationProposalDeadlineAt: null,
-        attestationProposalSource: null,
-        attestationMeetingLink: null,
-        attestationMeetingNotes: null,
-        attestationGoogleCalendarEventId: null,
-      },
-    });
-    await notifyBorrowerEmail({
-      tenantId: p.tenantId,
-      borrowerId: p.borrowerId,
-      subject: 'Loan application closed',
-      body:
-        'Your attestation meeting proposal expired because there was no response in time. This loan has been cancelled. Contact your lender if you have questions.',
-    });
+    await applyStaleProposalExpiry(p);
     expired += 1;
   }
 
@@ -511,7 +544,7 @@ export async function cancelLoanFromBorrower(params: {
     where: { id: params.loanId, tenantId: params.tenantId, borrowerId: params.borrowerId },
   });
   if (!loan) throw new Error('NOT_FOUND');
-  if (loan.status !== 'PENDING_DISBURSEMENT') throw new Error('INVALID_LOAN_STATUS');
+  if (!isPreDisbursementLoanStatus(loan.status)) throw new Error('INVALID_LOAN_STATUS');
 
   if (loan.attestationGoogleCalendarEventId) {
     try {

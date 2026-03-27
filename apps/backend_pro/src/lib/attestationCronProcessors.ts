@@ -7,7 +7,7 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
 /**
- * Expire attestation slot proposals after deadline (12h).
+ * Expire attestation slot proposals when the proposed meeting start time passes without lender confirmation.
  */
 export async function processAttestationProposalExpiry(): Promise<{ expired: number }> {
   const result = await expirePendingProposals();
@@ -28,7 +28,7 @@ export async function processAttestationMeetingReminders(): Promise<{ sent: numb
 
   const loans = await prisma.loan.findMany({
     where: {
-      status: 'PENDING_DISBURSEMENT',
+      status: { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
       attestationStatus: 'MEETING_SCHEDULED',
       attestationMeetingStartAt: { gte: windowLo, lte: windowHi },
       attestationMeetingReminder24hSentAt: null,

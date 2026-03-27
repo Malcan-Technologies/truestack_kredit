@@ -35,7 +35,14 @@ import { cn, formatDate } from "@/lib/utils";
 // ============================================
 
 type BorrowerTypeFilter = "all" | "INDIVIDUAL" | "CORPORATE";
-type LoanStatusFilter = "all" | "ACTIVE" | "IN_ARREARS" | "COMPLETED" | "DEFAULTED" | "PENDING_DISBURSEMENT";
+type LoanStatusFilter =
+  | "all"
+  | "ACTIVE"
+  | "IN_ARREARS"
+  | "COMPLETED"
+  | "DEFAULTED"
+  | "PENDING_ATTESTATION"
+  | "PENDING_DISBURSEMENT";
 
 // ============================================
 // Helpers
@@ -315,6 +322,8 @@ export default function CompliancePage() {
                         <SelectItem value="IN_ARREARS">In Arrears</SelectItem>
                         <SelectItem value="COMPLETED">Completed</SelectItem>
                         <SelectItem value="DEFAULTED">Defaulted</SelectItem>
+                        <SelectItem value="PENDING_ATTESTATION">Pending Attestation</SelectItem>
+                        <SelectItem value="PENDING_DISBURSEMENT">Pending Disbursement</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -659,6 +668,7 @@ export default function CompliancePage() {
                         <SelectItem value="IN_ARREARS">In Arrears</SelectItem>
                         <SelectItem value="COMPLETED">Completed</SelectItem>
                         <SelectItem value="DEFAULTED">Defaulted</SelectItem>
+                        <SelectItem value="PENDING_ATTESTATION">Pending Attestation</SelectItem>
                         <SelectItem value="PENDING_DISBURSEMENT">Pending Disbursement</SelectItem>
                       </SelectContent>
                     </Select>

@@ -86,6 +86,7 @@ import { RefreshButton } from "@/components/ui/refresh-button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
 import { useCurrentRole } from "@/components/tenant-context";
 import { api } from "@/lib/api";
+import { formatLoanStatusLabelForDisplay } from "@/lib/loan-status-label";
 import {
   cn,
   formatCurrency,
@@ -371,6 +372,7 @@ function parseLetterDate(letterPath: string): Date | null {
 // ============================================
 
 const loanStatusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
+  PENDING_ATTESTATION: "warning",
   PENDING_DISBURSEMENT: "warning",
   ACTIVE: "info",
   IN_ARREARS: "warning",
@@ -379,18 +381,18 @@ const loanStatusColors: Record<string, "default" | "success" | "warning" | "dest
   WRITTEN_OFF: "destructive",
 };
 
-/** Matches `loanStatusDisplay` on loans list (`/dashboard/loans`) — same label when attestation pending. */
+/** Matches `loanStatusDisplay` on loans list (`/dashboard/loans`). */
 function loanDetailStatusDisplay(loan: {
   status: string;
   attestationCompletedAt?: string | null;
 }): { label: string; variant: "default" | "success" | "warning" | "destructive" | "info" } {
-  if (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt) {
-    return { label: "Pending Attestation", variant: "warning" };
-  }
-  return {
-    label: loan.status.replace(/_/g, " "),
-    variant: loanStatusColors[loan.status] || "default",
-  };
+  const label = formatLoanStatusLabelForDisplay(loan);
+  const variant =
+    loan.status === "PENDING_ATTESTATION" ||
+    (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt)
+      ? "warning"
+      : loanStatusColors[loan.status] || "default";
+  return { label, variant };
 }
 
 const repaymentStatusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
@@ -918,14 +920,21 @@ export default function LoanDetailPage() {
 
   // Fetch metrics when loan is loaded and has a schedule (runs in parallel with timeline)
   useEffect(() => {
-    if (loan && loan.status !== "PENDING_DISBURSEMENT") {
+    if (
+      loan &&
+      loan.status !== "PENDING_DISBURSEMENT" &&
+      loan.status !== "PENDING_ATTESTATION"
+    ) {
       fetchMetrics();
     }
   }, [loan, fetchMetrics]);
 
   // Fetch schedule preview when loan is pending disbursement
   useEffect(() => {
-    if (loan && loan.status === "PENDING_DISBURSEMENT") {
+    if (
+      loan &&
+      (loan.status === "PENDING_DISBURSEMENT" || loan.status === "PENDING_ATTESTATION")
+    ) {
       fetchSchedulePreview();
     }
   }, [loan, fetchSchedulePreview]);
@@ -1628,6 +1637,7 @@ export default function LoanDetailPage() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case "PENDING_ATTESTATION":
       case "PENDING_DISBURSEMENT":
         return <Clock className="h-4 w-4" />;
       case "ACTIVE":
@@ -1699,6 +1709,8 @@ export default function LoanDetailPage() {
   const signedAgreementApproved = (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED";
   const attestationComplete = Boolean(loan.attestationCompletedAt);
   const isOnlineLoan = loan.loanChannel === "ONLINE";
+  const isAwaitingDisbursement =
+    loan.status === "PENDING_DISBURSEMENT" || loan.status === "PENDING_ATTESTATION";
   const statusUi = loanDetailStatusDisplay(loan);
   const canDisburseLoan =
     Boolean(loan.agreementDate) &&
@@ -1824,7 +1836,7 @@ export default function LoanDetailPage() {
           {/* Progress Card - compact single row */}
           <Card>
             <CardContent className="pt-4">
-              {loan.status === "PENDING_DISBURSEMENT" ? (
+              {isAwaitingDisbursement ? (
                 <div className="flex items-center gap-3">
                   <Calendar className="h-5 w-5 text-amber-600 shrink-0" />
                   <div>
@@ -2333,7 +2345,7 @@ export default function LoanDetailPage() {
                             );
                           })}
 
-                          {loan.status !== "PENDING_DISBURSEMENT" && (
+                          {!isAwaitingDisbursement && (
                             <div className="rounded-md border bg-secondary/30 p-3">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
@@ -2372,7 +2384,7 @@ export default function LoanDetailPage() {
           </div>
 
           {/* Online loans: agreement PDF / signing / stamp happen in borrower_pro — staff get view, download, approval only */}
-          {loan.status === "PENDING_DISBURSEMENT" && isOnlineLoan && (
+          {isAwaitingDisbursement && isOnlineLoan && (
             <Card
               className={
                 (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED"
@@ -2641,7 +2653,7 @@ export default function LoanDetailPage() {
           )}
 
           {/* Guarantor Agreements (required to generate before disbursement if guarantors exist) */}
-          {loan.status === "PENDING_DISBURSEMENT" && hasGuarantors && (
+          {isAwaitingDisbursement && hasGuarantors && (
             <Card className={allGuarantorAgreementsGenerated ? "border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"}>
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
@@ -2823,7 +2835,7 @@ export default function LoanDetailPage() {
           )}
 
           {/* Schedule Preview (before disbursement) */}
-          {loan.status === "PENDING_DISBURSEMENT" && schedulePreview && (
+          {isAwaitingDisbursement && schedulePreview && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -3069,7 +3081,7 @@ export default function LoanDetailPage() {
           })()}
 
           {/* Repayment Schedule (after disbursement) */}
-          {currentSchedule && loan.status !== "PENDING_DISBURSEMENT" && (
+          {currentSchedule && !isAwaitingDisbursement && (
             <Card>
               <Tabs
                 value={hasInternalSchedule ? scheduleView : "standard"}

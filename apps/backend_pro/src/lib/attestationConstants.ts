@@ -1,8 +1,7 @@
 /** Malaysia single-TZ for attestation booking */
 export const ATTESTATION_TIMEZONE = 'Asia/Kuala_Lumpur';
 
-export const PROPOSAL_DEADLINE_MS = 12 * 60 * 60 * 1000;
-/** Borrower may propose a slot at most once per loan */
+/** Borrower may propose a slot at most once per pending round (reset when proposal expires) */
 export const MAX_BORROWER_ATTESTATION_PROPOSALS = 1;
 export const SLOT_STEP_MINUTES = 30;
 export const SLOT_DURATION_MINUTES = 60;

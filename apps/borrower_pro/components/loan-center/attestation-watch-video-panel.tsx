@@ -205,7 +205,7 @@ export function AttestationWatchVideoPanel() {
     );
   }
 
-  if (loan.status !== "PENDING_DISBURSEMENT") {
+  if (loan.status !== "PENDING_DISBURSEMENT" && loan.status !== "PENDING_ATTESTATION") {
     return (
       <div className="space-y-4">
         <Button variant="ghost" size="sm" asChild>
@@ -215,7 +215,7 @@ export function AttestationWatchVideoPanel() {
           </Link>
         </Button>
         <p className="text-sm text-muted-foreground">
-          This page is only available while the loan is pending disbursement.
+          This page is only available while the loan is pending attestation or disbursement.
         </p>
       </div>
     );

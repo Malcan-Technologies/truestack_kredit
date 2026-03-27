@@ -23,7 +23,9 @@ import {
   borrowerAcceptCounter,
   borrowerDeclineCounter,
   cancelLoanFromBorrower,
+  expireStaleAttestationProposalForLoan,
 } from '../../lib/attestationBookingService.js';
+import { isPreDisbursementLoanStatus } from '../../lib/loanStatusHelpers.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -64,7 +66,11 @@ router.get('/loan-center/overview', async (req, res, next) => {
         },
       }),
       prisma.loan.count({
-        where: { tenantId: tenant.id, borrowerId, status: 'PENDING_DISBURSEMENT' },
+        where: {
+          tenantId: tenant.id,
+          borrowerId,
+          status: { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
+        },
       }),
       prisma.loan.count({
         where: {
@@ -84,7 +90,7 @@ router.get('/loan-center/overview', async (req, res, next) => {
         where: {
           tenantId: tenant.id,
           borrowerId,
-          status: { in: ['ACTIVE', 'IN_ARREARS', 'DEFAULTED', 'PENDING_DISBURSEMENT'] },
+          status: { in: ['ACTIVE', 'IN_ARREARS', 'DEFAULTED', 'PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
         },
         select: { id: true },
         take: 50,
@@ -171,7 +177,9 @@ router.get('/loans', async (req, res, next) => {
     const skip = (parseInt(page as string, 10) - 1) * parseInt(pageSize as string, 10);
     const take = parseInt(pageSize as string, 10);
 
-    let statusWhere: { in: Array<'ACTIVE' | 'IN_ARREARS' | 'DEFAULTED' | 'PENDING_DISBURSEMENT' | 'COMPLETED'> } | { equals: 'COMPLETED' | 'PENDING_DISBURSEMENT' };
+    let statusWhere:
+      | { in: Array<'ACTIVE' | 'IN_ARREARS' | 'DEFAULTED' | 'PENDING_ATTESTATION' | 'PENDING_DISBURSEMENT' | 'COMPLETED'> }
+      | { equals: 'COMPLETED' | 'PENDING_DISBURSEMENT' | 'PENDING_ATTESTATION' };
     switch (tab) {
       case 'active':
         statusWhere = { in: ['ACTIVE', 'IN_ARREARS', 'DEFAULTED'] };
@@ -180,7 +188,7 @@ router.get('/loans', async (req, res, next) => {
         statusWhere = { equals: 'COMPLETED' };
         break;
       case 'pending_disbursement':
-        statusWhere = { equals: 'PENDING_DISBURSEMENT' };
+        statusWhere = { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] };
         break;
       default:
         statusWhere = { in: ['ACTIVE', 'IN_ARREARS', 'DEFAULTED'] };
@@ -259,6 +267,12 @@ router.get('/loans/:loanId', async (req, res, next) => {
   try {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const { loanId } = req.params;
+
+    await expireStaleAttestationProposalForLoan({
+      loanId,
+      tenantId: tenant.id,
+      borrowerId,
+    });
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId: tenant.id, borrowerId },
@@ -636,7 +650,7 @@ router.post('/loans/:loanId/attestation/video-complete', async (req, res, next) 
     if (!loan) {
       throw new NotFoundError('Loan');
     }
-    if (loan.status !== 'PENDING_DISBURSEMENT') {
+    if (!isPreDisbursementLoanStatus(loan.status)) {
       throw new BadRequestError('Attestation is only available while the loan is pending disbursement');
     }
     if (loan.attestationStatus !== 'NOT_STARTED') {
@@ -680,13 +694,19 @@ router.get('/loans/:loanId/attestation/availability', async (req, res, next) => 
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const { loanId } = req.params;
 
+    await expireStaleAttestationProposalForLoan({
+      loanId,
+      tenantId: tenant.id,
+      borrowerId,
+    });
+
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId: tenant.id, borrowerId },
     });
     if (!loan) {
       throw new NotFoundError('Loan');
     }
-    if (loan.status !== 'PENDING_DISBURSEMENT' || loan.attestationCompletedAt) {
+    if (!isPreDisbursementLoanStatus(loan.status) || loan.attestationCompletedAt) {
       throw new BadRequestError('Availability is not available for this loan.');
     }
     if (loan.attestationStatus !== 'MEETING_REQUESTED') {
@@ -714,6 +734,12 @@ router.post('/loans/:loanId/attestation/propose-slot', async (req, res, next) =>
     const { loanId } = req.params;
     const body = proposeSlotBodySchema.parse(req.body);
     const startAt = new Date(body.startAt);
+
+    await expireStaleAttestationProposalForLoan({
+      loanId,
+      tenantId: tenant.id,
+      borrowerId,
+    });
 
     let updated;
     try {
@@ -888,7 +914,7 @@ router.post('/loans/:loanId/attestation/proceed-to-signing', async (req, res, ne
     if (!loan) {
       throw new NotFoundError('Loan');
     }
-    if (loan.status !== 'PENDING_DISBURSEMENT') {
+    if (!isPreDisbursementLoanStatus(loan.status)) {
       throw new BadRequestError('Attestation is only available while the loan is pending disbursement');
     }
     if (loan.attestationStatus !== 'VIDEO_COMPLETED') {
@@ -902,6 +928,7 @@ router.post('/loans/:loanId/attestation/proceed-to-signing', async (req, res, ne
     const updated = await prisma.loan.update({
       where: { id: loanId },
       data: {
+        status: 'PENDING_DISBURSEMENT',
         attestationStatus: 'COMPLETED',
         attestationCompletedAt: now,
       },
@@ -912,8 +939,12 @@ router.post('/loans/:loanId/attestation/proceed-to-signing', async (req, res, ne
       action: 'BORROWER_ATTESTATION_COMPLETE',
       entityType: 'Loan',
       entityId: loanId,
-      previousData: { attestationStatus: loan.attestationStatus },
-      newData: { attestationStatus: updated.attestationStatus, attestationCompletedAt: now.toISOString() },
+      previousData: { attestationStatus: loan.attestationStatus, status: loan.status },
+      newData: {
+        attestationStatus: updated.attestationStatus,
+        attestationCompletedAt: now.toISOString(),
+        status: 'PENDING_DISBURSEMENT',
+      },
       ipAddress: req.ip,
     });
 
@@ -938,7 +969,7 @@ router.post('/loans/:loanId/attestation/request-meeting', async (req, res, next)
     if (!loan) {
       throw new NotFoundError('Loan');
     }
-    if (loan.status !== 'PENDING_DISBURSEMENT') {
+    if (!isPreDisbursementLoanStatus(loan.status)) {
       throw new BadRequestError('Attestation is only available while the loan is pending disbursement');
     }
     if (!['NOT_STARTED', 'VIDEO_COMPLETED'].includes(loan.attestationStatus)) {
@@ -990,7 +1021,7 @@ router.post('/loans/:loanId/attestation/complete-meeting', async (req, res, next
     if (!loan) {
       throw new NotFoundError('Loan');
     }
-    if (loan.status !== 'PENDING_DISBURSEMENT') {
+    if (!isPreDisbursementLoanStatus(loan.status)) {
       throw new BadRequestError('Attestation is only available while the loan is pending disbursement');
     }
     if (loan.attestationStatus !== 'MEETING_SCHEDULED') {
@@ -1004,6 +1035,7 @@ router.post('/loans/:loanId/attestation/complete-meeting', async (req, res, next
     const updated = await prisma.loan.update({
       where: { id: loanId },
       data: {
+        status: 'PENDING_DISBURSEMENT',
         attestationStatus: 'COMPLETED',
         attestationCompletedAt: now,
       },
@@ -1014,8 +1046,12 @@ router.post('/loans/:loanId/attestation/complete-meeting', async (req, res, next
       action: 'BORROWER_ATTESTATION_COMPLETE',
       entityType: 'Loan',
       entityId: loanId,
-      previousData: { attestationStatus: loan.attestationStatus },
-      newData: { attestationStatus: updated.attestationStatus, attestationCompletedAt: now.toISOString() },
+      previousData: { attestationStatus: loan.attestationStatus, status: loan.status },
+      newData: {
+        attestationStatus: updated.attestationStatus,
+        attestationCompletedAt: now.toISOString(),
+        status: 'PENDING_DISBURSEMENT',
+      },
       ipAddress: req.ip,
     });
 

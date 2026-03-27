@@ -53,6 +53,7 @@ router.get('/stats', async (req, res, next) => {
       pendingApplications,
       submittedApplications,
       loansPendingDisbursement,
+      loansPendingAttestation,
       loansReadyForDefault,
       tenantForAll,
     ] = await Promise.all([
@@ -80,6 +81,9 @@ router.get('/stats', async (req, res, next) => {
       }),
       prisma.loan.count({
         where: { tenantId, status: 'PENDING_DISBURSEMENT' },
+      }),
+      prisma.loan.count({
+        where: { tenantId, status: 'PENDING_ATTESTATION' },
       }),
       prisma.loan.count({
         where: { tenantId, readyForDefault: true, status: { not: 'DEFAULTED' } },
@@ -617,6 +621,7 @@ router.get('/stats', async (req, res, next) => {
         actionNeeded: {
           submittedApplications,
           loansPendingDisbursement,
+          loansPendingAttestation,
           loansReadyToComplete,
           loansReadyForDefault,
         },

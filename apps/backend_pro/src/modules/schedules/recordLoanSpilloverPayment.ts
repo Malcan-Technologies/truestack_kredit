@@ -441,7 +441,7 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
       throw new NotFoundError('Loan');
     }
 
-    if (loan.status === 'PENDING_DISBURSEMENT') {
+    if (loan.status === 'PENDING_DISBURSEMENT' || loan.status === 'PENDING_ATTESTATION') {
       throw new BadRequestError('Loan has not been disbursed yet');
     }
 
@@ -491,7 +491,7 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
         throw new NotFoundError('Loan');
       }
 
-      if (lockedLoan.status === 'PENDING_DISBURSEMENT') {
+      if (lockedLoan.status === 'PENDING_DISBURSEMENT' || lockedLoan.status === 'PENDING_ATTESTATION') {
         throw new BadRequestError('Loan has not been disbursed yet');
       }
       if (lockedLoan.status === 'COMPLETED') {

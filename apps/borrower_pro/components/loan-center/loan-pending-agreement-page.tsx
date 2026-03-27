@@ -41,6 +41,7 @@ import type {
   AttestationStatus,
 } from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
+import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 
 function formatRm(v: unknown): string {
   const n = toAmountNumber(v);
@@ -280,7 +281,7 @@ export function LoanPendingAgreementPage() {
     );
   }
 
-  if (loan.status !== "PENDING_DISBURSEMENT") {
+  if (loan.status !== "PENDING_DISBURSEMENT" && loan.status !== "PENDING_ATTESTATION") {
     return (
       <div className="space-y-4">
         <Button variant="ghost" size="sm" onClick={() => router.push("/loans")}>
@@ -288,7 +289,7 @@ export function LoanPendingAgreementPage() {
           Back
         </Button>
         <p className="text-sm text-muted-foreground">
-          This page is only for loans pending disbursement. Current status: {loan.status}
+          This page is only for loans pending attestation or disbursement. Current status: {loan.status}
         </p>
       </div>
     );
@@ -317,8 +318,8 @@ export function LoanPendingAgreementPage() {
             <Badge variant="outline" className="shrink-0 w-fit">
               {loan.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}
             </Badge>
-            <Badge variant="secondary" className="shrink-0 w-fit">
-              {!loan.attestationCompletedAt ? "Pending Attestation" : "Pending disbursement"}
+            <Badge variant={borrowerLoanStatusBadgeVariant(loan)} className="shrink-0 w-fit">
+              {loanStatusBadgeLabelFromDb(loan)}
             </Badge>
           </div>
         </div>

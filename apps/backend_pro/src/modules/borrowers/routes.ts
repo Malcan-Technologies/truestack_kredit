@@ -1976,7 +1976,7 @@ router.delete('/:borrowerId', async (req, res, next) => {
       include: {
         loans: {
           where: {
-            status: { in: ['PENDING_DISBURSEMENT', 'ACTIVE'] },
+            status: { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT', 'ACTIVE'] },
           },
         },
       },

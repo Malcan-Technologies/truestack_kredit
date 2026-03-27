@@ -188,7 +188,8 @@ export function AttestationScheduleMeetingPanel() {
           </CardTitle>
           <CardDescription>
             Availability: {slotsSource === "google_free_busy" ? "Google Calendar" : "office hours"}. Each
-            booking is 60 minutes (Malaysia time). You have one proposal for this loan.
+            booking is 60 minutes (Malaysia time). You can propose one slot at a time; if your lender does
+            not confirm before that time, you will be asked to choose again.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

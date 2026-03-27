@@ -182,6 +182,7 @@ export default function DashboardLayout({
   });
   const [applicationsPendingCount, setApplicationsPendingCount] = useState(0);
   const [loansPendingDisbursementCount, setLoansPendingDisbursementCount] = useState(0);
+  const [loansPendingAttestationCount, setLoansPendingAttestationCount] = useState(0);
   const [attestationSlotProposedCount, setAttestationSlotProposedCount] = useState(0);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -228,19 +229,26 @@ export default function DashboardLayout({
   const fetchLoanCounts = useCallback(async () => {
     if (!hasTenants) {
       setLoansPendingDisbursementCount(0);
+      setLoansPendingAttestationCount(0);
       setAttestationSlotProposedCount(0);
       return;
     }
     try {
       const [countsRes, queueRes] = await Promise.all([
-        api.get<{ pendingDisbursement: number; attestationSlotProposed?: number }>("/api/loans/counts"),
+        api.get<{
+          pendingDisbursement: number;
+          pendingAttestation?: number;
+          attestationSlotProposed?: number;
+        }>("/api/loans/counts"),
         api.get<Array<{ attestationStatus: string }>>("/api/loans/attestation-queue"),
       ]);
 
       if (countsRes.success && countsRes.data) {
         setLoansPendingDisbursementCount(countsRes.data.pendingDisbursement ?? 0);
+        setLoansPendingAttestationCount(countsRes.data.pendingAttestation ?? 0);
       } else {
         setLoansPendingDisbursementCount(0);
+        setLoansPendingAttestationCount(0);
       }
 
       // Same source as Attestation meetings page: borrower-chosen slot awaiting admin (SLOT_PROPOSED)
@@ -255,6 +263,7 @@ export default function DashboardLayout({
       }
     } catch {
       setLoansPendingDisbursementCount(0);
+      setLoansPendingAttestationCount(0);
       setAttestationSlotProposedCount(0);
     }
   }, [hasTenants]);
@@ -787,9 +796,10 @@ export default function DashboardLayout({
                                     {applicationsPendingCount}
                                   </Badge>
                                 )}
-                                {isLoans && loansPendingDisbursementCount > 0 && (
+                                {isLoans &&
+                                  loansPendingDisbursementCount + loansPendingAttestationCount > 0 && (
                                   <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-xs">
-                                    {loansPendingDisbursementCount}
+                                    {loansPendingDisbursementCount + loansPendingAttestationCount}
                                   </Badge>
                                 )}
                                 {isAttestationMeetings && attestationSlotProposedCount > 0 && (
@@ -804,9 +814,13 @@ export default function DashboardLayout({
                                 {applicationsPendingCount > 99 ? "99+" : applicationsPendingCount}
                               </span>
                             )}
-                            {sidebarCollapsed && isLoans && loansPendingDisbursementCount > 0 && (
+                            {sidebarCollapsed &&
+                              isLoans &&
+                              loansPendingDisbursementCount + loansPendingAttestationCount > 0 && (
                               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
-                                {loansPendingDisbursementCount > 99 ? "99+" : loansPendingDisbursementCount}
+                                {loansPendingDisbursementCount + loansPendingAttestationCount > 99
+                                  ? "99+"
+                                  : loansPendingDisbursementCount + loansPendingAttestationCount}
                               </span>
                             )}
                             {sidebarCollapsed && isAttestationMeetings && attestationSlotProposedCount > 0 && (
@@ -830,9 +844,17 @@ export default function DashboardLayout({
                                     {applicationsPendingCount} pending decision
                                   </p>
                                 )}
-                                {isLoans && loansPendingDisbursementCount > 0 && (
+                                {isLoans &&
+                                  loansPendingDisbursementCount + loansPendingAttestationCount > 0 && (
                                   <p className="opacity-70 text-xs mt-1">
-                                    {loansPendingDisbursementCount} pending disbursement
+                                    {[
+                                      loansPendingDisbursementCount > 0 &&
+                                        `${loansPendingDisbursementCount} pending disbursement`,
+                                      loansPendingAttestationCount > 0 &&
+                                        `${loansPendingAttestationCount} pending attestation`,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
                                   </p>
                                 )}
                                 {isAttestationMeetings && attestationSlotProposedCount > 0 && (

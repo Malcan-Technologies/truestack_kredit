@@ -135,6 +135,7 @@ interface DashboardStats {
   actionNeeded: {
     submittedApplications: number;
     loansPendingDisbursement: number;
+    loansPendingAttestation: number;
     loansReadyToComplete: number;
     loansReadyForDefault: number;
   };
@@ -224,6 +225,7 @@ const STATUS_COLORS: Record<string, string> = {
   COMPLETED: "hsl(142, 71%, 45%)",
   DEFAULTED: "hsl(0, 84%, 60%)",
   WRITTEN_OFF: "hsl(0, 0%, 65%)",
+  PENDING_ATTESTATION: "hsl(38, 92%, 55%)",
   PENDING_DISBURSEMENT: "hsl(142, 71%, 65%)",
   // Application statuses
   DRAFT: "hsl(0, 0%, 65%)",
@@ -240,6 +242,7 @@ const STATUS_LABELS: Record<string, string> = {
   COMPLETED: "Completed",
   DEFAULTED: "Defaulted",
   WRITTEN_OFF: "Written Off",
+  PENDING_ATTESTATION: "Pending Attestation",
   PENDING_DISBURSEMENT: "Pending Disbursement",
   DRAFT: "Draft",
   SUBMITTED: "Submitted",
@@ -434,6 +437,7 @@ export default function DashboardPage() {
         {stats?.actionNeeded && (
           stats.actionNeeded.submittedApplications > 0 ||
           stats.actionNeeded.loansPendingDisbursement > 0 ||
+          (stats.actionNeeded.loansPendingAttestation ?? 0) > 0 ||
           stats.actionNeeded.loansReadyToComplete > 0 ||
           stats.actionNeeded.loansReadyForDefault > 0
         ) && (
@@ -452,6 +456,18 @@ export default function DashboardPage() {
                   >
                     <ClipboardList className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                     <span className="text-foreground">{stats.actionNeeded.submittedApplications} pending review</span>
+                  </Link>
+                ),
+                (stats.actionNeeded.loansPendingAttestation ?? 0) > 0 && (
+                  <Link
+                    key="attestation"
+                    href="/dashboard/loans?filter=PENDING_ATTESTATION"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-amber-500/10 transition-colors"
+                  >
+                    <Banknote className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    <span className="text-foreground">
+                      {stats.actionNeeded.loansPendingAttestation ?? 0} pending attestation
+                    </span>
                   </Link>
                 ),
                 stats.actionNeeded.loansPendingDisbursement > 0 && (
@@ -1334,6 +1350,7 @@ function LoanStatusBadge({ status }: { status: string }) {
     COMPLETED: "success",
     DEFAULTED: "destructive",
     WRITTEN_OFF: "secondary",
+    PENDING_ATTESTATION: "warning",
     PENDING_DISBURSEMENT: "default",
   };
 

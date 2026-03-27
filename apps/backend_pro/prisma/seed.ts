@@ -1659,13 +1659,13 @@ async function main() {
       principalAmount: 45000,
       interestRate: 12.0,
       term: 36,
-      status: 'PENDING_DISBURSEMENT',
+      status: 'PENDING_ATTESTATION',
       collateralType: 'Kenderaan - Honda Civic 2023 (WCD 5678)',
       collateralValue: 95000,
     },
   });
 
-  console.log('  ✓ Loan I: RM 45,000 declining balance, PENDING DISBURSEMENT');
+  console.log('  ✓ Loan I: RM 45,000 declining balance, PENDING ATTESTATION (online)');
 
   // Loan J: Active loan performing well (all current, next payment not yet due)
   const appJ = await prisma.loanApplication.upsert({

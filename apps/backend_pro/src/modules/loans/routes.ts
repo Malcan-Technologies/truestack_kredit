@@ -30,7 +30,10 @@ import {
   adminAcceptBorrowerProposal,
   adminCounterProposal,
   adminRejectProposal,
+  expireStaleAttestationProposalForLoan,
+  expirePendingProposals,
 } from '../../lib/attestationBookingService.js';
+import { isPreDisbursementLoanStatus } from '../../lib/loanStatusHelpers.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
@@ -599,20 +602,23 @@ async function resolveValidGuarantors(
 // Note: Letter generation (discharge, arrears, default) is consolidated in letterService.ts
 
 /**
- * Get loan counts for action-needed badges (PENDING_DISBURSEMENT, attestation proposals)
+ * Get loan counts for action-needed badges (pre-disbursement pipeline, attestation proposals)
  * GET /api/loans/counts
  */
 router.get('/counts', async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const [pendingDisbursement, attestationSlotProposed] = await Promise.all([
+    const [pendingDisbursement, pendingAttestation, attestationSlotProposed] = await Promise.all([
       prisma.loan.count({
         where: { tenantId, status: 'PENDING_DISBURSEMENT' },
       }),
       prisma.loan.count({
+        where: { tenantId, status: 'PENDING_ATTESTATION' },
+      }),
+      prisma.loan.count({
         where: {
           tenantId,
-          status: 'PENDING_DISBURSEMENT',
+          status: { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
           attestationStatus: 'SLOT_PROPOSED',
           attestationCompletedAt: null,
         },
@@ -620,7 +626,7 @@ router.get('/counts', async (req, res, next) => {
     ]);
     res.json({
       success: true,
-      data: { pendingDisbursement, attestationSlotProposed },
+      data: { pendingDisbursement, pendingAttestation, attestationSlotProposed },
     });
   } catch (error) {
     next(error);
@@ -1302,6 +1308,9 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
       derivedTerm = compliantStructure.compliantTerm;
     }
 
+    const initialLoanStatus =
+      application.loanChannel === 'ONLINE' ? 'PENDING_ATTESTATION' : 'PENDING_DISBURSEMENT';
+
     // Create loan with initial schedule in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Update application status
@@ -1322,7 +1331,7 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
           term: derivedTerm,
           actualInterestRate,
           actualTerm,
-          status: 'PENDING_DISBURSEMENT',
+          status: initialLoanStatus,
           loanChannel: application.loanChannel,
           collateralType: application.collateralType,
           collateralValue: application.collateralValue,
@@ -1373,7 +1382,7 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
         principalAmount: Number(application.amount),
         interestRate: compliantInterestRate,
         term: derivedTerm,
-        status: 'PENDING_DISBURSEMENT',
+        status: initialLoanStatus,
         applicationId: application.id,
         borrowerId: application.borrowerId,
         productId: application.productId,
@@ -1785,7 +1794,17 @@ router.get('/', async (req, res, next) => {
 
     const where = {
       tenantId: req.tenantId,
-      ...(status && { status: status as 'PENDING_DISBURSEMENT' | 'ACTIVE' | 'IN_ARREARS' | 'COMPLETED' | 'DEFAULTED' | 'WRITTEN_OFF' }),
+      ...(status && {
+        status: status as
+          | 'PENDING_ATTESTATION'
+          | 'PENDING_DISBURSEMENT'
+          | 'ACTIVE'
+          | 'IN_ARREARS'
+          | 'COMPLETED'
+          | 'DEFAULTED'
+          | 'WRITTEN_OFF'
+          | 'CANCELLED',
+      }),
       ...(search && {
         borrower: {
           OR: [
@@ -1951,13 +1970,25 @@ router.post('/process-late-fees', async (req, res, next) => {
  */
 router.get('/late-fee-status', async (req, res, next) => {
   try {
-    const [status, loansPendingDisbursement] = await Promise.all([
+    const [status, loansPendingDisbursement, loansPendingAttestation] = await Promise.all([
       LateFeeProcessor.getProcessingStatus(req.tenantId!),
       prisma.loan.count({
-        where: { tenantId: req.tenantId!, status: 'PENDING_DISBURSEMENT' },
+        where: {
+          tenantId: req.tenantId!,
+          status: 'PENDING_DISBURSEMENT',
+        },
+      }),
+      prisma.loan.count({
+        where: {
+          tenantId: req.tenantId!,
+          status: 'PENDING_ATTESTATION',
+        },
       }),
     ]);
-    res.json({ success: true, data: { ...status, loansPendingDisbursement } });
+    res.json({
+      success: true,
+      data: { ...status, loansPendingDisbursement, loansPendingAttestation },
+    });
   } catch (error) {
     next(error);
   }
@@ -2050,10 +2081,11 @@ router.put('/attestation/office-hours', async (req, res, next) => {
 router.get('/attestation-queue', async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
+    await expirePendingProposals({ tenantId });
     const loans = await prisma.loan.findMany({
       where: {
         tenantId,
-        status: 'PENDING_DISBURSEMENT',
+        status: { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
         attestationStatus: {
           in: [
             'MEETING_REQUESTED',
@@ -2241,10 +2273,14 @@ router.post('/:loanId/attestation/reject-proposal', async (req, res, next) => {
  */
 router.get('/:loanId', async (req, res, next) => {
   try {
+    const loanId = req.params.loanId;
+    const tenantId = req.tenantId!;
+    await expireStaleAttestationProposalForLoan({ loanId, tenantId });
+
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
-        tenantId: req.tenantId,
+        id: loanId,
+        tenantId,
       },
       include: {
         borrower: {
@@ -3960,7 +3996,7 @@ router.post('/:loanId/disburse', async (req, res, next) => {
       action: 'DISBURSE',
       entityType: 'Loan',
       entityId: loan.id,
-      previousData: { status: 'PENDING_DISBURSEMENT' },
+      previousData: { status: loan.status },
       newData: { 
         status: 'ACTIVE', 
         disbursementDate: disbursementDate.toISOString(),
@@ -4031,7 +4067,7 @@ router.post('/:loanId/disbursement-proof', async (req, res, next) => {
       throw new NotFoundError('Loan');
     }
 
-    if (loan.status === 'PENDING_DISBURSEMENT') {
+    if (isPreDisbursementLoanStatus(loan.status)) {
       throw new BadRequestError('Loan has not been disbursed yet');
     }
 

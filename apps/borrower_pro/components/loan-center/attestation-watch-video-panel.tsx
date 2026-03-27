@@ -160,8 +160,19 @@ export function AttestationWatchVideoPanel() {
     );
   };
 
-  const onProceedSigning = () =>
-    runAction(() => postAttestationProceedToSigning(loanId), "You can now download and sign the agreement.");
+  const onProceedSigning = async () => {
+    setBusy(true);
+    try {
+      await postAttestationProceedToSigning(loanId);
+      toast.success("You can now download and sign the agreement.");
+      await refresh();
+      router.replace(`/loans/${loanId}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const onRequestMeeting = async () => {
     setBusy(true);

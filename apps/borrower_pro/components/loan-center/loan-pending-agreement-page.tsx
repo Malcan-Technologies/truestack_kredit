@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -95,6 +95,9 @@ export function LoanPendingAgreementPage() {
   const [agreementDate, setAgreementDate] = useState("");
   const [uploading, setUploading] = useState(false);
   const [attestBusy, setAttestBusy] = useState(false);
+  /** Selected locally; upload runs only after "Submit to admin". */
+  const [pendingSignedFile, setPendingSignedFile] = useState<File | null>(null);
+  const signedAgreementInputRef = useRef<HTMLInputElement>(null);
   const refresh = useCallback(async () => {
     if (!loanId) return;
     const r = await getBorrowerLoan(loanId);
@@ -180,12 +183,33 @@ export function LoanPendingAgreementPage() {
     window.open(borrowerLoanGenerateAgreementUrl(loanId, d), "_blank", "noopener,noreferrer");
   };
 
-  const onUpload = async (file: File) => {
-    if (!loanId) return;
+  const validateSignedPdf = (file: File): boolean => {
+    const okType = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!okType) {
+      toast.error("Please choose a PDF file.");
+      return false;
+    }
+    return true;
+  };
+
+  const onSignedPdfSelected = (file: File | undefined) => {
+    if (!file) return;
+    if (!validateSignedPdf(file)) return;
+    setPendingSignedFile(file);
+  };
+
+  const clearPendingSignedFile = () => {
+    setPendingSignedFile(null);
+    if (signedAgreementInputRef.current) signedAgreementInputRef.current.value = "";
+  };
+
+  const submitSignedAgreement = async () => {
+    if (!loanId || !pendingSignedFile) return;
     setUploading(true);
     try {
-      await uploadBorrowerSignedAgreement(loanId, file);
+      await uploadBorrowerSignedAgreement(loanId, pendingSignedFile);
       toast.success("Signed agreement uploaded. Waiting for admin approval.");
+      clearPendingSignedFile();
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
@@ -606,13 +630,24 @@ export function LoanPendingAgreementPage() {
             <CardHeader>
               <CardTitle className="text-base">Upload signed agreement</CardTitle>
               <CardDescription>
-                PDF only, max size per lender settings. Uploading replaces any previous file and sends it
-                for admin review.
+                PDF only, max size per lender settings. Choose your file, review the name below, then submit
+                to send it for admin review. Uploading replaces any previous file.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <label
                 htmlFor="signed-agreement-upload"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (uploading) return;
+                  const f = e.dataTransfer.files?.[0];
+                  if (f) onSignedPdfSelected(f);
+                }}
                 className={cn(
                   "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/25 bg-muted/20 px-6 py-10 text-center cursor-pointer transition-colors",
                   uploading ? "opacity-60 pointer-events-none" : "hover:border-primary/50 hover:bg-primary/5"
@@ -624,6 +659,7 @@ export function LoanPendingAgreementPage() {
                   <p className="text-xs text-muted-foreground mt-1">Signed loan agreement (PDF)</p>
                 </div>
                 <input
+                  ref={signedAgreementInputRef}
                   type="file"
                   accept=".pdf,application/pdf"
                   className="hidden"
@@ -631,20 +667,47 @@ export function LoanPendingAgreementPage() {
                   disabled={uploading}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) void onUpload(f);
-                    e.target.value = "";
+                    if (f) onSignedPdfSelected(f);
                   }}
                 />
               </label>
 
+              {pendingSignedFile ? (
+                <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Ready to submit
+                    </p>
+                    <p className="text-sm font-medium text-foreground mt-1 break-all">{pendingSignedFile.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {(pendingSignedFile.size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => void submitSignedAgreement()}
+                      disabled={uploading}
+                    >
+                      {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                      Submit to admin
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={clearPendingSignedFile}
+                      disabled={uploading}
+                    >
+                      Change file
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
                 <Button type="button" disabled={uploading} asChild>
                   <label htmlFor="signed-agreement-upload" className="cursor-pointer">
-                    {uploading ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4 mr-2" />
-                    )}
+                    <Upload className="h-4 w-4 mr-2" />
                     Choose PDF
                   </label>
                 </Button>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Rethink_Sans } from "next/font/google";
 import "./globals.css";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProvider } from "@borrower_pro/components/theme-provider";
 import { Toaster } from "sonner";
 
 const inter = Inter({

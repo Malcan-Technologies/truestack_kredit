@@ -8,6 +8,7 @@ import { Button } from "@borrower_pro/components/ui/button";
 import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
 import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
 import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
+import { ONBOARDING_DRAFT_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
 
 function OnboardingBanner() {
   const [show, setShow] = useState(false);
@@ -20,7 +21,7 @@ function OnboardingBanner() {
         if (res.success && res.data.profileCount === 0) {
           setShow(true);
           try {
-            const raw = localStorage.getItem("onboarding_draft");
+            const raw = localStorage.getItem(ONBOARDING_DRAFT_KEY);
             if (raw) {
               const draft = JSON.parse(raw);
               const step = draft.step ?? 1;

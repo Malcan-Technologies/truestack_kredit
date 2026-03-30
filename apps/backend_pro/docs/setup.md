@@ -75,3 +75,17 @@ Backend runs at `http://localhost:4001`.
 3. Start Demo_Client: `npm run dev:borrower_pro`
 
 Demo_Client runs at `http://localhost:3006`, uses backend_pro for auth (DB) and future API calls. Ensure `BETTER_AUTH_SECRET` matches between both apps.
+
+## 6. Borrower frontend (`borrower_pro`) layout
+
+The borrower UI is split for **reuse across white-label hosts**:
+
+| Path | Role |
+|------|------|
+| `apps/borrower_pro/components/` | Shared React components: ShadCN `ui/`, loan center, application flows, **ThemeProvider**, **onboarding wizard**, etc. |
+| `apps/borrower_pro/lib/` | Shared clients and types: auth, loans, applications, form validation, **`onboarding-storage-keys.ts`** (localStorage keys aligned with onboarding). |
+| `apps/borrower_pro/Demo_Client/` | **Host app only**: App Router pages, `globals.css`, Better Auth route + Prisma adapter (`lib/auth-server.ts`), BFF proxy to this backend (`app/api/proxy`), `lib/version.ts`. |
+
+A second Pro client would add another Next app folder that reuses `@borrower_pro/components` and `@borrower_pro/lib` the same way; only env, branding, and auth DB wiring stay per deployment.
+
+When adding borrower-facing features, prefer extending `components/` or `lib/` under `borrower_pro`, not copying into `Demo_Client`.

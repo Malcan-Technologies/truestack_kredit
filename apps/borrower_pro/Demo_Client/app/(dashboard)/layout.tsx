@@ -8,6 +8,8 @@ import Link from "next/link";
 import {
   Building2,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   ClipboardList,
   Landmark,
   LayoutDashboard,
@@ -29,8 +31,15 @@ import { NavbarCorner } from "@borrower_pro/components/navbar-corner";
 import { SidebarLenderBranding } from "@borrower_pro/components/sidebar-lender-branding";
 import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
 import { Badge } from "@borrower_pro/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@borrower_pro/components/ui/tooltip";
 import { cn } from "@borrower_pro/lib/utils";
 import { APP_VERSION } from "@/lib/version";
+import { ONBOARDING_DISMISSED_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
 
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -48,13 +57,35 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { data: session, isPending } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [beforePayoutCount, setBeforePayoutCount] = useState(0);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  /** Matches loan center "All" tab: active + before payout + discharged */
+  const [allLoansCount, setAllLoansCount] = useState(0);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("sidebar-collapsed");
+      if (saved === "true") setSidebarCollapsed(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleSidebarCollapse = () => {
+    const next = !sidebarCollapsed;
+    setSidebarCollapsed(next);
+    try {
+      localStorage.setItem("sidebar-collapsed", String(next));
+    } catch {
+      /* ignore */
+    }
+  };
 
   const refreshLoanOverview = useCallback(async () => {
     try {
       const r = await fetchLoanCenterOverview();
       if (r.success && r.data?.counts) {
-        setBeforePayoutCount(r.data.counts.pendingDisbursementLoans);
+        const c = r.data.counts;
+        setAllLoansCount(c.activeLoans + c.pendingDisbursementLoans + c.dischargedLoans);
       }
     } catch {
       /* sidebar stays usable without badge */
@@ -71,7 +102,7 @@ export default function DashboardLayout({
   useEffect(() => {
     if (isPending || !session || pathname === "/onboarding") return;
     const dismissed = (() => {
-      try { return localStorage.getItem("onboarding_dismissed") === "true"; }
+      try { return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true"; }
       catch { return false; }
     })();
     if (dismissed) return;
@@ -125,73 +156,150 @@ export default function DashboardLayout({
 
       <aside
         className={cn(
-          "fixed top-0 left-0 z-50 h-full w-64 bg-card border-r border-border transform transition-transform lg:translate-x-0",
+          "fixed top-0 left-0 z-50 h-full bg-card border-r border-border transform transition-all duration-200 ease-in-out lg:translate-x-0",
+          sidebarCollapsed ? "w-16" : "w-64",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         <div className="flex flex-col h-full">
-          <div className="p-4 border-b border-border">
-            <div className="space-y-3">
-              <SidebarLenderBranding />
-              <BorrowerSwitcher />
-            </div>
+          <div
+            className={cn(
+              "border-b border-border shrink-0",
+              sidebarCollapsed ? "px-1 py-2 flex flex-col items-center gap-2" : "p-4 space-y-3"
+            )}
+          >
+            <SidebarLenderBranding collapsed={sidebarCollapsed} />
+            <BorrowerSwitcher collapsed={sidebarCollapsed} />
           </div>
 
-          <nav className="flex-1 py-4 px-2 space-y-1">
-            {navItems.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setSidebarOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  )}
-                >
-                  <item.icon className="h-5 w-5 shrink-0" />
-                  <span className="flex-1 min-w-0">{item.name}</span>
-                  {item.href === "/loans" && beforePayoutCount > 0 ? (
-                    <Badge
-                      variant="secondary"
-                      className="h-5 min-w-5 shrink-0 px-1.5 text-xs"
-                      title="Loans before payout"
-                    >
-                      {beforePayoutCount > 99 ? "99+" : beforePayoutCount}
-                    </Badge>
-                  ) : null}
-                </Link>
-              );
-            })}
+          <nav
+            className={cn(
+              "flex-1 py-4 overflow-y-auto space-y-1",
+              sidebarCollapsed ? "px-1" : "px-2"
+            )}
+          >
+            <TooltipProvider delayDuration={0}>
+              {navItems.map((item) => {
+                const isActive =
+                  pathname === item.href ||
+                  (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                const linkInner = (
+                  <Link
+                    href={item.href}
+                    onClick={() => setSidebarOpen(false)}
+                    className={cn(
+                      "flex items-center rounded-lg text-sm font-medium transition-colors",
+                      sidebarCollapsed
+                        ? "justify-center px-0 py-2 relative"
+                        : "gap-3 px-3 py-2",
+                      isActive
+                        ? "bg-secondary text-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    )}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {!sidebarCollapsed && (
+                      <>
+                        <span className="flex-1 min-w-0">{item.name}</span>
+                        {item.href === "/loans" && allLoansCount > 0 ? (
+                          <Badge
+                            variant="secondary"
+                            className="h-5 min-w-5 shrink-0 px-1.5 text-xs"
+                            title="Total loans (All)"
+                          >
+                            {allLoansCount > 99 ? "99+" : allLoansCount}
+                          </Badge>
+                        ) : null}
+                      </>
+                    )}
+                    {sidebarCollapsed && item.href === "/loans" && allLoansCount > 0 ? (
+                      <span className="absolute right-0.5 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary px-1 text-[10px] font-medium leading-none">
+                        {allLoansCount > 9 ? "9+" : allLoansCount}
+                      </span>
+                    ) : null}
+                  </Link>
+                );
+
+                if (sidebarCollapsed) {
+                  return (
+                    <Tooltip key={item.href}>
+                      <TooltipTrigger asChild>{linkInner}</TooltipTrigger>
+                      <TooltipContent side="right">
+                        <p>{item.name}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+                return <div key={item.href}>{linkInner}</div>;
+              })}
+            </TooltipProvider>
           </nav>
 
+          {/* Collapse toggle — same pattern as admin_pro dashboard layout */}
+          <div
+            className={cn(
+              "border-t border-border shrink-0",
+              sidebarCollapsed ? "px-1 py-2" : "px-2 py-2"
+            )}
+          >
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-full"
+                    onClick={toggleSidebarCollapse}
+                    aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  >
+                    {sidebarCollapsed ? (
+                      <ChevronsRight className="h-4 w-4" />
+                    ) : (
+                      <ChevronsLeft className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                {sidebarCollapsed ? (
+                  <TooltipContent side="right">
+                    <p>Expand sidebar</p>
+                  </TooltipContent>
+                ) : null}
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+
           {/* User menu — matches admin_pro sidebar trigger + dropdown */}
-          <div className="border-t border-border p-4">
+          <div className={cn("border-t border-border", sidebarCollapsed ? "p-2" : "p-4")}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   className={cn(
-                    "group flex w-full items-center gap-3 rounded-lg border border-border p-2 text-left outline-none transition-colors hover:border-foreground/30 hover:bg-secondary focus:ring-0",
+                    "group flex w-full items-center rounded-lg border border-border text-left outline-none transition-colors hover:border-foreground/30 hover:bg-secondary focus:ring-0",
+                    sidebarCollapsed ? "justify-center p-1.5" : "gap-3 p-2",
                   )}
                   aria-label="Open user menu"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
+                  <div
+                    className={cn(
+                      "flex shrink-0 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground",
+                      sidebarCollapsed ? "h-8 w-8 text-xs" : "h-10 w-10 text-sm",
+                    )}
+                  >
                     {user.name?.[0] || user.email[0].toUpperCase()}
                   </div>
-                  <div className="min-w-0 flex-1 text-left">
-                    <p className="truncate text-sm font-medium">
-                      {user.name || user.email}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {user.email}
-                    </p>
-                  </div>
-                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-data-[state=open]:-rotate-90" />
+                  {!sidebarCollapsed && (
+                    <>
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="truncate text-sm font-medium">
+                          {user.name || user.email}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {user.email}
+                        </p>
+                      </div>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-data-[state=open]:-rotate-90" />
+                    </>
+                  )}
                 </button>
               </DropdownMenuTrigger>
 
@@ -222,15 +330,32 @@ export default function DashboardLayout({
             </DropdownMenu>
           </div>
 
-          <div className="border-t border-border py-3 px-4">
-            <span className="text-[10px] font-medium text-muted-foreground">
-              TrueKredit™ Pro · v{APP_VERSION}
-            </span>
+          <div
+            className={cn(
+              "border-t border-border py-3 flex flex-row items-center gap-2",
+              sidebarCollapsed ? "px-1 justify-center" : "px-4 justify-between",
+            )}
+          >
+            {!sidebarCollapsed && (
+              <span className="text-[10px] font-medium text-muted-foreground">
+                TrueKredit™ Pro · v{APP_VERSION}
+              </span>
+            )}
+            {sidebarCollapsed && (
+              <span className="text-[10px] font-medium text-muted-foreground/80" title={`v${APP_VERSION}`}>
+                v{APP_VERSION}
+              </span>
+            )}
           </div>
         </div>
       </aside>
 
-      <div className="relative min-h-screen bg-background lg:pl-64">
+      <div
+        className={cn(
+          "relative min-h-screen bg-background transition-[padding] duration-200 ease-in-out",
+          sidebarCollapsed ? "lg:pl-16" : "lg:pl-64",
+        )}
+      >
         <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-sm border-b border-border">
           <NavbarCorner className="hidden lg:block" />
           <div className="flex items-center justify-between h-full px-4">

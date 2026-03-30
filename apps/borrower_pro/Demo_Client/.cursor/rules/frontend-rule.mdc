@@ -8,8 +8,8 @@ Use these rules for **borrower_pro (Demo_Client)** — the borrower-facing front
 
 ## 1) Context
 
-- **Location**: `apps/borrower_pro/Demo_Client/` — client-specific app; template for new clients.
-- **Shared components**: Live at `apps/borrower_pro/components/` (outside client folder). Import ShadCN, shared UI from there. Do not duplicate components in each client folder.
+- **Host app (this folder)**: `apps/borrower_pro/Demo_Client/` — Next.js app shell: routes, env, Better Auth API route, proxy, branding, `globals.css`, `lib/version.ts`, and server-only helpers (`lib/auth-server.ts`, `lib/borrower-auth-server.ts`).
+- **Shared package (sibling folders)**: `apps/borrower_pro/components/` and `apps/borrower_pro/lib/` — all reusable UI, clients, validation, and onboarding. Import via `@borrower_pro/...` (see `Demo_Client/tsconfig.json` paths). **Do not duplicate** shared code into Demo_Client; add features under `../components` or `../lib` instead.
 - **Backend**: `backend_pro` — Better Auth, borrower APIs.
 
 ---
@@ -18,17 +18,22 @@ Use these rules for **borrower_pro (Demo_Client)** — the borrower-facing front
 
 - **Next.js 16.x** with App Router.
 - TypeScript only.
-- Organize by feature: `app/(auth)/sign-in`, `app/(auth)/sign-up`, `app/(dashboard)/` (future).
-- Next.js 16 requires convention of proxy instead of middleware files.
+- Organize by feature: `app/(auth)/sign-in`, `app/(auth)/sign-up`, `app/(dashboard)/`, etc.
+- Next.js 16 uses `proxy.ts` instead of middleware files.
 
 ---
 
-## 3) Shared Components (No Duplication)
+## 3) Shared code (maximum reuse)
 
-- **ShadCN UI** and other reusable components live at `apps/borrower_pro/components/`.
-- Demo_Client imports from parent: use path alias or relative import to `../components`.
-- Do **not** copy ShadCN or shared components into Demo_Client. Add new shared components to `apps/borrower_pro/components/` so all clients can use them.
-- Client-specific code: branding, layout, theme, custom pages. Shared: forms, buttons, inputs, SignIn, SignUp flows.
+| Location | Contents |
+|----------|----------|
+| `apps/borrower_pro/components/` | ShadCN `ui/`, feature components (forms, loan center, **ThemeProvider**, **onboarding wizard**), etc. |
+| `apps/borrower_pro/lib/` | Auth/loan/application clients, form types/validation, **`onboarding-storage-keys.ts`** (localStorage key names for onboarding draft/dismiss). |
+
+- Demo_Client pages should import: `@borrower_pro/components/...`, `@borrower_pro/lib/...`.
+- **Theme**: `ThemeProvider` from `@borrower_pro/components/theme-provider`. Each host may pass its own `storageKey` (e.g. `demo-client-theme` in `app/layout.tsx`).
+- **Onboarding**: `OnboardingWizard` from `@borrower_pro/components/onboarding`. Use `ONBOARDING_DRAFT_KEY` / `ONBOARDING_DISMISSED_KEY` from `@borrower_pro/lib/onboarding-storage-keys` anywhere you read/write the same localStorage keys (e.g. dashboard banner, layout redirect).
+- **Not shared** (stay in Demo_Client): Prisma-backed `auth-server.ts`, cookie-forwarding `borrower-auth-server.ts`, `app/api/proxy`, `lib/version.ts`.
 
 ---
 
@@ -53,26 +58,24 @@ Auth API route: `app/api/auth/[...all]/route.ts` using `toNextJsHandler` from Be
 
 ## 5) UI System
 
-- Use **ShadCN UI** from shared components.
+- Use **ShadCN UI** from shared `@borrower_pro/components/ui`.
 - Use **sonner** for toasts.
-- Modularize: `components/ui` (shared) vs `components/features/<feature>` (client-specific if needed).
-- Refer to `docs/planning/brand.md` for Demo_Client branding.
+- Refer to `docs/planning/brand.md` for Demo_Client branding (if present).
 
 ---
 
 ## 6) Theming & Typography
 
-- Support light/dark theme (configurable per client).
-- Use fonts and colors from `brand.md`.
-- Client-specific theming via CSS variables or theme provider.
+- Support light/dark theme (configurable per client via `ThemeProvider` + `storageKey`).
+- Use fonts and colors from `brand.md` / `globals.css`.
 
 ### Colors — Do NOT Hardcode
 
-**Never hardcode hex codes or Tailwind color names** (e.g. `#6151ca`, `red-500`, `emerald-500`, `amber-500`) in components. All brand/status colors are defined in one place: `app/globals.css`.
+**Never hardcode hex codes or Tailwind color names** (e.g. `#6151ca`, `red-500`, `emerald-500`, `amber-500`) in components.
 
-- **Use theme variables**: `primary`, `success`, `warning`, `error`, `info` (e.g. `text-error`, `bg-success/10`, `border-primary`).
-- **Change once**: Update `app/globals.css` to update colors globally.
-- See `docs/planning/brand.md` for the full color system.
+- **Single source of truth**: HSL token values and the `hsl(var(--token))` mapping live in **`tailwind.config.ts`** (light/dark maps + `theme.extend` + `tailwindcss/plugin` injecting `:root` / `.dark`). **Do not** duplicate palette values in `app/globals.css`.
+- **Use theme utilities**: `primary`, `success`, `warning`, `error`, `info` (e.g. `text-error`, `bg-success/10`, `border-primary`).
+- See `docs/planning/brand.md` for the full color system (if present).
 
 ---
 
@@ -87,15 +90,11 @@ Auth API route: `app/api/auth/[...all]/route.ts` using `toNextJsHandler` from Be
 ## 8) Date, Time & Number Formatting
 
 - Database: UTC. Frontend: display in Malaysia timezone (GMT+8).
-- Use `formatDate`, `formatCurrency`, etc. from `lib/utils.ts`.
+- Use `formatDate`, `formatCurrency`, etc. from `@borrower_pro/lib/borrower-form-display` and related shared libs (not a duplicate `lib/utils` in the host for domain formatting).
 - Use safe math utilities for any financial display.
 
 ---
 
-## 9) Current Scope (Phase 1)
+## 9) Current scope
 
-For now, focus on:
-- **Sign in** — borrower logs in
-- **Sign up** — borrower registers to become a borrower
-
-Future: loan application, repayments, dashboard, etc.
+Borrower portal: auth, onboarding, applications, loans, profile, account, legal pages, etc.

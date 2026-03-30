@@ -10,10 +10,13 @@ import {
 
 interface SidebarLenderBrandingProps {
   className?: string;
+  /** Icon-only compact header (matches admin collapsed sidebar). */
+  collapsed?: boolean;
 }
 
 export function SidebarLenderBranding({
   className,
+  collapsed = false,
 }: SidebarLenderBrandingProps) {
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
@@ -43,6 +46,27 @@ export function SidebarLenderBranding({
   const resolvedLogoUrl = resolveBorrowerLenderLogoSrc(logoUrl);
   const lenderName = companyName?.trim() || "Your lender";
   const lenderInitial = lenderName.slice(0, 1).toUpperCase() || "?";
+
+  if (collapsed) {
+    return (
+      <div className={cn("flex items-center justify-center", className)}>
+        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-background">
+          {resolvedLogoUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={resolvedLogoUrl}
+              alt={`${lenderName} logo`}
+              className="h-full w-full object-contain p-1"
+            />
+          ) : companyName ? (
+            <span className="text-sm font-semibold text-muted-foreground">{lenderInitial}</span>
+          ) : (
+            <Building2 className="h-5 w-5 text-muted-foreground" />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

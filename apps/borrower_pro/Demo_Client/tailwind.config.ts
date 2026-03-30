@@ -1,5 +1,79 @@
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
+import plugin from "tailwindcss/plugin";
+
+/**
+ * HSL components (no hsl() wrapper) for CSS variables — single source of truth for the palette.
+ * Injected as :root / .dark via addBase below; Tailwind utilities use hsl(var(--token)) in theme.extend.
+ */
+const lightThemeCssVars: Record<string, string> = {
+  background: "0 0% 100%",
+  foreground: "0 0% 4%",
+  surface: "0 0% 98%",
+  card: "0 0% 98%",
+  "card-foreground": "0 0% 4%",
+  popover: "0 0% 100%",
+  "popover-foreground": "0 0% 4%",
+  primary: "0 0% 9%",
+  "primary-foreground": "0 0% 98%",
+  secondary: "0 0% 96%",
+  "secondary-foreground": "0 0% 9%",
+  muted: "0 0% 55%",
+  "muted-foreground": "0 0% 45%",
+  accent: "0 0% 96%",
+  "accent-foreground": "0 0% 9%",
+  destructive: "0 84% 60%",
+  "destructive-foreground": "0 0% 100%",
+  success: "142 71% 46%",
+  "success-foreground": "0 0% 100%",
+  warning: "38 92% 50%",
+  "warning-foreground": "0 0% 4%",
+  error: "0 84% 60%",
+  "error-foreground": "0 0% 100%",
+  info: "217 91% 60%",
+  "info-foreground": "0 0% 100%",
+  border: "0 0% 90%",
+  input: "0 0% 90%",
+  ring: "0 0% 4%",
+  radius: "0.5rem",
+};
+
+const darkThemeCssVars: Record<string, string> = {
+  background: "0 0% 4%",
+  foreground: "0 0% 98%",
+  surface: "0 0% 9%",
+  card: "0 0% 9%",
+  "card-foreground": "0 0% 98%",
+  popover: "0 0% 7%",
+  "popover-foreground": "0 0% 98%",
+  primary: "0 0% 98%",
+  "primary-foreground": "0 0% 4%",
+  secondary: "0 0% 14%",
+  "secondary-foreground": "0 0% 98%",
+  muted: "0 0% 55%",
+  "muted-foreground": "0 0% 55%",
+  accent: "0 0% 14%",
+  "accent-foreground": "0 0% 98%",
+  destructive: "0 84% 60%",
+  "destructive-foreground": "0 0% 100%",
+  success: "142 71% 46%",
+  "success-foreground": "0 0% 100%",
+  warning: "38 92% 50%",
+  "warning-foreground": "0 0% 98%",
+  error: "0 84% 60%",
+  "error-foreground": "0 0% 100%",
+  info: "217 91% 60%",
+  "info-foreground": "0 0% 100%",
+  border: "0 0% 16%",
+  input: "0 0% 16%",
+  ring: "0 0% 98%",
+};
+
+function cssCustomProperties(vars: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(vars).map(([key, value]) => [`--${key}`, value])
+  );
+}
 
 const config: Config = {
   darkMode: ["class"],
@@ -74,7 +148,15 @@ const config: Config = {
       },
     },
   },
-  plugins: [tailwindcssAnimate],
+  plugins: [
+    tailwindcssAnimate,
+    plugin(({ addBase }) => {
+      addBase({
+        ":root": cssCustomProperties(lightThemeCssVars),
+        ".dark": cssCustomProperties(darkThemeCssVars),
+      });
+    }),
+  ],
 };
 
 export default config;

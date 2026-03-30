@@ -14,15 +14,15 @@ import {
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@borrower_pro/components/ui/button";
+import { Button } from "../ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
-} from "@borrower_pro/components/ui/card";
-import { OnboardingProgress } from "@borrower_pro/components/onboarding-progress";
+} from "../ui/card";
+import { OnboardingProgress } from "../onboarding-progress";
 import {
   IdentityCard,
   PersonalCard,
@@ -34,37 +34,38 @@ import {
   CompanyContactCard,
   CompanyAdditionalCard,
   DirectorsCard,
-} from "@borrower_pro/components/borrower-form";
-import type { BorrowerDetailsSubStep } from "@borrower_pro/components/borrower-details-sub-stepper";
+} from "../borrower-form";
+import type { BorrowerDetailsSubStep } from "../borrower-details-sub-stepper";
 import {
   fetchBorrowerMe,
   submitOnboarding,
   type OnboardingPayload,
-} from "@borrower_pro/lib/borrower-auth-client";
+} from "../../lib/borrower-auth-client";
 import {
   initialIndividualFormData,
   initialCorporateFormData,
-} from "@borrower_pro/lib/borrower-form-initial";
+} from "../../lib/borrower-form-initial";
 import {
   validateIndividualForm,
   validateCorporateForm,
   validateIndividualFormStep,
   validateCorporateFormStep,
-} from "@borrower_pro/lib/borrower-form-validation";
+} from "../../lib/borrower-form-validation";
 import type {
   IndividualFormData,
   CorporateFormData,
-} from "@borrower_pro/lib/borrower-form-types";
+} from "../../lib/borrower-form-types";
 import {
   getOptionLabel,
   formatDate,
   formatAddress,
   formatCurrency,
-} from "@borrower_pro/lib/borrower-form-display";
-import { cn } from "@borrower_pro/lib/utils";
-
-const DRAFT_KEY = "onboarding_draft";
-const DISMISSED_KEY = "onboarding_dismissed";
+} from "../../lib/borrower-form-display";
+import { cn } from "../../lib/utils";
+import {
+  ONBOARDING_DRAFT_KEY,
+  ONBOARDING_DISMISSED_KEY,
+} from "../../lib/onboarding-storage-keys";
 
 interface OnboardingDraft {
   step: number;
@@ -77,7 +78,7 @@ interface OnboardingDraft {
 
 function loadDraft(): OnboardingDraft | null {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = localStorage.getItem(ONBOARDING_DRAFT_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as OnboardingDraft;
   } catch {
@@ -87,14 +88,14 @@ function loadDraft(): OnboardingDraft | null {
 
 function saveDraft(draft: OnboardingDraft) {
   try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(draft));
   } catch {}
 }
 
 export function clearOnboardingDraft() {
   try {
-    localStorage.removeItem(DRAFT_KEY);
-    localStorage.removeItem(DISMISSED_KEY);
+    localStorage.removeItem(ONBOARDING_DRAFT_KEY);
+    localStorage.removeItem(ONBOARDING_DISMISSED_KEY);
   } catch {}
 }
 
@@ -285,7 +286,7 @@ export function OnboardingWizard() {
 
   const handleSaveAndExit = useCallback(() => {
     try {
-      localStorage.setItem(DISMISSED_KEY, "true");
+      localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     } catch {}
     toast.success("Your progress has been saved. Continue anytime.");
     router.push("/dashboard");

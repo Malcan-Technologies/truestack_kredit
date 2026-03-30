@@ -1,17 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { signOut } from "@borrower_pro/lib/auth-client";
-import { Button } from "@borrower_pro/components/ui/button";
+import { signOut } from "../lib/auth-client";
+import { Button } from "./ui/button";
 
-export function SignOutButton() {
+export function SignOutButton({ redirectTo = "/" }: { redirectTo?: string }) {
   const router = useRouter();
   return (
     <Button
       variant="outline"
       onClick={async () => {
         await signOut();
-        router.push("/");
+        router.push(redirectTo);
       }}
     >
       Sign out

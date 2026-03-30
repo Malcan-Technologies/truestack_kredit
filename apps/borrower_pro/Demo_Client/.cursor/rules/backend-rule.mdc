@@ -12,6 +12,7 @@ Use these rules for **backend_pro** — the TrueKredit Pro backend. This backend
 - **Product**: Digital license KPKT borrowing — borrowers register and borrow money online from money lenders.
 - **Auth**: Better Auth for borrower sign in / sign up (and admin when admin_pro is added).
 - **Deployment**: One backend instance per Pro client; each client has own AWS account, DB, secrets.
+- **Borrower frontend layout**: Reusable UI and API clients live under `apps/borrower_pro/components/` and `apps/borrower_pro/lib/`. The Next.js host app `apps/borrower_pro/Demo_Client/` imports that package via `@borrower_pro/*` and adds only env-specific routes (auth handler, proxy, version). New borrower features belong in the shared folders unless they are strictly host-only (e.g. Prisma adapter in the Demo app).
 
 ---
 

@@ -184,7 +184,12 @@ export async function submitBorrowerApplication(
 export async function uploadApplicationDocument(
   applicationId: string,
   formData: FormData
-): Promise<{ success: boolean; data: ApplicationDocumentRow }> {
+): Promise<{
+  success: boolean;
+  data: ApplicationDocumentRow;
+  applicationStatus?: string;
+  message?: string;
+}> {
   const res = await fetch(
     `${BASE}/applications/${encodeURIComponent(applicationId)}/documents`,
     {
@@ -196,12 +201,19 @@ export async function uploadApplicationDocument(
   const json = await parseJson<{
     success: boolean;
     data?: ApplicationDocumentRow;
+    applicationStatus?: string;
+    message?: string;
     error?: string;
   }>(res);
   if (!res.ok) {
     throw new Error(json.error || "Upload failed");
   }
-  return json as { success: boolean; data: ApplicationDocumentRow };
+  return json as {
+    success: boolean;
+    data: ApplicationDocumentRow;
+    applicationStatus?: string;
+    message?: string;
+  };
 }
 
 export async function deleteApplicationDocument(

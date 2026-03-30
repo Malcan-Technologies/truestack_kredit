@@ -26,7 +26,10 @@ export function loanStatusBadgeLabelFromDb(loan: BorrowerLoanStatusLabelInput): 
     .join(" ");
 }
 
-/** Matches admin `loanStatusDisplay` / `statusColors` semantics for list badges. */
+/**
+ * Maps to the same semantic variants as `admin_pro` `dashboard/loans/page.tsx` `statusColors` /
+ * `loanStatusDisplay` (paired with `components/ui/badge.tsx` success/warning/destructive colors).
+ */
 export function borrowerLoanStatusBadgeVariant(
   loan: BorrowerLoanStatusLabelInput
 ): BorrowerSemanticBadgeVariant {

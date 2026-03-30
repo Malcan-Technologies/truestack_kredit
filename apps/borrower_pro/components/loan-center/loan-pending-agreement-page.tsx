@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Calendar,
   CheckCircle2,
+  ChevronRight,
   Circle,
   Download,
   ExternalLink,
@@ -21,6 +22,7 @@ import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Checkbox } from "../ui/checkbox";
 import { Badge } from "../ui/badge";
 import { cn } from "../../lib/utils";
 import {
@@ -42,6 +44,7 @@ import type {
 } from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
+import { BorrowerLoanServicingPanel } from "./borrower-loan-servicing-panel";
 
 function formatRm(v: unknown): string {
   const n = toAmountNumber(v);
@@ -74,9 +77,9 @@ function reviewBadge(status: SignedAgreementReviewStatus | undefined) {
   const s = status ?? "NONE";
   switch (s) {
     case "APPROVED":
-      return <Badge className="bg-emerald-600">Approved</Badge>;
+      return <Badge className="bg-success text-background">Approved</Badge>;
     case "PENDING":
-      return <Badge variant="secondary">Awaiting admin approval</Badge>;
+      return <Badge variant="secondary">Awaiting lender review</Badge>;
     case "REJECTED":
       return <Badge variant="destructive">Rejected — upload again</Badge>;
     default:
@@ -84,7 +87,7 @@ function reviewBadge(status: SignedAgreementReviewStatus | undefined) {
   }
 }
 
-type StepId = "attestation" | "sign" | "upload" | "review" | "payout";
+type StepId = "attestation" | "sign" | "review";
 
 export function LoanPendingAgreementPage() {
   const params = useParams();
@@ -95,9 +98,16 @@ export function LoanPendingAgreementPage() {
   const [agreementDate, setAgreementDate] = useState("");
   const [uploading, setUploading] = useState(false);
   const [attestBusy, setAttestBusy] = useState(false);
-  /** Selected locally; upload runs only after "Submit to admin". */
+  /** Selected locally; server upload runs only when submitting from Lender review. */
   const [pendingSignedFile, setPendingSignedFile] = useState<File | null>(null);
-  const signedAgreementInputRef = useRef<HTMLInputElement>(null);
+  /** Which journey panel is shown (stepper + back). Upload is never sent until Submit on lender review. */
+  const [journeyUiStep, setJourneyUiStep] = useState<"attestation" | "sign" | "lender_review">("attestation");
+  const [confirmSendToLender, setConfirmSendToLender] = useState(false);
+  /** Pre-disbursement: switch between full loan detail (like active, no payment) and agreement steps. */
+  const [preDisbursementTab, setPreDisbursementTab] = useState<"loan" | "agreement">("agreement");
+  const attestationDoneSeenRef = useRef(false);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+  const signStageFileInputRef = useRef<HTMLInputElement>(null);
   const refresh = useCallback(async () => {
     if (!loanId) return;
     const r = await getBorrowerLoan(loanId);
@@ -131,39 +141,82 @@ export function LoanPendingAgreementPage() {
   }, [loanId]);
 
   useEffect(() => {
+    attestationDoneSeenRef.current = false;
+  }, [loanId]);
+
+  useEffect(() => {
     if (loan?.agreementDate) {
       setAgreementDate(agreementIsoToDateInput(loan.agreementDate));
     }
   }, [loan?.agreementDate]);
 
+  useEffect(() => {
+    if (!pendingSignedFile) {
+      setPendingPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(pendingSignedFile);
+    setPendingPreviewUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [pendingSignedFile]);
+
+  useEffect(() => {
+    setConfirmSendToLender(false);
+  }, [pendingSignedFile]);
+
+
   const attestationDone = !!loan?.attestationCompletedAt;
   const attestationStatus = (loan?.attestationStatus ?? "NOT_STARTED") as AttestationStatus;
+
+  useEffect(() => {
+    if (!loan) return;
+    if (!attestationDone) {
+      attestationDoneSeenRef.current = false;
+      setJourneyUiStep("attestation");
+      return;
+    }
+    const review = loan.signedAgreementReviewStatus ?? "NONE";
+    if (review === "PENDING" || review === "APPROVED") {
+      setJourneyUiStep("lender_review");
+      attestationDoneSeenRef.current = true;
+      return;
+    }
+    if (!attestationDoneSeenRef.current) {
+      attestationDoneSeenRef.current = true;
+      setJourneyUiStep("sign");
+    }
+  }, [loan, loan?.id, loan?.signedAgreementReviewStatus, attestationDone]);
 
   const { steps } = useMemo(() => {
     const s: { id: StepId; label: string; done: boolean; active: boolean }[] = [
       { id: "attestation", label: "Attestation", done: false, active: false },
       { id: "sign", label: "Download & sign", done: false, active: false },
-      { id: "upload", label: "Upload signed PDF", done: false, active: false },
-      { id: "review", label: "Admin review", done: false, active: false },
-      { id: "payout", label: "Disbursement", done: false, active: false },
+      { id: "review", label: "Lender review", done: false, active: false },
     ];
     if (!loan) {
       return { steps: s };
     }
     const review = loan.signedAgreementReviewStatus ?? "NONE";
     const hasUpload = !!loan.agreementPath;
+    const mayStageSignedPdf = review === "NONE" || review === "REJECTED";
 
     s[0].done = attestationDone;
-    s[1].done = attestationDone && !!loan.agreementDate;
-    s[2].done = hasUpload;
-    s[3].done = review === "APPROVED";
-    s[4].done = false;
+    s[1].done =
+      attestationDone &&
+      !!loan.agreementDate &&
+      (journeyUiStep === "lender_review" ||
+        !!pendingSignedFile ||
+        hasUpload ||
+        review === "PENDING" ||
+        review === "APPROVED");
+    s[2].done = review === "APPROVED";
 
     let idx = 0;
     if (!attestationDone) idx = 0;
-    else if (!hasUpload || review === "NONE" || review === "REJECTED") idx = 1;
-    else if (review === "PENDING") idx = 3;
-    else if (review === "APPROVED") idx = 4;
+    else if (journeyUiStep === "attestation") idx = 0;
+    else if (journeyUiStep === "sign") idx = 1;
     else idx = 2;
 
     for (let i = 0; i < s.length; i++) {
@@ -171,7 +224,44 @@ export function LoanPendingAgreementPage() {
     }
 
     return { steps: s };
-  }, [loan, attestationDone]);
+  }, [loan, attestationDone, journeyUiStep, pendingSignedFile]);
+
+  const onJourneyStepClick = useCallback(
+    (stepId: StepId) => {
+      if (!loan) return;
+      const review = loan.signedAgreementReviewStatus ?? "NONE";
+      const may = review === "NONE" || review === "REJECTED";
+      if (stepId === "attestation") {
+        setJourneyUiStep("attestation");
+        return;
+      }
+      if (!attestationDone) {
+        toast.error("Complete attestation first.");
+        return;
+      }
+      if (stepId === "sign") {
+        if (review === "PENDING" || review === "APPROVED") {
+          toast.info("The signed agreement is already with your lender.");
+          return;
+        }
+        setJourneyUiStep("sign");
+        setConfirmSendToLender(false);
+        return;
+      }
+      if (review === "PENDING" || review === "APPROVED") {
+        setJourneyUiStep("lender_review");
+        return;
+      }
+      if (!may) return;
+      if (!pendingSignedFile) {
+        toast.error("Upload your signed PDF on Download & sign first.");
+        return;
+      }
+      setJourneyUiStep("lender_review");
+      setConfirmSendToLender(false);
+    },
+    [loan, attestationDone, pendingSignedFile]
+  );
 
   const handleDownloadPdf = () => {
     if (!loan) return;
@@ -200,22 +290,47 @@ export function LoanPendingAgreementPage() {
 
   const clearPendingSignedFile = () => {
     setPendingSignedFile(null);
-    if (signedAgreementInputRef.current) signedAgreementInputRef.current.value = "";
+    if (signStageFileInputRef.current) signStageFileInputRef.current.value = "";
   };
 
   const submitSignedAgreement = async () => {
     if (!loanId || !pendingSignedFile) return;
+    if (!confirmSendToLender) {
+      toast.error("Confirm that you have reviewed the document before sending it to your lender.");
+      return;
+    }
     setUploading(true);
     try {
       await uploadBorrowerSignedAgreement(loanId, pendingSignedFile);
-      toast.success("Signed agreement uploaded. Waiting for admin approval.");
+      toast.success("Signed agreement sent to your lender for review.");
       clearPendingSignedFile();
+      setConfirmSendToLender(false);
       await refresh();
+      router.push(`/loans/${loanId}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
     }
+  };
+
+  const goToLenderReview = () => {
+    const d = agreementDate.trim();
+    if (!d) {
+      toast.error("Set the agreement date first.");
+      return;
+    }
+    if (!pendingSignedFile) {
+      toast.error("Upload your signed PDF on this step before continuing.");
+      return;
+    }
+    setJourneyUiStep("lender_review");
+    setConfirmSendToLender(false);
+  };
+
+  const backToSignStep = () => {
+    setJourneyUiStep("sign");
+    setConfirmSendToLender(false);
   };
 
   const runAttest = async (fn: () => Promise<unknown>, msg?: string) => {
@@ -305,7 +420,24 @@ export function LoanPendingAgreementPage() {
     );
   }
 
-  if (loan.status !== "PENDING_DISBURSEMENT" && loan.status !== "PENDING_ATTESTATION") {
+  const isPreDisbursement = loan.status === "PENDING_DISBURSEMENT" || loan.status === "PENDING_ATTESTATION";
+  const isServicingView =
+    loan.status === "ACTIVE" ||
+    loan.status === "IN_ARREARS" ||
+    loan.status === "DEFAULTED" ||
+    loan.status === "COMPLETED";
+
+  const agreementReview = loan.signedAgreementReviewStatus ?? "NONE";
+  const mayStageSignedPdf = agreementReview === "NONE" || agreementReview === "REJECTED";
+  /** Submitted to lender — hide Before payout stepper/cards; show repayment schedule only. */
+  const awaitingLenderReview = agreementReview === "PENDING";
+
+  if (!isPreDisbursement) {
+    if (isServicingView) {
+      return (
+        <BorrowerLoanServicingPanel loanId={loanId} loan={loan} onRefresh={() => void refresh()} />
+      );
+    }
     return (
       <div className="space-y-4">
         <Button variant="ghost" size="sm" onClick={() => router.push("/loans")}>
@@ -313,23 +445,79 @@ export function LoanPendingAgreementPage() {
           Back
         </Button>
         <p className="text-sm text-muted-foreground">
-          This page is only for loans pending attestation or disbursement. Current status: {loan.status}
+          This loan cannot be opened here. Current status: {loan.status.replace(/_/g, " ")}
         </p>
+      </div>
+    );
+  }
+
+  if (awaitingLenderReview) {
+    return (
+      <div className="w-full min-w-0 space-y-6 pb-12">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/loans">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to loans
+            </Link>
+          </Button>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-4 space-y-2 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">Agreement submitted</span>
+            <Badge variant="secondary">Awaiting lender review</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Your signed agreement is with your lender. You do not need to take further action here until they
+            respond. Below is your expected repayment schedule — due dates and amounts apply after the loan is
+            disbursed.
+          </p>
+        </div>
+        <BorrowerLoanServicingPanel
+          loanId={loanId}
+          loan={loan}
+          onRefresh={() => void refresh()}
+          hideBackLink
+        />
       </div>
     );
   }
 
   return (
     <div className="w-full min-w-0 space-y-8 pb-12">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/loans">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to loans
           </Link>
         </Button>
+        <div className="inline-flex rounded-lg border border-border bg-muted/30 p-1 shrink-0">
+          <Button
+            type="button"
+            size="sm"
+            variant={preDisbursementTab === "loan" ? "default" : "ghost"}
+            className="rounded-md"
+            onClick={() => setPreDisbursementTab("loan")}
+          >
+            Loan details
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={preDisbursementTab === "agreement" ? "default" : "ghost"}
+            className="rounded-md"
+            onClick={() => setPreDisbursementTab("agreement")}
+          >
+            Before payout
+          </Button>
+        </div>
       </div>
 
+      {preDisbursementTab === "loan" ? (
+        <BorrowerLoanServicingPanel loanId={loanId} loan={loan} onRefresh={() => void refresh()} hideBackLink />
+      ) : (
+        <>
       <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-muted/30 p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -352,14 +540,18 @@ export function LoanPendingAgreementPage() {
       {/* Journey stepper */}
       <div className="rounded-lg border bg-card p-4 overflow-x-auto">
         <p className="text-xs font-medium text-muted-foreground mb-3">Your progress</p>
-        <div className="flex min-w-[520px] items-center gap-1">
+        <div className="flex min-w-[280px] items-center gap-1">
           {steps.map((st, i) => (
             <div key={st.id} className="flex items-center flex-1 min-w-0">
-              <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
+              <button
+                type="button"
+                onClick={() => onJourneyStepClick(st.id)}
+                className="flex flex-col items-center gap-1 flex-1 min-w-0 rounded-md p-1 -m-1 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <div
                   className={cn(
                     "flex h-9 w-9 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors",
-                    st.done && "border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                    st.done && "border-success bg-success/15 text-success",
                     st.active && !st.done && "border-primary bg-primary/10 text-primary",
                     !st.active && !st.done && "border-muted-foreground/30 text-muted-foreground"
                   )}
@@ -374,12 +566,12 @@ export function LoanPendingAgreementPage() {
                 >
                   {st.label}
                 </span>
-              </div>
+              </button>
               {i < steps.length - 1 && (
                 <div
                   className={cn(
-                    "h-0.5 flex-1 min-w-[12px] -mt-5 rounded-full",
-                    steps[i].done ? "bg-emerald-500/50" : "bg-border"
+                    "h-0.5 flex-1 min-w-[12px] -mt-5 rounded-full pointer-events-none",
+                    steps[i].done ? "bg-success/50" : "bg-border"
                   )}
                 />
               )}
@@ -387,6 +579,47 @@ export function LoanPendingAgreementPage() {
           ))}
         </div>
       </div>
+
+      {/* Attestation — completed (read-only); use stepper to return here */}
+      {attestationDone && journeyUiStep === "attestation" && (
+        <Card className="border-success/25 bg-success/5 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-success" />
+              Step 1 — Attestation complete
+            </CardTitle>
+            <CardDescription>
+              You can revisit earlier steps anytime from the progress bar above. Your signed PDF is only sent when
+              you submit on Lender review.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loan.attestationCompletedAt && (
+              <p className="text-sm text-muted-foreground">
+                Completed:{" "}
+                {new Date(loan.attestationCompletedAt).toLocaleString("en-MY", {
+                  timeZone: "Asia/Kuala_Lumpur",
+                })}
+              </p>
+            )}
+            {loan.attestationVideoCompletedAt && (
+              <p className="text-xs text-muted-foreground">Attestation video was completed.</p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" asChild>
+                <Link href={`/loans/${loanId}/watch-video`}>
+                  <Video className="h-4 w-4 mr-2" />
+                  Open attestation video
+                </Link>
+              </Button>
+              <Button type="button" onClick={() => setJourneyUiStep("sign")}>
+                Go to Download &amp; sign
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Attestation */}
       {!attestationDone && (
@@ -475,7 +708,7 @@ export function LoanPendingAgreementPage() {
             )}
 
             {attestationStatus === "SLOT_PROPOSED" && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
+              <div className="rounded-lg border border-warning/30 bg-warning/5 p-4 space-y-2">
                 <p className="text-sm font-medium">Waiting for lender confirmation</p>
                 {loan.attestationProposalStartAt && (
                   <p className="text-xs text-muted-foreground">
@@ -511,7 +744,7 @@ export function LoanPendingAgreementPage() {
                     : ""}
                 </p>
                 {loan.attestationProposalDeadlineAt && (
-                  <p className="text-xs text-amber-800 dark:text-amber-200">
+                  <p className="text-xs text-warning-foreground">
                     Respond by: {new Date(loan.attestationProposalDeadlineAt).toLocaleString()}
                   </p>
                 )}
@@ -527,7 +760,7 @@ export function LoanPendingAgreementPage() {
             )}
 
             {attestationStatus === "MEETING_SCHEDULED" && (
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
+              <div className="rounded-lg border border-success/30 bg-success/10 p-4 space-y-2">
                 <p className="text-sm font-medium">Your meeting</p>
                 {loan.attestationMeetingStartAt && (
                   <p className="text-xs text-muted-foreground">
@@ -586,7 +819,8 @@ export function LoanPendingAgreementPage() {
                 Signed agreement status
               </CardTitle>
               <CardDescription>
-                Disbursement can only happen after your signed agreement is uploaded and approved by us.
+                Your lender reviews the signed PDF after you submit it. Payout and any later steps are handled
+                outside this screen.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap items-center gap-2">
@@ -597,141 +831,288 @@ export function LoanPendingAgreementPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Download agreement PDF</CardTitle>
-              <CardDescription>
-                Set the agreement date, open the PDF, sign it, then upload the signed copy below.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2 max-w-xs">
-                <Label htmlFor="agreement-date">Agreement date</Label>
-                <Input
-                  id="agreement-date"
-                  type="date"
-                  value={agreementDate}
-                  onChange={(e) => setAgreementDate(e.target.value)}
-                />
-                {loan.agreementDate && (
-                  <p className="text-xs text-muted-foreground">
-                    On file: {formatDate(loan.agreementDate)} — adjust if needed for this download.
-                  </p>
-                )}
-              </div>
-              <Button type="button" variant="outline" onClick={handleDownloadPdf}>
-                <Download className="h-4 w-4 mr-2" />
-                Download agreement PDF
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="border-dashed border-2">
-            <CardHeader>
-              <CardTitle className="text-base">Upload signed agreement</CardTitle>
-              <CardDescription>
-                PDF only, max size per lender settings. Choose your file, review the name below, then submit
-                to send it for admin review. Uploading replaces any previous file.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <label
-                htmlFor="signed-agreement-upload"
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (uploading) return;
-                  const f = e.dataTransfer.files?.[0];
-                  if (f) onSignedPdfSelected(f);
-                }}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/25 bg-muted/20 px-6 py-10 text-center cursor-pointer transition-colors",
-                  uploading ? "opacity-60 pointer-events-none" : "hover:border-primary/50 hover:bg-primary/5"
-                )}
-              >
-                <Upload className="h-10 w-10 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Drop your signed PDF here or click to browse</p>
-                  <p className="text-xs text-muted-foreground mt-1">Signed loan agreement (PDF)</p>
-                </div>
-                <input
-                  ref={signedAgreementInputRef}
-                  type="file"
-                  accept=".pdf,application/pdf"
-                  className="hidden"
-                  id="signed-agreement-upload"
-                  disabled={uploading}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onSignedPdfSelected(f);
-                  }}
-                />
-              </label>
-
-              {pendingSignedFile ? (
-                <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Ready to submit
+          {mayStageSignedPdf && journeyUiStep === "sign" && (
+            <Card className="border-border/80 shadow-sm overflow-hidden">
+              <CardHeader className="border-b border-border/60 bg-muted/30">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Download className="h-5 w-5 text-primary" />
+                  Download &amp; sign
+                </CardTitle>
+                <CardDescription>
+                  Set the agreement date, download and sign the PDF, then upload the signed copy here. You can
+                  continue to <span className="font-medium text-foreground">Lender review</span> only after a
+                  file is selected. Nothing is sent to your lender until you submit on the next step.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                <div className="space-y-2 max-w-xs">
+                  <Label htmlFor="agreement-date">Agreement date</Label>
+                  <Input
+                    id="agreement-date"
+                    type="date"
+                    value={agreementDate}
+                    onChange={(e) => setAgreementDate(e.target.value)}
+                  />
+                  {loan.agreementDate && (
+                    <p className="text-xs text-muted-foreground">
+                      On file: {formatDate(loan.agreementDate)} — adjust if needed for this download.
                     </p>
-                    <p className="text-sm font-medium text-foreground mt-1 break-all">{pendingSignedFile.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {(pendingSignedFile.size / 1024).toFixed(1)} KB
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      onClick={() => void submitSignedAgreement()}
-                      disabled={uploading}
-                    >
-                      {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                      Submit to admin
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={clearPendingSignedFile}
-                      disabled={uploading}
-                    >
-                      Change file
-                    </Button>
-                  </div>
+                  )}
                 </div>
-              ) : null}
+                <div className="flex flex-col sm:flex-row sm:items-start gap-4 pt-2 border-t border-border/60">
+                  <Button type="button" variant="outline" onClick={handleDownloadPdf} className="w-full sm:w-auto shrink-0">
+                    <Download className="h-4 w-4 mr-2" />
+                    Download agreement PDF
+                  </Button>
+                </div>
 
-              <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
-                <Button type="button" disabled={uploading} asChild>
-                  <label htmlFor="signed-agreement-upload" className="cursor-pointer">
-                    <Upload className="h-4 w-4 mr-2" />
-                    Choose PDF
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Signed agreement (PDF)</Label>
+                  <label
+                    htmlFor="signed-agreement-upload-sign"
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) onSignedPdfSelected(f);
+                    }}
+                    className={cn(
+                      "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/15 px-6 py-8 text-center cursor-pointer transition-colors",
+                      "hover:border-primary/40 hover:bg-primary/5"
+                    )}
+                  >
+                    <Upload className="h-9 w-9 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Drop your signed PDF here or click to browse</p>
+                      <p className="text-xs text-muted-foreground mt-1">Required before you can continue</p>
+                    </div>
+                    <input
+                      ref={signStageFileInputRef}
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      className="hidden"
+                      id="signed-agreement-upload-sign"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) onSignedPdfSelected(f);
+                      }}
+                    />
                   </label>
-                </Button>
-                {loan.agreementPath && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" size="sm" asChild>
+                      <label htmlFor="signed-agreement-upload-sign" className="cursor-pointer">
+                        <Upload className="h-4 w-4 mr-2" />
+                        Choose PDF
+                      </label>
+                    </Button>
+                    {loan.agreementPath ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          window.open(
+                            borrowerLoanViewSignedAgreementUrl(loanId),
+                            "_blank",
+                            "noopener,noreferrer"
+                          )
+                        }
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        View previous upload
+                      </Button>
+                    ) : null}
+                  </div>
+                  {pendingSignedFile ? (
+                    <div className="rounded-lg border border-border bg-muted/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs text-muted-foreground">Selected for next step</p>
+                        <p className="text-sm font-medium break-all">{pendingSignedFile.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(pendingSignedFile.size / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 shrink-0">
+                        {pendingPreviewUrl ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              window.open(pendingPreviewUrl, "_blank", "noopener,noreferrer")
+                            }
+                          >
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            View
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            clearPendingSignedFile();
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Upload a signed PDF to enable Continue.</p>
+                  )}
+                </div>
+
+                <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t border-border/60">
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      window.open(borrowerLoanViewSignedAgreementUrl(loanId), "_blank", "noopener,noreferrer")
-                    }
+                    className="w-full sm:w-auto"
+                    onClick={() => setJourneyUiStep("attestation")}
                   >
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    View uploaded
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to attestation
                   </Button>
+                  <Button
+                    type="button"
+                    onClick={goToLenderReview}
+                    className="w-full sm:w-auto"
+                    disabled={!agreementDate.trim() || !pendingSignedFile}
+                  >
+                    Continue to lender review
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {mayStageSignedPdf && journeyUiStep === "lender_review" && (
+            <Card className="border-primary/25 shadow-md overflow-hidden">
+              <CardHeader className="border-b border-border/60 bg-primary/5">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  Lender review
+                </CardTitle>
+                <CardDescription>
+                  Review the PDF below (same file you chose on Download &amp; sign). Your lender is notified only
+                  after you check the box and click Submit. To pick a different file, use Back to Download &amp;
+                  sign.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                {pendingSignedFile && pendingPreviewUrl ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground break-all">{pendingSignedFile.name}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {(pendingSignedFile.size / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() =>
+                          window.open(pendingPreviewUrl, "_blank", "noopener,noreferrer")
+                        }
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Open in new tab
+                      </Button>
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/30 overflow-hidden shadow-inner">
+                      <iframe
+                        title="Signed agreement PDF preview"
+                        src={`${pendingPreviewUrl}#view=FitH`}
+                        className="w-full min-h-[min(70vh,640px)] border-0 bg-background block"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      If the preview does not load in your browser, use &quot;Open in new tab&quot;. To change the
+                      file, go back to Download &amp; sign.
+                    </p>
+                    {loan.agreementPath ? (
+                      <p className="text-xs text-muted-foreground border-l-2 border-primary/40 pl-3">
+                        Submitting will replace the previously uploaded agreement on file.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : loan.agreementPath ? (
+                  <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                    <p className="font-medium text-foreground mb-1">No new file selected</p>
+                    <p className="break-all mb-2">{loan.agreementOriginalName ?? "—"}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        window.open(
+                          borrowerLoanViewSignedAgreementUrl(loanId),
+                          "_blank",
+                          "noopener,noreferrer"
+                        )
+                      }
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      View file on record
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">
+                    No PDF to show. Use &quot;Back to Download &amp; sign&quot; to upload your signed agreement.
+                  </p>
                 )}
-              </div>
-              {loan.agreementOriginalName && (
-                <p className="text-xs text-muted-foreground text-center sm:text-left">
-                  Last file: <span className="font-medium text-foreground">{loan.agreementOriginalName}</span>
-                </p>
-              )}
-            </CardContent>
-          </Card>
+
+                <div className="flex flex-row items-start gap-3 rounded-lg border border-border/80 bg-muted/20 p-4">
+                  <Checkbox
+                    id="confirm-send-agreement"
+                    checked={confirmSendToLender}
+                    onCheckedChange={(v) => setConfirmSendToLender(v === true)}
+                    disabled={uploading}
+                  />
+                  <label htmlFor="confirm-send-agreement" className="text-sm leading-snug cursor-pointer">
+                    I have reviewed this signed agreement and I am ready to send it to my lender for review.
+                  </label>
+                </div>
+
+                <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-2 border-t border-border/60">
+                  <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-start">
+                    <Button type="button" variant="outline" onClick={backToSignStep} disabled={uploading}>
+                      Back to Download &amp; sign
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground"
+                      onClick={() => setJourneyUiStep("attestation")}
+                      disabled={uploading}
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Attestation
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => void submitSignedAgreement()}
+                    disabled={uploading || !pendingSignedFile || !confirmSendToLender}
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                    Submit for lender review
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
         </>
       )}
     </div>

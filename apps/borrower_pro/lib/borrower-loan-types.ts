@@ -62,13 +62,45 @@ export interface BorrowerLoanListItem {
 }
 
 /** GET /api/borrower-auth/loans/:loanId — full loan row for agreement / detail screens */
+/** Snapshot from GET loan — mirrors admin loan detail borrower block. */
+export interface BorrowerLoanBorrowerSnapshot {
+  id: string;
+  name: string | null;
+  borrowerType: string | null;
+  icNumber: string | null;
+  documentType: string | null;
+  phone: string | null;
+  email: string | null;
+  companyName: string | null;
+}
+
 export interface BorrowerLoanDetail {
   id: string;
   status: string;
   loanChannel?: LoanChannel;
   principalAmount: unknown;
+  interestRate?: unknown;
   term: number;
-  product: { id: string; name: string; loanScheduleType?: string | null };
+  borrower?: BorrowerLoanBorrowerSnapshot | null;
+  product: {
+    id: string;
+    name: string;
+    loanScheduleType?: string | null;
+    interestModel?: string;
+    latePaymentRate?: unknown;
+    arrearsPeriod?: number;
+    defaultPeriod?: number;
+    earlySettlementEnabled?: boolean;
+    earlySettlementLockInMonths?: number;
+    earlySettlementDiscountType?: string | null;
+    earlySettlementDiscountValue?: unknown;
+  };
+  application?: { id: string; status: string };
+  disbursementDate?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  collateralType?: string | null;
+  collateralValue?: unknown;
   agreementDate: string | null;
   agreementPath: string | null;
   agreementOriginalName: string | null;
@@ -111,6 +143,7 @@ export interface BorrowerLoanMetrics {
   repaymentRate?: number;
   progressPercent?: number;
   nextPaymentDue?: string | null;
+  oldestOverdueDays?: number;
 }
 
 export interface RecordBorrowerPaymentBody {

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { signIn } from "@borrower_pro/lib/auth-client";
+import { fetchBorrowerMe } from "@borrower_pro/lib/borrower-auth-client";
 import { Button } from "@borrower_pro/components/ui/button";
 import { Input } from "@borrower_pro/components/ui/input";
 import { Label } from "@borrower_pro/components/ui/label";
@@ -17,6 +19,7 @@ import {
 import { toast } from "sonner";
 
 export default function SignInPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,9 +34,25 @@ export default function SignInPage() {
         return;
       }
       toast.success("Signed in successfully");
-      // Small delay to ensure session cookie is set
-      await new Promise((r) => setTimeout(r, 100));
-      window.location.replace("/");
+
+      // Wait briefly for the browser to persist the auth cookie before asking
+      // the borrower proxy which post-login route should be used.
+      let destination = "/dashboard";
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+        try {
+          const me = await fetchBorrowerMe();
+          if (me.success) {
+            destination = me.data.profileCount > 0 ? "/dashboard" : "/onboarding";
+            break;
+          }
+        } catch {
+          /* retry until cookie is visible to the proxy */
+        }
+      }
+
+      router.replace(destination);
+      router.refresh();
     } finally {
       setLoading(false);
     }

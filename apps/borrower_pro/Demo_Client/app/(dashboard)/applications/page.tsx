@@ -24,6 +24,7 @@ import {
 import { Button } from "@borrower_pro/components/ui/button";
 import { Input } from "@borrower_pro/components/ui/input";
 import { Badge } from "@borrower_pro/components/ui/badge";
+import { LoanChannelPill } from "@borrower_pro/components/loan-center/loan-channel-pill";
 import {
   Table,
   TableBody,
@@ -36,6 +37,7 @@ import { TablePagination } from "@borrower_pro/components/ui/table-pagination";
 import { RefreshButton } from "@borrower_pro/components/ui/refresh-button";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
 import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
+import { borrowerApplicationDetailPath } from "@borrower_pro/lib/borrower-application-navigation";
 import type { LoanApplicationDetail } from "@borrower_pro/lib/application-form-types";
 import { toAmountNumber } from "@borrower_pro/lib/application-form-validation";
 import { formatDate } from "@borrower_pro/lib/borrower-form-display";
@@ -70,14 +72,9 @@ function formatCurrencyMaybe(v: unknown): string {
 
 function navigateForApplication(router: ReturnType<typeof useRouter>, app: LoanApplicationDetail) {
   if (app.status === "DRAFT") {
-    router.push(`/applications/apply?applicationId=${app.id}`);
     return;
   }
-  if (app.status === "APPROVED" && app.loan?.id) {
-    router.push(`/loans/${app.loan.id}`);
-    return;
-  }
-  router.push(`/applications/${app.id}/documents`);
+  router.push(borrowerApplicationDetailPath(app));
 }
 
 export default function ApplicationsPage() {
@@ -330,8 +327,8 @@ export default function ApplicationsPage() {
               </CardTitle>
               <CardDescription className="mt-1.5">
                 {totalItems} application{totalItems !== 1 ? "s" : ""}
-                {filter ? " matching this filter" : ""}. Click a row to open. Total submitted to your
-                lender: {submittedToLenderTotal}.
+                {filter ? " matching this filter" : ""}. Click a submitted row to view details (drafts use
+                Continue only). Total submitted to your lender: {submittedToLenderTotal}.
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -450,26 +447,28 @@ export default function ApplicationsPage() {
                 </TableHeader>
                 <TableBody>
                   {paginatedApplications.map((app) => {
-                    const canUploadDocuments =
-                      app.status === "DRAFT" ||
-                      app.status === "SUBMITTED" ||
-                      app.status === "UNDER_REVIEW";
+                    const isDraft = app.status === "DRAFT";
                     const loanId = app.loan?.id;
                     const badgeVariant = statusBadgeVariant[app.status] ?? "outline";
 
                     return (
                       <TableRow
                         key={app.id}
-                        className="cursor-pointer transition-colors hover:bg-muted/20"
-                        onClick={() => navigateForApplication(router, app)}
+                        className={
+                          isDraft
+                            ? ""
+                            : "cursor-pointer transition-colors hover:bg-muted/20"
+                        }
+                        onClick={() => {
+                          if (!isDraft) navigateForApplication(router, app);
+                        }}
+                        data-state={isDraft ? "static" : undefined}
                       >
                         <TableCell className="font-medium">{app.product?.name ?? "—"}</TableCell>
                         <TableCell>{formatCurrencyMaybe(app.amount)}</TableCell>
                         <TableCell>{app.term} months</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-[10px]">
-                            {app.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
-                          </Badge>
+                          <LoanChannelPill channel={app.loanChannel} />
                         </TableCell>
                         <TableCell>
                           <Badge variant={badgeVariant}>{app.status.replace(/_/g, " ")}</Badge>
@@ -480,20 +479,32 @@ export default function ApplicationsPage() {
                             className="flex flex-wrap justify-end gap-2"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {canUploadDocuments && (
-                              <Button variant="outline" size="sm" asChild>
-                                <Link href={`/applications/${app.id}/documents`}>Documents</Link>
-                              </Button>
-                            )}
-                            {app.status === "DRAFT" && (
+                            {isDraft && (
                               <Button variant="secondary" size="sm" asChild>
                                 <Link href={`/applications/apply?applicationId=${app.id}`}>Continue</Link>
                               </Button>
                             )}
+                            {(app.status === "SUBMITTED" || app.status === "UNDER_REVIEW") && (
+                              <>
+                                <Button variant="outline" size="sm" asChild>
+                                  <Link href={borrowerApplicationDetailPath(app)}>View application</Link>
+                                </Button>
+                                {loanId && (
+                                  <Button size="sm" asChild>
+                                    <Link href={`/loans/${loanId}`}>Open loan</Link>
+                                  </Button>
+                                )}
+                              </>
+                            )}
                             {app.status === "APPROVED" && (
-                              <Button size="sm" asChild>
-                                <Link href={loanId ? `/loans/${loanId}` : "/loans"}>Loans</Link>
-                              </Button>
+                              <>
+                                <Button variant="outline" size="sm" asChild>
+                                  <Link href={borrowerApplicationDetailPath(app)}>View application</Link>
+                                </Button>
+                                <Button size="sm" asChild>
+                                  <Link href={loanId ? `/loans/${loanId}` : "/loans"}>Open loan</Link>
+                                </Button>
+                              </>
                             )}
                           </div>
                         </TableCell>

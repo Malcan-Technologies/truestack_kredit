@@ -242,18 +242,22 @@ export async function parseDocumentUpload(req: Request): Promise<{
   originalName: string;
   mimeType: string;
   category: string;
+  replaceDocumentId?: string;
 }> {
   const result = await parseFileUpload(req);
-  
+
   if (!result.fields?.category) {
     throw new BadRequestError('Category is required');
   }
-  
+
+  const replaceDocumentId = result.fields.replaceDocumentId?.trim();
+
   return {
     buffer: result.buffer,
     originalName: result.originalName,
     mimeType: result.mimeType,
     category: result.fields.category,
+    ...(replaceDocumentId ? { replaceDocumentId } : {}),
   };
 }
 

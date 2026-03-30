@@ -46,7 +46,17 @@ function productEligibleForBorrower(product: Product, borrowerType: string): boo
 }
 
 function borrowerCanModifyApplicationDocuments(status: ApplicationStatus): boolean {
-  return status === 'DRAFT' || status === 'SUBMITTED' || status === 'UNDER_REVIEW';
+  return (
+    status === 'DRAFT' ||
+    status === 'SUBMITTED' ||
+    status === 'UNDER_REVIEW' ||
+    status === 'APPROVED'
+  );
+}
+
+/** After submit, borrowers may add files only for categories that still have no upload; deletions only in draft. */
+function borrowerCanDeleteApplicationDocuments(status: ApplicationStatus): boolean {
+  return status === 'DRAFT';
 }
 
 /** Whether every required document category has at least one upload (for audit / UI). */
@@ -584,11 +594,12 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
 
     if (!borrowerCanModifyApplicationDocuments(application.status)) {
       throw new BadRequestError(
-        'Documents can only be uploaded while the application is draft, submitted, or under review'
+        'Documents can only be uploaded while the application is draft, submitted, under review, or approved (replacements are sent back for admin review).'
       );
     }
 
-    const { buffer, originalName, mimeType, category } = await parseDocumentUpload(req);
+    const { buffer, originalName, mimeType, category, replaceDocumentId } =
+      await parseDocumentUpload(req);
 
     const requiredDocs =
       (application.product.requiredDocuments as Array<{ key: string; label: string; required: boolean }>) ?? [];
@@ -597,6 +608,36 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
 
     if (!validCategory) {
       throw new BadRequestError(`Invalid document category: ${category}`);
+    }
+
+    let replacedExisting = false;
+    let previousStatus = application.status;
+
+    if (application.status !== 'DRAFT') {
+      const existingInCategory = await prisma.applicationDocument.findMany({
+        where: { applicationId, tenantId: tenant.id, category },
+      });
+      if (existingInCategory.length > 0) {
+        if (category === 'OTHER' && replaceDocumentId) {
+          const doc = existingInCategory.find((d) => d.id === replaceDocumentId);
+          if (!doc) {
+            throw new NotFoundError('Document');
+          }
+          replacedExisting = true;
+          await deleteDocumentFile(doc.path);
+          await prisma.applicationDocument.delete({ where: { id: doc.id } });
+        } else if (category === 'OTHER' && existingInCategory.length > 1 && !replaceDocumentId) {
+          throw new BadRequestError(
+            'Multiple "Other" documents are attached. Use replace on the row you want to update, or contact your lender.'
+          );
+        } else {
+          replacedExisting = true;
+          for (const doc of existingInCategory) {
+            await deleteDocumentFile(doc.path);
+            await prisma.applicationDocument.delete({ where: { id: doc.id } });
+          }
+        }
+      }
     }
 
     ensureDocumentsDir();
@@ -616,6 +657,32 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
       },
     });
 
+    let applicationStatusAfter = previousStatus;
+    const needsReviewAgain =
+      previousStatus !== 'DRAFT' && (replacedExisting || previousStatus === 'APPROVED');
+    if (needsReviewAgain) {
+      const updatedApp = await prisma.loanApplication.update({
+        where: { id: applicationId },
+        data: { status: 'UNDER_REVIEW' },
+        select: { status: true },
+      });
+      applicationStatusAfter = updatedApp.status;
+      await AuditService.log({
+        tenantId: tenant.id,
+        action: 'BORROWER_APPLICATION_STATUS_CHANGE',
+        entityType: 'LoanApplication',
+        entityId: applicationId,
+        previousData: { status: previousStatus },
+        newData: {
+          status: 'UNDER_REVIEW',
+          reason: replacedExisting
+            ? 'borrower_replaced_application_document'
+            : 'borrower_uploaded_application_document_after_approval',
+        },
+        ipAddress: req.ip,
+      });
+    }
+
     await AuditService.log({
       tenantId: tenant.id,
       action: 'BORROWER_APPLICATION_DOCUMENT_UPLOAD',
@@ -625,6 +692,8 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
         documentId: document.id,
         category,
         originalName,
+        replacedExisting,
+        applicationStatusAfter,
       },
       ipAddress: req.ip,
     });
@@ -632,6 +701,11 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
     res.status(201).json({
       success: true,
       data: document,
+      applicationStatus: applicationStatusAfter,
+      message:
+        needsReviewAgain
+          ? 'Document saved. Your application is pending admin review again.'
+          : undefined,
     });
   } catch (e) {
     next(e);
@@ -692,9 +766,9 @@ router.delete('/applications/:applicationId/documents/:documentId', async (req, 
       throw new NotFoundError('Application');
     }
 
-    if (!borrowerCanModifyApplicationDocuments(application.status)) {
+    if (!borrowerCanDeleteApplicationDocuments(application.status)) {
       throw new BadRequestError(
-        'Documents can only be removed while the application is draft, submitted, or under review'
+        'Documents can only be removed while the application is still a draft. After submission, uploaded files cannot be deleted.'
       );
     }
 

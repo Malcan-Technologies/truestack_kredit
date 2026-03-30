@@ -183,7 +183,7 @@ export function ApplicationFlowWizard() {
       }
       const app = r.data;
       if (app.status !== "DRAFT") {
-        router.replace(`/applications/${appId}/documents`);
+        router.replace(`/applications/${appId}`);
         return;
       }
       setApplicationId(app.id);

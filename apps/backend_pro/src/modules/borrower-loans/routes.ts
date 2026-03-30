@@ -277,6 +277,18 @@ router.get('/loans/:loanId', async (req, res, next) => {
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId: tenant.id, borrowerId },
       include: {
+        borrower: {
+          select: {
+            id: true,
+            name: true,
+            borrowerType: true,
+            icNumber: true,
+            documentType: true,
+            phone: true,
+            email: true,
+            companyName: true,
+          },
+        },
         product: true,
         application: { select: { id: true, status: true, createdAt: true, updatedAt: true } },
         scheduleVersions: {

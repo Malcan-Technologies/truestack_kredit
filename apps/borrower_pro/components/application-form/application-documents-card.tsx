@@ -16,6 +16,8 @@ import {
 import { toast } from "sonner";
 import { useMemo } from "react";
 
+export type ApplicationDocumentsMode = "draft" | "post_submit";
+
 type ApplicationDocumentsCardProps = {
   applicationId: string;
   requiredDocs: RequiredDocumentItem[];
@@ -23,6 +25,11 @@ type ApplicationDocumentsCardProps = {
   onDocumentsChange: () => Promise<void>;
   /** When true, show an "Optional" badge (product has only optional slots). */
   showOptionalBadge?: boolean;
+  /**
+   * `draft`: upload/replace/remove allowed per product rules.
+   * `post_submit`: existing categories are read-only; upload only for categories with no file yet.
+   */
+  mode?: ApplicationDocumentsMode;
 };
 
 export function ApplicationDocumentsCard({
@@ -31,6 +38,7 @@ export function ApplicationDocumentsCard({
   documents,
   onDocumentsChange,
   showOptionalBadge = false,
+  mode = "draft",
 }: ApplicationDocumentsCardProps) {
   const docsUploadedByCategory = useMemo(() => {
     const map = new Map<string, ApplicationDocumentRow[]>();
@@ -56,6 +64,10 @@ export function ApplicationDocumentsCard({
   };
 
   const removeDoc = async (documentId: string) => {
+    if (mode === "post_submit") {
+      toast.error("Uploaded files cannot be removed after submit.");
+      return;
+    }
     try {
       await deleteApplicationDocument(applicationId, documentId);
       await onDocumentsChange();
@@ -87,6 +99,8 @@ export function ApplicationDocumentsCard({
         ) : (
           requiredDocs.map((doc) => {
             const uploaded = docsUploadedByCategory.get(doc.key) ?? [];
+            const lockedCategory = mode === "post_submit" && uploaded.length > 0;
+            const canUploadThisCategory = mode === "draft" || !lockedCategory;
             return (
               <div
                 key={doc.key}
@@ -96,21 +110,26 @@ export function ApplicationDocumentsCard({
                   <p className="font-medium text-sm">
                     {doc.label}
                     {doc.required ? <span className="text-destructive"> *</span> : null}
+                    {lockedCategory ? (
+                      <span className="ml-2 text-xs text-muted-foreground font-normal">(locked after submit)</span>
+                    ) : null}
                   </p>
                   {uploaded.length > 0 && (
                     <ul className="mt-2 text-xs text-muted-foreground space-y-1">
                       {uploaded.map((u) => (
                         <li key={u.id} className="flex items-center gap-2">
                           <span className="truncate">{u.originalName}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => removeDoc(u.id)}
-                          >
-                            Remove
-                          </Button>
+                          {!lockedCategory && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => removeDoc(u.id)}
+                            >
+                              Remove
+                            </Button>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -122,17 +141,24 @@ export function ApplicationDocumentsCard({
                     accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
                     className="hidden"
                     id={`doc-upload-${applicationId}-${doc.key}`}
+                    disabled={!canUploadThisCategory}
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) void uploadFile(doc.key, f);
                       e.target.value = "";
                     }}
                   />
-                  <Button type="button" variant="outline" size="sm" asChild>
-                    <label htmlFor={`doc-upload-${applicationId}-${doc.key}`} className="cursor-pointer">
-                      Upload
-                    </label>
-                  </Button>
+                  {canUploadThisCategory ? (
+                    <Button type="button" variant="outline" size="sm" asChild>
+                      <label htmlFor={`doc-upload-${applicationId}-${doc.key}`} className="cursor-pointer">
+                        Upload
+                      </label>
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground py-2 px-3 inline-block rounded-md border border-border">
+                      {uploaded.length > 0 && mode === "post_submit" ? "Uploaded" : "—"}
+                    </span>
+                  )}
                 </div>
               </div>
             );

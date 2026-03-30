@@ -37,6 +37,11 @@ export interface BorrowerProduct {
   eligibleBorrowerTypes: string;
   loanScheduleType: string;
   isActive: boolean;
+  /** Present when API returns full product row (application detail). */
+  earlySettlementEnabled?: boolean;
+  earlySettlementLockInMonths?: number;
+  earlySettlementDiscountType?: string;
+  earlySettlementDiscountValue?: unknown;
 }
 
 export interface LoanPreviewData {
@@ -63,6 +68,8 @@ export interface ApplicationDocumentRow {
   size: number;
   category: string;
   uploadedAt: string;
+  /** Server path for opening the file (e.g. `/uploads/...`). */
+  path?: string;
 }
 
 export interface LoanApplicationDetail {

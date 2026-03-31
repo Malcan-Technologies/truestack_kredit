@@ -180,6 +180,14 @@ export default function DashboardPage() {
   const [draftApps, setDraftApps] = useState<LoanApplicationDetail[]>([]);
   const [borrowerName, setBorrowerName] = useState<string | null>(null);
 
+  const resetDashboardState = useCallback(() => {
+    setOverview(null);
+    setActiveLoans([]);
+    setPendingLoans([]);
+    setDraftApps([]);
+    setBorrowerName(null);
+  }, []);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -190,21 +198,26 @@ export default function DashboardPage() {
         listBorrowerApplications({ pageSize: 200 }),
         fetchBorrowerMe().catch(() => null),
       ]);
-      if (ov.success) setOverview(ov.data);
+      setOverview(ov.success ? ov.data : null);
       setActiveLoans(aLoans.data);
       setPendingLoans(pLoans.data);
-      if (apps.success) setDraftApps(apps.data.filter((a) => a.status === "DRAFT"));
-      if (me?.success && me.data.activeBorrower) {
-        const b = me.data.activeBorrower;
-        setBorrowerName(
-          b.borrowerType === "CORPORATE" && b.companyName?.trim()
-            ? b.companyName.trim()
-            : b.name || null
-        );
-      }
-    } catch {}
-    setLoading(false);
-  }, []);
+      setDraftApps(apps.success ? apps.data.filter((a) => a.status === "DRAFT") : []);
+      setBorrowerName(
+        me?.success && me.data.activeBorrower
+          ? (
+              me.data.activeBorrower.borrowerType === "CORPORATE" &&
+              me.data.activeBorrower.companyName?.trim()
+            )
+            ? me.data.activeBorrower.companyName.trim()
+            : me.data.activeBorrower.name || null
+          : null
+      );
+    } catch {
+      resetDashboardState();
+    } finally {
+      setLoading(false);
+    }
+  }, [resetDashboardState]);
 
   useEffect(() => {
     void loadAll();

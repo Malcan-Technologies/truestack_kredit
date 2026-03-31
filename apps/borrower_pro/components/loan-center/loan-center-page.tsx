@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
@@ -68,6 +68,19 @@ export type LoanCenterTab =
   | "discharged"
   | "incomplete"
   | "rejected";
+
+const LOAN_CENTER_TABS: LoanCenterTab[] = [
+  "all",
+  "active",
+  "before_payout",
+  "discharged",
+  "incomplete",
+  "rejected",
+];
+
+function parseLoanCenterTab(value: string | null | undefined): LoanCenterTab {
+  return LOAN_CENTER_TABS.includes(value as LoanCenterTab) ? (value as LoanCenterTab) : "all";
+}
 
 function formatRm(v: unknown): string {
   const n = toAmountNumber(v);
@@ -213,7 +226,9 @@ function JourneyStepper({ currentPhase }: { currentPhase: LoanJourneyPhase }) {
 
 export function LoanCenterPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<LoanCenterTab>("all");
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const [tab, setTab] = useState<LoanCenterTab>(() => parseLoanCenterTab(tabParam));
   const [productFilter, setProductFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<LoanCenterOverview | null>(null);
@@ -221,6 +236,11 @@ export function LoanCenterPage() {
   const [activeLoans, setActiveLoans] = useState<BorrowerLoanListItem[]>([]);
   const [pendingDisbursementLoans, setPendingDisbursementLoans] = useState<BorrowerLoanListItem[]>([]);
   const [dischargedLoans, setDischargedLoans] = useState<BorrowerLoanListItem[]>([]);
+
+  useEffect(() => {
+    const nextTab = parseLoanCenterTab(tabParam);
+    setTab((currentTab) => (currentTab === nextTab ? currentTab : nextTab));
+  }, [tabParam]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);

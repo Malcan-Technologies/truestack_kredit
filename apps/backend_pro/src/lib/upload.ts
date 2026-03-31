@@ -379,6 +379,113 @@ export async function parseFileUpload(req: Request): Promise<{
   });
 }
 
+/** Multipart parser: text fields required; file optional (e.g. borrower payment slip). */
+export async function parseMultipartWithOptionalFile(req: Request): Promise<{
+  fields: Record<string, string>;
+  file?: { buffer: Buffer; originalName: string; mimeType: string };
+}> {
+  return new Promise((resolve, reject) => {
+    const contentType = req.headers['content-type'] || '';
+
+    if (!contentType.includes('multipart/form-data')) {
+      reject(new BadRequestError('Content-Type must be multipart/form-data'));
+      return;
+    }
+
+    const boundary = contentType.split('boundary=')[1];
+    if (!boundary) {
+      reject(new BadRequestError('Missing boundary in Content-Type'));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let totalSize = 0;
+
+    req.on('data', (chunk: Buffer) => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_DOCUMENT_SIZE) {
+        reject(new BadRequestError(`File size exceeds maximum of ${MAX_DOCUMENT_SIZE / 1024 / 1024}MB`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      try {
+        const data = Buffer.concat(chunks);
+        const content = data.toString('binary');
+
+        const parts = content.split(`--${boundary}`);
+
+        const fields: Record<string, string> = {};
+        let fileBuffer: Buffer | null = null;
+        let originalName = '';
+        let mimeType = '';
+
+        for (const part of parts) {
+          if (part.includes('Content-Disposition')) {
+            const nameMatch = part.match(/name="([^"]+)"/);
+            const fieldName = nameMatch ? nameMatch[1] : '';
+
+            if (!part.includes('filename=')) {
+              const headerEnd = part.indexOf('\r\n\r\n');
+              if (headerEnd !== -1) {
+                const value = part.substring(headerEnd + 4).replace(/\r\n--$/, '').replace(/--\r\n$/, '').replace(/\r\n$/, '').trim();
+                if (fieldName) {
+                  fields[fieldName] = value;
+                }
+              }
+            }
+
+            if (part.includes('filename=')) {
+              const filenameMatch = part.match(/filename="([^"]+)"/);
+              originalName = filenameMatch ? filenameMatch[1] : 'document';
+
+              const contentTypeMatch = part.match(/Content-Type:\s*([^\r\n]+)/i);
+              mimeType = contentTypeMatch ? contentTypeMatch[1].trim() : 'application/octet-stream';
+
+              if (!ALLOWED_DOCUMENT_MIME_TYPES.includes(mimeType)) {
+                reject(new BadRequestError(`Invalid file type. Allowed: ${ALLOWED_DOCUMENT_MIME_TYPES.join(', ')}`));
+                return;
+              }
+
+              const ext = path.extname(originalName).toLowerCase();
+              if (!ALLOWED_DOCUMENT_EXTENSIONS.includes(ext)) {
+                reject(new BadRequestError(`Invalid file extension. Allowed: ${ALLOWED_DOCUMENT_EXTENSIONS.join(', ')}`));
+                return;
+              }
+
+              const headerEnd = part.indexOf('\r\n\r\n');
+              if (headerEnd === -1) {
+                reject(new BadRequestError('Invalid multipart format'));
+                return;
+              }
+
+              const fileContent = part.substring(headerEnd + 4);
+              const cleanContent = fileContent.replace(/\r\n--$/, '').replace(/--\r\n$/, '').replace(/\r\n$/, '');
+              fileBuffer = Buffer.from(cleanContent, 'binary');
+            }
+          }
+        }
+
+        const out: { fields: Record<string, string>; file?: { buffer: Buffer; originalName: string; mimeType: string } } = {
+          fields,
+        };
+        if (fileBuffer && originalName) {
+          out.file = { buffer: fileBuffer, originalName, mimeType };
+        }
+        resolve(out);
+      } catch {
+        reject(new BadRequestError('Failed to parse multipart form'));
+      }
+    });
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+  });
+}
+
 // Save document file to local storage (dev) or S3 (prod)
 export function saveDocumentFile(
   buffer: Buffer,

@@ -150,6 +150,10 @@ router.get('/lender', async (req, res, next) => {
         contactNumber: tenant.contactNumber,
         businessAddress: tenant.businessAddress,
         logoUrl: tenant.logoUrl,
+        lenderBankCode: tenant.lenderBankCode,
+        lenderBankOtherName: tenant.lenderBankOtherName,
+        lenderAccountHolderName: tenant.lenderAccountHolderName,
+        lenderAccountNumber: tenant.lenderAccountNumber,
       },
     });
   } catch (e) {

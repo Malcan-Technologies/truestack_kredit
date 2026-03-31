@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, ArrowLeftRight, Plus } from "lucide-react";
+import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, ArrowLeftRight, Plus, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,15 @@ import { dispatchTenantDataUpdated } from "@/lib/tenant-events";
 import { formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
 import { canManageSettings } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
+import { BANK_OPTIONS, getBankLabel } from "@/lib/bank-options";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 interface TenantInfo {
   id: string;
@@ -49,6 +58,10 @@ interface TenantInfo {
   businessAddress: string | null;
   logoUrl: string | null;
   status: string;
+  lenderBankCode?: string | null;
+  lenderBankOtherName?: string | null;
+  lenderAccountHolderName?: string | null;
+  lenderAccountNumber?: string | null;
   subscription?: {
     plan: string;
     status: string;
@@ -106,6 +119,15 @@ export default function SettingsPage() {
   const [transferringOwnership, setTransferringOwnership] = useState(false);
   const [selectedNewOwner, setSelectedNewOwner] = useState<User | null>(null);
 
+  const [showEditBank, setShowEditBank] = useState(false);
+  const [savingBank, setSavingBank] = useState(false);
+  const [bankForm, setBankForm] = useState({
+    lenderBankCode: "" as string,
+    lenderBankOtherName: "",
+    lenderAccountHolderName: "",
+    lenderAccountNumber: "",
+  });
+
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const { refreshTenantData, hasTenants } = useTenantContext();
@@ -125,7 +147,14 @@ export default function SettingsPage() {
       ]);
 
       if (tenantRes.success && tenantRes.data) {
-        setTenant(tenantRes.data);
+        const t = tenantRes.data as TenantInfo;
+        setTenant(t);
+        setBankForm({
+          lenderBankCode: t.lenderBankCode || "",
+          lenderBankOtherName: t.lenderBankOtherName || "",
+          lenderAccountHolderName: t.lenderAccountHolderName || "",
+          lenderAccountNumber: t.lenderAccountNumber || "",
+        });
       }
       if (usersRes.success && usersRes.data) {
         setUsers(usersRes.data);
@@ -250,6 +279,51 @@ export default function SettingsPage() {
       toast.error("Failed to update tenant");
     }
     setSavingTenant(false);
+  };
+
+  const handleSaveBank = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bankForm.lenderBankCode?.trim()) {
+      toast.error("Select a bank");
+      return;
+    }
+    if (bankForm.lenderBankCode === "OTHER" && !bankForm.lenderBankOtherName.trim()) {
+      toast.error("Enter the bank name when selecting Other");
+      return;
+    }
+    if (!bankForm.lenderAccountHolderName.trim() || !bankForm.lenderAccountNumber.trim()) {
+      toast.error("Account holder name and account number are required");
+      return;
+    }
+
+    setSavingBank(true);
+    try {
+      const response = await fetch("/api/proxy/tenants/current", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          lenderBankCode: bankForm.lenderBankCode.trim(),
+          lenderBankOtherName:
+            bankForm.lenderBankCode === "OTHER" ? bankForm.lenderBankOtherName.trim() || null : null,
+          lenderAccountHolderName: bankForm.lenderAccountHolderName.trim(),
+          lenderAccountNumber: bankForm.lenderAccountNumber.trim(),
+        }),
+      });
+      const res = await response.json();
+      if (res.success) {
+        toast.success("Bank details saved");
+        setShowEditBank(false);
+        fetchData();
+        refreshTenantData();
+        dispatchTenantDataUpdated();
+      } else {
+        toast.error(res.error || "Failed to save bank details");
+      }
+    } catch {
+      toast.error("Failed to save bank details");
+    }
+    setSavingBank(false);
   };
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -675,6 +749,115 @@ export default function SettingsPage() {
                   <p className="text-sm text-muted">Business Address</p>
                   <p className="font-medium">{tenant?.businessAddress || "—"}</p>
                 </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Borrower manual payment — bank account shown to borrowers after they submit a transfer */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Landmark className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle>Borrower payment bank details</CardTitle>
+                <CardDescription>
+                  Shown to borrowers when they choose manual bank transfer on the Make payment flow. Use a Malaysian bank
+                  from the list.
+                </CardDescription>
+              </div>
+            </div>
+            {canManageSettings(currentRole as TenantRole) && !showEditBank && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBankForm({
+                    lenderBankCode: tenant?.lenderBankCode || "",
+                    lenderBankOtherName: tenant?.lenderBankOtherName || "",
+                    lenderAccountHolderName: tenant?.lenderAccountHolderName || "",
+                    lenderAccountNumber: tenant?.lenderAccountNumber || "",
+                  });
+                  setShowEditBank(true);
+                }}
+              >
+                Edit bank details
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {showEditBank ? (
+            <form onSubmit={handleSaveBank} className="space-y-4 max-w-lg">
+              <div className="space-y-2">
+                <Label>Bank</Label>
+                <Select
+                  value={bankForm.lenderBankCode || undefined}
+                  onValueChange={(v) => setBankForm((f) => ({ ...f, lenderBankCode: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select bank" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BANK_OPTIONS.map((b) => (
+                      <SelectItem key={b.value} value={b.value}>
+                        {b.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {bankForm.lenderBankCode === "OTHER" && (
+                <div className="space-y-2">
+                  <Label>Bank name (other)</Label>
+                  <Input
+                    value={bankForm.lenderBankOtherName}
+                    onChange={(e) => setBankForm((f) => ({ ...f, lenderBankOtherName: e.target.value }))}
+                    placeholder="Bank name"
+                  />
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label>Account holder name</Label>
+                <Input
+                  value={bankForm.lenderAccountHolderName}
+                  onChange={(e) => setBankForm((f) => ({ ...f, lenderAccountHolderName: e.target.value }))}
+                  placeholder="As per bank records"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Account number</Label>
+                <Input
+                  value={bankForm.lenderAccountNumber}
+                  onChange={(e) => setBankForm((f) => ({ ...f, lenderAccountNumber: e.target.value }))}
+                  placeholder="Bank account number"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={savingBank}>
+                  {savingBank ? "Saving…" : "Save bank details"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setShowEditBank(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted">Bank</p>
+                <p className="font-medium">
+                  {getBankLabel(tenant?.lenderBankCode, tenant?.lenderBankOtherName ?? undefined)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted">Account holder</p>
+                <p className="font-medium">{tenant?.lenderAccountHolderName || "—"}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted">Account number</p>
+                <p className="font-medium">{tenant?.lenderAccountNumber || "—"}</p>
               </div>
             </div>
           )}

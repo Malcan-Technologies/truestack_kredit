@@ -127,6 +127,24 @@ export default function AttestationMeetingDetailPage() {
     }
   };
 
+  const onReject = async () => {
+    if (!loanId) return;
+    setBusy(true);
+    try {
+      const res = await api.post(`/api/loans/${loanId}/attestation/reject-proposal`, {});
+      if (!res.success) {
+        toast.error(res.error ?? "Failed");
+        return;
+      }
+      toast.success("Proposal rejected. Loan has been cancelled.");
+      dispatchLoansChanged();
+      dispatchAttestationQueueChanged();
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onCounter = async () => {
     if (!loanId || !counterStart || !counterEnd) {
       toast.error("Enter start and end for the counter-proposal.");
@@ -162,6 +180,24 @@ export default function AttestationMeetingDetailPage() {
         return;
       }
       toast.success("Meeting scheduled and sent to borrower.");
+      dispatchLoansChanged();
+      dispatchAttestationQueueChanged();
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onCompleteMeeting = async () => {
+    if (!loanId) return;
+    setBusy(true);
+    try {
+      const res = await api.post(`/api/loans/${loanId}/attestation/complete-meeting`, {});
+      if (!res.success) {
+        toast.error(res.error ?? "Failed");
+        return;
+      }
+      toast.success("Meeting marked complete. Borrower can continue to signing.");
       dispatchLoansChanged();
       dispatchAttestationQueueChanged();
       await load();
@@ -281,197 +317,232 @@ export default function AttestationMeetingDetailPage() {
         </CardContent>
       </Card>
 
+      {loan.attestationStatus === "MEETING_SCHEDULED" && !loan.attestationCompletedAt && (
+        <Card className="text-left">
+          <CardHeader>
+            <CardTitle className="text-base">Complete attestation</CardTitle>
+            <CardDescription>
+              After the meeting has actually finished, mark it complete so the borrower can proceed to e-KYC and
+              signing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => void onCompleteMeeting()} disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Mark meeting complete
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Action area */}
       {isSlotProposed && (
-        <Tabs defaultValue="accept" className="w-full">
-          <TabsList className="w-full h-11 p-1.5">
-            <TabsTrigger value="accept" className="flex-1 gap-1.5 py-1.5">
-              <CheckCircle2 className="h-4 w-4" />
-              Accept
-            </TabsTrigger>
-            <TabsTrigger value="counter" className="flex-1 gap-1.5 py-1.5">
-              <RefreshCcw className="h-4 w-4" />
-              Counter Propose
-            </TabsTrigger>
-          </TabsList>
+        <>
+          <Tabs defaultValue="accept" className="w-full">
+            <TabsList className="w-full h-11 p-1.5">
+              <TabsTrigger value="accept" className="flex-1 gap-1.5 py-1.5">
+                <CheckCircle2 className="h-4 w-4" />
+                Accept
+              </TabsTrigger>
+              <TabsTrigger value="counter" className="flex-1 gap-1.5 py-1.5">
+                <RefreshCcw className="h-4 w-4" />
+                Counter Propose
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Accept tab */}
-          <TabsContent value="accept">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Accept borrower&apos;s slot</CardTitle>
-                <CardDescription>
-                  Confirm the proposed time and choose how to generate the meeting link.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {/* Link mode selector */}
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setAcceptMode("google")}
-                    className={cn(
-                      "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
-                      acceptMode === "google"
-                        ? "border-foreground bg-foreground/5 font-medium"
-                        : "border-border hover:bg-muted/40"
-                    )}
-                  >
-                    <Video className="h-5 w-5" />
-                    Google Meet
-                    <span className="text-xs text-muted-foreground font-normal">
-                      Auto-create event &amp; link
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAcceptMode("manual")}
-                    className={cn(
-                      "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
-                      acceptMode === "manual"
-                        ? "border-foreground bg-foreground/5 font-medium"
-                        : "border-border hover:bg-muted/40"
-                    )}
-                  >
-                    <Link2 className="h-5 w-5" />
-                    Manual link
-                    <span className="text-xs text-muted-foreground font-normal">
-                      Zoom, Teams, or custom URL
-                    </span>
-                  </button>
-                </div>
+            {/* Accept tab */}
+            <TabsContent value="accept">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Accept borrower&apos;s slot</CardTitle>
+                  <CardDescription>
+                    Confirm the proposed time and choose how to generate the meeting link.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* Link mode selector */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAcceptMode("google")}
+                      className={cn(
+                        "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
+                        acceptMode === "google"
+                          ? "border-foreground bg-foreground/5 font-medium"
+                          : "border-border hover:bg-muted/40"
+                      )}
+                    >
+                      <Video className="h-5 w-5" />
+                      Google Meet
+                      <span className="text-xs text-muted-foreground font-normal">
+                        Auto-create event &amp; link
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAcceptMode("manual")}
+                      className={cn(
+                        "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
+                        acceptMode === "manual"
+                          ? "border-foreground bg-foreground/5 font-medium"
+                          : "border-border hover:bg-muted/40"
+                      )}
+                    >
+                      <Link2 className="h-5 w-5" />
+                      Manual link
+                      <span className="text-xs text-muted-foreground font-normal">
+                        Zoom, Teams, or custom URL
+                      </span>
+                    </button>
+                  </div>
 
-                {acceptMode === "manual" && (
-                  <div className="space-y-3 max-w-lg">
+                  {acceptMode === "manual" && (
+                    <div className="space-y-3 max-w-lg">
+                      <div className="space-y-1">
+                        <Label htmlFor="accept-url">Meeting URL</Label>
+                        <Input
+                          id="accept-url"
+                          value={acceptManualUrl}
+                          onChange={(e) => setAcceptManualUrl(e.target.value)}
+                          placeholder="https://..."
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="accept-notes">Notes (optional)</Label>
+                        <Textarea
+                          id="accept-notes"
+                          value={acceptManualNotes}
+                          onChange={(e) => setAcceptManualNotes(e.target.value)}
+                          rows={2}
+                          placeholder="Any instructions for the borrower..."
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <Button onClick={() => void onAccept()} disabled={busy} className="w-full sm:w-auto">
+                    {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                    {acceptMode === "google"
+                      ? "Accept & create Google Meet"
+                      : "Accept & send link to borrower"}
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Counter propose tab */}
+            <TabsContent value="counter">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Suggest a different time</CardTitle>
+                  <CardDescription>
+                    The meeting link is created immediately and the borrower is notified.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="grid gap-3 sm:grid-cols-2 max-w-lg">
                     <div className="space-y-1">
-                      <Label htmlFor="accept-url">Meeting URL</Label>
+                      <Label htmlFor="c-start">Start</Label>
                       <Input
-                        id="accept-url"
-                        value={acceptManualUrl}
-                        onChange={(e) => setAcceptManualUrl(e.target.value)}
-                        placeholder="https://..."
+                        id="c-start"
+                        type="datetime-local"
+                        value={counterStart}
+                        onChange={(e) => setCounterStart(e.target.value)}
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="accept-notes">Notes (optional)</Label>
-                      <Textarea
-                        id="accept-notes"
-                        value={acceptManualNotes}
-                        onChange={(e) => setAcceptManualNotes(e.target.value)}
-                        rows={2}
-                        placeholder="Any instructions for the borrower..."
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <Button onClick={() => void onAccept()} disabled={busy} className="w-full sm:w-auto">
-                  {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  {acceptMode === "google"
-                    ? "Accept & create Google Meet"
-                    : "Accept & send link to borrower"}
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Counter propose tab */}
-          <TabsContent value="counter">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Suggest a different time</CardTitle>
-                <CardDescription>
-                  The meeting link is created immediately and the borrower is notified.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                <div className="grid gap-3 sm:grid-cols-2 max-w-lg">
-                  <div className="space-y-1">
-                    <Label htmlFor="c-start">Start</Label>
-                    <Input
-                      id="c-start"
-                      type="datetime-local"
-                      value={counterStart}
-                      onChange={(e) => setCounterStart(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="c-end">End</Label>
-                    <Input
-                      id="c-end"
-                      type="datetime-local"
-                      value={counterEnd}
-                      onChange={(e) => setCounterEnd(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                {/* Link mode selector */}
-                <div className="grid grid-cols-2 gap-3 max-w-lg">
-                  <button
-                    type="button"
-                    onClick={() => setCounterMode("google")}
-                    className={cn(
-                      "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
-                      counterMode === "google"
-                        ? "border-foreground bg-foreground/5 font-medium"
-                        : "border-border hover:bg-muted/40"
-                    )}
-                  >
-                    <Video className="h-5 w-5" />
-                    Google Meet
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCounterMode("manual")}
-                    className={cn(
-                      "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
-                      counterMode === "manual"
-                        ? "border-foreground bg-foreground/5 font-medium"
-                        : "border-border hover:bg-muted/40"
-                    )}
-                  >
-                    <Link2 className="h-5 w-5" />
-                    Manual link
-                  </button>
-                </div>
-
-                {counterMode === "manual" && (
-                  <div className="space-y-3 max-w-lg">
-                    <div className="space-y-1">
-                      <Label htmlFor="co-url">Meeting URL</Label>
+                      <Label htmlFor="c-end">End</Label>
                       <Input
-                        id="co-url"
-                        value={counterManualUrl}
-                        onChange={(e) => setCounterManualUrl(e.target.value)}
-                        placeholder="https://..."
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="co-notes">Notes (optional)</Label>
-                      <Textarea
-                        id="co-notes"
-                        value={counterManualNotes}
-                        onChange={(e) => setCounterManualNotes(e.target.value)}
-                        rows={2}
+                        id="c-end"
+                        type="datetime-local"
+                        value={counterEnd}
+                        onChange={(e) => setCounterEnd(e.target.value)}
                       />
                     </div>
                   </div>
-                )}
 
-                <Button
-                  variant="secondary"
-                  onClick={() => void onCounter()}
-                  disabled={busy}
-                  className="w-full sm:w-auto"
-                >
-                  {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  Schedule & notify borrower
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                  {/* Link mode selector */}
+                  <div className="grid grid-cols-2 gap-3 max-w-lg">
+                    <button
+                      type="button"
+                      onClick={() => setCounterMode("google")}
+                      className={cn(
+                        "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
+                        counterMode === "google"
+                          ? "border-foreground bg-foreground/5 font-medium"
+                          : "border-border hover:bg-muted/40"
+                      )}
+                    >
+                      <Video className="h-5 w-5" />
+                      Google Meet
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCounterMode("manual")}
+                      className={cn(
+                        "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm transition-colors",
+                        counterMode === "manual"
+                          ? "border-foreground bg-foreground/5 font-medium"
+                          : "border-border hover:bg-muted/40"
+                      )}
+                    >
+                      <Link2 className="h-5 w-5" />
+                      Manual link
+                    </button>
+                  </div>
+
+                  {counterMode === "manual" && (
+                    <div className="space-y-3 max-w-lg">
+                      <div className="space-y-1">
+                        <Label htmlFor="co-url">Meeting URL</Label>
+                        <Input
+                          id="co-url"
+                          value={counterManualUrl}
+                          onChange={(e) => setCounterManualUrl(e.target.value)}
+                          placeholder="https://..."
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="co-notes">Notes (optional)</Label>
+                        <Textarea
+                          id="co-notes"
+                          value={counterManualNotes}
+                          onChange={(e) => setCounterManualNotes(e.target.value)}
+                          rows={2}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <Button
+                    variant="secondary"
+                    onClick={() => void onCounter()}
+                    disabled={busy}
+                    className="w-full sm:w-auto"
+                  >
+                    {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                    Schedule & notify borrower
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          <Card className="text-left border-destructive/30">
+            <CardHeader>
+              <CardTitle className="text-base">Reject proposal</CardTitle>
+              <CardDescription>
+                Rejecting the proposed slot cancels the loan and notifies the borrower immediately.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="destructive" onClick={() => void onReject()} disabled={busy}>
+                {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Reject proposal & cancel loan
+              </Button>
+            </CardContent>
+          </Card>
+        </>
       )}
 
     </div>

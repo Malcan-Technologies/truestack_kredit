@@ -19,6 +19,7 @@ export function deriveLoanJourneyPhase(input: {
   attestationCompletedAt?: string | null;
   signedAgreementReviewStatus?: string | null;
   agreementPath?: string | null;
+  loanChannel?: "ONLINE" | "PHYSICAL" | null;
 }): LoanJourneyPhase {
   if (input.loanStatus === "CANCELLED") return "cancelled";
   const app = input.applicationStatus;
@@ -30,11 +31,12 @@ export function deriveLoanJourneyPhase(input: {
     input.loanStatus === "PENDING_ATTESTATION" ||
     input.loanStatus === "PENDING_DISBURSEMENT"
   ) {
-    if (!input.attestationCompletedAt) return "attestation";
+    const requiresAttestation = input.loanChannel !== "PHYSICAL";
+    if (requiresAttestation && !input.attestationCompletedAt) return "attestation";
     const review = input.signedAgreementReviewStatus ?? "NONE";
-    if (!input.agreementPath || review === "NONE" || review === "REJECTED") return "signing";
     if (review === "PENDING") return "disbursement";
     if (review === "APPROVED") return "disbursement";
+    if (!input.agreementPath || review === "NONE" || review === "REJECTED") return "signing";
     return "signing";
   }
   if (["ACTIVE", "IN_ARREARS", "DEFAULTED"].includes(input.loanStatus ?? "")) return "active";

@@ -12,6 +12,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Fingerprint,
   Loader2,
   Upload,
   Video,
@@ -35,9 +36,9 @@ import {
   postAttestationRequestMeeting,
   postAttestationAcceptCounter,
   postAttestationDeclineCounter,
-  postAttestationCompleteMeeting,
   postAttestationCancelLoan,
 } from "../../lib/borrower-loans-client";
+import { fetchBorrower, getTruestackKycStatus } from "../../lib/borrower-api-client";
 import type {
   BorrowerLoanDetail,
   SignedAgreementReviewStatus,
@@ -47,6 +48,8 @@ import { toAmountNumber } from "../../lib/application-form-validation";
 import { useSession } from "../../lib/auth-client";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { BorrowerLoanServicingPanel } from "./borrower-loan-servicing-panel";
+import { TruestackKycCard } from "../truestack-kyc-card";
+import { isBorrowerKycComplete } from "../../lib/borrower-verification";
 
 function formatRm(v: unknown): string {
   const n = toAmountNumber(v);
@@ -89,7 +92,7 @@ function reviewBadge(status: SignedAgreementReviewStatus | undefined) {
   }
 }
 
-type StepId = "attestation" | "sign" | "review";
+type StepId = "attestation" | "ekyc" | "sign" | "review";
 
 export function LoanPendingAgreementPage() {
   const params = useParams();
@@ -104,13 +107,15 @@ export function LoanPendingAgreementPage() {
   /** Selected locally; server upload runs only when submitting from Lender review. */
   const [pendingSignedFile, setPendingSignedFile] = useState<File | null>(null);
   /** Which journey panel is shown (stepper + back). Upload is never sent until Submit on lender review. */
-  const [journeyUiStep, setJourneyUiStep] = useState<"attestation" | "sign" | "lender_review">("attestation");
+  const [journeyUiStep, setJourneyUiStep] = useState<"attestation" | "ekyc" | "sign" | "lender_review">("attestation");
   const [confirmSendToLender, setConfirmSendToLender] = useState(false);
   /** Pre-disbursement: switch between full loan detail (like active, no payment) and agreement steps. */
   const [preDisbursementTab, setPreDisbursementTab] = useState<"loan" | "agreement">("agreement");
   const attestationDoneSeenRef = useRef(false);
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
   const signStageFileInputRef = useRef<HTMLInputElement>(null);
+  const [kycDone, setKycDone] = useState(false);
+  const [kycLoading, setKycLoading] = useState(true);
   const refresh = useCallback(async () => {
     if (!loanId) return;
     const r = await getBorrowerLoan(loanId);
@@ -148,6 +153,33 @@ export function LoanPendingAgreementPage() {
     };
   }, [loanId]);
 
+  const loadKyc = useCallback(async () => {
+    setKycLoading(true);
+    try {
+      const [borrowerRes, kycRes] = await Promise.all([
+        fetchBorrower(),
+        getTruestackKycStatus().catch(() => null),
+      ]);
+      if (borrowerRes.success) {
+        setKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));
+      } else {
+        setKycDone(false);
+      }
+    } catch {
+      setKycDone(false);
+    } finally {
+      setKycLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!loanId) {
+      setKycLoading(false);
+      return;
+    }
+    void loadKyc();
+  }, [loanId, loadKyc]);
+
   useEffect(() => {
     attestationDoneSeenRef.current = false;
   }, [loanId]);
@@ -177,12 +209,21 @@ export function LoanPendingAgreementPage() {
 
   const attestationDone = !!loan?.attestationCompletedAt;
   const attestationStatus = (loan?.attestationStatus ?? "NOT_STARTED") as AttestationStatus;
+  const requiresAttestation = loan?.loanChannel !== "PHYSICAL";
 
   useEffect(() => {
     if (!loan) return;
-    if (!attestationDone) {
+    if (requiresAttestation && !attestationDone) {
       attestationDoneSeenRef.current = false;
       setJourneyUiStep("attestation");
+      return;
+    }
+    if (!requiresAttestation && journeyUiStep === "attestation") {
+      setJourneyUiStep("ekyc");
+    }
+    if (kycLoading) return;
+    if (!kycDone) {
+      setJourneyUiStep("ekyc");
       return;
     }
     const review = loan.signedAgreementReviewStatus ?? "NONE";
@@ -195,44 +236,54 @@ export function LoanPendingAgreementPage() {
       attestationDoneSeenRef.current = true;
       setJourneyUiStep("sign");
     }
-  }, [loan, loan?.id, loan?.signedAgreementReviewStatus, attestationDone]);
+  }, [loan, loan?.id, loan?.signedAgreementReviewStatus, attestationDone, requiresAttestation, journeyUiStep, kycDone, kycLoading]);
 
   const { steps } = useMemo(() => {
-    const s: { id: StepId; label: string; done: boolean; active: boolean }[] = [
-      { id: "attestation", label: "Attestation", done: false, active: false },
-      { id: "sign", label: "Download & sign", done: false, active: false },
-      { id: "review", label: "Lender review", done: false, active: false },
-    ];
+    const s: { id: StepId; label: string; done: boolean; active: boolean }[] = [];
+    if (requiresAttestation) {
+      s.push({ id: "attestation", label: "Attestation", done: false, active: false });
+    }
+    s.push({ id: "ekyc", label: "e-KYC", done: false, active: false });
+    s.push({ id: "sign", label: "Download & sign", done: false, active: false });
+    s.push({ id: "review", label: "Lender review", done: false, active: false });
     if (!loan) {
       return { steps: s };
     }
     const review = loan.signedAgreementReviewStatus ?? "NONE";
     const hasUpload = !!loan.agreementPath;
-    const mayStageSignedPdf = review === "NONE" || review === "REJECTED";
+    const canStartSigning = (!requiresAttestation || attestationDone) && kycDone;
 
-    s[0].done = attestationDone;
-    s[1].done =
-      attestationDone &&
+    let stepCursor = 0;
+    if (requiresAttestation) {
+      s[stepCursor].done = attestationDone;
+      stepCursor++;
+    }
+    s[stepCursor].done = kycDone;
+    stepCursor++;
+    s[stepCursor].done =
+      canStartSigning &&
       !!loan.agreementDate &&
       (journeyUiStep === "lender_review" ||
         !!pendingSignedFile ||
         hasUpload ||
         review === "PENDING" ||
         review === "APPROVED");
-    s[2].done = review === "APPROVED";
+    stepCursor++;
+    s[stepCursor].done = review === "APPROVED";
 
     let idx = 0;
-    if (!attestationDone) idx = 0;
-    else if (journeyUiStep === "attestation") idx = 0;
-    else if (journeyUiStep === "sign") idx = 1;
-    else idx = 2;
+    if (requiresAttestation && !attestationDone) idx = 0;
+    else if (journeyUiStep === "attestation" && requiresAttestation) idx = 0;
+    else if (journeyUiStep === "ekyc") idx = requiresAttestation ? 1 : 0;
+    else if (journeyUiStep === "sign") idx = requiresAttestation ? 2 : 1;
+    else idx = requiresAttestation ? 3 : 2;
 
     for (let i = 0; i < s.length; i++) {
       s[i].active = i === idx;
     }
 
     return { steps: s };
-  }, [loan, attestationDone, journeyUiStep, pendingSignedFile]);
+  }, [loan, attestationDone, requiresAttestation, kycDone, journeyUiStep, pendingSignedFile]);
 
   const onJourneyStepClick = useCallback(
     (stepId: StepId) => {
@@ -243,8 +294,21 @@ export function LoanPendingAgreementPage() {
         setJourneyUiStep("attestation");
         return;
       }
-      if (!attestationDone) {
+      if (stepId === "ekyc") {
+        if (requiresAttestation && !attestationDone) {
+          toast.error("Complete attestation first.");
+          return;
+        }
+        setJourneyUiStep("ekyc");
+        return;
+      }
+      if (requiresAttestation && !attestationDone) {
         toast.error("Complete attestation first.");
+        return;
+      }
+      if (!kycDone) {
+        toast.error("Complete e-KYC first.");
+        setJourneyUiStep("ekyc");
         return;
       }
       if (stepId === "sign") {
@@ -268,7 +332,7 @@ export function LoanPendingAgreementPage() {
       setJourneyUiStep("lender_review");
       setConfirmSendToLender(false);
     },
-    [loan, attestationDone, pendingSignedFile]
+    [loan, attestationDone, requiresAttestation, kycDone, pendingSignedFile]
   );
 
   const handleDownloadPdf = () => {
@@ -303,13 +367,18 @@ export function LoanPendingAgreementPage() {
 
   const submitSignedAgreement = async () => {
     if (!loanId || !pendingSignedFile) return;
+    const d = agreementDate.trim();
+    if (!d) {
+      toast.error("Set the agreement date first.");
+      return;
+    }
     if (!confirmSendToLender) {
       toast.error("Confirm that you have reviewed the document before sending it to your lender.");
       return;
     }
     setUploading(true);
     try {
-      await uploadBorrowerSignedAgreement(loanId, pendingSignedFile);
+      await uploadBorrowerSignedAgreement(loanId, pendingSignedFile, d);
       toast.success("Signed agreement sent to your lender for review.");
       clearPendingSignedFile();
       setConfirmSendToLender(false);
@@ -355,7 +424,7 @@ export function LoanPendingAgreementPage() {
   };
 
   const onProceedSigning = () =>
-    runAttest(() => postAttestationProceedToSigning(loanId), "You can now download and sign the agreement.");
+    runAttest(() => postAttestationProceedToSigning(loanId), "Attestation complete. Continue with e-KYC.");
 
   const onRequestMeeting = async () => {
     setAttestBusy(true);
@@ -378,9 +447,6 @@ export function LoanPendingAgreementPage() {
 
   const onDeclineCounter = () =>
     runAttest(() => postAttestationDeclineCounter(loanId), "You can pick another slot.");
-
-  const onCompleteMeeting = () =>
-    runAttest(() => postAttestationCompleteMeeting(loanId), "Attestation complete. You can now download and sign.");
 
   const onCancelLoan = (reason: "WITHDRAWN" | "REJECTED_AFTER_ATTESTATION") =>
     runAttest(async () => {
@@ -435,6 +501,10 @@ export function LoanPendingAgreementPage() {
   const mayStageSignedPdf = agreementReview === "NONE" || agreementReview === "REJECTED";
   /** Submitted to lender — hide Before payout stepper/cards; show repayment schedule only. */
   const awaitingLenderReview = agreementReview === "PENDING";
+  const canStartSigning = (!requiresAttestation || attestationDone) && kycDone;
+  const attestationStepNumber = requiresAttestation ? 1 : null;
+  const ekycStepNumber = requiresAttestation ? 2 : 1;
+  const signStepNumber = requiresAttestation ? 3 : 2;
 
   if (!isPreDisbursement) {
     if (isServicingView) {
@@ -556,7 +626,7 @@ export function LoanPendingAgreementPage() {
                   className={cn(
                     "flex h-9 w-9 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors",
                     st.done && "border-success bg-success/15 text-success",
-                    st.active && !st.done && "border-primary bg-primary/10 text-primary",
+                    st.active && !st.done && "border-foreground/50 bg-foreground/5 text-foreground",
                     !st.active && !st.done && "border-muted-foreground/30 text-muted-foreground"
                   )}
                 >
@@ -585,12 +655,12 @@ export function LoanPendingAgreementPage() {
       </div>
 
       {/* Attestation — completed (read-only); use stepper to return here */}
-      {attestationDone && journeyUiStep === "attestation" && (
+      {requiresAttestation && attestationDone && journeyUiStep === "attestation" && (
         <Card className="border-success/25 bg-success/5 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-success" />
-              Step 1 — Attestation complete
+              Step {attestationStepNumber} — Attestation complete
             </CardTitle>
             <CardDescription>
               You can revisit earlier steps anytime from the progress bar above. Your signed PDF is only sent when
@@ -616,8 +686,8 @@ export function LoanPendingAgreementPage() {
                   Open attestation video
                 </Link>
               </Button>
-              <Button type="button" onClick={() => setJourneyUiStep("sign")}>
-                Go to Download &amp; sign
+              <Button type="button" onClick={() => setJourneyUiStep(kycDone ? "sign" : "ekyc")}>
+                {kycDone ? "Go to Download & sign" : "Go to e-KYC"}
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </div>
@@ -626,12 +696,12 @@ export function LoanPendingAgreementPage() {
       )}
 
       {/* Attestation */}
-      {!attestationDone && (
+      {requiresAttestation && !attestationDone && (
         <Card className="border-primary/20 shadow-md">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Video className="h-5 w-5 text-primary" />
-              Step 1 — Attestation
+              Step {attestationStepNumber} — Attestation
             </CardTitle>
             <CardDescription>
               You may watch the attestation video, or request an online meeting first. Meet links are sent
@@ -793,14 +863,10 @@ export function LoanPendingAgreementPage() {
                     Meet link not available yet — check your email or contact your lender.
                   </p>
                 )}
-                <Button
-                  type="button"
-                  className="block mt-2"
-                  onClick={() => void onCompleteMeeting()}
-                  disabled={attestBusy}
-                >
-                  I’ve completed the meeting — continue to signing
-                </Button>
+                <p className="text-xs text-muted-foreground border rounded-md p-2 bg-muted/20">
+                  Your lender will mark the meeting complete after it ends. Once confirmed, you can continue to e-KYC
+                  and signing.
+                </p>
                 <Button
                   type="button"
                   variant="ghost"
@@ -817,8 +883,66 @@ export function LoanPendingAgreementPage() {
         </Card>
       )}
 
-      {/* Signing & upload — only after attestation */}
-      {attestationDone && (
+      {!kycDone && (!requiresAttestation || attestationDone) && (
+        <Card className="border-primary/20 shadow-md">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Fingerprint className="h-5 w-5 text-primary" />
+              Step {ekycStepNumber} — e-KYC
+            </CardTitle>
+            <CardDescription>
+              Complete identity verification before signing. Your verified e-KYC data will be used when issuing the
+              digital certificate for signing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {kycLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Checking your e-KYC status...
+              </div>
+            ) : (
+              <>
+                <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+                  If you already completed e-KYC, this step will unlock automatically. Otherwise, start or resume your
+                  TrueStack e-KYC below.
+                </div>
+                <TruestackKycCard
+                  onStatusLoaded={() => {
+                    void loadKyc();
+                  }}
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {kycDone && journeyUiStep === "ekyc" && (
+        <Card className="border-success/25 bg-success/5 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-success" />
+              Step {ekycStepNumber} — e-KYC complete
+            </CardTitle>
+            <CardDescription>
+              Your identity verification is ready for digital signing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              You can now proceed to download, sign, and upload your agreement.
+            </p>
+            <Button type="button" onClick={() => setJourneyUiStep("sign")}>
+              Go to Download &amp; sign
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Signing & upload — only after required pre-signing steps */}
+      {canStartSigning && (
         <>
           <Card className="shadow-md">
             <CardHeader>
@@ -980,10 +1104,10 @@ export function LoanPendingAgreementPage() {
                     type="button"
                     variant="outline"
                     className="w-full sm:w-auto"
-                    onClick={() => setJourneyUiStep("attestation")}
+                    onClick={() => setJourneyUiStep("ekyc")}
                   >
                     <ArrowLeft className="h-4 w-4 mr-2" />
-                    Back to attestation
+                    Back to e-KYC
                   </Button>
                   <Button
                     type="button"
@@ -1100,11 +1224,11 @@ export function LoanPendingAgreementPage() {
                       variant="ghost"
                       size="sm"
                       className="text-muted-foreground"
-                      onClick={() => setJourneyUiStep("attestation")}
+                      onClick={() => setJourneyUiStep("ekyc")}
                       disabled={uploading}
                     >
                       <ArrowLeft className="h-4 w-4 mr-2" />
-                      Attestation
+                      e-KYC
                     </Button>
                   </div>
                   <Button

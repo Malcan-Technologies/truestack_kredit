@@ -12,6 +12,8 @@ import {
   CreditCard,
   ExternalLink,
   Loader2,
+  MoreHorizontal,
+  FileText,
   Shield,
   ShieldCheck,
   TrendingUp,
@@ -35,12 +37,22 @@ import {
 import {
   getBorrowerLoanSchedule,
   getBorrowerLoanMetrics,
+  listBorrowerManualPaymentRequests,
+  borrowerDisbursementProofUrl,
+  borrowerStampCertificateUrl,
+  borrowerTransactionReceiptUrl,
+  borrowerTransactionProofUrl,
 } from "../../lib/borrower-loans-client";
 import type { BorrowerLoanDetail, BorrowerLoanMetrics } from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { formatICForDisplay } from "../../lib/borrower-form-display";
-import { BorrowerPaymentDialog } from "./borrower-payment-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { PhoneDisplay } from "../ui/phone-display";
 import { cn } from "../../lib/utils";
 
@@ -169,7 +181,14 @@ type SchedulePayload = {
       status: string;
       lateFeeAccrued?: unknown;
       lateFeesPaid?: unknown;
-      allocations?: Array<{ amount: unknown }>;
+      allocations?: Array<{
+        amount: unknown;
+        transaction?: {
+          id: string;
+          receiptPath?: string | null;
+          proofPath?: string | null;
+        } | null;
+      }>;
     }>;
   } | null;
   summary?: {
@@ -194,7 +213,7 @@ export function BorrowerLoanServicingPanel({
   const [loading, setLoading] = useState(true);
   const [scheduleData, setScheduleData] = useState<SchedulePayload | null>(null);
   const [metrics, setMetrics] = useState<BorrowerLoanMetrics | null>(null);
-  const [payOpen, setPayOpen] = useState(false);
+  const [pendingManualPayments, setPendingManualPayments] = useState(0);
 
   const canPay =
     loan.status === "ACTIVE" || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
@@ -202,12 +221,15 @@ export function BorrowerLoanServicingPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [sch, met] = await Promise.all([
+      const [sch, met, manual] = await Promise.all([
         getBorrowerLoanSchedule(loanId),
         getBorrowerLoanMetrics(loanId),
+        listBorrowerManualPaymentRequests(loanId).catch(() => ({ success: true, data: [] })),
       ]);
       setScheduleData(sch.data as SchedulePayload);
       setMetrics(met.data);
+      const pend = (manual.data ?? []).filter((r) => r.status === "PENDING").length;
+      setPendingManualPayments(pend);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load schedule");
     } finally {
@@ -264,6 +286,13 @@ export function BorrowerLoanServicingPanel({
             </p>
           </div>
         </div>
+        {pendingManualPayments > 0 ? (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-50">
+            <span className="font-medium">Pending payment approval: </span>
+            {pendingManualPayments} manual payment notification(s) awaiting your lender. Your schedule will update after
+            approval.
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-2 justify-end">
           <RefreshButton
             onRefresh={() => void handleRefreshPage()}
@@ -272,23 +301,12 @@ export function BorrowerLoanServicingPanel({
             successMessage="Loan data refreshed"
           />
           {canPay && (
-            <Button size="sm" onClick={() => setPayOpen(true)}>
-              <CreditCard className="h-4 w-4 mr-2" />
-              Record payment
+            <Button size="sm" asChild>
+              <Link href={`/loans/${loanId}/payment`}>
+                <CreditCard className="h-4 w-4 mr-2" />
+                Make payment
+              </Link>
             </Button>
-          )}
-          {canPay && (
-            <BorrowerPaymentDialog
-              loanId={loanId}
-              open={payOpen}
-              onOpenChange={setPayOpen}
-              onSuccess={() => {
-                setPayOpen(false);
-                onRefresh();
-                void load();
-                toast.success("Payment recorded");
-              }}
-            />
           )}
         </div>
       </div>
@@ -512,6 +530,40 @@ export function BorrowerLoanServicingPanel({
             </Card>
           </div>
 
+          {(loan.disbursementProofPath || loan.stampCertPath) && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-muted-foreground" />
+                  Loan documents
+                </CardTitle>
+                <CardDescription>Files shared by your lender (view or download).</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                {loan.disbursementProofPath ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border rounded-md p-3">
+                    <span className="font-medium">Proof of disbursement</span>
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={borrowerDisbursementProofUrl(loanId)} target="_blank" rel="noopener noreferrer">
+                        View / download
+                      </a>
+                    </Button>
+                  </div>
+                ) : null}
+                {loan.stampCertPath ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border rounded-md p-3">
+                    <span className="font-medium">Stamp certificate</span>
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={borrowerStampCertificateUrl(loanId)} target="_blank" rel="noopener noreferrer">
+                        View / download
+                      </a>
+                    </Button>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Repayment schedule — admin-style columns */}
           <Card>
             <CardHeader>
@@ -558,6 +610,7 @@ export function BorrowerLoanServicingPanel({
                         <TableHead className="text-right">Late fees</TableHead>
                         <TableHead className="text-right">Paid</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead className="w-[52px] text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -580,6 +633,7 @@ export function BorrowerLoanServicingPanel({
                           ? 0
                           : Math.max(0, totalDue - paid);
                         const st = r.status.replace(/_/g, " ");
+                        const tx = (r.allocations ?? []).find((a) => a.transaction)?.transaction;
                         return (
                           <TableRow
                             key={r.id}
@@ -631,6 +685,46 @@ export function BorrowerLoanServicingPanel({
                               >
                                 {isOverdue && r.status !== "PAID" ? "OVERDUE" : st}
                               </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {r.status === "PAID" && tx ? (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Row actions">
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {tx.receiptPath ? (
+                                      <DropdownMenuItem asChild>
+                                        <a
+                                          href={borrowerTransactionReceiptUrl(tx.id)}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                        >
+                                          View receipt
+                                        </a>
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {tx.proofPath ? (
+                                      <DropdownMenuItem asChild>
+                                        <a
+                                          href={borrowerTransactionProofUrl(tx.id)}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                        >
+                                          View proof of payment
+                                        </a>
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {!tx.receiptPath && !tx.proofPath ? (
+                                      <DropdownMenuItem disabled>No documents yet</DropdownMenuItem>
+                                    ) : null}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                           </TableRow>
                         );

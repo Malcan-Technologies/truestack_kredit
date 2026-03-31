@@ -31,6 +31,7 @@ import {
   Send,
   Fingerprint,
   Sparkles,
+  Banknote,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -123,6 +124,11 @@ const navigationSections: NavSection[] = [
         name: "Availability settings",
         href: "/dashboard/truekredit-pro/availability",
         icon: Calendar,
+      },
+      {
+        name: "Payment approvals",
+        href: "/dashboard/truekredit-pro/payment-approvals",
+        icon: Banknote,
       },
     ],
   },

@@ -230,3 +230,50 @@ export async function deleteApplicationDocument(
   }
   return json;
 }
+
+export async function postBorrowerCounterOffer(
+  applicationId: string,
+  body: { amount: number; term: number }
+): Promise<{ success: boolean; data: unknown }> {
+  const res = await fetch(`${BASE}/applications/${encodeURIComponent(applicationId)}/counter-offer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Counter-offer failed");
+  }
+  return { success: true, data: json.data ?? json };
+}
+
+export async function postBorrowerAcceptOffer(
+  applicationId: string
+): Promise<{ success: boolean; data: LoanApplicationDetail }> {
+  const res = await fetch(`${BASE}/applications/${encodeURIComponent(applicationId)}/accept-offer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({}),
+  });
+  const json = await parseJson<{ success: boolean; data?: LoanApplicationDetail; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Accept failed");
+  }
+  return { success: true, data: json.data! };
+}
+
+export async function postBorrowerRejectOffers(applicationId: string): Promise<{ success: boolean }> {
+  const res = await fetch(`${BASE}/applications/${encodeURIComponent(applicationId)}/reject-offers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({}),
+  });
+  const json = await parseJson<{ success: boolean; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Reject failed");
+  }
+  return json;
+}

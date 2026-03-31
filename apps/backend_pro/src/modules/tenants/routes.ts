@@ -176,6 +176,10 @@ const updateTenantSchema = z.object({
   email: z.string().email().optional().nullable(),
   contactNumber: z.string().max(20).optional().nullable(),
   businessAddress: z.string().max(500).optional().nullable(),
+  lenderBankCode: z.string().max(64).optional().nullable(),
+  lenderBankOtherName: z.string().max(120).optional().nullable(),
+  lenderAccountHolderName: z.string().max(200).optional().nullable(),
+  lenderAccountNumber: z.string().max(64).optional().nullable(),
 });
 
 const inviteUserSchema = z.object({
@@ -305,6 +309,10 @@ router.get('/current', async (req, res, next) => {
         businessAddress: tenant.businessAddress,
         logoUrl: tenant.logoUrl,
         status: tenant.status,
+        lenderBankCode: tenant.lenderBankCode,
+        lenderBankOtherName: tenant.lenderBankOtherName,
+        lenderAccountHolderName: tenant.lenderAccountHolderName,
+        lenderAccountNumber: tenant.lenderAccountNumber,
         proLicenseActivatedAt: tenant.proLicenseActivatedAt.toISOString(),
         subscription: {
           plan: derivedPlan,
@@ -377,6 +385,10 @@ router.patch('/current', requireAdmin, async (req, res, next) => {
         businessAddress: tenant.businessAddress,
         logoUrl: tenant.logoUrl,
         status: tenant.status,
+        lenderBankCode: tenant.lenderBankCode,
+        lenderBankOtherName: tenant.lenderBankOtherName,
+        lenderAccountHolderName: tenant.lenderAccountHolderName,
+        lenderAccountNumber: tenant.lenderAccountNumber,
       },
     });
   } catch (error) {

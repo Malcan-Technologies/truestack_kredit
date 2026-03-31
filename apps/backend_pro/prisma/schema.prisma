@@ -111,6 +111,24 @@ enum EventStatus {
   FAILED
 }
 
+enum BorrowerManualPaymentRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LoanApplicationOfferParty {
+  ADMIN
+  BORROWER
+}
+
+enum LoanApplicationOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  SUPERSEDED
+}
+
 // ============================================
 // Core Tenant Models
 // ============================================
@@ -126,6 +144,11 @@ model Tenant {
   contactNumber      String? // Company contact number
   businessAddress    String? // Company business address
   logoUrl            String? // Company logo URL (local path in dev, S3 in prod)
+  /// Malaysian bank code from lender settings (see admin bank-options); use OTHER + lenderBankOtherName for custom
+  lenderBankCode          String?
+  lenderBankOtherName     String?
+  lenderAccountHolderName String?
+  lenderAccountNumber     String?
   status             TenantStatus @default(ACTIVE)
   /// When this tenant was granted TrueKredit Pro (purchase or ops). Full product access from this point.
   proLicenseActivatedAt DateTime @default(now())
@@ -145,6 +168,7 @@ model Tenant {
   borrowerDocuments    BorrowerDocument[]
   products             Product[]
   applications         LoanApplication[]
+  loanApplicationOffers LoanApplicationOffer[]
   applicationDocuments ApplicationDocument[]
   loans                Loan[]
   auditLogs            AuditLog[]
@@ -162,6 +186,7 @@ model Tenant {
   trueIdentityUsageDaily TrueIdentityUsageDaily[]
   borrowerProfileLinks       BorrowerProfileLink[]
   truestackKycSessions       TruestackKycSession[]
+  borrowerManualPaymentRequests BorrowerManualPaymentRequest[]
 }
 
 // ============================================
@@ -480,6 +505,7 @@ model Borrower {
   applicationGuarantors ApplicationGuarantor[]
   loans        Loan[]
   loanGuarantors LoanGuarantor[]
+  borrowerManualPaymentRequests BorrowerManualPaymentRequest[]
   documents    BorrowerDocument[]
   directors    BorrowerDirector[]
   emailLogs    EmailLog[] // TrueSend email delivery logs
@@ -652,10 +678,30 @@ model LoanApplication {
   loan      Loan?
   documents ApplicationDocument[]
   guarantors ApplicationGuarantor[]
+  offerRounds LoanApplicationOffer[]
 
   @@index([tenantId])
   @@index([status])
   @@index([borrowerId])
+}
+
+model LoanApplicationOffer {
+  id              String                    @id @default(cuid())
+  tenantId        String
+  applicationId   String
+  amount          Decimal                   @db.Decimal(12, 2)
+  term            Int
+  fromParty       LoanApplicationOfferParty
+  status          LoanApplicationOfferStatus @default(PENDING)
+  createdAt       DateTime                  @default(now())
+  resolvedAt      DateTime?
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([applicationId])
+  @@index([applicationId, status])
 }
 
 model ApplicationGuarantor {
@@ -826,6 +872,7 @@ model Loan {
   guarantors       LoanGuarantor[]
   scheduleVersions LoanScheduleVersion[]
   transactions     PaymentTransaction[]
+  borrowerManualPaymentRequests BorrowerManualPaymentRequest[]
   lateFeeEntries   LateFeeEntry[]
   emailLogs        EmailLog[] // TrueSend email delivery logs
   attestationAssignedMember TenantMember? @relation("AttestationAssignedMember", fields: [attestationAssignedMemberId], references: [id], onDelete: SetNull)
@@ -946,10 +993,44 @@ model PaymentTransaction {
   tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   loan        Loan                @relation(fields: [loanId], references: [id], onDelete: Cascade)
   allocations PaymentAllocation[]
+  borrowerManualPaymentRequest BorrowerManualPaymentRequest?
 
   @@index([tenantId])
   @@index([loanId])
   @@index([receiptNumber])
+}
+
+/// Borrower-submitted bank transfer; ledger updates only after admin approval
+model BorrowerManualPaymentRequest {
+  id            String                           @id @default(cuid())
+  tenantId      String
+  loanId        String
+  borrowerId    String
+  amount        Decimal                          @db.Decimal(12, 2)
+  reference     String
+  status        BorrowerManualPaymentRequestStatus @default(PENDING)
+  rejectionReason String?
+  receiptPath   String?
+  receiptFilename String?
+  receiptOriginalName String?
+  receiptMimeType String?
+  receiptSize   Int?
+  paymentTransactionId String? @unique
+  reviewedAt    DateTime?
+  reviewedByMemberId String?
+  createdAt     DateTime                         @default(now())
+  updatedAt     DateTime                         @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  loan     Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  paymentTransaction PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([loanId])
+  @@index([borrowerId])
+  @@index([status])
+  @@index([tenantId, status])
 }
 
 model PaymentAllocation {

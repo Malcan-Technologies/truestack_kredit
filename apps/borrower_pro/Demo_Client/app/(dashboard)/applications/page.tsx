@@ -41,9 +41,24 @@ import { borrowerApplicationDetailPath } from "@borrower_pro/lib/borrower-applic
 import type { LoanApplicationDetail } from "@borrower_pro/lib/application-form-types";
 import { toAmountNumber } from "@borrower_pro/lib/application-form-validation";
 import { formatDate } from "@borrower_pro/lib/borrower-form-display";
+import { LoanApplicationOfferParty, LoanApplicationOfferStatus } from "@kredit/shared";
 
-/** All, Draft, Submitted (status only), Approved, Rejected, then Action needed → Pending review */
-type AppFilter = "" | "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "PENDING_REVIEW";
+/** All, Draft, Submitted (status only), Approved, Rejected, then Action needed → Pending review, Counter-offer */
+type AppFilter =
+  | ""
+  | "DRAFT"
+  | "SUBMITTED"
+  | "APPROVED"
+  | "REJECTED"
+  | "PENDING_REVIEW";
+
+/** Admin has proposed terms; borrower must respond (accept / reject / counter). */
+function hasPendingLenderCounterOffer(a: LoanApplicationDetail): boolean {
+  if (a.status !== "SUBMITTED" && a.status !== "UNDER_REVIEW") return false;
+  return (a.offerRounds ?? []).some(
+    (o) => o.status === LoanApplicationOfferStatus.PENDING && o.fromParty === LoanApplicationOfferParty.ADMIN
+  );
+}
 
 const statusBadgeVariant: Record<
   string,
@@ -134,6 +149,8 @@ export default function ApplicationsPage() {
     () => rows.filter((a) => a.status === "SUBMITTED" || a.status === "UNDER_REVIEW").length,
     [rows]
   );
+
+  const counterOfferCount = useMemo(() => rows.filter(hasPendingLenderCounterOffer).length, [rows]);
 
   /** Applications sent to the lender (any status except draft). */
   const submittedToLenderTotal = useMemo(
@@ -258,6 +275,37 @@ export default function ApplicationsPage() {
           <div className="flex items-center gap-2 text-sm flex-wrap text-foreground font-medium">
             {pendingReviewCount} application{pendingReviewCount !== 1 ? "s" : ""} awaiting lender
             review
+          </div>
+        </div>
+      )}
+
+      {counterOfferCount > 0 && (
+        <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold">Counter-offer waiting for your response</span>
+                <Badge
+                  variant="outline"
+                  className="border-amber-300 bg-white/80 text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-100"
+                >
+                  {counterOfferCount} application{counterOfferCount !== 1 ? "s" : ""}
+                </Badge>
+              </div>
+              <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
+                Review the proposed amount and term on the application page, then accept, reject, or respond with your
+                own counter-offer.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-start sm:justify-end">
+            <Button type="button" size="sm" variant="outline" asChild>
+              <Link href="/applications" className="border-amber-300 bg-white/80 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60">
+                Review now
+              </Link>
+            </Button>
           </div>
         </div>
       )}
@@ -450,6 +498,7 @@ export default function ApplicationsPage() {
                     const isDraft = app.status === "DRAFT";
                     const loanId = app.loan?.id;
                     const badgeVariant = statusBadgeVariant[app.status] ?? "outline";
+                    const showCounterOfferPill = hasPendingLenderCounterOffer(app);
 
                     return (
                       <TableRow
@@ -471,7 +520,17 @@ export default function ApplicationsPage() {
                           <LoanChannelPill channel={app.loanChannel} />
                         </TableCell>
                         <TableCell>
-                          <Badge variant={badgeVariant}>{app.status.replace(/_/g, " ")}</Badge>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant={badgeVariant}>{app.status.replace(/_/g, " ")}</Badge>
+                            {showCounterOfferPill && (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
+                              >
+                                Counter offer
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>{formatDate(app.createdAt)}</TableCell>
                         <TableCell className="text-right">

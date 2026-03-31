@@ -33,6 +33,12 @@ import {
   expirePendingProposals,
 } from '../../lib/attestationBookingService.js';
 import { isPreDisbursementLoanStatus } from '../../lib/loanStatusHelpers.js';
+import {
+  adminCounterOffer,
+  adminAcceptLatestOffer,
+  assertNoPendingOffersForApproval,
+  rejectPendingOffers,
+} from './applicationNegotiationService.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
@@ -1040,6 +1046,9 @@ router.get('/applications/:applicationId', async (req, res, next) => {
         loan: {
           select: { id: true, status: true },
         },
+        offerRounds: {
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -1279,6 +1288,8 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
       throw new BadRequestError('Can only approve submitted applications');
     }
 
+    await assertNoPendingOffersForApproval(applicationId);
+
     const previousStatus = application.status;
     const productRateCap = toSafeNumber(application.product.interestRate);
     const principalAmount = toSafeNumber(application.amount);
@@ -1454,6 +1465,88 @@ router.post('/applications/:applicationId/reject', requireAdmin, async (req, res
       success: true,
       data: updated,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const negotiationBodySchema = z.object({
+  amount: z.number().positive(),
+  term: z.number().int().positive(),
+});
+
+/**
+ * Admin counter-offer (amount + term)
+ * POST /api/loans/applications/:applicationId/counter-offer
+ */
+router.post('/applications/:applicationId/counter-offer', requireAdmin, async (req, res, next) => {
+  try {
+    const applicationId = req.params.applicationId as string;
+    const body = negotiationBodySchema.parse(req.body);
+    const out = await adminCounterOffer({
+      tenantId: req.tenantId!,
+      applicationId,
+      amount: body.amount,
+      term: body.term,
+    });
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'APPLICATION_COUNTER_OFFER',
+      entityType: 'LoanApplication',
+      entityId: applicationId,
+      newData: { offerId: out.id, fromParty: 'ADMIN', amount: body.amount, term: body.term },
+      ipAddress: req.ip,
+    });
+    res.status(201).json({ success: true, data: out });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Admin accepts borrower's latest pending counter-offer
+ * POST /api/loans/applications/:applicationId/accept-offer
+ */
+router.post('/applications/:applicationId/accept-offer', requireAdmin, async (req, res, next) => {
+  try {
+    const applicationId = req.params.applicationId as string;
+    await adminAcceptLatestOffer({ tenantId: req.tenantId!, applicationId });
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'APPLICATION_ACCEPT_BORROWER_OFFER',
+      entityType: 'LoanApplication',
+      entityId: applicationId,
+      ipAddress: req.ip,
+    });
+    const updated = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: req.tenantId },
+      include: { offerRounds: { orderBy: { createdAt: 'desc' }, take: 5 } },
+    });
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Reject all pending negotiation offers (admin)
+ * POST /api/loans/applications/:applicationId/reject-offers
+ */
+router.post('/applications/:applicationId/reject-offers', requireAdmin, async (req, res, next) => {
+  try {
+    const applicationId = req.params.applicationId as string;
+    await rejectPendingOffers({ tenantId: req.tenantId!, applicationId });
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'APPLICATION_REJECT_OFFERS',
+      entityType: 'LoanApplication',
+      entityId: applicationId,
+      ipAddress: req.ip,
+    });
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -2223,6 +2316,125 @@ router.post('/:loanId/attestation/counter-proposal', async (req, res, next) => {
       entityType: 'Loan',
       entityId: loanId,
       newData: { startAt: startAt.toISOString(), endAt: endAt.toISOString() },
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/loans/:loanId/attestation/reject-proposal
+ */
+router.post('/:loanId/attestation/reject-proposal', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { loanId } = req.params;
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId },
+      select: {
+        id: true,
+        status: true,
+        attestationStatus: true,
+      },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (!isPreDisbursementLoanStatus(loan.status) || loan.attestationStatus !== 'SLOT_PROPOSED') {
+      throw new BadRequestError('Nothing to reject.');
+    }
+
+    const updated = await prisma.loan.update({
+      where: { id: loanId },
+      data: {
+        status: 'CANCELLED',
+        attestationCancellationReason: 'PROPOSAL_REJECTED_BY_LENDER',
+        attestationCancelledAt: new Date(),
+        attestationProposalStartAt: null,
+        attestationProposalEndAt: null,
+        attestationProposalDeadlineAt: null,
+        attestationProposalSource: null,
+        attestationMeetingLink: null,
+        attestationMeetingNotes: null,
+        attestationGoogleCalendarEventId: null,
+      },
+    });
+
+    await AuditService.log({
+      tenantId,
+      memberId: req.memberId,
+      action: 'ADMIN_ATTESTATION_PROPOSAL_REJECTED',
+      entityType: 'Loan',
+      entityId: loanId,
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/loans/:loanId/attestation/complete-meeting
+ * Admin confirms the scheduled attestation meeting is finished; unlocks signing.
+ */
+router.post('/:loanId/attestation/complete-meeting', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const memberId = req.memberId;
+    const { loanId } = req.params;
+    if (!memberId) {
+      throw new BadRequestError('Member context required');
+    }
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId },
+      select: {
+        id: true,
+        status: true,
+        attestationStatus: true,
+        attestationCompletedAt: true,
+      },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (!isPreDisbursementLoanStatus(loan.status)) {
+      throw new BadRequestError('Attestation is only available while the loan is pending disbursement');
+    }
+    if (loan.attestationStatus !== 'MEETING_SCHEDULED') {
+      throw new BadRequestError('Schedule a meeting before marking it complete.');
+    }
+    if (loan.attestationCompletedAt) {
+      throw new BadRequestError('Attestation is already complete.');
+    }
+
+    const now = new Date();
+    const updated = await prisma.loan.update({
+      where: { id: loanId },
+      data: {
+        status: 'PENDING_DISBURSEMENT',
+        attestationStatus: 'COMPLETED',
+        attestationCompletedAt: now,
+      },
+    });
+
+    await AuditService.log({
+      tenantId,
+      memberId,
+      action: 'ADMIN_ATTESTATION_COMPLETE',
+      entityType: 'Loan',
+      entityId: loanId,
+      previousData: { attestationStatus: loan.attestationStatus, status: loan.status },
+      newData: {
+        attestationStatus: updated.attestationStatus,
+        attestationCompletedAt: now.toISOString(),
+        status: 'PENDING_DISBURSEMENT',
+      },
       ipAddress: req.ip,
     });
 

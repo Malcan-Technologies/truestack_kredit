@@ -4,6 +4,7 @@
 export type BorrowerLoanStatusLabelInput = {
   status: string;
   attestationCompletedAt?: string | null;
+  loanChannel?: "ONLINE" | "PHYSICAL";
 };
 
 /** Semantic badge variants aligned with `admin_pro` loan status colors. */
@@ -17,7 +18,11 @@ export type BorrowerSemanticBadgeVariant =
 
 export function loanStatusBadgeLabelFromDb(loan: BorrowerLoanStatusLabelInput): string {
   if (loan.status === "PENDING_ATTESTATION") return "Pending Attestation";
-  if (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt) {
+  if (
+    loan.status === "PENDING_DISBURSEMENT" &&
+    loan.loanChannel !== "PHYSICAL" &&
+    !loan.attestationCompletedAt
+  ) {
     return "Pending Attestation";
   }
   return loan.status
@@ -35,7 +40,9 @@ export function borrowerLoanStatusBadgeVariant(
 ): BorrowerSemanticBadgeVariant {
   if (
     loan.status === "PENDING_ATTESTATION" ||
-    (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt)
+    (loan.status === "PENDING_DISBURSEMENT" &&
+      loan.loanChannel !== "PHYSICAL" &&
+      !loan.attestationCompletedAt)
   ) {
     return "warning";
   }

@@ -63,6 +63,9 @@ interface TenantStats {
   name: string;
   slug: string;
   status: string;
+  lenderBankCode?: string | null;
+  lenderAccountHolderName?: string | null;
+  lenderAccountNumber?: string | null;
   subscription: {
     plan: string;
     status: string;
@@ -395,9 +398,33 @@ export default function DashboardPage() {
 
   const dateRangeLabel = DATE_PRESETS.find((p) => p.value === datePreset)?.label ?? "Period";
 
+  const borrowerBankIncomplete =
+    !!tenant &&
+    (!tenant.lenderBankCode ||
+      !tenant.lenderAccountHolderName?.trim() ||
+      !tenant.lenderAccountNumber?.trim());
+
   return (
     <TooltipProvider>
       <div className="space-y-6">
+        {borrowerBankIncomplete && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50"
+            role="status"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>
+              Add your <strong>borrower payment bank details</strong> in Settings so borrowers can see where to transfer
+              funds for manual payments.
+            </span>
+            <Link
+              href="/dashboard/settings"
+              className="font-medium underline underline-offset-2 hover:no-underline text-amber-950 dark:text-amber-50"
+            >
+              Open Settings
+            </Link>
+          </div>
+        )}
         {/* ============================================ */}
         {/* Row 1: Header + Date Range Filter */}
         {/* ============================================ */}

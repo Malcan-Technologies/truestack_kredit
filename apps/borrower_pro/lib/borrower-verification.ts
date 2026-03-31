@@ -1,4 +1,4 @@
-import type { BorrowerDetail, TruestackKycSessionRow } from "./borrower-api-client";
+import type { BorrowerDetail, TruestackKycSessionRow, TruestackKycStatusData } from "./borrower-api-client";
 
 /**
  * Matches backend `isIndividualIdentityLocked` — fully verified individual
@@ -30,6 +30,38 @@ export function isCorporateIdentityDocumentLocked(
       Boolean(s.directorId) &&
       s.status === "completed" &&
       s.result === "approved"
+  );
+}
+
+export function isBorrowerKycComplete(
+  borrower: Pick<
+    BorrowerDetail,
+    | "borrowerType"
+    | "documentVerified"
+    | "verificationStatus"
+    | "trueIdentityStatus"
+    | "trueIdentityResult"
+    | "directors"
+  >,
+  kycStatus?: Pick<TruestackKycStatusData, "sessions"> | null
+): boolean {
+  const sessions = kycStatus?.sessions ?? [];
+
+  if (borrower.borrowerType === "INDIVIDUAL") {
+    if (isIndividualIdentityLocked(borrower)) return true;
+    return sessions.some((s) => !s.directorId && s.status === "completed" && s.result === "approved");
+  }
+
+  if (borrower.verificationStatus === "FULLY_VERIFIED") return true;
+  if ((borrower.directors ?? []).length === 0) return false;
+
+  return borrower.directors.every((director) =>
+    sessions.some(
+      (s) =>
+        s.directorId === director.id &&
+        s.status === "completed" &&
+        s.result === "approved"
+    )
   );
 }
 

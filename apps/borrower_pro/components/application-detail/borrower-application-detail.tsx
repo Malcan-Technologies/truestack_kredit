@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Eye,
   FileText,
+  Handshake,
   Package,
   Pencil,
   Plus,
@@ -37,6 +38,16 @@ import {
   CardTitle,
 } from "../ui/card";
 import { Badge } from "../ui/badge";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { CopyField } from "../ui/copy-field";
 import { PhoneDisplay } from "../ui/phone-display";
 import { RefreshButton } from "../ui/refresh-button";
@@ -45,8 +56,14 @@ import type { LoanApplicationDetail, LoanPreviewData } from "../../lib/applicati
 import { allDocumentsOptional } from "../../lib/application-form-validation";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { formatCurrency, formatDate, formatICForDisplay } from "../../lib/borrower-form-display";
-import { previewBorrowerApplication } from "../../lib/borrower-applications-client";
+import {
+  previewBorrowerApplication,
+  postBorrowerAcceptOffer,
+  postBorrowerCounterOffer,
+  postBorrowerRejectOffers,
+} from "../../lib/borrower-applications-client";
 import { getBorrowerApplicationTimeline } from "../../lib/borrower-loans-client";
+import { LoanApplicationOfferParty, LoanApplicationOfferStatus } from "@kredit/shared";
 
 function formatNumber(n: number, decimals: number): string {
   return n.toLocaleString("en-MY", {
@@ -183,8 +200,7 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
   const canShowDocuments =
     app.status === "DRAFT" ||
     app.status === "SUBMITTED" ||
-    app.status === "UNDER_REVIEW" ||
-    app.status === "APPROVED";
+    app.status === "UNDER_REVIEW";
   const docMode = app.status === "DRAFT" ? "draft" : "post_submit";
   const loanLink = app.loan?.id ? `/loans/${app.loan.id}` : null;
   const borrower = borrowerFromApp(app);
@@ -194,6 +210,17 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(true);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
+  const [showNegDialog, setShowNegDialog] = useState(false);
+  const [negAmount, setNegAmount] = useState("");
+  const [negTerm, setNegTerm] = useState("");
+  const [negBusy, setNegBusy] = useState(false);
+
+  const pendingLenderOffer = (app.offerRounds ?? []).find(
+    (o) => o.status === LoanApplicationOfferStatus.PENDING && o.fromParty === LoanApplicationOfferParty.ADMIN
+  );
+  const pendingBorrowerOffer = (app.offerRounds ?? []).find(
+    (o) => o.status === LoanApplicationOfferStatus.PENDING && o.fromParty === LoanApplicationOfferParty.BORROWER
+  );
 
   const loadPreview = useCallback(async () => {
     setPreviewLoading(true);
@@ -232,6 +259,67 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
       cancelled = true;
     };
   }, [app.id]);
+
+  const openCounterDialog = () => {
+    if (pendingLenderOffer) {
+      setNegAmount(String(Number(pendingLenderOffer.amount)));
+      setNegTerm(String(pendingLenderOffer.term));
+    } else if (preview) {
+      setNegAmount(String(preview.loanAmount));
+      setNegTerm(String(preview.term));
+    } else {
+      setNegAmount(String(toAmountNumber(app.amount)));
+      setNegTerm(String(app.term));
+    }
+    setShowNegDialog(true);
+  };
+
+  const handleAcceptOffer = async () => {
+    setNegBusy(true);
+    try {
+      await postBorrowerAcceptOffer(app.id);
+      toast.success("Offer accepted");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not accept offer");
+    } finally {
+      setNegBusy(false);
+    }
+  };
+
+  const handleRejectOffers = async () => {
+    if (!window.confirm("Reject the lender’s offer? Negotiation will end.")) return;
+    setNegBusy(true);
+    try {
+      await postBorrowerRejectOffers(app.id);
+      toast.success("Offer rejected");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reject");
+    } finally {
+      setNegBusy(false);
+    }
+  };
+
+  const handleSubmitCounter = async () => {
+    const amt = parseFloat(String(negAmount).replace(/,/g, ""));
+    const term = parseInt(String(negTerm).replace(/\s/g, ""), 10);
+    if (!Number.isFinite(amt) || amt <= 0 || !Number.isInteger(term) || term < 1) {
+      toast.error("Enter a valid amount and term (months)");
+      return;
+    }
+    setNegBusy(true);
+    try {
+      await postBorrowerCounterOffer(app.id, { amount: amt, term });
+      toast.success("Counter-offer sent");
+      setShowNegDialog(false);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Counter-offer failed");
+    } finally {
+      setNegBusy(false);
+    }
+  };
 
   const isCorporate = borrower?.borrowerType === "CORPORATE";
   const product = app.product;
@@ -419,6 +507,89 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
               </CardContent>
             </Card>
           </div>
+
+          {(app.status === "SUBMITTED" || app.status === "UNDER_REVIEW") &&
+            ((app.offerRounds?.length ?? 0) > 0 || pendingLenderOffer || pendingBorrowerOffer) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Handshake className="h-5 w-5 text-muted-foreground" />
+                    Offer negotiation
+                  </CardTitle>
+                  <CardDescription>
+                    The lender may propose revised amount and term. You can accept, counter, or reject.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {pendingBorrowerOffer && !pendingLenderOffer && (
+                    <p className="text-sm text-muted-foreground">
+                      Your counter-offer is pending lender review.
+                    </p>
+                  )}
+                  {pendingLenderOffer && (
+                    <div className="rounded-lg border border-border bg-secondary/50 p-4 space-y-3">
+                      <p className="text-sm font-medium">Pending offer from lender</p>
+                      <div className="flex flex-wrap gap-6 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Amount</span>
+                          <p className="font-medium">{formatCurrency(Number(pendingLenderOffer.amount))}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Term</span>
+                          <p className="font-medium">{pendingLenderOffer.term} months</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void handleAcceptOffer()}
+                          disabled={negBusy}
+                        >
+                          Accept offer
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={openCounterDialog}
+                          disabled={negBusy}
+                        >
+                          Counter
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => void handleRejectOffers()}
+                          disabled={negBusy}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {(app.offerRounds?.length ?? 0) > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-2">History</p>
+                      <ul className="space-y-2 text-sm border rounded-lg divide-y max-h-48 overflow-y-auto">
+                        {(app.offerRounds ?? []).map((o) => (
+                          <li key={o.id} className="flex flex-wrap justify-between gap-2 p-3">
+                            <span>
+                              {o.fromParty === LoanApplicationOfferParty.ADMIN ? "Lender" : "You"} · {o.status}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {formatCurrency(Number(o.amount))} · {o.term} mo · {formatDate(o.createdAt)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
           {/* Loan Summary — admin-style panel */}
           {previewLoading ? (
@@ -671,6 +842,47 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
           when ready.
         </p>
       )}
+
+      <Dialog open={showNegDialog} onOpenChange={setShowNegDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Counter-offer</DialogTitle>
+            <DialogDescription>
+              Propose the loan amount and term you want. The lender will review your counter-offer.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="neg-amount">Amount (MYR)</Label>
+              <Input
+                id="neg-amount"
+                inputMode="decimal"
+                value={negAmount}
+                onChange={(e) => setNegAmount(e.target.value)}
+                placeholder="e.g. 50000"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="neg-term">Term (months)</Label>
+              <Input
+                id="neg-term"
+                inputMode="numeric"
+                value={negTerm}
+                onChange={(e) => setNegTerm(e.target.value)}
+                placeholder="e.g. 36"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowNegDialog(false)} disabled={negBusy}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void handleSubmitCounter()} disabled={negBusy}>
+              Send counter-offer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

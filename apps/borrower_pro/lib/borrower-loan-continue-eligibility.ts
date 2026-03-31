@@ -8,7 +8,8 @@ export function borrowerLoanNeedsContinueAction(loan: BorrowerLoanListItem): boo
   if (loan.status !== "PENDING_ATTESTATION" && loan.status !== "PENDING_DISBURSEMENT") {
     return false;
   }
-  if (!loan.attestationCompletedAt) {
+  const requiresAttestation = loan.loanChannel !== "PHYSICAL";
+  if (requiresAttestation && !loan.attestationCompletedAt) {
     return true;
   }
   const review = loan.signedAgreementReviewStatus ?? "NONE";

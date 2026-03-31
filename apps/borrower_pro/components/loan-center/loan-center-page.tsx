@@ -57,7 +57,6 @@ import {
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { borrowerLoanNeedsContinueAction } from "../../lib/borrower-loan-continue-eligibility";
 import { formatDate } from "../../lib/borrower-form-display";
-import { BorrowerPaymentDialog } from "./borrower-payment-dialog";
 import { LoanChannelPill } from "./loan-channel-pill";
 import { cn } from "../../lib/utils";
 
@@ -468,7 +467,6 @@ export function LoanCenterPage() {
             <LoanCardsGrid
               loans={loanRows}
               tab={tab}
-              onRefresh={() => void loadAll()}
               onOpenLoan={(id) => router.push(`/loans/${id}`)}
             />
           )}
@@ -559,15 +557,12 @@ function LoanCardsSkeleton() {
 function LoanCardsGrid({
   loans,
   tab,
-  onRefresh,
   onOpenLoan,
 }: {
   loans: BorrowerLoanListItem[];
   tab: LoanCenterTab;
-  onRefresh: () => void;
   onOpenLoan: (id: string) => void;
 }) {
-  const [payLoanId, setPayLoanId] = useState<string | null>(null);
 
   const showContinueColumn = tab === "before_payout" || tab === "all";
 
@@ -591,6 +586,7 @@ function LoanCardsGrid({
             attestationCompletedAt: loan.attestationCompletedAt,
             signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
             agreementPath: undefined,
+            loanChannel: loan.loanChannel,
           });
           const canPay =
             loan.status === "ACTIVE" || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
@@ -605,8 +601,7 @@ function LoanCardsGrid({
           const isCompleted = loan.status === "COMPLETED";
           const isDischarged =
             loan.status === "COMPLETED" || loan.status === "WRITTEN_OFF" || loan.status === "CANCELLED";
-          const clickable =
-            isPreDisbursement || isActiveLoan || isCompleted;
+          const clickable = isPreDisbursement || isActiveLoan || isCompleted;
 
           return (
             <Card
@@ -782,14 +777,11 @@ function LoanCardsGrid({
                     </Button>
                   )}
                   {canPay && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => setPayLoanId(loan.id)}
-                    >
-                      <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-                      Record payment
+                    <Button size="sm" variant="outline" className="flex-1" asChild>
+                      <Link href={`/loans/${loan.id}/payment`}>
+                        <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                        Make payment
+                      </Link>
                     </Button>
                   )}
                   {clickable && !needsContinue && !canPay && (
@@ -806,19 +798,7 @@ function LoanCardsGrid({
           );
         })}
       </div>
-      {payLoanId && (
-        <BorrowerPaymentDialog
-          loanId={payLoanId}
-          open={!!payLoanId}
-          onOpenChange={(o) => !o && setPayLoanId(null)}
-          onSuccess={() => {
-            setPayLoanId(null);
-            onRefresh();
-            toast.success("Payment recorded");
-          }}
-        />
-      )}
-    </TooltipProvider>
+      </TooltipProvider>
   );
 }
 

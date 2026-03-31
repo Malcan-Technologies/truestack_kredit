@@ -86,6 +86,27 @@ export enum EventStatus {
   FAILED = 'FAILED',
 }
 
+/** Aligns with Prisma `BorrowerManualPaymentRequestStatus` in backend_pro. */
+export enum BorrowerManualPaymentRequestStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
+/** Aligns with Prisma `LoanApplicationOfferParty` in backend_pro. */
+export enum LoanApplicationOfferParty {
+  ADMIN = 'ADMIN',
+  BORROWER = 'BORROWER',
+}
+
+/** Aligns with Prisma `LoanApplicationOfferStatus` in backend_pro. */
+export enum LoanApplicationOfferStatus {
+  PENDING = 'PENDING',
+  ACCEPTED = 'ACCEPTED',
+  REJECTED = 'REJECTED',
+  SUPERSEDED = 'SUPERSEDED',
+}
+
 // ============================================
 // Constants
 // ============================================

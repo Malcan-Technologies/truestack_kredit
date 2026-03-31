@@ -1,22 +1,24 @@
 import { Router } from 'express';
 import fs from 'fs';
+import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { requireBorrowerSession } from '../../middleware/authenticateBorrower.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { requireActiveBorrower } from '../borrower-auth/borrowerContext.js';
-import { parseFileUpload } from '../../lib/upload.js';
+import { parseFileUpload, parseMultipartWithOptionalFile } from '../../lib/upload.js';
 import {
   saveAgreementFile,
   deleteAgreementFile,
   getAgreementFile,
   getLocalPath,
+  saveFile,
+  getFile,
 } from '../../lib/storage.js';
 import { AuditService } from '../compliance/auditService.js';
 import { buildLoanAgreementPdfBuffer } from '../loans/loanAgreementPdfService.js';
 import { toSafeNumber, safeAdd, safeSubtract, safeMultiply, safeDivide, safeRound } from '../../lib/math.js';
 import { calculateDaysOverdueMalaysia } from '../../lib/malaysiaTime.js';
-import { handleRecordLoanSpilloverPayment } from '../schedules/recordLoanSpilloverPayment.js';
 import { listAvailableAttestationSlots } from '../../lib/attestationAvailability.js';
 import {
   proposeBorrowerSlot,
@@ -46,6 +48,80 @@ const getLatestAllocationAt = (
     return !latest || allocatedAt > latest ? allocatedAt : latest;
   }, null);
 };
+
+const createManualPaymentBodySchema = z.object({
+  amount: z.number().positive(),
+  reference: z.string().min(1).max(200),
+});
+
+async function createBorrowerManualPaymentRequest(params: {
+  tenantId: string;
+  borrowerId: string;
+  loanId: string;
+  amount: number;
+  reference: string;
+  receipt?: { buffer: Buffer; originalName: string; mimeType: string };
+}): Promise<{ id: string }> {
+  const { tenantId, borrowerId, loanId, amount, reference, receipt } = params;
+
+  const loan = await prisma.loan.findFirst({
+    where: { id: loanId, tenantId, borrowerId },
+  });
+  if (!loan) {
+    throw new NotFoundError('Loan');
+  }
+  if (loan.status === 'PENDING_DISBURSEMENT' || loan.status === 'PENDING_ATTESTATION') {
+    throw new BadRequestError('Loan has not been disbursed yet');
+  }
+  if (loan.status === 'COMPLETED') {
+    throw new BadRequestError('Loan is already completed');
+  }
+  if (loan.status === 'WRITTEN_OFF') {
+    throw new BadRequestError('Cannot submit payments on a written-off loan');
+  }
+
+  let receiptPath: string | null = null;
+  let receiptFilename: string | null = null;
+  let receiptOriginalName: string | null = null;
+  let receiptMimeType: string | null = null;
+  let receiptSize: number | null = null;
+
+  if (receipt) {
+    const ext = path.extname(receipt.originalName) || '.pdf';
+    const saved = await saveFile(receipt.buffer, 'borrower-payment-slips', `${tenantId}-${loanId}`, `slip${ext}`);
+    receiptPath = saved.path;
+    receiptFilename = saved.filename;
+    receiptOriginalName = receipt.originalName;
+    receiptMimeType = receipt.mimeType;
+    receiptSize = receipt.buffer.length;
+  }
+
+  const row = await prisma.borrowerManualPaymentRequest.create({
+    data: {
+      tenantId,
+      loanId,
+      borrowerId,
+      amount,
+      reference: reference.trim(),
+      status: 'PENDING',
+      receiptPath,
+      receiptFilename,
+      receiptOriginalName,
+      receiptMimeType,
+      receiptSize,
+    },
+  });
+
+  await AuditService.log({
+    tenantId,
+    action: 'BORROWER_MANUAL_PAYMENT_REQUEST_CREATED',
+    entityType: 'Loan',
+    entityId: loanId,
+    newData: { requestId: row.id, amount, reference: reference.trim() },
+  });
+
+  return { id: row.id };
+}
 
 /**
  * GET /api/borrower-auth/loan-center/overview
@@ -422,7 +498,24 @@ router.get('/loans/:loanId/schedule', async (req, res, next) => {
             repayments: {
               orderBy: { dueDate: 'asc' },
               include: {
-                allocations: { orderBy: { allocatedAt: 'desc' } },
+                allocations: {
+                  orderBy: { allocatedAt: 'desc' },
+                  include: {
+                    transaction: {
+                      select: {
+                        id: true,
+                        receiptNumber: true,
+                        receiptPath: true,
+                        proofPath: true,
+                        proofOriginalName: true,
+                        proofMimeType: true,
+                        paymentDate: true,
+                        totalAmount: true,
+                        reference: true,
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -689,29 +782,145 @@ router.get('/loans/:loanId/payments', async (req, res, next) => {
 });
 
 /**
+ * POST /api/borrower-auth/loans/:loanId/manual-payment-requests
+ * Creates a pending manual payment (bank transfer) for admin approval. Optional receipt upload (multipart).
+ */
+router.post('/loans/:loanId/manual-payment-requests', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    let amount: number;
+    let reference: string;
+    let receipt: { buffer: Buffer; originalName: string; mimeType: string } | undefined;
+
+    const contentType = String(req.headers['content-type'] || '');
+    if (contentType.includes('multipart/form-data')) {
+      const parsed = await parseMultipartWithOptionalFile(req);
+      amount = parseFloat(parsed.fields.amount || '');
+      reference = parsed.fields.reference || '';
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new BadRequestError('Enter a valid amount');
+      }
+      if (!reference.trim()) {
+        throw new BadRequestError('Payment reference is required');
+      }
+      if (parsed.file) {
+        receipt = parsed.file;
+      }
+    } else {
+      const body = createManualPaymentBodySchema.parse(req.body);
+      amount = body.amount;
+      reference = body.reference;
+    }
+
+    const { id } = await createBorrowerManualPaymentRequest({
+      tenantId: tenant.id,
+      borrowerId,
+      loanId,
+      amount,
+      reference,
+      receipt,
+    });
+
+    const row = await prisma.borrowerManualPaymentRequest.findFirst({
+      where: { id, tenantId: tenant.id, borrowerId },
+    });
+
+    res.status(201).json({ success: true, data: row });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/borrower-auth/loans/:loanId/manual-payment-requests
+ */
+router.get('/loans/:loanId/manual-payment-requests', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    const rows = await prisma.borrowerManualPaymentRequest.findMany({
+      where: { loanId, tenantId: tenant.id, borrowerId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        paymentTransaction: { select: { id: true, receiptNumber: true, paymentDate: true } },
+      },
+    });
+
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/borrower-auth/loans/:loanId/manual-payment-requests/:requestId/receipt
+ * Download optional borrower-uploaded payment slip (not the generated PDF receipt).
+ */
+router.get('/loans/:loanId/manual-payment-requests/:requestId/receipt', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId, requestId } = req.params;
+
+    const row = await prisma.borrowerManualPaymentRequest.findFirst({
+      where: {
+        id: requestId,
+        loanId,
+        tenantId: tenant.id,
+        borrowerId,
+      },
+    });
+    if (!row || !row.receiptPath) {
+      throw new NotFoundError('Receipt');
+    }
+
+    const fileBuffer = await getFile(row.receiptPath);
+    if (!fileBuffer) {
+      throw new NotFoundError('Receipt file');
+    }
+
+    const name = row.receiptOriginalName || 'receipt';
+    res.setHeader('Content-Type', row.receiptMimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * POST /api/borrower-auth/loans/:loanId/payments
+ * @deprecated Creates a pending manual payment request (same as manual-payment-requests). Immediate allocation removed.
  */
 router.post('/loans/:loanId/payments', async (req, res, next) => {
   try {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const { loanId } = req.params;
+    const body = createManualPaymentBodySchema.parse(req.body);
 
-    const result = await handleRecordLoanSpilloverPayment({
+    const { id } = await createBorrowerManualPaymentRequest({
       tenantId: tenant.id,
+      borrowerId,
       loanId,
-      body: req.body,
-      memberId: null,
-      borrowerIdFilter: borrowerId,
-      ip: req.ip,
-      headers: req.headers,
-      idempotencyEndpoint: 'POST:/api/borrower-auth/loans/:loanId/payments',
+      amount: body.amount,
+      reference: body.reference,
     });
 
-    if (result.kind === 'replay') {
-      res.status(result.status).json(result.body);
-      return;
-    }
-    res.status(201).json(result.body);
+    const row = await prisma.borrowerManualPaymentRequest.findFirst({
+      where: { id, tenantId: tenant.id, borrowerId },
+    });
+
+    res.status(201).json({ success: true, data: row, message: 'Pending lender approval' });
   } catch (e) {
     next(e);
   }
@@ -1103,54 +1312,12 @@ router.post('/loans/:loanId/attestation/request-meeting', async (req, res, next)
 
 /**
  * POST /api/borrower-auth/loans/:loanId/attestation/complete-meeting
- * Borrower confirms the lawyer meeting is done; unlocks signing.
+ * Borrower cannot self-complete lawyer meetings; lender must confirm on admin side.
  */
 router.post('/loans/:loanId/attestation/complete-meeting', async (req, res, next) => {
   try {
-    const { borrowerId, tenant } = await requireActiveBorrower(req);
-    const { loanId } = req.params;
-
-    const loan = await prisma.loan.findFirst({
-      where: { id: loanId, tenantId: tenant.id, borrowerId },
-    });
-    if (!loan) {
-      throw new NotFoundError('Loan');
-    }
-    if (!isPreDisbursementLoanStatus(loan.status)) {
-      throw new BadRequestError('Attestation is only available while the loan is pending disbursement');
-    }
-    if (loan.attestationStatus !== 'MEETING_SCHEDULED') {
-      throw new BadRequestError('Schedule a meeting before marking it complete.');
-    }
-    if (loan.attestationCompletedAt) {
-      throw new BadRequestError('Attestation is already complete.');
-    }
-
-    const now = new Date();
-    const updated = await prisma.loan.update({
-      where: { id: loanId },
-      data: {
-        status: 'PENDING_DISBURSEMENT',
-        attestationStatus: 'COMPLETED',
-        attestationCompletedAt: now,
-      },
-    });
-
-    await AuditService.log({
-      tenantId: tenant.id,
-      action: 'BORROWER_ATTESTATION_COMPLETE',
-      entityType: 'Loan',
-      entityId: loanId,
-      previousData: { attestationStatus: loan.attestationStatus, status: loan.status },
-      newData: {
-        attestationStatus: updated.attestationStatus,
-        attestationCompletedAt: now.toISOString(),
-        status: 'PENDING_DISBURSEMENT',
-      },
-      ipAddress: req.ip,
-    });
-
-    res.json({ success: true, data: updated });
+    await requireActiveBorrower(req);
+    throw new BadRequestError('Your lender will mark the meeting complete after it ends.');
   } catch (e) {
     next(e);
   }
@@ -1218,10 +1385,42 @@ router.post('/loans/:loanId/agreement', async (req, res, next) => {
       throw new BadRequestError('Complete loan attestation before uploading the signed agreement.');
     }
 
-    const { buffer, originalName, mimeType } = await parseFileUpload(req);
+    const contentType = String(req.headers['content-type'] || '');
+    let buffer: Buffer;
+    let originalName: string;
+    let mimeType: string;
+    let agreementDateInput: string | null = null;
+
+    if (contentType.includes('multipart/form-data')) {
+      const parsed = await parseMultipartWithOptionalFile(req);
+      if (!parsed.file) {
+        throw new BadRequestError('Upload a signed PDF file');
+      }
+      buffer = parsed.file.buffer;
+      originalName = parsed.file.originalName;
+      mimeType = parsed.file.mimeType;
+      agreementDateInput = parsed.fields.agreementDate?.trim() || null;
+    } else {
+      const parsed = await parseFileUpload(req);
+      buffer = parsed.buffer;
+      originalName = parsed.originalName;
+      mimeType = parsed.mimeType;
+    }
 
     if (mimeType !== 'application/pdf' && !originalName.toLowerCase().endsWith('.pdf')) {
       throw new BadRequestError('Only PDF files are allowed for loan agreements');
+    }
+
+    let nextAgreementDate = loan.agreementDate;
+    if (agreementDateInput) {
+      const parsedDate = new Date(`${agreementDateInput}T00:00:00.000Z`);
+      if (Number.isNaN(parsedDate.getTime())) {
+        throw new BadRequestError('Enter a valid agreement date');
+      }
+      nextAgreementDate = parsedDate;
+    }
+    if (!nextAgreementDate) {
+      throw new BadRequestError('Set the agreement date before uploading the signed agreement');
     }
 
     if (loan.agreementPath) {
@@ -1244,6 +1443,7 @@ router.post('/loans/:loanId/agreement', async (req, res, next) => {
         agreementMimeType: mimeType,
         agreementSize: buffer.length,
         agreementUploadedAt: new Date(),
+        agreementDate: nextAgreementDate,
         agreementVersion: newVersion,
         signedAgreementReviewStatus: 'PENDING',
         signedAgreementReviewedAt: null,
@@ -1268,6 +1468,7 @@ router.post('/loans/:loanId/agreement', async (req, res, next) => {
         version: newVersion,
         path: agreementPath,
         filename: originalName,
+        agreementDate: nextAgreementDate.toISOString(),
         signedAgreementReviewStatus: 'PENDING',
       },
       ipAddress: req.ip,
@@ -1280,6 +1481,7 @@ router.post('/loans/:loanId/agreement', async (req, res, next) => {
         agreementOriginalName: updatedLoan.agreementOriginalName,
         agreementVersion: updatedLoan.agreementVersion,
         agreementUploadedAt: updatedLoan.agreementUploadedAt,
+        agreementDate: updatedLoan.agreementDate,
         signedAgreementReviewStatus: updatedLoan.signedAgreementReviewStatus,
       },
     });
@@ -1321,6 +1523,130 @@ router.get('/loans/:loanId/agreement', async (req, res, next) => {
     }
     res.setHeader('Content-Type', loan.agreementMimeType || 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${loan.agreementOriginalName}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/borrower-auth/loans/:loanId/disbursement-proof
+ */
+router.get('/loans/:loanId/disbursement-proof', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (!loan.disbursementProofPath || !loan.disbursementProofName) {
+      throw new NotFoundError('Proof of disbursement');
+    }
+
+    const fileBuffer = await getFile(loan.disbursementProofPath);
+    if (!fileBuffer) {
+      throw new NotFoundError('Proof of disbursement file');
+    }
+    res.setHeader('Content-Type', loan.disbursementProofMime || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${loan.disbursementProofName}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/borrower-auth/loans/:loanId/stamp-certificate
+ */
+router.get('/loans/:loanId/stamp-certificate', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (!loan.stampCertPath || !loan.stampCertOriginalName) {
+      throw new NotFoundError('Stamp certificate');
+    }
+
+    const fileBuffer = await getFile(loan.stampCertPath);
+    if (!fileBuffer) {
+      throw new NotFoundError('Stamp certificate file');
+    }
+    res.setHeader('Content-Type', loan.stampCertMimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${loan.stampCertOriginalName}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/borrower-auth/schedules/transactions/:transactionId/receipt
+ */
+router.get('/schedules/transactions/:transactionId/receipt', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { transactionId } = req.params;
+
+    const transaction = await prisma.paymentTransaction.findFirst({
+      where: { id: transactionId, tenantId: tenant.id },
+      include: { loan: { select: { borrowerId: true } } },
+    });
+    if (!transaction || transaction.loan.borrowerId !== borrowerId) {
+      throw new NotFoundError('Payment transaction');
+    }
+    if (!transaction.receiptPath) {
+      throw new NotFoundError('Receipt not generated');
+    }
+    const fileBuffer = await getFile(transaction.receiptPath);
+    if (!fileBuffer) {
+      throw new NotFoundError('Receipt file');
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${transaction.receiptNumber || 'receipt'}.pdf"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/borrower-auth/schedules/transactions/:transactionId/proof
+ */
+router.get('/schedules/transactions/:transactionId/proof', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { transactionId } = req.params;
+
+    const transaction = await prisma.paymentTransaction.findFirst({
+      where: { id: transactionId, tenantId: tenant.id },
+      include: { loan: { select: { borrowerId: true } } },
+    });
+    if (!transaction || transaction.loan.borrowerId !== borrowerId) {
+      throw new NotFoundError('Payment transaction');
+    }
+    if (!transaction.proofPath) {
+      throw new NotFoundError('Proof of payment');
+    }
+    const fileBuffer = await getFile(transaction.proofPath);
+    if (!fileBuffer) {
+      throw new NotFoundError('Proof of payment file');
+    }
+    res.setHeader('Content-Type', transaction.proofMimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${transaction.proofOriginalName || 'proof'}"`);
     res.setHeader('Content-Length', fileBuffer.length);
     res.send(fileBuffer);
   } catch (e) {

@@ -91,4 +91,13 @@ export interface LoanApplicationDetail {
   borrower?: Record<string, unknown>;
   /** Set when application is approved and a loan exists */
   loan?: { id: string; status: string } | null;
+  /** List API may return minimal `{ id, status, fromParty }` rows; detail includes full rounds. */
+  offerRounds?: Array<{
+    id: string;
+    amount?: unknown;
+    term?: number;
+    fromParty: string;
+    status: string;
+    createdAt?: string;
+  }>;
 }

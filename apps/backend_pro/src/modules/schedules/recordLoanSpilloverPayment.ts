@@ -375,6 +375,8 @@ export type RecordLoanSpilloverContext = {
   ip: string | undefined;
   headers: IncomingHttpHeaders;
   idempotencyEndpoint: string;
+  /** When set (e.g. borrower manual payment approval), skips Idempotency-Key header requirement */
+  idempotencyKey?: string;
 };
 
 export type RecordLoanSpilloverResult =
@@ -382,14 +384,27 @@ export type RecordLoanSpilloverResult =
   | { kind: 'created'; body: unknown };
 
 export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverContext): Promise<RecordLoanSpilloverResult> {
-  const { tenantId, loanId, body, memberId, borrowerIdFilter, ip: ipAddress, headers, idempotencyEndpoint } = ctx;
+  const {
+    tenantId,
+    loanId,
+    body,
+    memberId,
+    borrowerIdFilter,
+    ip: ipAddress,
+    headers,
+    idempotencyEndpoint,
+    idempotencyKey: idempotencyKeyOverride,
+  } = ctx;
   let idempotencyRecordId: string | null = null;
   let businessCommitted = false;
   let replayResponseStatus: number | null = null;
   let replayResponseBody: unknown = null;
   try {
     const data = recordLoanPaymentSchema.parse({ ...(body as Record<string, unknown>), loanId });
-    const idempotencyKey = getIdempotencyKeyFromHeaders(headers as Record<string, unknown>);
+    const idempotencyKey =
+      typeof idempotencyKeyOverride === 'string' && idempotencyKeyOverride.trim().length > 0
+        ? idempotencyKeyOverride.trim()
+        : getIdempotencyKeyFromHeaders(headers as Record<string, unknown>);
     const idempotency = await beginPaymentIdempotency({
       tenantId: tenantId,
       endpoint: idempotencyEndpoint,

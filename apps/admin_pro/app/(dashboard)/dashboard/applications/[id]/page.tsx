@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type ChangeEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -30,11 +30,13 @@ import {
   AlertTriangle,
   RotateCcw,
   ChartPie,
+  Handshake,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -64,6 +66,7 @@ import {
 } from "@/lib/utils";
 import { useCurrentRole } from "@/components/tenant-context";
 import { canApproveApplications } from "@/lib/permissions";
+import { LoanApplicationOfferParty } from "@kredit/shared";
 
 // ============================================
 // Types
@@ -153,6 +156,14 @@ interface Application {
     id: string;
     status: string;
   } | null;
+  offerRounds?: Array<{
+    id: string;
+    amount: string;
+    term: number;
+    fromParty: string;
+    status: string;
+    createdAt: string;
+  }>;
 }
 
 interface TimelineEvent {
@@ -370,6 +381,9 @@ export default function ApplicationDetailPage() {
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showReturnToDraftDialog, setShowReturnToDraftDialog] = useState(false);
+  const [showCounterDialog, setShowCounterDialog] = useState(false);
+  const [counterAmount, setCounterAmount] = useState("");
+  const [counterTerm, setCounterTerm] = useState("");
 
   // Check for missing required documents (documents come from application.documents)
   const getMissingRequiredDocs = useCallback(() => {
@@ -547,6 +561,42 @@ export default function ApplicationDetailPage() {
       window.dispatchEvent(new CustomEvent("loans-count-changed"));
     } else {
       toast.error(res.error || "Failed to approve application");
+    }
+    setActionLoading(null);
+  };
+
+  const handleAdminAcceptBorrowerOffer = async () => {
+    setActionLoading("acceptBorrowerOffer");
+    const res = await api.post(`/api/loans/applications/${applicationId}/accept-offer`, {});
+    if (res.success) {
+      toast.success("Borrower offer accepted. Terms updated on the application.");
+      await fetchApplication();
+      await fetchTimeline();
+    } else {
+      toast.error(res.error || "Failed to accept offer");
+    }
+    setActionLoading(null);
+  };
+
+  const handleAdminCounterConfirm = async () => {
+    const amt = parseFloat(counterAmount);
+    const tm = parseInt(String(counterTerm), 10);
+    if (!Number.isFinite(amt) || amt <= 0 || !Number.isFinite(tm) || tm <= 0) {
+      toast.error("Enter valid amount and term");
+      return;
+    }
+    setShowCounterDialog(false);
+    setActionLoading("counterOffer");
+    const res = await api.post(`/api/loans/applications/${applicationId}/counter-offer`, {
+      amount: amt,
+      term: tm,
+    });
+    if (res.success) {
+      toast.success("Counter-offer sent to borrower");
+      await fetchApplication();
+      await fetchTimeline();
+    } else {
+      toast.error(res.error || "Failed to send counter-offer");
     }
     setActionLoading(null);
   };
@@ -756,6 +806,17 @@ export default function ApplicationDetailPage() {
   const preview = compliantPreview;
   const requiredDocs = application.product.requiredDocuments || [];
 
+  const pendingLenderOffer = application.offerRounds?.find(
+    (o) => o.status === "PENDING" && o.fromParty === "ADMIN"
+  );
+  const pendingBorrowerOffer = application.offerRounds?.find(
+    (o) => o.status === "PENDING" && o.fromParty === "BORROWER"
+  );
+  const canShowNegotiationCard =
+    ((application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") &&
+      ((application.offerRounds?.length ?? 0) > 0 || !!pendingLenderOffer || !!pendingBorrowerOffer)) ||
+    (application.status === "APPROVED" && (application.offerRounds?.length ?? 0) > 0);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -823,6 +884,29 @@ export default function ApplicationDetailPage() {
                 <X className="h-4 w-4 mr-2" />
                 {actionLoading === "reject" ? "Rejecting..." : "Reject"}
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (!application) return;
+                  setCounterAmount(String(toSafeNumber(application.amount)));
+                  setCounterTerm(String(application.term));
+                  setShowCounterDialog(true);
+                }}
+                disabled={!!actionLoading}
+              >
+                Counter offer
+              </Button>
+              {application.offerRounds?.some(
+                (o) => o.status === "PENDING" && o.fromParty === "BORROWER"
+              ) && (
+                <Button
+                  variant="secondary"
+                  onClick={() => void handleAdminAcceptBorrowerOffer()}
+                  disabled={actionLoading === "acceptBorrowerOffer"}
+                >
+                  {actionLoading === "acceptBorrowerOffer" ? "Accepting…" : "Accept borrower offer"}
+                </Button>
+              )}
               <Button onClick={handleApproveClick} disabled={actionLoading === "approve"}>
                 <Check className="h-4 w-4 mr-2" />
                 {actionLoading === "approve" ? "Approving..." : "Approve"}
@@ -974,6 +1058,59 @@ export default function ApplicationDetailPage() {
               </CardContent>
             </Card>
           </div>
+
+          {canShowNegotiationCard && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Handshake className="h-5 w-5 text-muted-foreground" />
+                  Offer negotiation
+                </CardTitle>
+                <CardDescription>
+                  Amount and term proposals between you and the borrower. Approve only after the latest offer is accepted
+                  and there are no pending rounds.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") && (
+                  <p className="text-sm text-muted-foreground">
+                    Use <span className="font-medium text-foreground">Counter offer</span> or{" "}
+                    <span className="font-medium text-foreground">Accept borrower offer</span> in the page header when
+                    applicable.
+                  </p>
+                )}
+                {pendingBorrowerOffer && !pendingLenderOffer && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40 p-3 text-sm text-amber-900 dark:text-amber-100">
+                    <strong>Pending borrower offer</strong> — review the amount and term in the history below, then
+                    accept or send a counter-offer from the header.
+                  </div>
+                )}
+                {pendingLenderOffer && !pendingBorrowerOffer && (
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">Awaiting borrower</span> — your latest offer is
+                    pending their response.
+                  </p>
+                )}
+                {(application.offerRounds?.length ?? 0) > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">History</p>
+                    <ul className="space-y-2 text-sm border rounded-lg divide-y max-h-56 overflow-y-auto">
+                      {(application.offerRounds ?? []).map((o) => (
+                        <li key={o.id} className="flex flex-wrap justify-between gap-2 p-3">
+                          <span>
+                            {o.fromParty === LoanApplicationOfferParty.ADMIN ? "Lender" : "Borrower"} · {o.status}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {formatCurrency(Number(o.amount))} · {o.term} mo · {formatDate(o.createdAt)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Guarantors */}
           <Card>
@@ -1698,6 +1835,44 @@ export default function ApplicationDetailPage() {
               <RotateCcw className="h-4 w-4 mr-2" />
               Return to Draft
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCounterDialog} onOpenChange={setShowCounterDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Counter offer (amount & term)</DialogTitle>
+            <DialogDescription>
+              The borrower will be asked to accept, reject, or counter again. Approve only after negotiation is settled
+              (no pending offers).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="co-amt">Amount (RM)</Label>
+              <Input
+                id="co-amt"
+                inputMode="decimal"
+                value={counterAmount}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setCounterAmount(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="co-term">Term (months)</Label>
+              <Input
+                id="co-term"
+                inputMode="numeric"
+                value={counterTerm}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setCounterTerm(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCounterDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleAdminCounterConfirm()}>Send counter-offer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

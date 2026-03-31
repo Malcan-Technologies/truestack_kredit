@@ -104,6 +104,11 @@ export interface BorrowerLoanDetail {
   };
   application?: { id: string; status: string };
   disbursementDate?: string | null;
+  disbursementReference?: string | null;
+  disbursementProofPath?: string | null;
+  disbursementProofName?: string | null;
+  stampCertPath?: string | null;
+  stampCertOriginalName?: string | null;
   createdAt?: string;
   updatedAt?: string;
   collateralType?: string | null;

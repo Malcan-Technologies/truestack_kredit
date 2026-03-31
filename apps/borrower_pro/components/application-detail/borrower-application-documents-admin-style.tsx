@@ -47,17 +47,14 @@ export function BorrowerApplicationDocumentsAdminStyle({
   const canEdit =
     app.status === "DRAFT" ||
     app.status === "SUBMITTED" ||
-    app.status === "UNDER_REVIEW" ||
-    app.status === "APPROVED";
+    app.status === "UNDER_REVIEW";
   const postSubmit = mode === "post_submit";
 
   const canDelete = () => canEdit && app.status === "DRAFT";
 
   const canReplaceAfterSubmit =
     canEdit &&
-    (app.status === "SUBMITTED" ||
-      app.status === "UNDER_REVIEW" ||
-      app.status === "APPROVED");
+    (app.status === "SUBMITTED" || app.status === "UNDER_REVIEW");
 
   const canUploadCategory = (category: string) => {
     if (!canEdit) return false;

@@ -10,6 +10,11 @@ import { computeLoanApplicationPreview } from '../loans/loanApplicationPreviewSe
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
 import { AuditService } from '../compliance/auditService.js';
 import { toSafeNumber } from '../../lib/math.js';
+import {
+  borrowerAcceptLatestOffer,
+  borrowerCounterOffer,
+  rejectPendingOffers,
+} from '../loans/applicationNegotiationService.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -40,18 +45,18 @@ const updateApplicationSchema = z.object({
   loanChannel: z.enum(['ONLINE', 'PHYSICAL']).optional(),
 });
 
+const negotiationBodySchema = z.object({
+  amount: z.number().positive(),
+  term: z.number().int().positive(),
+});
+
 function productEligibleForBorrower(product: Product, borrowerType: string): boolean {
   const eligibility = product.eligibleBorrowerTypes || 'BOTH';
   return eligibility === 'BOTH' || eligibility === borrowerType;
 }
 
 function borrowerCanModifyApplicationDocuments(status: ApplicationStatus): boolean {
-  return (
-    status === 'DRAFT' ||
-    status === 'SUBMITTED' ||
-    status === 'UNDER_REVIEW' ||
-    status === 'APPROVED'
-  );
+  return status === 'DRAFT' || status === 'SUBMITTED' || status === 'UNDER_REVIEW';
 }
 
 /** After submit, borrowers may add files only for categories that still have no upload; deletions only in draft. */
@@ -315,6 +320,10 @@ router.get('/applications', async (req, res, next) => {
             },
           },
           loan: { select: { id: true, status: true } },
+          /** Minimal rows for list UI: pending lender counter-offer filter / banner */
+          offerRounds: {
+            select: { id: true, status: true, fromParty: true },
+          },
         },
       }),
       prisma.loanApplication.count({ where }),
@@ -371,6 +380,7 @@ router.get('/applications/:applicationId', async (req, res, next) => {
         product: true,
         documents: { orderBy: { uploadedAt: 'desc' } },
         loan: { select: { id: true, status: true } },
+        offerRounds: { orderBy: { createdAt: 'desc' } },
       },
     });
 
@@ -382,6 +392,67 @@ router.get('/applications/:applicationId', async (req, res, next) => {
       success: true,
       data: application,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/borrower-auth/applications/:applicationId/counter-offer
+ */
+router.post('/applications/:applicationId/counter-offer', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { applicationId } = req.params;
+    const body = negotiationBodySchema.parse(req.body);
+    const out = await borrowerCounterOffer({
+      tenantId: tenant.id,
+      borrowerId,
+      applicationId,
+      amount: body.amount,
+      term: body.term,
+    });
+    res.status(201).json({ success: true, data: out });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/borrower-auth/applications/:applicationId/accept-offer
+ */
+router.post('/applications/:applicationId/accept-offer', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { applicationId } = req.params;
+    await borrowerAcceptLatestOffer({
+      tenantId: tenant.id,
+      borrowerId,
+      applicationId,
+    });
+    const updated = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: tenant.id, borrowerId },
+      include: { offerRounds: { orderBy: { createdAt: 'desc' }, take: 10 }, product: true },
+    });
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/borrower-auth/applications/:applicationId/reject-offers
+ */
+router.post('/applications/:applicationId/reject-offers', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { applicationId } = req.params;
+    const app = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: tenant.id, borrowerId },
+    });
+    if (!app) throw new NotFoundError('Application');
+    await rejectPendingOffers({ tenantId: tenant.id, applicationId });
+    res.json({ success: true });
   } catch (e) {
     next(e);
   }
@@ -594,7 +665,7 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
 
     if (!borrowerCanModifyApplicationDocuments(application.status)) {
       throw new BadRequestError(
-        'Documents can only be uploaded while the application is draft, submitted, under review, or approved (replacements are sent back for admin review).'
+        'Documents can only be uploaded while the application is draft, submitted, or under review.'
       );
     }
 
@@ -658,8 +729,7 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
     });
 
     let applicationStatusAfter = previousStatus;
-    const needsReviewAgain =
-      previousStatus !== 'DRAFT' && (replacedExisting || previousStatus === 'APPROVED');
+    const needsReviewAgain = previousStatus !== 'DRAFT' && replacedExisting;
     if (needsReviewAgain) {
       const updatedApp = await prisma.loanApplication.update({
         where: { id: applicationId },
@@ -675,9 +745,7 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
         previousData: { status: previousStatus },
         newData: {
           status: 'UNDER_REVIEW',
-          reason: replacedExisting
-            ? 'borrower_replaced_application_document'
-            : 'borrower_uploaded_application_document_after_approval',
+          reason: replacedExisting ? 'borrower_replaced_application_document' : 'borrower_uploaded_application_document',
         },
         ipAddress: req.ip,
       });

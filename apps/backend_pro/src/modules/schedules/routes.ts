@@ -16,6 +16,10 @@ import {
   validatePaymentDate,
   handleRecordLoanSpilloverPayment,
 } from './recordLoanSpilloverPayment.js';
+import {
+  approveBorrowerManualPaymentRequest,
+  rejectBorrowerManualPaymentRequest,
+} from './borrowerManualPaymentService.js';
 
 const router = Router();
 
@@ -657,6 +661,154 @@ router.get('/transactions/:transactionId/proof', async (req, res, next) => {
 
     res.setHeader('Content-Type', transaction.proofMimeType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${transaction.proofOriginalName}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+const rejectManualPaymentBodySchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
+/**
+ * List borrower manual payment requests (pending approval queue)
+ * GET /api/schedules/manual-payment-requests
+ */
+router.get('/manual-payment-requests', async (req, res, next) => {
+  try {
+    const status = (req.query.status as string) || 'PENDING';
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+    const pageSize = Math.min(50, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20));
+    const skip = (page - 1) * pageSize;
+
+    const where = {
+      tenantId: req.tenantId!,
+      ...(status === 'all' ? {} : { status: status as 'PENDING' | 'APPROVED' | 'REJECTED' }),
+    };
+
+    const [rows, total] = await Promise.all([
+      prisma.borrowerManualPaymentRequest.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          loan: {
+            select: {
+              id: true,
+              status: true,
+              borrowerId: true,
+            },
+          },
+          borrower: {
+            select: {
+              id: true,
+              name: true,
+              icNumber: true,
+              companyName: true,
+              borrowerType: true,
+            },
+          },
+          paymentTransaction: {
+            select: { id: true, receiptNumber: true, totalAmount: true, paymentDate: true },
+          },
+        },
+      }),
+      prisma.borrowerManualPaymentRequest.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        items: rows,
+        pagination: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Approve borrower manual payment request
+ * POST /api/schedules/manual-payment-requests/:requestId/approve
+ */
+router.post('/manual-payment-requests/:requestId/approve', async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const out = await approveBorrowerManualPaymentRequest({
+      tenantId: req.tenantId!,
+      requestId,
+      memberId: req.memberId ?? null,
+      ip: req.ip,
+      headers: req.headers,
+    });
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'BORROWER_MANUAL_PAYMENT_APPROVED',
+      entityType: 'BorrowerManualPaymentRequest',
+      entityId: requestId,
+      newData: { requestId },
+      ipAddress: req.ip,
+    });
+    res.status(201).json(out);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Reject borrower manual payment request
+ * POST /api/schedules/manual-payment-requests/:requestId/reject
+ */
+router.post('/manual-payment-requests/:requestId/reject', async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const body = rejectManualPaymentBodySchema.parse(req.body ?? {});
+    await rejectBorrowerManualPaymentRequest({
+      tenantId: req.tenantId!,
+      requestId,
+      memberId: req.memberId ?? null,
+      reason: body.reason,
+    });
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'BORROWER_MANUAL_PAYMENT_REJECTED',
+      entityType: 'BorrowerManualPaymentRequest',
+      entityId: requestId,
+      newData: { reason: body.reason },
+      ipAddress: req.ip,
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Admin: view borrower-uploaded payment slip
+ * GET /api/schedules/manual-payment-requests/:requestId/borrower-receipt
+ */
+router.get('/manual-payment-requests/:requestId/borrower-receipt', async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const row = await prisma.borrowerManualPaymentRequest.findFirst({
+      where: { id: requestId, tenantId: req.tenantId },
+    });
+    if (!row || !row.receiptPath) {
+      throw new NotFoundError('Receipt');
+    }
+    const fileBuffer = await getFile(row.receiptPath);
+    if (!fileBuffer) {
+      throw new NotFoundError('Receipt file');
+    }
+    const name = row.receiptOriginalName || 'slip';
+    res.setHeader('Content-Type', row.receiptMimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
     res.setHeader('Content-Length', fileBuffer.length);
     res.send(fileBuffer);
   } catch (error) {

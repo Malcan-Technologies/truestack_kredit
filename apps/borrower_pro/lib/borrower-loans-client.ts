@@ -249,7 +249,8 @@ export async function postAttestationCompleteMeeting(loanId: string): Promise<{
 
 export async function uploadBorrowerSignedAgreement(
   loanId: string,
-  file: File
+  file: File,
+  agreementDate: string
 ): Promise<{
   success: boolean;
   data: {
@@ -261,6 +262,7 @@ export async function uploadBorrowerSignedAgreement(
 }> {
   const fd = new FormData();
   fd.append("file", file);
+  fd.append("agreementDate", agreementDate);
   const res = await fetch(`${BASE}/loans/${encodeURIComponent(loanId)}/agreement`, {
     method: "POST",
     body: fd,
@@ -323,6 +325,88 @@ function randomIdempotencyKey(): string {
     return crypto.randomUUID();
   }
   return `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export type BorrowerLenderInfo = {
+  name: string;
+  lenderBankCode?: string | null;
+  lenderBankOtherName?: string | null;
+  lenderAccountHolderName?: string | null;
+  lenderAccountNumber?: string | null;
+};
+
+export async function fetchBorrowerLender(): Promise<BorrowerLenderInfo> {
+  const res = await fetch(`${BASE}/lender`, { credentials: "include" });
+  const json = await parseJson<{ success: boolean; data?: BorrowerLenderInfo; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to load lender details");
+  }
+  if (!json.data) {
+    throw new Error("No lender data");
+  }
+  return json.data;
+}
+
+export async function createBorrowerManualPaymentRequest(
+  loanId: string,
+  formData: FormData
+): Promise<{ success: boolean; data: unknown }> {
+  const res = await fetch(`${BASE}/loans/${encodeURIComponent(loanId)}/manual-payment-requests`, {
+    method: "POST",
+    body: formData,
+    credentials: "include",
+  });
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not submit payment");
+  }
+  return { success: true, data: json.data ?? json };
+}
+
+export async function listBorrowerManualPaymentRequests(loanId: string): Promise<{
+  success: boolean;
+  data: Array<{
+    id: string;
+    status: string;
+    amount: unknown;
+    reference: string;
+    createdAt: string;
+  }>;
+}> {
+  const res = await fetch(`${BASE}/loans/${encodeURIComponent(loanId)}/manual-payment-requests`, {
+    credentials: "include",
+  });
+  const json = await parseJson<{
+    success: boolean;
+    data?: Array<{
+      id: string;
+      status: string;
+      amount: unknown;
+      reference: string;
+      createdAt: string;
+    }>;
+    error?: string;
+  }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to load payment requests");
+  }
+  return { success: true, data: json.data ?? [] };
+}
+
+export function borrowerDisbursementProofUrl(loanId: string): string {
+  return `${BASE}/loans/${encodeURIComponent(loanId)}/disbursement-proof`;
+}
+
+export function borrowerStampCertificateUrl(loanId: string): string {
+  return `${BASE}/loans/${encodeURIComponent(loanId)}/stamp-certificate`;
+}
+
+export function borrowerTransactionReceiptUrl(transactionId: string): string {
+  return `${BASE}/schedules/transactions/${encodeURIComponent(transactionId)}/receipt`;
+}
+
+export function borrowerTransactionProofUrl(transactionId: string): string {
+  return `${BASE}/schedules/transactions/${encodeURIComponent(transactionId)}/proof`;
 }
 
 export async function recordBorrowerLoanPayment(

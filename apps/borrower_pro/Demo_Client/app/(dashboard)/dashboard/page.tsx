@@ -1,14 +1,65 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ClipboardList } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Banknote,
+  Calendar,
+  ClipboardList,
+  FileText,
+  Wallet,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@borrower_pro/components/ui/card";
+import { Badge } from "@borrower_pro/components/ui/badge";
+
 import { Button } from "@borrower_pro/components/ui/button";
+import { RefreshButton } from "@borrower_pro/components/ui/refresh-button";
+import { Skeleton } from "@borrower_pro/components/ui/skeleton";
 import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
-import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
+import { fetchLoanCenterOverview, listBorrowerLoans } from "@borrower_pro/lib/borrower-loans-client";
 import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
 import { ONBOARDING_DRAFT_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
+import type { LoanCenterOverview, BorrowerLoanListItem } from "@borrower_pro/lib/borrower-loan-types";
+import type { LoanApplicationDetail } from "@borrower_pro/lib/application-form-types";
+import { toAmountNumber } from "@borrower_pro/lib/application-form-validation";
+import { borrowerLoanNeedsContinueAction } from "@borrower_pro/lib/borrower-loan-continue-eligibility";
+import {
+  deriveLoanJourneyPhase,
+  loanJourneyPhaseLabel,
+} from "@borrower_pro/lib/loan-journey-phase";
+import {
+  borrowerLoanStatusBadgeVariant,
+  loanStatusBadgeLabelFromDb,
+} from "@borrower_pro/lib/loan-status-label";
+import { cn } from "@borrower_pro/lib/utils";
+
+function formatRm(v: unknown): string {
+  const n = typeof v === "number" ? v : toAmountNumber(v);
+  return `RM ${n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatDateShort(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("en-MY", {
+      day: "numeric",
+      month: "short",
+      timeZone: "Asia/Kuala_Lumpur",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function shortId(id: string): string {
+  return id.slice(0, 8).toUpperCase();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Onboarding Banner                                                 */
+/* ------------------------------------------------------------------ */
 
 function OnboardingBanner() {
   const [show, setShow] = useState(false);
@@ -28,16 +79,14 @@ function OnboardingBanner() {
               const subStep = draft.borrowerDetailSubStep ?? 1;
               const type = draft.borrowerType ?? "INDIVIDUAL";
               const maxSub = type === "INDIVIDUAL" ? 3 : 5;
-              const totalSteps = maxSub + 2; // type + sub-steps + review
+              const totalSteps = maxSub + 2;
               let currentIndex = 0;
               if (step === 1) currentIndex = 0;
               else if (step === 2) currentIndex = subStep;
               else currentIndex = totalSteps - 1;
 
               if (currentIndex > 0) {
-                setDraftProgress(
-                  `Step ${currentIndex + 1} of ${totalSteps}`
-                );
+                setDraftProgress(`Step ${currentIndex + 1} of ${totalSteps}`);
               }
             }
           } catch {}
@@ -79,140 +128,535 @@ function OnboardingBanner() {
   );
 }
 
-function formatRm(n: number): string {
-  return `RM ${n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/* ------------------------------------------------------------------ */
+/*  Progress Donut (reused from loans page)                           */
+/* ------------------------------------------------------------------ */
+
+function ProgressDonut({
+  percent,
+  size = 56,
+  strokeWidth = 5,
+  status,
+}: {
+  percent: number;
+  size?: number;
+  strokeWidth?: number;
+  status?: string;
+}) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (percent / 100) * circumference;
+  const center = size / 2;
+
+  let strokeColor = "stroke-foreground";
+  if (status === "COMPLETED") strokeColor = "stroke-emerald-500";
+  else if (status === "DEFAULTED" || status === "WRITTEN_OFF") strokeColor = "stroke-red-500";
+  else if (status === "IN_ARREARS") strokeColor = "stroke-amber-500";
+
+  return (
+    <div className="relative inline-flex items-center justify-center">
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={center} cy={center} r={radius} fill="none" strokeWidth={strokeWidth} className="stroke-muted/30" />
+        <circle
+          cx={center} cy={center} r={radius} fill="none" strokeWidth={strokeWidth}
+          strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset}
+          className={cn(strokeColor, "transition-all duration-700 ease-out")}
+        />
+      </svg>
+      <span className="absolute text-xs font-heading font-bold tabular-nums">{Math.round(percent)}%</span>
+    </div>
+  );
 }
 
-export default function DashboardPage() {
-  const [kpis, setKpis] = useState<{
-    active: number;
-    outstanding: number;
-    nextLabel: string;
-    nextSub: string;
-    appCount: number;
-  } | null>(null);
+/* ------------------------------------------------------------------ */
+/*  Main Dashboard                                                    */
+/* ------------------------------------------------------------------ */
 
-  const loadKpis = useCallback(async () => {
+export default function DashboardPage() {
+  const [loading, setLoading] = useState(true);
+  const [overview, setOverview] = useState<LoanCenterOverview | null>(null);
+  const [activeLoans, setActiveLoans] = useState<BorrowerLoanListItem[]>([]);
+  const [pendingLoans, setPendingLoans] = useState<BorrowerLoanListItem[]>([]);
+  const [draftApps, setDraftApps] = useState<LoanApplicationDetail[]>([]);
+  const [borrowerName, setBorrowerName] = useState<string | null>(null);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
     try {
-      const [ov, apps] = await Promise.all([
+      const [ov, aLoans, pLoans, apps, me] = await Promise.all([
         fetchLoanCenterOverview(),
-        listBorrowerApplications({ pageSize: 100 }),
+        listBorrowerLoans({ tab: "active", pageSize: 200 }),
+        listBorrowerLoans({ tab: "pending_disbursement", pageSize: 200 }),
+        listBorrowerApplications({ pageSize: 200 }),
+        fetchBorrowerMe().catch(() => null),
       ]);
-      if (!ov.success) return;
-      const s = ov.data.summary;
-      const nextLabel =
-        s.nextPaymentDue != null
-          ? new Date(s.nextPaymentDue).toLocaleDateString("en-MY", { day: "numeric", month: "short" })
-          : "—";
-      const nextSub =
-        s.nextPaymentAmount != null
-          ? formatRm(s.nextPaymentAmount)
-          : "No upcoming payments";
-      setKpis({
-        active: s.activeLoanCount,
-        outstanding: s.totalOutstanding,
-        nextLabel,
-        nextSub,
-        appCount: apps.success ? apps.data.length : 0,
-      });
-    } catch {
-      setKpis(null);
-    }
+      if (ov.success) setOverview(ov.data);
+      setActiveLoans(aLoans.data);
+      setPendingLoans(pLoans.data);
+      if (apps.success) setDraftApps(apps.data.filter((a) => a.status === "DRAFT"));
+      if (me?.success && me.data.activeBorrower) {
+        const b = me.data.activeBorrower;
+        setBorrowerName(
+          b.borrowerType === "CORPORATE" && b.companyName?.trim()
+            ? b.companyName.trim()
+            : b.name || null
+        );
+      }
+    } catch {}
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    void loadKpis();
-  }, [loadKpis]);
+    void loadAll();
+  }, [loadAll]);
 
   useEffect(() => {
-    const onSwitch = () => void loadKpis();
+    const onSwitch = () => void loadAll();
     window.addEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
     return () => window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
-  }, [loadKpis]);
+  }, [loadAll]);
+
+  const pendingActions = useMemo(() => {
+    const items: Array<{
+      id: string;
+      label: string;
+      sublabel: string;
+      href: string;
+      variant: "warning" | "info" | "default";
+      icon: React.ElementType;
+    }> = [];
+
+    for (const loan of pendingLoans) {
+      if (!borrowerLoanNeedsContinueAction(loan)) continue;
+      const phase = deriveLoanJourneyPhase({
+        applicationStatus: loan.application?.status,
+        loanStatus: loan.status,
+        attestationCompletedAt: loan.attestationCompletedAt,
+        signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
+        agreementPath: undefined,
+      });
+      items.push({
+        id: loan.id,
+        label: `${loan.product?.name ?? "Loan"} — ${loanJourneyPhaseLabel(phase)}`,
+        sublabel: formatRm(loan.principalAmount),
+        href: `/loans/${loan.id}`,
+        variant: "warning",
+        icon: FileText,
+      });
+    }
+
+    for (const app of draftApps) {
+      items.push({
+        id: app.id,
+        label: `${app.product?.name ?? "Application"} — Draft`,
+        sublabel: formatRm(app.amount),
+        href: `/applications/apply?applicationId=${app.id}`,
+        variant: "info",
+        icon: ClipboardList,
+      });
+    }
+
+    return items;
+  }, [pendingLoans, draftApps]);
+
+  const summary = overview?.summary;
+  const counts = overview?.counts;
+
+  if (loading && !overview) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-heading font-bold text-gradient">Dashboard</h1>
-        <p className="text-muted text-base mt-1">Overview of your borrowing activity</p>
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-heading font-bold text-gradient">
+            {borrowerName ? `Welcome, ${borrowerName}` : "Dashboard"}
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">Overview of your borrowing activity</p>
+        </div>
+        <RefreshButton
+          onRefresh={async () => {
+            await loadAll();
+          }}
+          showToast
+          successMessage="Dashboard refreshed"
+          showLabel
+          variant="outline"
+          className="shrink-0"
+        />
       </div>
 
       <OnboardingBanner />
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Pending Actions */}
+      {pendingActions.length > 0 && (
+        <>
+          <Card className="border-amber-500/25 bg-amber-500/5 overflow-hidden">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/10">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                </div>
+                <span className="text-amber-600 dark:text-amber-400">Action needed</span>
+                <Badge variant="warning" className="ml-auto text-[10px]">
+                  {pendingActions.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-2">
+              {pendingActions.map((action) => (
+                <Link
+                  key={action.id}
+                  href={action.href}
+                  className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/5 px-4 py-3 hover:bg-muted/15 transition-colors group"
+                >
+                  <action.icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{action.label}</p>
+                    <p className="text-xs text-muted-foreground">{action.sublabel}</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                </Link>
+              ))}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Active Loan</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{kpis?.active ?? "—"}</p>
-            <p className="text-xs text-muted-foreground">
-              {kpis && kpis.active === 0 ? "No active loans" : "Loans in repayment"}
+          <CardContent className="pt-5 pb-4 px-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Active Loans</p>
+              <div className="h-8 w-8 rounded-md bg-secondary flex items-center justify-center">
+                <Banknote className="h-4 w-4 text-foreground" />
+              </div>
+            </div>
+            <p className="text-2xl font-heading font-bold">{summary?.activeLoanCount ?? "—"}</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {(summary?.activeLoanCount ?? 0) === 0 ? "No active loans" : "Loans in repayment"}
             </p>
           </CardContent>
         </Card>
+
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Outstanding Balance</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">
-              {kpis != null ? formatRm(kpis.outstanding) : "—"}
+          <CardContent className="pt-5 pb-4 px-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Outstanding</p>
+              <div className="h-8 w-8 rounded-md bg-secondary flex items-center justify-center">
+                <Wallet className="h-4 w-4 text-foreground" />
+              </div>
+            </div>
+            <p className="text-2xl font-heading font-bold">
+              {summary != null ? formatRm(summary.totalOutstanding) : "—"}
             </p>
-            <p className="text-xs text-muted-foreground">Total outstanding</p>
+            <p className="text-sm text-muted-foreground mt-1">Total balance remaining</p>
+            {summary != null && summary.totalPaid > 0 && (
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Paid</span>
+                <span className="text-sm font-heading font-bold tabular-nums text-foreground">
+                  {formatRm(summary.totalPaid)}
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
+
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Next Payment</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{kpis?.nextLabel ?? "—"}</p>
-            <p className="text-xs text-muted-foreground">{kpis?.nextSub ?? "Loading…"}</p>
+          <CardContent className="pt-5 pb-4 px-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Next Payment</p>
+              <div className="h-8 w-8 rounded-md bg-secondary flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-foreground" />
+              </div>
+            </div>
+            <p className="text-2xl font-heading font-bold">
+              {summary?.nextPaymentDue ? formatDateShort(summary.nextPaymentDue) : "—"}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {summary?.nextPaymentAmount != null
+                ? formatRm(summary.nextPaymentAmount)
+                : "No upcoming payments"}
+            </p>
           </CardContent>
         </Card>
+
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Applications</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{kpis?.appCount ?? "—"}</p>
-            <p className="text-xs text-muted-foreground">Total applications</p>
+          <CardContent className="pt-5 pb-4 px-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Before Payout</p>
+              <div className="h-8 w-8 rounded-md bg-secondary flex items-center justify-center">
+                <FileText className="h-4 w-4 text-foreground" />
+              </div>
+            </div>
+            <p className="text-2xl font-heading font-bold">
+              {counts?.pendingDisbursementLoans ?? "—"}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {(counts?.pendingDisbursementLoans ?? 0) === 0
+                ? "No loans awaiting payout"
+                : "Attestation or signing pending"}
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Activity</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Your recent borrowing activity
-            </p>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground text-sm">
-              Visit{" "}
-              <Link href="/loans" className="text-primary font-medium underline">
-                My Loans
-              </Link>{" "}
-              for schedules, payments, and application status.
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Payments and application status
-            </p>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground text-sm">
-              Track repayments and milestones on the My Loans page.
-            </p>
-          </CardContent>
-        </Card>
+      {/* Active Loans */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-heading font-semibold">Active loans</h2>
+          <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
+            <Link href="/loans?tab=active">
+              View all
+              <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Link>
+          </Button>
+        </div>
+
+        {activeLoans.length === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center">
+              <Banknote className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground">No active loans yet</p>
+              <Button variant="outline" size="sm" asChild className="mt-4">
+                <Link href="/applications/apply">
+                  Apply for a loan
+                  <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {activeLoans.slice(0, 4).map((loan) => {
+              const progress = loan.progress;
+              const isOverdue = loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
+              return (
+                <Link key={loan.id} href={`/loans/${loan.id}`} className="block">
+                  <Card className={cn(
+                    "hover:border-foreground/20 hover:shadow-sm transition-all cursor-pointer h-full",
+                    isOverdue && "border-amber-500/20"
+                  )}>
+                    <CardContent className="p-5">
+                      <div className="flex items-start gap-4">
+                        <ProgressDonut
+                          percent={progress.progressPercent}
+                          size={56}
+                          strokeWidth={5}
+                          status={loan.status}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-heading font-semibold text-sm truncate">
+                                {loan.product?.name ?? "Loan"}
+                              </p>
+                              <p className="text-lg font-heading font-bold tabular-nums mt-0.5">
+                                {formatRm(loan.principalAmount)}
+                              </p>
+                            </div>
+                            <Badge variant={borrowerLoanStatusBadgeVariant(loan)} className="shrink-0">
+                              {loanStatusBadgeLabelFromDb(loan)}
+                            </Badge>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
+                            <span className="tabular-nums">
+                              {progress.paidCount}/{progress.totalRepayments} paid
+                            </span>
+                            {(progress.overdueCount ?? 0) > 0 && (
+                              <span className="text-red-600 dark:text-red-400 font-medium">
+                                {progress.overdueCount} overdue
+                              </span>
+                            )}
+                            {progress.nextPaymentDue && (
+                              <span>
+                                Next: {formatDateShort(progress.nextPaymentDue)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Before Payout */}
+      {pendingLoans.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-heading font-semibold">Before payout</h2>
+            <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
+              <Link href="/loans?tab=before_payout">
+                View all
+                <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              </Link>
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {pendingLoans.slice(0, 4).map((loan) => {
+              const phase = deriveLoanJourneyPhase({
+                applicationStatus: loan.application?.status,
+                loanStatus: loan.status,
+                attestationCompletedAt: loan.attestationCompletedAt,
+                signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
+                agreementPath: undefined,
+              });
+              const needsAction = borrowerLoanNeedsContinueAction(loan);
+              return (
+                <Link key={loan.id} href={`/loans/${loan.id}`} className="block">
+                  <Card className="hover:border-foreground/20 hover:shadow-sm transition-all cursor-pointer h-full border-amber-500/15">
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="min-w-0">
+                          <p className="font-heading font-semibold text-sm truncate">
+                            {loan.product?.name ?? "Loan"}
+                          </p>
+                          <p className="text-lg font-heading font-bold tabular-nums mt-0.5">
+                            {formatRm(loan.principalAmount)}
+                          </p>
+                        </div>
+                        <Badge variant="warning" className="shrink-0">
+                          {loanJourneyPhaseLabel(phase)}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{loan.term} months</span>
+                        <span className="opacity-40">·</span>
+                        <span className="font-mono">{shortId(loan.id)}</span>
+                      </div>
+                      {needsAction && (
+                        <div className="mt-3 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                          <ArrowRight className="h-3.5 w-3.5" />
+                          Action required — continue
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                          */
+/* ------------------------------------------------------------------ */
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <Skeleton className="h-7 w-40" />
+          <Skeleton className="h-4 w-60 mt-2" />
+        </div>
+        <Skeleton className="h-9 w-[106px] rounded-md" />
+      </div>
+
+      {/* Pending Actions */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-7 w-7 rounded-md" />
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="ml-auto h-5 w-6 rounded-full" />
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-2">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-lg border border-border/60 px-4 py-3">
+              <Skeleton className="h-4 w-4 shrink-0" />
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i}>
+            <CardContent className="pt-5 pb-4 px-5">
+              <div className="flex items-center justify-between mb-2">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-8 w-8 rounded-md" />
+              </div>
+              <Skeleton className="h-7 w-20 mt-1" />
+              <Skeleton className="h-3 w-32 mt-2" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Active Loans */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="h-4 w-16" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-5">
+                <div className="flex items-start gap-4">
+                  <Skeleton className="h-14 w-14 rounded-full shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex justify-between">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                    </div>
+                    <Skeleton className="h-6 w-28" />
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* Before Payout */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-16" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-6 w-28" />
+                  </div>
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );

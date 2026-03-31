@@ -214,7 +214,15 @@ router.get('/loans', async (req, res, next) => {
             take: 1,
             include: {
               repayments: {
-                select: { status: true, lateFeeAccrued: true, lateFeesPaid: true, dueDate: true },
+                orderBy: { dueDate: 'asc' },
+                select: {
+                  status: true,
+                  dueDate: true,
+                  totalDue: true,
+                  lateFeeAccrued: true,
+                  lateFeesPaid: true,
+                  allocations: { select: { amount: true, allocatedAt: true } },
+                },
               },
             },
           },
@@ -222,6 +230,8 @@ router.get('/loans', async (req, res, next) => {
       }),
       prisma.loan.count({ where }),
     ]);
+
+    const now = new Date();
 
     const data = loans.map((loan) => {
       const schedule = loan.scheduleVersions[0];
@@ -232,15 +242,65 @@ router.get('/loans', async (req, res, next) => {
         totalRepayments > 0 &&
         paidCount === totalRepayments &&
         (loan.status === 'ACTIVE' || loan.status === 'IN_ARREARS');
+
+      let totalDue = 0;
+      let totalPaid = 0;
+      let overdueCount = 0;
+      let totalLateFees = 0;
+      let paidOnTime = 0;
+      let paidLate = 0;
+      let nextPaymentDue: string | null = null;
+
+      for (const r of repayments) {
+        const due = toSafeNumber(r.totalDue);
+        const paid = (r.allocations ?? []).reduce((s: number, a: { amount: unknown }) => safeAdd(s, toSafeNumber(a.amount)), 0);
+        const lateAccrued = toSafeNumber(r.lateFeeAccrued ?? 0);
+        totalDue = safeAdd(totalDue, due);
+        totalPaid = safeAdd(totalPaid, paid);
+        totalLateFees = safeAdd(totalLateFees, lateAccrued);
+
+        if (r.status === 'PAID') {
+          const lastPayAt = r.allocations?.length
+            ? r.allocations[r.allocations.length - 1].allocatedAt
+            : null;
+          if (lastPayAt && new Date(String(lastPayAt)) <= new Date(r.dueDate)) {
+            paidOnTime++;
+          } else {
+            paidLate++;
+          }
+        } else if (r.status !== 'CANCELLED') {
+          if (new Date(r.dueDate) < now) {
+            overdueCount++;
+          }
+          if (!nextPaymentDue) {
+            nextPaymentDue = r.dueDate instanceof Date ? r.dueDate.toISOString() : String(r.dueDate);
+          }
+        }
+      }
+
+      const amountProgressPercent =
+        totalDue > 0 ? Math.min(100, safeRound(safeMultiply(safeDivide(totalPaid, totalDue), 100), 1)) : 0;
+      const totalScheduled = paidOnTime + paidLate + overdueCount;
+      const repaymentRate =
+        totalScheduled > 0
+          ? safeRound(safeMultiply(safeDivide(paidOnTime, totalScheduled), 100), 1)
+          : 0;
+
       const { scheduleVersions, ...rest } = loan;
       return {
         ...rest,
         progress: {
           paidCount,
           totalRepayments,
-          progressPercent:
-            totalRepayments > 0 ? safeRound(safeMultiply(safeDivide(paidCount, totalRepayments), 100), 1) : 0,
+          progressPercent: amountProgressPercent,
           readyToComplete,
+          totalPaid: safeRound(totalPaid, 2),
+          totalDue: safeRound(totalDue, 2),
+          totalOutstanding: safeRound(Math.max(0, safeSubtract(totalDue, totalPaid)), 2),
+          overdueCount,
+          totalLateFees: safeRound(totalLateFees, 2),
+          repaymentRate,
+          nextPaymentDue,
         },
       };
     });

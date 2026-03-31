@@ -110,6 +110,20 @@ For inset sections within cards (e.g., filter bars, toolbars, inline controls):
 </div>
 ```
 
+### Subtle Inset Panels
+
+For lightweight inset sections inside cards where the standard inset panel feels too heavy (e.g., summary blocks, proposed data, read-only detail rows):
+
+- **Tailwind class:** `bg-muted/5 border rounded-md`
+- Provides a barely-visible tint that separates content from the card background without competing visually.
+- Use this instead of `bg-muted/30` or heavier fills when the content is informational, not interactive.
+
+```html
+<div class="bg-muted/5 border rounded-md p-3">
+  <!-- Summary content, proposed slots, read-only details -->
+</div>
+```
+
 ---
 
 ## 5) Iconography & Visuals

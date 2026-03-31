@@ -58,6 +58,13 @@ export interface BorrowerLoanListItem {
     totalRepayments: number;
     progressPercent: number;
     readyToComplete: boolean;
+    totalPaid?: number;
+    totalDue?: number;
+    totalOutstanding?: number;
+    overdueCount?: number;
+    totalLateFees?: number;
+    repaymentRate?: number;
+    nextPaymentDue?: string | null;
   };
 }
 

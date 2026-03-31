@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Calendar, Loader2 } from "lucide-react";
@@ -17,9 +17,45 @@ import {
 import type { BorrowerLoanDetail } from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
 
+const MALAYSIA_TZ = "Asia/Kuala_Lumpur";
+
 function formatRm(v: unknown): string {
   const n = toAmountNumber(v);
   return `RM ${n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** YYYY-MM-DD in Malaysia for grouping slots */
+function malaysiaDateKey(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: MALAYSIA_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
+function formatDateGroupHeading(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00+08:00`);
+  const weekday = d.toLocaleDateString("en-MY", {
+    timeZone: MALAYSIA_TZ,
+    weekday: "long",
+  });
+  const dateStr = d.toLocaleDateString("en-MY", {
+    timeZone: MALAYSIA_TZ,
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+  });
+  return `${weekday}, ${dateStr}`;
+}
+
+function formatSlotTimeRange(startIso: string, endIso: string): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    timeZone: MALAYSIA_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+  return `${new Date(startIso).toLocaleTimeString("en-MY", opts)} — ${new Date(endIso).toLocaleTimeString("en-MY", opts)}`;
 }
 
 /**
@@ -87,6 +123,18 @@ export function AttestationScheduleMeetingPanel() {
       void loadSlots();
     }
   }, [loanId, loan?.attestationStatus, loan, loadSlots]);
+
+  const slotsByDate = useMemo(() => {
+    const sorted = [...slots].sort((a, b) => a.startAt.localeCompare(b.startAt));
+    const map = new Map<string, Array<{ startAt: string; endAt: string }>>();
+    for (const s of sorted) {
+      const key = malaysiaDateKey(s.startAt);
+      const existing = map.get(key);
+      if (existing) existing.push(s);
+      else map.set(key, [s]);
+    }
+    return map;
+  }, [slots]);
 
   const onPropose = async () => {
     if (!loanId || !selectedSlotStart) {
@@ -173,8 +221,8 @@ export function AttestationScheduleMeetingPanel() {
         </Link>
       </Button>
 
-      <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-muted/30 p-6 shadow-sm">
-        <h1 className="text-2xl font-heading font-bold text-gradient">Schedule attestation meeting</h1>
+      <div className="rounded-xl border bg-card p-6 shadow-sm">
+        <h1 className="text-2xl font-heading font-bold text-foreground">Schedule attestation meeting</h1>
         <p className="text-muted text-base mt-1">
           {loan.product?.name ?? "Loan"} · {formatRm(loan.principalAmount)} · {loan.term} months
         </p>
@@ -198,32 +246,41 @@ export function AttestationScheduleMeetingPanel() {
           ) : slots.length === 0 ? (
             <p className="text-sm text-amber-700 dark:text-amber-200">No open slots right now. Try again later.</p>
           ) : (
-            <div className="grid gap-2 max-h-72 overflow-y-auto">
+            <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Available slots</Label>
-              {slots.map((s) => (
-                <label
-                  key={s.startAt}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md border p-2 text-sm cursor-pointer",
-                    selectedSlotStart === s.startAt ? "border-primary bg-primary/5" : "border-border"
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="slot"
-                    checked={selectedSlotStart === s.startAt}
-                    onChange={() => setSelectedSlotStart(s.startAt)}
-                  />
-                  <span>
-                    {new Date(s.startAt).toLocaleString("en-MY", { timeZone: "Asia/Kuala_Lumpur" })} —{" "}
-                    {new Date(s.endAt).toLocaleTimeString("en-MY", {
-                      timeZone: "Asia/Kuala_Lumpur",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </label>
-              ))}
+              <div className="max-h-[min(75vh,42rem)] overflow-y-auto rounded-md border border-border/60 bg-muted/20 pr-1">
+                <div className="space-y-6 p-3 sm:p-4">
+                  {[...slotsByDate.entries()].map(([dateKey, daySlots]) => (
+                    <section key={dateKey} className="space-y-2">
+                      <h3 className="sticky top-0 z-[1] -mx-3 px-3 py-2 text-sm font-semibold tracking-tight text-foreground sm:-mx-4 sm:px-4 bg-muted/20 border-b border-border">
+                        {formatDateGroupHeading(dateKey)}
+                      </h3>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {daySlots.map((s) => (
+                          <label
+                            key={s.startAt}
+                            className={cn(
+                              "flex items-center gap-2 rounded-md border p-2.5 text-sm cursor-pointer min-w-0",
+                              selectedSlotStart === s.startAt
+                                ? "border-primary bg-primary/5"
+                                : "border-border bg-background/80"
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              name="slot"
+                              className="shrink-0"
+                              checked={selectedSlotStart === s.startAt}
+                              onChange={() => setSelectedSlotStart(s.startAt)}
+                            />
+                            <span className="tabular-nums">{formatSlotTimeRange(s.startAt, s.endAt)}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
           <Button type="button" onClick={() => void onPropose()} disabled={busy || !selectedSlotStart}>

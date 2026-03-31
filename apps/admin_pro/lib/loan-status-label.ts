@@ -18,6 +18,5 @@ export function formatSnakeEnumTitle(value: string): string {
  * Primary label for admin/borrower badges: follows DB status; maps pre-disbursement attestation cases.
  */
 export function formatLoanStatusLabelForDisplay(loan: LoanStatusLabelInput): string {
-  if (loan.status === "PENDING_ATTESTATION") return "PENDING ATTESTATION";
   return formatSnakeEnumTitle(loan.status);
 }

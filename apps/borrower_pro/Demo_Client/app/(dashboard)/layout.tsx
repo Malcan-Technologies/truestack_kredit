@@ -27,7 +27,6 @@ import {
 } from "@borrower_pro/components/ui/dropdown-menu";
 import { AppDropdownMenuContent } from "@borrower_pro/components/ui/app-dropdown-menu";
 import { BorrowerSwitcher } from "@borrower_pro/components/borrower-switcher";
-import { NavbarCorner } from "@borrower_pro/components/navbar-corner";
 import { SidebarLenderBranding } from "@borrower_pro/components/sidebar-lender-branding";
 import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
 import { Badge } from "@borrower_pro/components/ui/badge";
@@ -357,7 +356,6 @@ export default function DashboardLayout({
         )}
       >
         <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-sm border-b border-border">
-          <NavbarCorner className="hidden lg:block" />
           <div className="flex items-center justify-between h-full px-4">
             <div className="flex items-center gap-4">
               <Button

@@ -24,6 +24,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Checkbox } from "../ui/checkbox";
 import { Badge } from "../ui/badge";
+import { Skeleton } from "../ui/skeleton";
 import { cn } from "../../lib/utils";
 import {
   getBorrowerLoan,
@@ -43,6 +44,7 @@ import type {
   AttestationStatus,
 } from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
+import { useSession } from "../../lib/auth-client";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { BorrowerLoanServicingPanel } from "./borrower-loan-servicing-panel";
 
@@ -92,6 +94,7 @@ type StepId = "attestation" | "sign" | "review";
 export function LoanPendingAgreementPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const loanId = typeof params.loanId === "string" ? params.loanId : "";
   const [loading, setLoading] = useState(true);
   const [loan, setLoan] = useState<BorrowerLoanDetail | null>(null);
@@ -115,6 +118,11 @@ export function LoanPendingAgreementPage() {
       setLoan(r.data);
     }
   }, [loanId]);
+
+  const attestationMeetNotifyEmail = useMemo(
+    () => loan?.borrower?.email?.trim() || session?.user?.email?.trim() || null,
+    [loan?.borrower?.email, session?.user?.email]
+  );
 
   useEffect(() => {
     if (!loanId) {
@@ -381,11 +389,7 @@ export function LoanPendingAgreementPage() {
     }, "Loan cancelled.");
 
   if (loading) {
-    return (
-      <div className="flex justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <LoanDetailSkeleton />;
   }
 
   if (!loan) {
@@ -518,10 +522,10 @@ export function LoanPendingAgreementPage() {
         <BorrowerLoanServicingPanel loanId={loanId} loan={loan} onRefresh={() => void refresh()} hideBackLink />
       ) : (
         <>
-      <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-muted/30 p-6 shadow-sm">
+      <div className="rounded-xl border bg-card p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-heading font-bold text-gradient">Before payout</h1>
+            <h1 className="text-2xl font-heading font-bold text-foreground">Before payout</h1>
             <p className="text-muted text-base mt-1">
               {loan.product?.name ?? "Loan"} · {formatRm(loan.principalAmount)} · {loan.term} months
             </p>
@@ -546,7 +550,7 @@ export function LoanPendingAgreementPage() {
               <button
                 type="button"
                 onClick={() => onJourneyStepClick(st.id)}
-                className="flex flex-col items-center gap-1 flex-1 min-w-0 rounded-md p-1 -m-1 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex flex-col items-center gap-1 flex-1 min-w-0 rounded-md p-1 -m-1 hover:bg-foreground/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div
                   className={cn(
@@ -716,13 +720,17 @@ export function LoanPendingAgreementPage() {
                     {new Date(loan.attestationProposalStartAt).toLocaleString("en-MY", {
                       timeZone: "Asia/Kuala_Lumpur",
                     })}
-                    {loan.attestationProposalDeadlineAt && (
-                      <> — respond by lender before {new Date(loan.attestationProposalDeadlineAt).toLocaleString()}</>
-                    )}
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  A Google Meet link appears here only after your lender accepts this time.
+                  A Google Meet link appears here only after your lender accepts this time. We will also
+                  email the same link to{" "}
+                  {attestationMeetNotifyEmail ? (
+                    <span className="font-medium text-foreground break-all">{attestationMeetNotifyEmail}</span>
+                  ) : (
+                    <span className="font-medium text-foreground">your account email</span>
+                  )}
+                  .
                 </p>
               </div>
             )}
@@ -1115,6 +1123,73 @@ export function LoanPendingAgreementPage() {
       )}
         </>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                          */
+/* ------------------------------------------------------------------ */
+
+function LoanDetailSkeleton() {
+  return (
+    <div className="w-full min-w-0 space-y-8 pb-12">
+      {/* Back button + tab toggle */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Skeleton className="h-8 w-32 rounded-md" />
+        <Skeleton className="h-9 w-56 rounded-lg" />
+      </div>
+
+      {/* Header card */}
+      <div className="rounded-xl border bg-card p-6 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-40" />
+            <Skeleton className="h-5 w-64" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-5 w-24 rounded-full" />
+            <Skeleton className="h-5 w-28 rounded-full" />
+          </div>
+        </div>
+      </div>
+
+      {/* Stepper */}
+      <div className="rounded-lg border bg-card p-4">
+        <Skeleton className="h-3 w-24 mb-3" />
+        <div className="flex items-center gap-1">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center flex-1 min-w-0">
+              <div className="flex flex-col items-center gap-1 flex-1">
+                <Skeleton className="h-9 w-9 rounded-full" />
+                <Skeleton className="h-2.5 w-16" />
+              </div>
+              {i < 2 && <Skeleton className="h-0.5 flex-1 min-w-[12px] -mt-5 rounded-full" />}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Content card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5 w-5 rounded" />
+            <Skeleton className="h-5 w-48" />
+          </div>
+          <Skeleton className="h-4 w-full max-w-md mt-2" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-3 w-72" />
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-36 rounded-md" />
+              <Skeleton className="h-9 w-44 rounded-md" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Building2, Pencil, User } from "lucide-react";
 import {
   BorrowerDetailCard,
   type BorrowerDetailCardHandle,
@@ -12,12 +12,33 @@ import { DigitalSigningComingSoonCard } from "@borrower_pro/components/digital-s
 import { BorrowerDocumentsCard } from "@borrower_pro/components/borrower-documents-card";
 import { RefreshButton } from "@borrower_pro/components/ui/refresh-button";
 import { Button } from "@borrower_pro/components/ui/button";
+import { Badge } from "@borrower_pro/components/ui/badge";
 import {
   fetchBorrowerMe,
   switchBorrowerProfile,
   BORROWER_PROFILE_SWITCHED_EVENT,
 } from "@borrower_pro/lib/borrower-auth-client";
-import { fetchBorrower } from "@borrower_pro/lib/borrower-api-client";
+import {
+  fetchBorrower,
+  type BorrowerDetail,
+} from "@borrower_pro/lib/borrower-api-client";
+import { formatICForDisplay } from "@borrower_pro/lib/borrower-form-display";
+
+function profilePageHeaderFromBorrower(data: BorrowerDetail) {
+  const isIndividual = data.borrowerType === "INDIVIDUAL";
+  const title = isIndividual
+    ? data.name?.trim() || "Borrower"
+    : data.companyName?.trim() || data.name?.trim() || "Borrower";
+  let documentLine: string;
+  if (isIndividual) {
+    const dt = data.documentType || "IC";
+    const ic = data.icNumber?.trim() ?? "";
+    documentLine = dt === "IC" ? formatICForDisplay(ic) : ic;
+  } else {
+    documentLine = `SSM: ${data.ssmRegistrationNo?.trim() || "—"}`;
+  }
+  return { title, isIndividual, documentLine };
+}
 
 export default function YourProfilePage() {
   const router = useRouter();
@@ -26,6 +47,9 @@ export default function YourProfilePage() {
   const [loading, setLoading] = useState(true);
   const [profileEditing, setProfileEditing] = useState(false);
   const [dataRefreshKey, setDataRefreshKey] = useState(0);
+  const [profileHeader, setProfileHeader] = useState<ReturnType<
+    typeof profilePageHeaderFromBorrower
+  > | null>(null);
 
   const bumpDataRefresh = useCallback(() => {
     setDataRefreshKey((k) => k + 1);
@@ -82,6 +106,7 @@ export default function YourProfilePage() {
           setBorrowerType(
             borrowerRes.data.borrowerType as "INDIVIDUAL" | "CORPORATE"
           );
+          setProfileHeader(profilePageHeaderFromBorrower(borrowerRes.data));
         }
       }
     } catch {
@@ -105,6 +130,7 @@ export default function YourProfilePage() {
           setBorrowerType(
             borrowerRes.data.borrowerType as "INDIVIDUAL" | "CORPORATE"
           );
+          setProfileHeader(profilePageHeaderFromBorrower(borrowerRes.data));
         }
       } catch {
         // Session may still be propagating; retry once
@@ -115,6 +141,7 @@ export default function YourProfilePage() {
             setBorrowerType(
               borrowerRes.data.borrowerType as "INDIVIDUAL" | "CORPORATE"
             );
+            setProfileHeader(profilePageHeaderFromBorrower(borrowerRes.data));
           }
         } catch {
           // Ignore
@@ -138,13 +165,27 @@ export default function YourProfilePage() {
 
   return (
     <div className="space-y-6">
-      {!profileEditing ? (
+      {!profileEditing && profileHeader ? (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-heading font-bold text-gradient">Your profile</h1>
-            <p className="text-muted text-base mt-1">View and update your borrower details</p>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-2xl font-heading font-bold truncate">
+              {profileHeader.title}
+            </h2>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <Badge variant={profileHeader.isIndividual ? "outline" : "secondary"}>
+                {profileHeader.isIndividual ? (
+                  <User className="h-3 w-3 mr-1" />
+                ) : (
+                  <Building2 className="h-3 w-3 mr-1" />
+                )}
+                {profileHeader.isIndividual ? "Individual" : "Corporate"}
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                {profileHeader.documentLine}
+              </span>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2 shrink-0 sm:justify-end">
             <RefreshButton
               onRefresh={handleToolbarRefresh}
               showToast
@@ -165,6 +206,10 @@ export default function YourProfilePage() {
           <BorrowerDetailCard
             ref={cardRef}
             hideInlineEditButton
+            hideViewHeader
+            onBorrowerLoaded={(data) =>
+              setProfileHeader(profilePageHeaderFromBorrower(data))
+            }
             onEditingChange={setProfileEditing}
             onRefresh={bumpDataRefresh}
           />

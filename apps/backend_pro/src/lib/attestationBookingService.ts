@@ -408,53 +408,6 @@ export async function borrowerDeclineCounter(params: {
   return updated;
 }
 
-export async function adminRejectProposal(params: {
-  loanId: string;
-  tenantId: string;
-}): Promise<unknown> {
-  const loan = await prisma.loan.findFirst({
-    where: { id: params.loanId, tenantId: params.tenantId },
-  });
-  if (!loan) throw new Error('NOT_FOUND');
-  if (loan.attestationStatus !== 'SLOT_PROPOSED') throw new Error('INVALID_ATTESTATION_STATE');
-
-  if (loan.attestationGoogleCalendarEventId) {
-    try {
-      await deleteCalendarEvent(loan.attestationGoogleCalendarEventId);
-    } catch (e) {
-      console.warn('[attestation] delete calendar on reject', e);
-    }
-  }
-
-  const updated = await prisma.loan.update({
-    where: { id: params.loanId },
-    data: {
-      status: 'CANCELLED',
-      attestationStatus: 'NOT_STARTED',
-      attestationCancellationReason: 'PROPOSAL_REJECTED_BY_LENDER',
-      attestationCancelledAt: new Date(),
-      attestationCancelledByUserId: null,
-      attestationProposalStartAt: null,
-      attestationProposalEndAt: null,
-      attestationProposalDeadlineAt: null,
-      attestationProposalSource: null,
-      attestationMeetingLink: null,
-      attestationMeetingNotes: null,
-      attestationGoogleCalendarEventId: null,
-    },
-  });
-
-  await notifyBorrowerEmail({
-    tenantId: params.tenantId,
-    borrowerId: loan.borrowerId,
-    subject: 'Loan application withdrawn',
-    body:
-      'Your proposed attestation meeting time was not accepted. This loan has been cancelled. Contact your lender if you have questions.',
-  });
-
-  return updated;
-}
-
 const STALE_PROPOSAL_EXPIRY_EMAIL = {
   subject: 'Your attestation meeting proposal expired',
   body:

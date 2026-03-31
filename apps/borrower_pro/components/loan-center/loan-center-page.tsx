@@ -2,8 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle, Clock, FileText, Loader2, LogOut, Plus } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Calendar,
+  CheckCircle,
+  Clock,
+  CreditCard,
+  FileText,
+  Loader2,
+  LogOut,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -24,7 +35,8 @@ import {
   SelectValue,
 } from "../ui/select";
 import { RefreshButton } from "../ui/refresh-button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { TooltipProvider } from "../ui/tooltip";
+import { Skeleton } from "../ui/skeleton";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "../../lib/borrower-auth-client";
 import { listBorrowerApplications } from "../../lib/borrower-applications-client";
 import {
@@ -37,7 +49,11 @@ import type { LoanCenterOverview } from "../../lib/borrower-loan-types";
 import type { BorrowerLoanListItem } from "../../lib/borrower-loan-types";
 import type { LoanApplicationDetail } from "../../lib/application-form-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
-import { deriveLoanJourneyPhase, loanJourneyPhaseLabel } from "../../lib/loan-journey-phase";
+import {
+  deriveLoanJourneyPhase,
+  loanJourneyPhaseLabel,
+  type LoanJourneyPhase,
+} from "../../lib/loan-journey-phase";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { borrowerLoanNeedsContinueAction } from "../../lib/borrower-loan-continue-eligibility";
 import { formatDate } from "../../lib/borrower-form-display";
@@ -52,6 +68,19 @@ export type LoanCenterTab =
   | "discharged"
   | "incomplete"
   | "rejected";
+
+const LOAN_CENTER_TABS: LoanCenterTab[] = [
+  "all",
+  "active",
+  "before_payout",
+  "discharged",
+  "incomplete",
+  "rejected",
+];
+
+function parseLoanCenterTab(value: string | null | undefined): LoanCenterTab {
+  return LOAN_CENTER_TABS.includes(value as LoanCenterTab) ? (value as LoanCenterTab) : "all";
+}
 
 function formatRm(v: unknown): string {
   const n = toAmountNumber(v);
@@ -75,11 +104,14 @@ function filterByProductName<T extends { product?: { name?: string | null } }>(
   return rows.filter((r) => (r.product?.name ?? "") === productName);
 }
 
-/** Same as `admin_pro` `dashboard/loans/page.tsx` `ProgressDonut`. */
+/* ------------------------------------------------------------------ */
+/*  Progress Donut — enlarged version for card layout                 */
+/* ------------------------------------------------------------------ */
+
 function ProgressDonut({
   percent,
-  size = 32,
-  strokeWidth = 4,
+  size = 80,
+  strokeWidth = 6,
   readyToComplete = false,
   status,
 }: {
@@ -112,7 +144,7 @@ function ProgressDonut({
           r={radius}
           fill="none"
           strokeWidth={strokeWidth}
-          className="stroke-muted/40"
+          className="stroke-muted/30"
         />
         <circle
           cx={center}
@@ -123,19 +155,80 @@ function ProgressDonut({
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
-          className={strokeColor}
+          className={cn(strokeColor, "transition-all duration-700 ease-out")}
         />
       </svg>
-      {readyToComplete ? (
-        <CheckCircle className="absolute h-3 w-3 text-emerald-500" aria-hidden />
-      ) : null}
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        {readyToComplete ? (
+          <CheckCircle className="h-5 w-5 text-emerald-500" aria-hidden />
+        ) : (
+          <span className="text-sm font-heading font-bold tabular-nums">{percent}%</span>
+        )}
+      </div>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Journey Stepper — visual phase indicator for pre-disbursement     */
+/* ------------------------------------------------------------------ */
+
+const PRE_DISBURSEMENT_PHASES: LoanJourneyPhase[] = [
+  "attestation",
+  "signing",
+  "disbursement",
+];
+
+function JourneyStepper({ currentPhase }: { currentPhase: LoanJourneyPhase }) {
+  const currentIdx = PRE_DISBURSEMENT_PHASES.indexOf(currentPhase);
+
+  return (
+    <ul className="space-y-1.5">
+      {PRE_DISBURSEMENT_PHASES.map((phase, idx) => {
+        const isCompleted = currentIdx > idx;
+        const isCurrent = currentIdx === idx;
+        return (
+          <li key={phase} className="flex items-center gap-2">
+            {isCompleted ? (
+              <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
+            ) : (
+              <div
+                className={cn(
+                  "h-4 w-4 rounded-full border-2 shrink-0",
+                  isCurrent
+                    ? "border-amber-500 bg-amber-500/15"
+                    : "border-muted-foreground/30"
+                )}
+              />
+            )}
+            <span
+              className={cn(
+                "text-xs",
+                isCompleted
+                  ? "text-emerald-700 dark:text-emerald-400 font-medium"
+                  : isCurrent
+                    ? "text-foreground font-semibold"
+                    : "text-muted-foreground"
+              )}
+            >
+              {loanJourneyPhaseLabel(phase)}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main page                                                         */
+/* ------------------------------------------------------------------ */
+
 export function LoanCenterPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<LoanCenterTab>("all");
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const [tab, setTab] = useState<LoanCenterTab>(() => parseLoanCenterTab(tabParam));
   const [productFilter, setProductFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<LoanCenterOverview | null>(null);
@@ -143,6 +236,11 @@ export function LoanCenterPage() {
   const [activeLoans, setActiveLoans] = useState<BorrowerLoanListItem[]>([]);
   const [pendingDisbursementLoans, setPendingDisbursementLoans] = useState<BorrowerLoanListItem[]>([]);
   const [dischargedLoans, setDischargedLoans] = useState<BorrowerLoanListItem[]>([]);
+
+  useEffect(() => {
+    const nextTab = parseLoanCenterTab(tabParam);
+    setTab((currentTab) => (currentTab === nextTab ? currentTab : nextTab));
+  }, [tabParam]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -233,10 +331,10 @@ export function LoanCenterPage() {
 
   const counts = overview?.counts;
 
-  const showLoanTable = ["all", "active", "before_payout", "discharged"].includes(tab);
+  const showLoanCards = ["all", "active", "before_payout", "discharged"].includes(tab);
   const showApplicationTable = tab === "incomplete" || tab === "rejected";
 
-  const listItemCount = showLoanTable ? loanRows.length : applicationRows.length;
+  const listItemCount = showLoanCards ? loanRows.length : applicationRows.length;
   const allLoansTotal =
     counts != null
       ? counts.activeLoans + counts.pendingDisbursementLoans + counts.dischargedLoans
@@ -244,22 +342,34 @@ export function LoanCenterPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-heading font-bold text-gradient">Your loans</h1>
-        <p className="text-muted text-base mt-1">
-          Filter loans and applications the same way as on{" "}
-          <Link href="/applications" className="text-primary underline font-medium">
-            Loan applications
-          </Link>
-          . Click a row to open details.
-        </p>
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-heading font-bold text-gradient">Your loans</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            {listItemCount} {showLoanCards ? "loan" : "application"}
+            {listItemCount !== 1 ? "s" : ""}
+            {productFilter ? " for the selected product" : ""}
+          </p>
+        </div>
+        <RefreshButton
+          onRefresh={async () => {
+            await loadAll();
+          }}
+          showToast
+          successMessage="Loans refreshed"
+          showLabel
+          variant="outline"
+          className="shrink-0"
+        />
       </div>
 
+      {/* Tabs + product filter */}
       <div className="flex gap-2 flex-wrap items-center">
         <Button variant={tab === "all" ? "default" : "outline"} size="sm" onClick={() => setTab("all")}>
           All
           {counts != null && allLoansTotal > 0 ? (
-            <span className="ml-1.5 bg-muted text-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-secondary text-secondary-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {allLoansTotal}
             </span>
           ) : null}
@@ -267,7 +377,7 @@ export function LoanCenterPage() {
         <Button variant={tab === "active" ? "default" : "outline"} size="sm" onClick={() => setTab("active")}>
           Active
           {counts != null && counts.activeLoans > 0 ? (
-            <span className="ml-1.5 bg-muted text-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-secondary text-secondary-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {counts.activeLoans}
             </span>
           ) : null}
@@ -279,7 +389,7 @@ export function LoanCenterPage() {
         >
           Before payout
           {counts != null && counts.pendingDisbursementLoans > 0 ? (
-            <span className="ml-1.5 bg-muted text-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-secondary text-secondary-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {counts.pendingDisbursementLoans}
             </span>
           ) : null}
@@ -291,7 +401,7 @@ export function LoanCenterPage() {
         >
           Discharged
           {counts != null && counts.dischargedLoans > 0 ? (
-            <span className="ml-1.5 bg-muted text-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-secondary text-secondary-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {counts.dischargedLoans}
             </span>
           ) : null}
@@ -303,7 +413,7 @@ export function LoanCenterPage() {
         >
           Incomplete
           {counts != null && counts.incompleteApplications > 0 ? (
-            <span className="ml-1.5 bg-muted text-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-secondary text-secondary-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {counts.incompleteApplications}
             </span>
           ) : null}
@@ -315,94 +425,138 @@ export function LoanCenterPage() {
         >
           Rejected & withdrawn
           {counts != null && counts.rejectedApplications > 0 ? (
-            <span className="ml-1.5 bg-destructive/15 text-destructive rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+            <span className="ml-1.5 bg-destructive/10 text-destructive rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {counts.rejectedApplications}
             </span>
           ) : null}
         </Button>
-        <span className="border-l border-border mx-1 h-6 self-center" aria-hidden />
-        <div className="flex items-center gap-2 min-w-[min(100%,220px)]">
-          <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider shrink-0">
-            Product
-          </span>
-          <Select
-            value={productFilter || "__all__"}
-            onValueChange={(v) => setProductFilter(v === "__all__" ? "" : v)}
-          >
-            <SelectTrigger className="h-9 w-[220px] max-w-[min(100vw-2rem,280px)]">
-              <SelectValue placeholder="All types" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">All types</SelectItem>
-              {productOptions.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+
+        {productOptions.length > 0 && (
+          <>
+            <span className="border-l border-border mx-1 h-6 self-center" aria-hidden />
+            <div className="flex items-center gap-2 min-w-[min(100%,220px)]">
+              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider shrink-0">
+                Product
+              </span>
+              <Select
+                value={productFilter || "__all__"}
+                onValueChange={(v) => setProductFilter(v === "__all__" ? "" : v)}
+              >
+                <SelectTrigger className="h-9 w-[220px] max-w-[min(100vw-2rem,280px)]">
+                  <SelectValue placeholder="All types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All types</SelectItem>
+                  {productOptions.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                {showLoanTable ? "Loans" : "Applications"}
-              </CardTitle>
-              <CardDescription className="mt-1.5">
-                {listItemCount} {showLoanTable ? "loan" : "application"}
-                {listItemCount !== 1 ? "s" : ""}
-                {productFilter ? " for the selected product" : ""}. Open a loan for schedule preview and payments when
-                active; use Continue on Before payout when you still have attestation or signing steps.
-              </CardDescription>
-            </div>
-            <RefreshButton
-              onRefresh={async () => {
-                await loadAll();
-              }}
-              showToast
-              successMessage="Loans refreshed"
-              showLabel
-              variant="outline"
-              className="shrink-0"
+      {/* Content */}
+      {loading && !overview ? (
+        <LoanCardsSkeleton />
+      ) : (
+        <>
+          {showLoanCards && (
+            <LoanCardsGrid
+              loans={loanRows}
+              tab={tab}
+              onRefresh={() => void loadAll()}
+              onOpenLoan={(id) => router.push(`/loans/${id}`)}
             />
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading && !overview ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="w-full">
-              {showLoanTable && (
-                <LoanLoansTable
-                  loans={loanRows}
-                  tab={tab}
-                  onRefresh={() => void loadAll()}
-                  onOpenLoan={(id) => router.push(`/loans/${id}`)}
-                />
-              )}
+          )}
 
-              {showApplicationTable && (
+          {showApplicationTable && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-muted-foreground" />
+                  Applications
+                </CardTitle>
+                <CardDescription>
+                  {applicationRows.length} application{applicationRows.length !== 1 ? "s" : ""}
+                  {productFilter ? " for the selected product" : ""}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
                 <LoanApplicationsTable
                   apps={applicationRows}
                   variant={tab === "rejected" ? "rejected" : "incomplete"}
                   onChanged={() => void loadAll()}
                 />
-              )}
-            </div>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
+        </>
+      )}
     </div>
   );
 }
 
-function LoanLoansTable({
+/* ------------------------------------------------------------------ */
+/*  Skeleton loading cards                                            */
+/* ------------------------------------------------------------------ */
+
+function LoanCardsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Card key={i} className="overflow-hidden">
+          <CardContent className="p-5 space-y-4">
+            {/* Badge + channel */}
+            <div className="flex items-start justify-between">
+              <div className="space-y-1.5">
+                <Skeleton className="h-5 w-28 rounded-full" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+              <Skeleton className="h-7 w-20 rounded-lg" />
+            </div>
+            {/* Product + amount */}
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-7 w-44" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+            {/* Progress area */}
+            <div className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-5">
+                <Skeleton className="h-[72px] w-[72px] rounded-full shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-3 w-12" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-1.5 w-full rounded-full" />
+                </div>
+              </div>
+              <div className="flex gap-1.5">
+                <Skeleton className="h-6 w-24 rounded-md" />
+                <Skeleton className="h-6 w-20 rounded-md" />
+                <Skeleton className="h-6 w-20 rounded-md" />
+              </div>
+            </div>
+            {/* Action */}
+            <Skeleton className="h-9 w-full rounded-md" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Loan Cards Grid                                                   */
+/* ------------------------------------------------------------------ */
+
+function LoanCardsGrid({
   loans,
   tab,
   onRefresh,
@@ -415,148 +569,243 @@ function LoanLoansTable({
 }) {
   const [payLoanId, setPayLoanId] = useState<string | null>(null);
 
-  const showContinueColumn =
-    tab === "before_payout" || tab === "all";
+  const showContinueColumn = tab === "before_payout" || tab === "all";
 
   if (loans.length === 0) {
     return (
-      <div className="text-center py-12 text-muted-foreground text-sm">No loans in this category.</div>
+      <div className="text-center py-20">
+        <FileText className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+        <p className="text-muted-foreground text-sm">No loans in this category.</p>
+      </div>
     );
   }
 
   return (
-    <>
-      <TooltipProvider>
-      <div className="rounded-md border overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Product</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Term</TableHead>
-              <TableHead className="min-w-[7.5rem]">Channel</TableHead>
-              <TableHead className="min-w-[11rem]">Status</TableHead>
-              <TableHead>Progress</TableHead>
-              <TableHead className="text-right w-[1%]">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loans.map((loan) => {
-              const progress = loan.progress;
-              const journeyPhase = deriveLoanJourneyPhase({
-                applicationStatus: loan.application?.status,
-                loanStatus: loan.status,
-                attestationCompletedAt: loan.attestationCompletedAt,
-                signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
-                agreementPath: undefined,
-              });
-              const canPay =
-                loan.status === "ACTIVE" || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
-              const needsContinue =
-                showContinueColumn &&
-                (loan.status === "PENDING_ATTESTATION" || loan.status === "PENDING_DISBURSEMENT") &&
-                borrowerLoanNeedsContinueAction(loan);
+    <TooltipProvider>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {loans.map((loan) => {
+          const progress = loan.progress;
+          const journeyPhase = deriveLoanJourneyPhase({
+            applicationStatus: loan.application?.status,
+            loanStatus: loan.status,
+            attestationCompletedAt: loan.attestationCompletedAt,
+            signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
+            agreementPath: undefined,
+          });
+          const canPay =
+            loan.status === "ACTIVE" || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
+          const needsContinue =
+            showContinueColumn &&
+            (loan.status === "PENDING_ATTESTATION" || loan.status === "PENDING_DISBURSEMENT") &&
+            borrowerLoanNeedsContinueAction(loan);
+          const isPreDisbursement =
+            loan.status === "PENDING_ATTESTATION" || loan.status === "PENDING_DISBURSEMENT";
+          const isActiveLoan =
+            loan.status === "ACTIVE" || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
+          const isCompleted = loan.status === "COMPLETED";
+          const isDischarged =
+            loan.status === "COMPLETED" || loan.status === "WRITTEN_OFF" || loan.status === "CANCELLED";
+          const clickable =
+            isPreDisbursement || isActiveLoan || isCompleted;
 
-              const clickable =
-                loan.status === "PENDING_ATTESTATION" ||
-                loan.status === "PENDING_DISBURSEMENT" ||
-                loan.status === "ACTIVE" ||
-                loan.status === "IN_ARREARS" ||
-                loan.status === "DEFAULTED" ||
-                loan.status === "COMPLETED";
+          return (
+            <Card
+              key={loan.id}
+              className={cn(
+                "group relative overflow-hidden transition-all duration-200",
+                clickable && "cursor-pointer hover:border-foreground/20 hover:shadow-sm",
+                progress?.readyToComplete && "border-emerald-500/30",
+                isPreDisbursement && !progress?.readyToComplete && "border-amber-500/20"
+              )}
+              onClick={() => {
+                if (clickable) onOpenLoan(loan.id);
+              }}
+            >
+              <CardContent className="p-5">
+                {/* Top: badge + ID + channel */}
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Badge variant={borrowerLoanStatusBadgeVariant(loan)} className="w-fit">
+                      {loanStatusBadgeLabelFromDb(loan)}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      {shortId(loan.id)}
+                    </span>
+                  </div>
+                  <LoanChannelPill channel={loan.loanChannel} />
+                </div>
 
-              return (
-                <TableRow
-                  key={loan.id}
-                  className={cn(
-                    clickable ? "cursor-pointer hover:bg-muted/20 transition-colors" : "",
-                    progress?.readyToComplete
-                      ? "bg-emerald-500/[0.03] dark:bg-emerald-500/[0.04]"
-                      : loan.status === "PENDING_DISBURSEMENT" || loan.status === "PENDING_ATTESTATION"
-                        ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.04]"
-                        : ""
-                  )}
-                  onClick={() => {
-                    if (clickable) onOpenLoan(loan.id);
-                  }}
-                >
-                  <TableCell className="font-medium max-w-[200px]">
-                    <div>{loan.product?.name ?? "Loan"}</div>
-                    <div className="text-[10px] text-muted-foreground font-mono">ID {shortId(loan.id)}</div>
-                  </TableCell>
-                  <TableCell className="text-right whitespace-nowrap">{formatRm(loan.principalAmount)}</TableCell>
-                  <TableCell>{loan.term} mo</TableCell>
-                  <TableCell className="align-middle">
-                    <LoanChannelPill channel={loan.loanChannel} />
-                  </TableCell>
-                  <TableCell className="align-middle">
-                    <div className="flex flex-col gap-1.5 items-start max-w-[14rem]">
-                      <Badge variant={borrowerLoanStatusBadgeVariant(loan)} className="whitespace-nowrap">
-                        {loanStatusBadgeLabelFromDb(loan)}
-                      </Badge>
-                      <span className="text-[11px] leading-snug text-muted-foreground pl-0.5">
-                        <span className="opacity-80">Step</span>{" "}
-                        <span className="font-medium text-foreground/90">
-                          {loanJourneyPhaseLabel(journeyPhase)}
-                        </span>
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {loan.status === "PENDING_DISBURSEMENT" || loan.status === "PENDING_ATTESTATION" ? (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    ) : progress ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex items-center gap-2">
-                            <ProgressDonut
-                              percent={progress.progressPercent}
-                              readyToComplete={progress.readyToComplete}
-                              status={loan.status}
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              {progress.paidCount}/{progress.totalRepayments}
-                            </span>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>
-                            {progress.paidCount} of {progress.totalRepayments} payments complete (
-                            {progress.progressPercent}%)
-                          </p>
-                          {progress.readyToComplete ? (
-                            <p className="text-emerald-500 font-medium">Ready to complete</p>
-                          ) : null}
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
+                {/* Product name + amount */}
+                <div className="mb-4">
+                  <h3 className="font-heading font-semibold text-base leading-tight truncate">
+                    {loan.product?.name ?? "Loan"}
+                  </h3>
+                  <p className="text-2xl font-heading font-bold tabular-nums mt-1">
+                    {formatRm(loan.principalAmount)}
+                  </p>
+                  <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                    <span>{loan.term} months</span>
+                    {loan.disbursementDate && (
+                      <>
+                        <span className="opacity-40">·</span>
+                        <span>Disbursed {formatDate(loan.disbursementDate)}</span>
+                      </>
                     )}
-                  </TableCell>
-                  <TableCell
-                    className="text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex flex-col sm:flex-row gap-2 justify-end">
-                      {needsContinue && (
-                        <Button size="sm" variant="secondary" asChild>
-                          <Link href={`/loans/${loan.id}`}>Continue</Link>
-                        </Button>
+                  </div>
+                </div>
+
+                {/* Active / completed loan: donut + payment stats + metrics */}
+                {(isActiveLoan || isCompleted) && progress ? (
+                  <div className="mb-4 bg-muted/5 border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-5">
+                      <ProgressDonut
+                        percent={progress.progressPercent}
+                        readyToComplete={progress.readyToComplete}
+                        size={72}
+                        strokeWidth={5}
+                        status={loan.status}
+                      />
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-xs text-muted-foreground">Paid</span>
+                          <span className="text-sm font-heading font-bold tabular-nums">
+                            {progress.totalPaid != null ? formatRm(progress.totalPaid) : `${progress.paidCount}/${progress.totalRepayments}`}
+                          </span>
+                        </div>
+                        {progress.totalDue != null && progress.totalDue > 0 && (
+                          <p className="text-[11px] text-muted-foreground">
+                            of {formatRm(progress.totalDue)}
+                          </p>
+                        )}
+                        <div className="w-full bg-muted/30 rounded-full h-1.5">
+                          <div
+                            className={cn(
+                              "h-1.5 rounded-full transition-all duration-700 ease-out",
+                              loan.status === "COMPLETED"
+                                ? "bg-emerald-500"
+                                : loan.status === "IN_ARREARS"
+                                  ? "bg-amber-500"
+                                  : loan.status === "DEFAULTED" || loan.status === "WRITTEN_OFF"
+                                    ? "bg-red-500"
+                                    : "bg-foreground"
+                            )}
+                            style={{ width: `${progress.progressPercent}%` }}
+                          />
+                        </div>
+                        {progress.readyToComplete && (
+                          <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                            Ready to complete
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Metric pills */}
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="inline-flex items-center rounded-md bg-secondary border border-border px-2 py-1 text-[11px] tabular-nums">
+                        <span className="text-muted-foreground mr-1">Instalments</span>
+                        <span className="font-semibold">{progress.paidCount}/{progress.totalRepayments}</span>
+                      </span>
+                      {(progress.overdueCount ?? 0) > 0 && (
+                        <span className="inline-flex items-center rounded-md bg-red-500/10 border border-red-500/20 px-2 py-1 text-[11px] tabular-nums text-red-700 dark:text-red-400">
+                          <span className="mr-1">Overdue</span>
+                          <span className="font-semibold">{progress.overdueCount}</span>
+                        </span>
                       )}
-                      {canPay && (
-                        <Button size="sm" variant="outline" onClick={() => setPayLoanId(loan.id)}>
-                          Record payment
-                        </Button>
+                      {(progress.totalLateFees ?? 0) > 0 && (
+                        <span className="inline-flex items-center rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1 text-[11px] tabular-nums text-amber-700 dark:text-amber-400">
+                          <span className="mr-1">Late fees</span>
+                          <span className="font-semibold">{formatRm(progress.totalLateFees)}</span>
+                        </span>
+                      )}
+                      {progress.repaymentRate != null && progress.paidCount > 0 && (
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-md border px-2 py-1 text-[11px] tabular-nums",
+                            (progress.repaymentRate) >= 80
+                              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400"
+                              : (progress.repaymentRate) >= 50
+                                ? "bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400"
+                                : "bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-400"
+                          )}
+                        >
+                          <span className="mr-1">On-time</span>
+                          <span className="font-semibold">{progress.repaymentRate}%</span>
+                        </span>
                       )}
                     </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+
+                    {/* Next payment due */}
+                    {progress.nextPaymentDue && !isCompleted && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-border/50 text-xs">
+                        <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-muted-foreground">Next payment</span>
+                        <span className="font-medium ml-auto tabular-nums">
+                          {formatDate(progress.nextPaymentDue)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {/* Pre-disbursement: journey stepper */}
+                {isPreDisbursement && (
+                  <div className="mb-4 bg-muted/5 border rounded-lg p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
+                      Journey progress
+                    </p>
+                    <JourneyStepper currentPhase={journeyPhase} />
+                  </div>
+                )}
+
+                {/* Discharged (non-completed) info */}
+                {isDischarged && !isCompleted && !isActiveLoan && (
+                  <div className="mb-4 bg-muted/5 border rounded-lg p-3 flex items-center gap-2">
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground">
+                      Created {formatDate(loan.createdAt)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div
+                  className="flex gap-2 pt-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {needsContinue && (
+                    <Button size="sm" className="flex-1" asChild>
+                      <Link href={`/loans/${loan.id}`}>
+                        Continue
+                        <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                      </Link>
+                    </Button>
+                  )}
+                  {canPay && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setPayLoanId(loan.id)}
+                    >
+                      <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                      Record payment
+                    </Button>
+                  )}
+                  {clickable && !needsContinue && !canPay && (
+                    <Button size="sm" variant="ghost" className="flex-1 text-muted-foreground" asChild>
+                      <Link href={`/loans/${loan.id}`}>
+                        View details
+                        <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
-      </TooltipProvider>
       {payLoanId && (
         <BorrowerPaymentDialog
           loanId={payLoanId}
@@ -569,9 +818,13 @@ function LoanLoansTable({
           }}
         />
       )}
-    </>
+    </TooltipProvider>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Applications Table (original table layout)                        */
+/* ------------------------------------------------------------------ */
 
 function LoanApplicationsTable({
   apps,

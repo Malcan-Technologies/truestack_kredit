@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { LoanChannelPill } from "@/components/loan-channel-pill";
 import {
   Table,
   TableBody,
@@ -318,7 +319,7 @@ function ApplicationsPageContent() {
                 { width: "w-24" },
                 { width: "w-20" },
                 { width: "w-16" },
-                { width: "w-14" },
+                { badge: true, width: "w-28" },
                 { badge: true, width: "w-20" },
                 { width: "w-20" },
               ]}
@@ -401,10 +402,8 @@ function ApplicationsPageContent() {
                     <TableCell>{app.product.name}</TableCell>
                     <TableCell>{formatCurrency(Number(app.amount))}</TableCell>
                     <TableCell>{app.term} months</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px]">
-                        {app.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
-                      </Badge>
+                    <TableCell className="align-middle">
+                      <LoanChannelPill channel={app.loanChannel} />
                     </TableCell>
                     <TableCell>
                       <Badge variant={statusColors[app.status]}>

@@ -110,7 +110,6 @@ export function ApplicationFlowWizard() {
   const [noMonthlyIncome, setNoMonthlyIncome] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  const [loanErrors, setLoanErrors] = useState<Record<string, string>>({});
   const [consent, setConsent] = useState(false);
   const [reviewApp, setReviewApp] = useState<Awaited<
     ReturnType<typeof getBorrowerApplication>
@@ -151,7 +150,6 @@ export function ApplicationFlowWizard() {
     setConsent(false);
     setDocDialog("none");
     resumeHandledRef.current = false;
-    setLoanErrors({});
     setFormErrors({});
     setBorrowerType(null);
     setIndividualForm(initialIndividualFormData);
@@ -279,20 +277,26 @@ export function ApplicationFlowWizard() {
     return opts;
   }, [selectedProduct]);
 
-  const handleNextFromLoanDetails = async () => {
-    if (!selectedProduct) {
-      toast.error("Select a product");
-      return;
-    }
-    const errs = validateLoanDetailsStep({
+  /** Derived on each render on the loan details step so inline errors and Continue disabled state stay in sync. */
+  const loanDetailsErrors = useMemo(() => {
+    if (step !== 1 || !selectedProduct) return {};
+    return validateLoanDetailsStep({
       product: selectedProduct,
       amount,
       term,
       collateralType,
       collateralValue,
     });
-    setLoanErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+  }, [step, selectedProduct, amount, term, collateralType, collateralValue]);
+
+  const loanDetailsHasErrors = Object.keys(loanDetailsErrors).length > 0;
+
+  const handleNextFromLoanDetails = async () => {
+    if (!selectedProduct) {
+      toast.error("Select a product");
+      return;
+    }
+    if (loanDetailsHasErrors) return;
 
     const payload = {
       productId: selectedProduct.id,
@@ -611,8 +615,8 @@ export function ApplicationFlowWizard() {
                     Between RM {toAmountNumber(selectedProduct.minAmount).toLocaleString()} and RM{" "}
                     {toAmountNumber(selectedProduct.maxAmount).toLocaleString()}
                   </p>
-                  {loanErrors.amount && (
-                    <p className="text-xs text-destructive mt-1">{loanErrors.amount}</p>
+                  {loanDetailsErrors.amount && (
+                    <p className="text-xs text-destructive mt-1">{loanDetailsErrors.amount}</p>
                   )}
                 </div>
                 <div>
@@ -632,8 +636,8 @@ export function ApplicationFlowWizard() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {loanErrors.term && (
-                    <p className="text-xs text-destructive mt-1">{loanErrors.term}</p>
+                  {loanDetailsErrors.term && (
+                    <p className="text-xs text-destructive mt-1">{loanDetailsErrors.term}</p>
                   )}
                 </div>
 
@@ -647,8 +651,8 @@ export function ApplicationFlowWizard() {
                         value={collateralType}
                         onChange={(e) => setCollateralType(e.target.value)}
                       />
-                      {loanErrors.collateralType && (
-                        <p className="text-xs text-destructive mt-1">{loanErrors.collateralType}</p>
+                      {loanDetailsErrors.collateralType && (
+                        <p className="text-xs text-destructive mt-1">{loanDetailsErrors.collateralType}</p>
                       )}
                     </div>
                     <div>
@@ -661,8 +665,10 @@ export function ApplicationFlowWizard() {
                           setCollateralValue(v === "" ? "" : typeof v === "number" ? v : 0)
                         }
                       />
-                      {loanErrors.collateralValue && (
-                        <p className="text-xs text-destructive mt-1">{loanErrors.collateralValue}</p>
+                      {loanDetailsErrors.collateralValue && (
+                        <p className="text-xs text-destructive mt-1">
+                          {loanDetailsErrors.collateralValue}
+                        </p>
                       )}
                     </div>
                   </div>
@@ -923,6 +929,39 @@ export function ApplicationFlowWizard() {
               </CardDescription>
             </CardHeader>
             <CardContent className="text-sm space-y-3">
+              {step >= 2 &&
+                amount !== "" &&
+                term !== "" &&
+                Number(amount) > 0 &&
+                Number(term) > 0 && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                    <p className="font-medium text-xs text-muted-foreground">Your application</p>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground shrink-0">Loan amount</span>
+                        <span className="font-medium tabular-nums text-right">
+                          {formatCurrency(Number(amount))}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">Term</span>
+                        <span className="font-medium">{Number(term)} months</span>
+                      </div>
+                      <div className="flex justify-between gap-3 items-center">
+                        <span className="text-muted-foreground shrink-0">Est. monthly payment</span>
+                        {previewLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                        ) : preview ? (
+                          <span className="font-semibold text-primary tabular-nums text-right">
+                            {formatCurrency(preview.monthlyPayment)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               {selectedProduct.description && (
                 <p className="text-muted-foreground">{selectedProduct.description}</p>
               )}
@@ -982,7 +1021,11 @@ export function ApplicationFlowWizard() {
             </Button>
           )}
           {step === 1 && (
-            <Button type="button" disabled={saving} onClick={() => void handleNextFromLoanDetails()}>
+            <Button
+              type="button"
+              disabled={saving || loanDetailsHasErrors}
+              onClick={() => void handleNextFromLoanDetails()}
+            >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
@@ -994,7 +1037,11 @@ export function ApplicationFlowWizard() {
             </Button>
           )}
           {step === 3 && (
-            <Button type="button" disabled={saving} onClick={() => void handleNextFromDocuments()}>
+            <Button
+              type="button"
+              disabled={saving || !reviewApp || requiredDocsMissing}
+              onClick={() => void handleNextFromDocuments()}
+            >
               {documentsStepContinueLabel}
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>

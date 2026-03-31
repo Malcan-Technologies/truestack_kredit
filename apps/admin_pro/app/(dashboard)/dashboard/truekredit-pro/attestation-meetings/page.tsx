@@ -90,6 +90,30 @@ function itemsForDay(items: CalendarItem[], day: Date): CalendarItem[] {
   return items.filter((ev) => ev.start < addDays(d0, 1) && ev.end > d0);
 }
 
+function AttestationStatusBadge({
+  status,
+  className,
+  variant,
+}: {
+  status: string;
+  className?: string;
+  variant?: "secondary" | "outline";
+}) {
+  const slotProposed = status === "SLOT_PROPOSED";
+  return (
+    <Badge
+      variant={slotProposed ? "outline" : variant ?? "secondary"}
+      className={cn(
+        slotProposed &&
+          "border-yellow-500/40 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+        className
+      )}
+    >
+      {slotProposed ? "Slot Proposed" : status}
+    </Badge>
+  );
+}
+
 export default function AttestationMeetingsQueuePage() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<QueueLoan[]>([]);
@@ -290,9 +314,7 @@ export default function AttestationMeetingsQueuePage() {
                       className="block rounded border bg-card p-2 text-[11px] hover:bg-muted/50"
                     >
                       <div className="font-medium line-clamp-2">{ev.title}</div>
-                      <Badge variant="secondary" className="mt-1 text-[9px]">
-                        {ev.status}
-                      </Badge>
+                      <AttestationStatusBadge status={ev.status} variant="secondary" className="mt-1 text-[9px]" />
                     </Link>
                   ))}
                 </div>
@@ -317,7 +339,7 @@ export default function AttestationMeetingsQueuePage() {
                     {format(ev.start, "HH:mm")} — {format(ev.end, "HH:mm")} · {ev.subtitle}
                   </p>
                 </div>
-                <Badge variant="outline">{ev.status}</Badge>
+                <AttestationStatusBadge status={ev.status} variant="outline" />
               </Link>
             ))
           )}
@@ -359,7 +381,7 @@ export default function AttestationMeetingsQueuePage() {
                   <div className="text-xs text-muted-foreground">{r.product.name}</div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <Badge variant="secondary">{r.attestationStatus}</Badge>
+                  <AttestationStatusBadge status={r.attestationStatus} variant="secondary" />
                   <ArrowRight className="h-4 w-4 text-muted-foreground" />
                 </div>
               </Link>

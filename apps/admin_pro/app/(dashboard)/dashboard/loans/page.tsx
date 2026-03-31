@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { VerificationBadge } from "@/components/verification-badge";
+import { LoanChannelPill } from "@/components/loan-channel-pill";
 import {
   Table,
   TableBody,
@@ -788,10 +789,8 @@ function LoansPageContent() {
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
                     </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                        {loan.loanChannel === "PHYSICAL" ? "Physical" : "Online"}
-                      </Badge>
+                    <TableCell className="align-middle">
+                      <LoanChannelPill channel={loan.loanChannel} />
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5 flex-wrap">

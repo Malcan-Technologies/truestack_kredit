@@ -30,6 +30,23 @@ import { isPreDisbursementLoanStatus } from '../../lib/loanStatusHelpers.js';
 const router = Router();
 router.use(requireBorrowerSession);
 
+const getLatestAllocationAt = (
+  allocations: Array<{ allocatedAt: Date | string | null | undefined }> | null | undefined,
+): Date | null => {
+  if (!allocations?.length) return null;
+
+  return allocations.reduce<Date | null>((latest, allocation) => {
+    if (!allocation.allocatedAt) return latest;
+
+    const allocatedAt =
+      allocation.allocatedAt instanceof Date ? allocation.allocatedAt : new Date(String(allocation.allocatedAt));
+
+    if (Number.isNaN(allocatedAt.getTime())) return latest;
+
+    return !latest || allocatedAt > latest ? allocatedAt : latest;
+  }, null);
+};
+
 /**
  * GET /api/borrower-auth/loan-center/overview
  * Tab counts + dashboard summary for the active borrower.
@@ -214,7 +231,15 @@ router.get('/loans', async (req, res, next) => {
             take: 1,
             include: {
               repayments: {
-                select: { status: true, lateFeeAccrued: true, lateFeesPaid: true, dueDate: true },
+                orderBy: { dueDate: 'asc' },
+                select: {
+                  status: true,
+                  dueDate: true,
+                  totalDue: true,
+                  lateFeeAccrued: true,
+                  lateFeesPaid: true,
+                  allocations: { select: { amount: true, allocatedAt: true } },
+                },
               },
             },
           },
@@ -222,6 +247,8 @@ router.get('/loans', async (req, res, next) => {
       }),
       prisma.loan.count({ where }),
     ]);
+
+    const now = new Date();
 
     const data = loans.map((loan) => {
       const schedule = loan.scheduleVersions[0];
@@ -232,15 +259,74 @@ router.get('/loans', async (req, res, next) => {
         totalRepayments > 0 &&
         paidCount === totalRepayments &&
         (loan.status === 'ACTIVE' || loan.status === 'IN_ARREARS');
+
+      let totalDue = 0;
+      let totalPaid = 0;
+      let overdueCount = 0;
+      let totalLateFees = 0;
+      let paidOnTime = 0;
+      let paidLate = 0;
+      let cancelledDue = 0;
+      let nextPaymentDue: string | null = null;
+
+      for (const r of repayments) {
+        const due = toSafeNumber(r.totalDue);
+        const paid = (r.allocations ?? []).reduce((s: number, a: { amount: unknown }) => safeAdd(s, toSafeNumber(a.amount)), 0);
+        const lateAccrued = toSafeNumber(r.lateFeeAccrued ?? 0);
+        totalDue = safeAdd(totalDue, due);
+        totalPaid = safeAdd(totalPaid, paid);
+        totalLateFees = safeAdd(totalLateFees, lateAccrued);
+
+        if (r.status === 'PAID') {
+          const lastPayAt = getLatestAllocationAt(r.allocations);
+          if (lastPayAt && lastPayAt <= new Date(r.dueDate)) {
+            paidOnTime++;
+          } else {
+            paidLate++;
+          }
+        } else if (r.status === 'CANCELLED') {
+          cancelledDue = safeAdd(cancelledDue, due);
+        } else {
+          if (new Date(r.dueDate) < now) {
+            overdueCount++;
+          }
+          if (!nextPaymentDue) {
+            nextPaymentDue = r.dueDate instanceof Date ? r.dueDate.toISOString() : String(r.dueDate);
+          }
+        }
+      }
+
+      if (loan.earlySettlementDate && loan.earlySettlementAmount && cancelledDue > 0) {
+        const settlementAmount = toSafeNumber(loan.earlySettlementAmount);
+        totalDue = safeSubtract(totalDue, cancelledDue);
+        totalDue = safeAdd(totalDue, settlementAmount);
+        totalPaid = safeRound(Math.min(totalPaid, totalDue));
+      }
+
+      const totalOutstanding = Math.max(0, safeSubtract(totalDue, totalPaid));
+      const amountProgressPercent =
+        totalDue > 0 ? Math.min(100, safeRound(safeMultiply(safeDivide(totalPaid, totalDue), 100), 1)) : 0;
+      const totalScheduled = paidOnTime + paidLate + overdueCount;
+      const repaymentRate =
+        totalScheduled > 0
+          ? safeRound(safeMultiply(safeDivide(paidOnTime, totalScheduled), 100), 1)
+          : 0;
+
       const { scheduleVersions, ...rest } = loan;
       return {
         ...rest,
         progress: {
           paidCount,
           totalRepayments,
-          progressPercent:
-            totalRepayments > 0 ? safeRound(safeMultiply(safeDivide(paidCount, totalRepayments), 100), 1) : 0,
+          progressPercent: amountProgressPercent,
           readyToComplete,
+          totalPaid: safeRound(totalPaid, 2),
+          totalDue: safeRound(totalDue, 2),
+          totalOutstanding: safeRound(totalOutstanding, 2),
+          overdueCount,
+          totalLateFees: safeRound(totalLateFees, 2),
+          repaymentRate,
+          nextPaymentDue,
         },
       };
     });
@@ -488,10 +574,7 @@ router.get('/loans/:loanId/metrics', async (req, res, next) => {
       if (repayment.status === 'PAID' || repayment.status === 'CANCELLED') {
         paidCount++;
         if (repayment.status === 'PAID') {
-          const lastPaymentDate =
-            repayment.allocations.length > 0
-              ? repayment.allocations[repayment.allocations.length - 1].allocatedAt
-              : null;
+          const lastPaymentDate = getLatestAllocationAt(repayment.allocations);
           if (lastPaymentDate && lastPaymentDate <= repayment.dueDate) {
             paidOnTime++;
           } else {

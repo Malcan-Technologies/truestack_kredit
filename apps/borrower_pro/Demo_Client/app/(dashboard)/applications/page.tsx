@@ -476,7 +476,7 @@ export default function ApplicationsPage() {
                         <TableCell>{formatDate(app.createdAt)}</TableCell>
                         <TableCell className="text-right">
                           <div
-                            className="flex flex-wrap justify-end gap-2"
+                            className="flex flex-col items-end gap-2"
                             onClick={(e) => e.stopPropagation()}
                           >
                             {isDraft && (
@@ -486,23 +486,31 @@ export default function ApplicationsPage() {
                             )}
                             {(app.status === "SUBMITTED" || app.status === "UNDER_REVIEW") && (
                               <>
-                                <Button variant="outline" size="sm" asChild>
-                                  <Link href={borrowerApplicationDetailPath(app)}>View application</Link>
-                                </Button>
                                 {loanId && (
-                                  <Button size="sm" asChild>
+                                  <Button variant="outline" size="sm" asChild>
                                     <Link href={`/loans/${loanId}`}>Open loan</Link>
                                   </Button>
                                 )}
+                                <Button
+                                  size="sm"
+                                  className="bg-foreground text-background hover:bg-foreground/90"
+                                  asChild
+                                >
+                                  <Link href={borrowerApplicationDetailPath(app)}>View application</Link>
+                                </Button>
                               </>
                             )}
                             {app.status === "APPROVED" && (
                               <>
                                 <Button variant="outline" size="sm" asChild>
-                                  <Link href={borrowerApplicationDetailPath(app)}>View application</Link>
-                                </Button>
-                                <Button size="sm" asChild>
                                   <Link href={loanId ? `/loans/${loanId}` : "/loans"}>Open loan</Link>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="bg-foreground text-background hover:bg-foreground/90"
+                                  asChild
+                                >
+                                  <Link href={borrowerApplicationDetailPath(app)}>View application</Link>
                                 </Button>
                               </>
                             )}

@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   forwardRef,
   useImperativeHandle,
 } from "react";
@@ -128,6 +129,10 @@ interface BorrowerDetailCardProps {
   onRefresh?: () => void;
   /** Hide the inline "Edit" in the card header when the page provides its own Edit Borrower button */
   hideInlineEditButton?: boolean;
+  /** Hide the view-mode title row (name, badge, ID line) when the host page shows it above the card */
+  hideViewHeader?: boolean;
+  /** Called after borrower data is loaded or refreshed (e.g. to sync a page-level header) */
+  onBorrowerLoaded?: (data: BorrowerDetail) => void;
   onEditingChange?: (editing: boolean) => void;
 }
 
@@ -135,7 +140,7 @@ export const BorrowerDetailCard = forwardRef<
   BorrowerDetailCardHandle,
   BorrowerDetailCardProps
 >(function BorrowerDetailCard(
-  { onRefresh, hideInlineEditButton, onEditingChange },
+  { onRefresh, hideInlineEditButton, hideViewHeader, onBorrowerLoaded, onEditingChange },
   ref
 ) {
   const [borrower, setBorrower] = useState<BorrowerDetail | null>(null);
@@ -152,6 +157,11 @@ export const BorrowerDetailCard = forwardRef<
   const identityLocked =
     Boolean(borrower && isIndividual && isIndividualIdentityLocked(borrower));
 
+  const onBorrowerLoadedRef = useRef(onBorrowerLoaded);
+  useEffect(() => {
+    onBorrowerLoadedRef.current = onBorrowerLoaded;
+  });
+
   const loadBorrower = useCallback(async () => {
     setLoading(true);
     try {
@@ -159,6 +169,7 @@ export const BorrowerDetailCard = forwardRef<
       if (res.success) {
         const data = res.data;
         setBorrower(data);
+        onBorrowerLoadedRef.current?.(data);
         if (data.borrowerType === "INDIVIDUAL") {
           setIndividualForm(borrowerToIndividualForm(data));
         } else {
@@ -412,48 +423,49 @@ export const BorrowerDetailCard = forwardRef<
 
   return (
     <div className="space-y-6">
-      {/* Header with summary */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div>
-            <h2 className="text-2xl font-heading font-bold">
-              {isIndividual && isIndividualFormData(form)
-                ? form.name
-                : isCorporateFormData(form)
-                ? form.companyName
-                : "Borrower"}
-            </h2>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant={isIndividual ? "outline" : "secondary"}>
-                {isIndividual ? (
-                  <User className="h-3 w-3 mr-1" />
-                ) : (
-                  <Building2 className="h-3 w-3 mr-1" />
+      {!hideViewHeader ? (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div>
+              <h2 className="text-2xl font-heading font-bold">
+                {isIndividual && isIndividualFormData(form)
+                  ? form.name
+                  : isCorporateFormData(form)
+                  ? form.companyName
+                  : "Borrower"}
+              </h2>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant={isIndividual ? "outline" : "secondary"}>
+                  {isIndividual ? (
+                    <User className="h-3 w-3 mr-1" />
+                  ) : (
+                    <Building2 className="h-3 w-3 mr-1" />
+                  )}
+                  {isIndividual ? "Individual" : "Corporate"}
+                </Badge>
+                {isIndividual && isIndividualFormData(form) && (
+                  <span className="text-sm text-muted-foreground">
+                    {form.documentType === "IC"
+                      ? formatICForDisplay(form.icNumber)
+                      : form.icNumber}
+                  </span>
                 )}
-                {isIndividual ? "Individual" : "Corporate"}
-              </Badge>
-              {isIndividual && isIndividualFormData(form) && (
-                <span className="text-sm text-muted-foreground">
-                  {form.documentType === "IC"
-                    ? formatICForDisplay(form.icNumber)
-                    : form.icNumber}
-                </span>
-              )}
-              {isCorporateFormData(form) && (
-                <span className="text-sm text-muted-foreground">
-                  SSM: {form.ssmRegistrationNo || "—"}
-                </span>
-              )}
+                {isCorporateFormData(form) && (
+                  <span className="text-sm text-muted-foreground">
+                    SSM: {form.ssmRegistrationNo || "—"}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
+          {!hideInlineEditButton ? (
+            <Button variant="outline" onClick={() => updateEditing(true)}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          ) : null}
         </div>
-        {!hideInlineEditButton ? (
-          <Button variant="outline" onClick={() => updateEditing(true)}>
-            <Pencil className="h-4 w-4 mr-2" />
-            Edit
-          </Button>
-        ) : null}
-      </div>
+      ) : null}
 
       {/* View mode: Individual - matches admin borrowers [id] layout */}
       {isIndividual && isIndividualFormData(form) && (

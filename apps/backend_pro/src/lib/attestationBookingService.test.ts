@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { adminAcceptBorrowerProposal, adminRejectProposal } from './attestationBookingService.js';
+import { adminAcceptBorrowerProposal } from './attestationBookingService.js';
 import { prisma } from './prisma.js';
 import { NotificationService } from '../modules/notifications/service.js';
 
@@ -84,40 +84,5 @@ describe('adminAcceptBorrowerProposal (manual)', () => {
         subject: expect.stringContaining('confirmed'),
       })
     );
-  });
-});
-
-describe('adminRejectProposal', () => {
-  beforeEach(() => {
-    findFirst.mockReset();
-    update.mockReset();
-    borrowerFindFirst.mockReset();
-    borrowerFindFirst.mockResolvedValue({ email: 'b@example.com' } as never);
-    send.mockReset();
-  });
-
-  it('cancels loan and sets PROPOSAL_REJECTED_BY_LENDER', async () => {
-    findFirst.mockResolvedValue({
-      id: 'loan_rej',
-      tenantId: 'tenant_1',
-      borrowerId: 'borrower_1',
-      attestationStatus: 'SLOT_PROPOSED',
-      attestationGoogleCalendarEventId: null,
-    } as never);
-
-    update.mockResolvedValue({ id: 'loan_rej', status: 'CANCELLED' } as never);
-
-    await adminRejectProposal({ loanId: 'loan_rej', tenantId: 'tenant_1' });
-
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 'loan_rej' },
-      data: expect.objectContaining({
-        status: 'CANCELLED',
-        attestationCancellationReason: 'PROPOSAL_REJECTED_BY_LENDER',
-        attestationMeetingLink: null,
-        attestationMeetingNotes: null,
-      }),
-    });
-    expect(send).toHaveBeenCalled();
   });
 });

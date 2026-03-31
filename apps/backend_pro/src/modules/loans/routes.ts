@@ -29,7 +29,6 @@ import { getTenantOfficeHoursConfig } from '../../lib/attestationAvailability.js
 import {
   adminAcceptBorrowerProposal,
   adminCounterProposal,
-  adminRejectProposal,
   expireStaleAttestationProposalForLoan,
   expirePendingProposals,
 } from '../../lib/attestationBookingService.js';
@@ -2224,40 +2223,6 @@ router.post('/:loanId/attestation/counter-proposal', async (req, res, next) => {
       entityType: 'Loan',
       entityId: loanId,
       newData: { startAt: startAt.toISOString(), endAt: endAt.toISOString() },
-      ipAddress: req.ip,
-    });
-
-    res.json({ success: true, data: updated });
-  } catch (e) {
-    next(e);
-  }
-});
-
-/**
- * POST /api/loans/:loanId/attestation/reject-proposal
- */
-router.post('/:loanId/attestation/reject-proposal', async (req, res, next) => {
-  try {
-    const tenantId = req.tenantId!;
-    const { loanId } = req.params;
-
-    let updated;
-    try {
-      updated = await adminRejectProposal({ loanId, tenantId });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg === 'INVALID_ATTESTATION_STATE') {
-        throw new BadRequestError('Nothing to reject.');
-      }
-      throw err;
-    }
-
-    await AuditService.log({
-      tenantId,
-      memberId: req.memberId,
-      action: 'ADMIN_ATTESTATION_PROPOSAL_REJECTED',
-      entityType: 'Loan',
-      entityId: loanId,
       ipAddress: req.ip,
     });
 

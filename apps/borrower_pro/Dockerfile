@@ -38,10 +38,7 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
 ENV BACKEND_URL=${BACKEND_URL}
 
-# Borrower auth uses Prisma via Better Auth; generate the client from the Pro backend schema.
-RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" \
-  npx prisma generate --schema=/app/apps/backend_pro/prisma/schema.prisma
-
+# Prisma client: generated via package.json prebuild before next build.
 RUN npm run build
 
 FROM base AS runner

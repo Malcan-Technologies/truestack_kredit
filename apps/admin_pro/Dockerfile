@@ -3,6 +3,9 @@
 FROM node:22-alpine AS base
 WORKDIR /app
 
+# Prisma engines on Alpine expect OpenSSL (matches borrower_pro image).
+RUN apk add --no-cache openssl
+
 FROM base AS deps
 
 # Copy workspace manifests first for better layer caching.
@@ -33,10 +36,7 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV BACKEND_URL=${BACKEND_URL}
 ENV NEXT_PUBLIC_PRODUCT_MODE=${NEXT_PUBLIC_PRODUCT_MODE}
 
-# Admin auth route uses Prisma via Better Auth; generate client in this image (Pro backend schema).
-RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" \
-  npx prisma generate --schema=/app/apps/backend_pro/prisma/schema.prisma
-
+# Prisma client: generated via package.json prebuild before next build.
 RUN npm run build
 
 FROM base AS runner

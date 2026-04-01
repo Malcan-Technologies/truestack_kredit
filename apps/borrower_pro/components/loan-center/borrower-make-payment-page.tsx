@@ -39,6 +39,48 @@ function formatRm(n: number): string {
   return `RM ${n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * Display value for the custom amount field: en-MY style (comma thousands, dot decimals, max 2 dp).
+ * Does not include a "RM" prefix — that is shown beside the input.
+ */
+function formatMalaysiaMoneyInput(raw: string): string {
+  let s = raw.replace(/^\s*RM\s*/i, "").trim();
+  s = s.replace(/[^\d.]/g, "");
+  const dotIdx = s.indexOf(".");
+  if (dotIdx !== -1) {
+    s = s.slice(0, dotIdx + 1) + s.slice(dotIdx + 1).replace(/\./g, "");
+  }
+  const parts = s.split(".");
+  let intRaw = parts[0] ?? "";
+  const decRaw = (parts[1] ?? "").slice(0, 2);
+
+  if (intRaw === "" && decRaw === "") {
+    return s === "." ? "0." : "";
+  }
+
+  if (intRaw === "" && decRaw !== "") {
+    return "0." + decRaw;
+  }
+
+  intRaw = intRaw.replace(/^0+(?=\d)/, "") || "0";
+  const intNum = parseInt(intRaw, 10);
+  if (!Number.isFinite(intNum)) return "";
+  const intFormatted = intNum.toLocaleString("en-MY");
+
+  if (parts.length > 1) {
+    return intFormatted + "." + decRaw;
+  }
+  return intFormatted;
+}
+
+function parseMoneyStringToNumber(value: string): number | null {
+  const cleaned = value.replace(/,/g, "").replace(/^\s*RM\s*/i, "").trim();
+  if (cleaned === "" || cleaned === ".") return null;
+  const n = parseFloat(cleaned);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
 function generateTransferReference(loanId: string): string {
   const loanPart = loanId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase() || "LOAN";
   const timestampPart = new Date().toISOString().replace(/\D/g, "").slice(-10);
@@ -106,8 +148,8 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
     if (amountMode === "monthly") {
       return monthlyInstallment;
     }
-    const n = parseFloat(customAmount.replace(/,/g, ""));
-    return Number.isFinite(n) && n > 0 ? n : null;
+    const n = parseMoneyStringToNumber(customAmount);
+    return n;
   }, [amountMode, monthlyInstallment, customAmount]);
 
   const bankConfigured =
@@ -265,13 +307,18 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                     </span>
                     <Input
                       id="cust"
+                      type="text"
                       inputMode="decimal"
+                      autoComplete="off"
                       placeholder="0.00"
                       value={customAmount}
-                      onChange={(e) => setCustomAmount(e.target.value)}
-                      className="pl-10 text-lg font-semibold h-12"
+                      onChange={(e) => setCustomAmount(formatMalaysiaMoneyInput(e.target.value))}
+                      className="pl-10 text-lg font-semibold tabular-nums h-12"
                     />
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Use a dot for cents (e.g. 1,234.56). Up to two decimal places.
+                  </p>
                 </div>
               )}
             </CardContent>

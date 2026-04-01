@@ -88,6 +88,27 @@ function generateTransferReference(loanId: string): string {
   return `TSK-${loanPart}-${timestampPart}-${randomPart}`;
 }
 
+type SchedulePayload = {
+  schedule?: {
+    repayments?: Array<{
+      status: string;
+      totalDue: unknown;
+      dueDate: string;
+      allocations?: Array<{ amount: unknown }>;
+    }>;
+  } | null;
+};
+
+function getRepaymentBalance(repayment: {
+  totalDue: unknown;
+  allocations?: Array<{ amount: unknown }>;
+}): number {
+  const paid = (repayment.allocations ?? []).reduce((sum, allocation) => {
+    return sum + toAmountNumber(allocation.amount);
+  }, 0);
+  return Math.max(0, toAmountNumber(repayment.totalDue) - paid);
+}
+
 export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
   const router = useRouter();
   const [loan, setLoan] = useState<BorrowerLoanDetail | null>(null);
@@ -113,13 +134,16 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
       setLoan(loanRes.data);
       setLender(lenderRes);
 
-      const sch = schRes.data as {
-        schedule?: { repayments?: Array<{ status: string; totalDue: unknown; dueDate: string }> };
-      } | null;
+      const sch = schRes.data as SchedulePayload | null;
       const reps = sch?.schedule?.repayments ?? [];
-      const next = reps.find((r) => r.status !== "PAID" && r.status !== "CANCELLED");
+      const next = reps.find((r) => {
+        if (r.status === "PAID" || r.status === "CANCELLED") {
+          return false;
+        }
+        return getRepaymentBalance(r) > 0;
+      });
       if (next) {
-        setMonthlyInstallment(toAmountNumber(next.totalDue));
+        setMonthlyInstallment(getRepaymentBalance(next));
         setNextDueDate(next.dueDate);
       } else {
         setMonthlyInstallment(null);
@@ -245,7 +269,9 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                     <Banknote className="h-4 w-4" />
                     Amount
                   </CardTitle>
-                  <CardDescription>Pay the suggested instalment or enter a custom amount.</CardDescription>
+                  <CardDescription>
+                    Pay the remaining balance for the next instalment or enter a custom amount.
+                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -265,7 +291,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                     <CheckCircle2 className="absolute top-3 right-3 h-5 w-5 text-primary" />
                   )}
                   <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                    Monthly instalment
+                    Instalment balance
                   </span>
                   <span className="mt-1 block text-2xl font-bold tracking-tight">
                     {monthlyInstallment != null ? formatRm(monthlyInstallment) : "—"}

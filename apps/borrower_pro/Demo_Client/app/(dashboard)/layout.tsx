@@ -7,6 +7,7 @@ import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client
 import Link from "next/link";
 import {
   Building2,
+  CircleHelp,
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
@@ -45,6 +46,7 @@ const navItems = [
   { name: "Applications", href: "/applications", icon: ClipboardList },
   { name: "Loans", href: "/loans", icon: Landmark },
   { name: "Your Profile", href: "/profile", icon: UserCircle },
+  { name: "Help", href: "/help", icon: CircleHelp },
 ];
 
 export default function DashboardLayout({
@@ -379,6 +381,8 @@ export default function DashboardLayout({
                   ? "Loans"
                   : pathname === "/about"
                   ? "About"
+                  : pathname.startsWith("/help")
+                  ? "Help Center"
                   : pathname === "/onboarding"
                   ? "Onboarding"
                   : "Demo Client"}

@@ -9,10 +9,8 @@ import {
   Building2,
   Copy,
   CheckCircle2,
-  CreditCard,
   FileUp,
   Loader2,
-  Lock,
   Receipt,
   Shield,
 } from "lucide-react";
@@ -21,7 +19,6 @@ import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Badge } from "../ui/badge";
 import { Separator } from "../ui/separator";
 import { cn } from "../../lib/utils";
 import { toAmountNumber } from "../../lib/application-form-validation";
@@ -99,7 +96,6 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [amountMode, setAmountMode] = useState<"monthly" | "custom">("monthly");
   const [customAmount, setCustomAmount] = useState("");
-  const [method, setMethod] = useState<"manual" | "gateway">("manual");
   const [reference, setReference] = useState("");
   const [referenceCopied, setReferenceCopied] = useState(false);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -157,7 +153,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
     !!lender.lenderAccountHolderName?.trim() &&
     !!lender.lenderAccountNumber?.trim();
 
-  const canSubmit = method === "manual" && resolvedAmount != null && reference.trim().length > 0;
+  const canSubmit = resolvedAmount != null && reference.trim().length > 0;
 
   const copyReference = async () => {
     if (!reference.trim()) return;
@@ -172,13 +168,12 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
   };
 
   const submitManual = async () => {
-    if (method !== "manual") return;
     if (resolvedAmount == null) {
       toast.error("Enter a valid payment amount");
       return;
     }
     if (!bankConfigured) {
-      toast.error("Your lender has not configured bank details yet. Please contact them.");
+      toast.error("Bank details are not available yet. Please contact the admin team.");
       return;
     }
     if (!reference.trim()) {
@@ -195,7 +190,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
         fd.set("receipt", receiptFile);
       }
       await createBorrowerManualPaymentRequest(loanId, fd);
-      toast.success("Payment submitted — pending lender approval");
+      toast.success("Payment submitted - pending admin review");
       router.push(`/loans/${loanId}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Submission failed");
@@ -230,7 +225,8 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
       <div className="mb-8">
         <h1 className="text-3xl font-heading font-bold text-gradient">Make payment</h1>
         <p className="text-sm text-muted-foreground mt-2 max-w-xl">
-          Choose how you want to pay. Manual bank transfers are reviewed by your lender before your schedule updates.
+          Payments are made by bank transfer to the company's bank account and are reviewed by the
+          admin team before your schedule updates.
         </p>
       </div>
 
@@ -324,7 +320,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
             </CardContent>
           </Card>
 
-          {/* Step 2 — Method */}
+          {/* Step 2 — Payment method */}
           <Card>
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -334,120 +330,85 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                 <CardTitle className="text-base">Payment method</CardTitle>
               </div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <button
-                type="button"
-                onClick={() => setMethod("gateway")}
-                className={cn(
-                  "w-full text-left rounded-xl border-2 p-4 transition-all opacity-60 cursor-not-allowed",
-                  method === "gateway" ? "border-primary bg-primary/5" : "border-border",
-                )}
-              >
+            <CardContent>
+              <div className="w-full rounded-xl border-2 border-primary bg-primary/5 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                    <CreditCard className="h-5 w-5 text-muted-foreground" />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <Building2 className="h-5 w-5 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium">Payment gateway</p>
-                    <p className="text-sm text-muted-foreground">Online card / FPX checkout</p>
-                  </div>
-                  <Badge variant="secondary" className="shrink-0">
-                    <Lock className="h-3 w-3 mr-1" />
-                    Soon
-                  </Badge>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMethod("manual")}
-                className={cn(
-                  "w-full text-left rounded-xl border-2 p-4 transition-all",
-                  method === "manual"
-                    ? "border-primary bg-primary/5 shadow-sm"
-                    : "border-border hover:border-muted-foreground/30 hover:bg-muted/40",
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={cn(
-                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-                      method === "manual" ? "bg-primary/10" : "bg-muted",
-                    )}
-                  >
-                    <Building2
-                      className={cn("h-5 w-5", method === "manual" ? "text-primary" : "text-muted-foreground")}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">Manual bank transfer</p>
+                    <p className="font-medium">Bank transfer</p>
                     <p className="text-sm text-muted-foreground">
-                      Transfer to your lender&apos;s account and notify them
+                      Transfer to the company's bank account shown below and submit the payment for
+                      review
                     </p>
                   </div>
-                  {method === "manual" && <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />}
+                  <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
                 </div>
-              </button>
+              </div>
             </CardContent>
           </Card>
 
-          {/* Step 3 — Transfer details (manual only) */}
-          {method === "manual" && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                    3
-                  </span>
-                  <div>
-                    <CardTitle className="text-base">Transfer details</CardTitle>
-                    <CardDescription>
-                      Transfer to the account below and use the generated transfer reference in your bank app.
-                    </CardDescription>
-                  </div>
+          {/* Step 3 — Transfer details */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                  3
+                </span>
+                <div>
+                  <CardTitle className="text-base">Transfer details</CardTitle>
+                  <CardDescription>
+                    Transfer to the account below and use the generated transfer reference in your
+                    bank app.
+                  </CardDescription>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {bankConfigured && lender ? (
-                  <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-5 space-y-3">
-                    <p className="font-semibold text-sm flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-primary" />
-                      Lender bank account
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider">Bank</span>
-                        <p className="font-medium mt-0.5">
-                          {getBankLabel(lender.lenderBankCode, lender.lenderBankOtherName)}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider">Account name</span>
-                        <p className="font-medium mt-0.5">{lender.lenderAccountHolderName}</p>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider">Account number</span>
-                        <p className="font-mono font-semibold text-base mt-0.5 tracking-wider">
-                          {lender.lenderAccountNumber}
-                        </p>
-                      </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {bankConfigured && lender ? (
+                <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-5 space-y-3">
+                  <p className="font-semibold text-sm flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-primary" />
+                    Company bank account
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Bank</span>
+                      <p className="font-medium mt-0.5">
+                        {getBankLabel(lender.lenderBankCode, lender.lenderBankOtherName)}
+                      </p>
                     </div>
-                    <Separator />
-                    <p className="text-xs text-muted-foreground">
-                      Transfer exactly{" "}
-                      <span className="font-semibold text-foreground">
-                        {resolvedAmount != null ? formatRm(resolvedAmount) : "—"}
-                      </span>
-                      . Use the transfer reference below when your bank asks for a recipient reference or payment note.
-                    </p>
+                    <div>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Account name</span>
+                      <p className="font-medium mt-0.5">{lender.lenderAccountHolderName}</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Account number</span>
+                      <p className="font-mono font-semibold text-base mt-0.5 tracking-wider">
+                        {lender.lenderAccountNumber}
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-foreground">
-                    <p className="font-medium">Bank details not set up yet</p>
-                    <p className="text-muted-foreground mt-1">
-                      Your lender has not added a payout account. Please contact them before paying by transfer.
-                    </p>
-                  </div>
-                )}
+                  <Separator />
+                  <p className="text-xs text-muted-foreground">
+                    Transfer exactly{" "}
+                    <span className="font-semibold text-foreground">
+                      {resolvedAmount != null ? formatRm(resolvedAmount) : "—"}
+                    </span>
+                    . Use the transfer reference below when your bank asks for a recipient
+                    reference or payment note.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-foreground">
+                  <p className="font-medium">Bank details not set up yet</p>
+                  <p className="text-muted-foreground mt-1">
+                    The company bank account is not available yet. Please contact the admin team
+                    before making payment.
+                  </p>
+                </div>
+              )}
 
                 <div className="space-y-2">
                   <Label htmlFor="ref">Transfer reference</Label>
@@ -497,31 +458,17 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                   )}
                 </div>
 
-                {/* Desktop submit — visible in-form on lg+ */}
-                <Button
-                  className="w-full h-12 text-base font-semibold hidden lg:flex"
-                  onClick={() => void submitManual()}
-                  disabled={submitting || !canSubmit || !bankConfigured}
-                >
-                  {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  Confirm payment
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {method === "gateway" && (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <CreditCard className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  Payment gateway is not available yet.
-                  <br />
-                  Please use manual bank transfer.
-                </p>
-              </CardContent>
-            </Card>
-          )}
+              {/* Desktop submit — visible in-form on lg+ */}
+              <Button
+                className="w-full h-12 text-base font-semibold hidden lg:flex"
+                onClick={() => void submitManual()}
+                disabled={submitting || !canSubmit || !bankConfigured}
+              >
+                {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Confirm payment
+              </Button>
+            </CardContent>
+          </Card>
         </div>
 
         {/* ── Right column: summary ── */}
@@ -550,11 +497,9 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Method</span>
-                    <span className="font-medium">
-                      {method === "manual" ? "Bank transfer" : "Payment gateway"}
-                    </span>
+                    <span className="font-medium">Bank transfer</span>
                   </div>
-                  {method === "manual" && bankConfigured && lender && (
+                  {bankConfigured && lender && (
                     <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground shrink-0">Pay to</span>
                       <span className="font-medium text-right truncate min-w-0">
@@ -562,7 +507,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                       </span>
                     </div>
                   )}
-                  {method === "manual" && reference.trim() && (
+                  {reference.trim() && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Reference</span>
                       <span className="font-mono text-xs truncate max-w-[140px]">{reference.trim()}</span>
@@ -580,7 +525,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
 
                 <div className="flex items-start gap-2 text-xs text-muted-foreground">
                   <Shield className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <p>Your payment will be reviewed by your lender before the schedule is updated.</p>
+                  <p>Your payment will be reviewed by the admin team before the schedule is updated.</p>
                 </div>
               </CardContent>
             </Card>
@@ -589,26 +534,24 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
       </div>
 
       {/* ── Mobile sticky bottom bar ── */}
-      {method === "manual" && (
-        <div className="fixed bottom-0 inset-x-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-4 lg:hidden">
-          <div className="mx-auto max-w-5xl flex items-center gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground">Total</p>
-              <p className="text-lg font-bold truncate">
-                {resolvedAmount != null ? formatRm(resolvedAmount) : "RM —"}
-              </p>
-            </div>
-            <Button
-              className="h-11 px-6 font-semibold shrink-0"
-              onClick={() => void submitManual()}
-              disabled={submitting || !canSubmit || !bankConfigured}
-            >
-              {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Submit
-            </Button>
+      <div className="fixed bottom-0 inset-x-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-4 lg:hidden">
+        <div className="mx-auto max-w-5xl flex items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-muted-foreground">Total</p>
+            <p className="text-lg font-bold truncate">
+              {resolvedAmount != null ? formatRm(resolvedAmount) : "RM —"}
+            </p>
           </div>
+          <Button
+            className="h-11 px-6 font-semibold shrink-0"
+            onClick={() => void submitManual()}
+            disabled={submitting || !canSubmit || !bankConfigured}
+          >
+            {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            Submit
+          </Button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

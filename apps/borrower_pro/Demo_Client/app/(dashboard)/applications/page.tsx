@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Loader2,
   Plus,
   ClipboardList,
   Search,
@@ -35,6 +34,7 @@ import {
 } from "@borrower_pro/components/ui/table";
 import { TablePagination } from "@borrower_pro/components/ui/table-pagination";
 import { RefreshButton } from "@borrower_pro/components/ui/refresh-button";
+import { Skeleton } from "@borrower_pro/components/ui/skeleton";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
 import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
 import { borrowerApplicationDetailPath } from "@borrower_pro/lib/borrower-application-navigation";
@@ -90,6 +90,86 @@ function navigateForApplication(router: ReturnType<typeof useRouter>, app: LoanA
     return;
   }
   router.push(borrowerApplicationDetailPath(app));
+}
+
+const APPLICATIONS_TABLE_SKELETON_ROWS = 8;
+
+function ApplicationsTableSkeleton() {
+  return (
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>
+              <span className="flex items-center gap-1">
+                Product
+                <ArrowUpDown className="h-3 w-3 opacity-40" />
+              </span>
+            </TableHead>
+            <TableHead>
+              <span className="flex items-center gap-1">
+                Amount
+                <ArrowUpDown className="h-3 w-3 opacity-40" />
+              </span>
+            </TableHead>
+            <TableHead>
+              <span className="flex items-center gap-1">
+                Term
+                <ArrowUpDown className="h-3 w-3 opacity-40" />
+              </span>
+            </TableHead>
+            <TableHead>Channel</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>
+              <span className="flex items-center gap-1">
+                Created
+                <ArrowUpDown className="h-3 w-3 opacity-40" />
+              </span>
+            </TableHead>
+            <TableHead className="text-right w-[1%]">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: APPLICATIONS_TABLE_SKELETON_ROWS }).map((_, i) => (
+            <TableRow key={i}>
+              <TableCell>
+                <Skeleton className="h-4 w-[min(100%,10rem)]" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-24" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-16" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-6 w-20 rounded-full" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-5 w-24 rounded-full" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-28" />
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex flex-col items-end gap-2">
+                  <Skeleton className="h-8 w-24" />
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <Skeleton className="h-4 w-48" />
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-9 w-24" />
+          <Skeleton className="h-9 w-9" />
+          <Skeleton className="h-9 w-9" />
+          <Skeleton className="h-9 w-24" />
+        </div>
+      </div>
+    </>
+  );
 }
 
 export default function ApplicationsPage() {
@@ -368,16 +448,23 @@ export default function ApplicationsPage() {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
+            <div className="min-w-0 flex-1">
               <CardTitle className="flex items-center gap-2">
-                <ClipboardList className="h-5 w-5 text-muted-foreground" />
+                <ClipboardList className="h-5 w-5 text-muted-foreground shrink-0" />
                 All applications
               </CardTitle>
-              <CardDescription className="mt-1.5">
-                {totalItems} application{totalItems !== 1 ? "s" : ""}
-                {filter ? " matching this filter" : ""}. Click a submitted row to view details (drafts use
-                Continue only). Total submitted: {submittedToLenderTotal}.
-              </CardDescription>
+              {loading ? (
+                <div className="mt-1.5 space-y-2">
+                  <Skeleton className="h-4 w-full max-w-md" />
+                  <Skeleton className="h-4 w-56" />
+                </div>
+              ) : (
+                <CardDescription className="mt-1.5">
+                  {totalItems} application{totalItems !== 1 ? "s" : ""}
+                  {filter ? " matching this filter" : ""}. Click a submitted row to view details (drafts use
+                  Continue only). Total submitted: {submittedToLenderTotal}.
+                </CardDescription>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative w-full sm:w-72 md:w-80">
@@ -387,6 +474,7 @@ export default function ApplicationsPage() {
                   value={searchInput}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   className="pl-9"
+                  disabled={loading}
                 />
               </div>
               <RefreshButton onRefresh={handleRefresh} showToast successMessage="Applications refreshed" />
@@ -395,11 +483,7 @@ export default function ApplicationsPage() {
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
-            <div className="p-6 space-y-3">
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            </div>
+            <ApplicationsTableSkeleton />
           ) : sortedApplications.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-center px-4">
               <ClipboardList className="h-12 w-12 text-muted-foreground mb-4" />

@@ -13,6 +13,7 @@ import { BorrowerDocumentsCard } from "@borrower_pro/components/borrower-documen
 import { RefreshButton } from "@borrower_pro/components/ui/refresh-button";
 import { Button } from "@borrower_pro/components/ui/button";
 import { Badge } from "@borrower_pro/components/ui/badge";
+import { Skeleton } from "@borrower_pro/components/ui/skeleton";
 import {
   fetchBorrowerMe,
   switchBorrowerProfile,
@@ -38,6 +39,62 @@ function profilePageHeaderFromBorrower(data: BorrowerDetail) {
     documentLine = `SSM: ${data.ssmRegistrationNo?.trim() || "—"}`;
   }
   return { title, isIndividual, documentLine };
+}
+
+function ProfilePageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-8 w-[min(100%,14rem)]" />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Skeleton className="h-5 w-28 rounded-full" />
+            <Skeleton className="h-4 w-40 max-w-full" />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 shrink-0 sm:justify-end">
+          <Skeleton className="h-9 w-28" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+            <Skeleton className="h-5 w-40" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-9 w-full" />
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2 pt-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-20 w-full" />
+            </div>
+          </div>
+        </div>
+        <div className="space-y-6">
+          <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-24 w-full rounded-md" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <div className="rounded-lg border border-border bg-card p-6 space-y-3">
+            <Skeleton className="h-5 w-44" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-9 w-32" />
+          </div>
+          <div className="rounded-lg border border-border bg-card p-6 space-y-3">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-9 w-28" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function YourProfilePage() {
@@ -155,11 +212,13 @@ export default function YourProfilePage() {
       window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, handler);
   }, []);
 
-  if (loading || !borrowerType) {
+  if (loading) {
+    return <ProfilePageSkeleton />;
+  }
+
+  if (!borrowerType) {
     return (
-      <div className="text-sm text-muted-foreground">
-        {loading ? "Loading..." : "Redirecting..."}
-      </div>
+      <div className="text-sm text-muted-foreground">Redirecting...</div>
     );
   }
 

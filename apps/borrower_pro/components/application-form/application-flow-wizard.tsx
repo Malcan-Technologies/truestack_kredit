@@ -184,6 +184,11 @@ export function ApplicationFlowWizard() {
         router.replace(`/applications/${appId}`);
         return;
       }
+      if (app.loanChannel === "PHYSICAL") {
+        toast.info("Physical loan draft applications are read-only in the borrower portal.");
+        router.replace(`/applications/${appId}`);
+        return;
+      }
       setApplicationId(app.id);
       setSelectedProductId(app.productId);
       setAmount(toAmountNumber(app.amount));

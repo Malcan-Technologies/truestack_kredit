@@ -525,6 +525,24 @@ export function LoanPendingAgreementPage() {
   const ekycStepNumber = requiresAttestation ? 2 : 1;
   const signStepNumber = requiresAttestation ? 3 : 2;
 
+  if (isPreDisbursement && loan.loanChannel === "PHYSICAL") {
+    return (
+      <div className="w-full min-w-0 space-y-6 pb-12">
+        <div className="rounded-lg border border-border bg-card p-4 space-y-2 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">Awaiting disbursement</span>
+            <Badge variant={borrowerLoanStatusBadgeVariant(loan)}>{loanStatusBadgeLabelFromDb(loan)}</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            This physical loan does not require any more borrower action here. Your lender will handle the remaining
+            disbursement steps and your repayment schedule will appear once funds are released.
+          </p>
+        </div>
+        <BorrowerLoanServicingPanel loanId={loanId} loan={loan} onRefresh={() => void refresh()} />
+      </div>
+    );
+  }
+
   if (!isPreDisbursement) {
     if (isServicingView) {
       return (

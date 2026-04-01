@@ -8,7 +8,10 @@ import {
   Banknote,
   Building2,
   Calendar,
+  ChevronDown,
+  ChevronUp,
   CheckCircle,
+  Clock,
   CreditCard,
   ExternalLink,
   Loader2,
@@ -35,6 +38,7 @@ import {
   TableRow,
 } from "../ui/table";
 import {
+  getBorrowerLoanTimeline,
   getBorrowerLoanSchedule,
   getBorrowerLoanMetrics,
   listBorrowerManualPaymentRequests,
@@ -43,7 +47,11 @@ import {
   borrowerTransactionReceiptUrl,
   borrowerTransactionProofUrl,
 } from "../../lib/borrower-loans-client";
-import type { BorrowerLoanDetail, BorrowerLoanMetrics } from "../../lib/borrower-loan-types";
+import type {
+  BorrowerLoanDetail,
+  BorrowerLoanMetrics,
+  BorrowerLoanTimelineEvent,
+} from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { formatICForDisplay } from "../../lib/borrower-form-display";
@@ -76,6 +84,120 @@ function formatDateShort(iso: string | null | undefined): string {
   } catch {
     return "—";
   }
+}
+
+function formatRelativeTime(iso: string): string {
+  const createdAt = new Date(iso);
+  const diffMs = createdAt.getTime() - Date.now();
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const minutes = Math.round(diffMs / 60000);
+  if (Math.abs(minutes) < 60) return rtf.format(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return rtf.format(hours, "hour");
+  const days = Math.round(hours / 24);
+  return rtf.format(days, "day");
+}
+
+function borrowerTimelineActionInfo(action: string): {
+  icon: typeof Clock;
+  label: string;
+} {
+  switch (action) {
+    case "BORROWER_MANUAL_PAYMENT_REQUEST_CREATED":
+      return { icon: CreditCard, label: "Manual payment submitted" };
+    case "BORROWER_MANUAL_PAYMENT_APPROVED":
+      return { icon: CheckCircle, label: "Manual payment approved" };
+    case "BORROWER_MANUAL_PAYMENT_REJECTED":
+      return { icon: XCircle, label: "Manual payment rejected" };
+    case "RECORD_PAYMENT":
+      return { icon: CreditCard, label: "Payment recorded" };
+    case "BORROWER_ATTESTATION_SLOT_PROPOSED":
+      return { icon: Calendar, label: "Attestation slot proposed" };
+    case "ADMIN_ATTESTATION_PROPOSAL_ACCEPTED":
+      return { icon: Calendar, label: "Attestation slot accepted" };
+    case "BORROWER_ATTESTATION_COMPLETE":
+      return { icon: CheckCircle, label: "Attestation completed" };
+    case "BORROWER_UPLOAD_AGREEMENT":
+      return { icon: FileText, label: "Signed agreement uploaded" };
+    default:
+      return { icon: Clock, label: action.replace(/_/g, " ") };
+  }
+}
+
+function borrowerTimelineActorLabel(event: BorrowerLoanTimelineEvent): string | null {
+  if (event.action === "BORROWER_MANUAL_PAYMENT_APPROVED" || event.action === "BORROWER_MANUAL_PAYMENT_REJECTED") {
+    return "Admin";
+  }
+  if (event.action.startsWith("BORROWER_")) return "You";
+  if (event.action.startsWith("ADMIN_")) return "Admin";
+  if (event.user) return "Admin";
+  return null;
+}
+
+function BorrowerTimelineItem({ event }: { event: BorrowerLoanTimelineEvent }) {
+  const actionInfo = borrowerTimelineActionInfo(event.action);
+  const Icon = actionInfo.icon;
+  const actorLabel = borrowerTimelineActorLabel(event);
+
+  const nd = event.newData;
+  const isManualPaymentLifecycle =
+    event.action === "BORROWER_MANUAL_PAYMENT_REQUEST_CREATED" ||
+    event.action === "BORROWER_MANUAL_PAYMENT_APPROVED" ||
+    event.action === "BORROWER_MANUAL_PAYMENT_REJECTED";
+  const isRecordPayment = event.action === "RECORD_PAYMENT";
+
+  let amount: number | null = null;
+  let reference = "";
+  if (isManualPaymentLifecycle && nd) {
+    amount = toAmountNumber(nd.amount ?? 0);
+    reference = String(nd.reference ?? "").trim();
+  } else if (isRecordPayment && nd) {
+    amount = toAmountNumber(nd.totalAmount ?? nd.amount ?? 0);
+    reference = String(nd.reference ?? "").trim();
+  }
+
+  const rejectReason =
+    event.action === "BORROWER_MANUAL_PAYMENT_REJECTED" && nd?.reason != null
+      ? String(nd.reason).trim()
+      : "";
+
+  const showAmountBox =
+    (amount != null && amount > 0 && (isManualPaymentLifecycle || isRecordPayment)) ||
+    (event.action === "BORROWER_MANUAL_PAYMENT_REJECTED" && rejectReason !== "");
+
+  return (
+    <div className="flex gap-4">
+      <div className="flex flex-col items-center">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary">
+          <Icon className="h-4 w-4 text-foreground" />
+        </div>
+        <div className="mt-2 min-h-[8px] w-px flex-1 bg-border" />
+      </div>
+      <div className="flex-1 pb-6">
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <span className="font-medium text-foreground">{actionInfo.label}</span>
+          <span className="text-xs text-muted-foreground">{formatRelativeTime(event.createdAt)}</span>
+        </div>
+        {actorLabel ? <p className="mb-2 text-sm text-muted-foreground">by {actorLabel}</p> : null}
+        {showAmountBox ? (
+          <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+            {amount != null && amount > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Amount: <span className="font-medium text-foreground">{formatRm(amount)}</span>
+                {reference ? <span className="ml-2 break-all">Ref: {reference}</span> : null}
+              </p>
+            ) : null}
+            {rejectReason ? (
+              <p className="text-xs text-muted-foreground">
+                Reason: <span className="text-foreground">{rejectReason}</span>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <p className="mt-2 text-xs text-muted-foreground">{formatDateShort(event.createdAt)}</p>
+      </div>
+    </div>
+  );
 }
 
 /** Matches admin loan detail progress donut (loans/[loanId]/page.tsx). */
@@ -214,6 +336,11 @@ export function BorrowerLoanServicingPanel({
   const [scheduleData, setScheduleData] = useState<SchedulePayload | null>(null);
   const [metrics, setMetrics] = useState<BorrowerLoanMetrics | null>(null);
   const [pendingManualPayments, setPendingManualPayments] = useState(0);
+  const [timeline, setTimeline] = useState<BorrowerLoanTimelineEvent[]>([]);
+  const [timelineCursor, setTimelineCursor] = useState<string | null>(null);
+  const [hasMoreTimeline, setHasMoreTimeline] = useState(false);
+  const [timelineExpanded, setTimelineExpanded] = useState(true);
+  const [loadingMoreTimeline, setLoadingMoreTimeline] = useState(false);
 
   const canPay =
     loan.status === "ACTIVE" || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
@@ -221,21 +348,44 @@ export function BorrowerLoanServicingPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [sch, met, manual] = await Promise.all([
+      const [sch, met, manual, timelineRes] = await Promise.all([
         getBorrowerLoanSchedule(loanId),
         getBorrowerLoanMetrics(loanId),
         listBorrowerManualPaymentRequests(loanId).catch(() => ({ success: true, data: [] })),
+        getBorrowerLoanTimeline(loanId, { limit: 10 }).catch(() => ({
+          success: true,
+          data: [],
+          pagination: { hasMore: false, nextCursor: null },
+        })),
       ]);
       setScheduleData(sch.data as SchedulePayload);
       setMetrics(met.data);
       const pend = (manual.data ?? []).filter((r) => r.status === "PENDING").length;
       setPendingManualPayments(pend);
+      setTimeline(timelineRes.data ?? []);
+      setHasMoreTimeline(timelineRes.pagination?.hasMore ?? false);
+      setTimelineCursor(timelineRes.pagination?.nextCursor ?? null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load schedule");
     } finally {
       setLoading(false);
     }
   }, [loanId]);
+
+  const loadMoreTimeline = useCallback(async () => {
+    if (!timelineCursor) return;
+    setLoadingMoreTimeline(true);
+    try {
+      const res = await getBorrowerLoanTimeline(loanId, { limit: 10, cursor: timelineCursor });
+      setTimeline((current) => [...current, ...(res.data ?? [])]);
+      setHasMoreTimeline(res.pagination?.hasMore ?? false);
+      setTimelineCursor(res.pagination?.nextCursor ?? null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load more activity");
+    } finally {
+      setLoadingMoreTimeline(false);
+    }
+  }, [loanId, timelineCursor]);
 
   useEffect(() => {
     void load();
@@ -681,7 +831,7 @@ export function BorrowerLoanServicingPanel({
                             <TableCell>
                               <Badge
                                 variant={repaymentStatusBadgeVariant(r.status)}
-                                className="text-[10px] capitalize"
+                                className="shrink-0 capitalize"
                               >
                                 {isOverdue && r.status !== "PAID" ? "OVERDUE" : st}
                               </Badge>
@@ -824,6 +974,59 @@ export function BorrowerLoanServicingPanel({
                 </div>
               )}
             </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader
+              className="cursor-pointer select-none"
+              onClick={() => setTimelineExpanded((current) => !current)}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    Activity Timeline
+                  </CardTitle>
+                  <CardDescription>History of changes and events</CardDescription>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setTimelineExpanded((current) => !current);
+                  }}
+                >
+                  {timelineExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              </div>
+            </CardHeader>
+            {timelineExpanded && (
+              <CardContent>
+                {timeline.length === 0 ? (
+                  <p className="py-4 text-center text-sm text-muted-foreground">No activity recorded yet</p>
+                ) : (
+                  <div className="space-y-0">
+                    {timeline.map((event) => (
+                      <BorrowerTimelineItem key={event.id} event={event} />
+                    ))}
+                    {hasMoreTimeline ? (
+                      <div className="pt-4 text-center">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void loadMoreTimeline()}
+                          disabled={loadingMoreTimeline}
+                        >
+                          {loadingMoreTimeline ? "Loading..." : "Load More"}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </CardContent>
+            )}
           </Card>
         </div>
       </div>

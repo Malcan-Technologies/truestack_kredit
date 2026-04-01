@@ -385,11 +385,14 @@ const loanStatusColors: Record<string, "default" | "success" | "warning" | "dest
 function loanDetailStatusDisplay(loan: {
   status: string;
   attestationCompletedAt?: string | null;
+  loanChannel?: "ONLINE" | "PHYSICAL";
 }): { label: string; variant: "default" | "success" | "warning" | "destructive" | "info" } {
   const label = formatLoanStatusLabelForDisplay(loan);
   const variant =
     loan.status === "PENDING_ATTESTATION" ||
-    (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt)
+    (loan.status === "PENDING_DISBURSEMENT" &&
+      loan.loanChannel === "ONLINE" &&
+      !loan.attestationCompletedAt)
       ? "warning"
       : loanStatusColors[loan.status] || "default";
   return { label, variant };
@@ -469,7 +472,32 @@ function ProgressDonut({
 // Timeline Component
 // ============================================
 
-function TimelineItem({ event }: { event: TimelineEvent }) {
+function timelineActorLabel(event: TimelineEvent, borrowerDisplayName: string | null): string | null {
+  if (event.user) {
+    return event.user.name || event.user.email;
+  }
+  if (
+    event.action === "BORROWER_MANUAL_PAYMENT_APPROVED" ||
+    event.action === "BORROWER_MANUAL_PAYMENT_REJECTED"
+  ) {
+    return "Admin";
+  }
+  if (event.action.startsWith("BORROWER_")) {
+    return borrowerDisplayName;
+  }
+  if (event.action.startsWith("ADMIN_")) {
+    return "Admin";
+  }
+  return null;
+}
+
+function TimelineItem({
+  event,
+  borrowerDisplayName,
+}: {
+  event: TimelineEvent;
+  borrowerDisplayName: string | null;
+}) {
   const getActionInfo = (action: string, ev?: TimelineEvent) => {
     const isReplacement = ev?.previousData != null;
     switch (action) {
@@ -519,6 +547,18 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: Banknote, label: "Early Settlement" };
       case "EXPORT":
         return { icon: Download, label: "Document Exported" };
+      case "BORROWER_MANUAL_PAYMENT_REQUEST_CREATED":
+        return { icon: CreditCard, label: "Manual Payment Requested" };
+      case "BORROWER_MANUAL_PAYMENT_APPROVED":
+        return { icon: CheckCircle, label: "Manual Payment Approved" };
+      case "BORROWER_MANUAL_PAYMENT_REJECTED":
+        return { icon: XCircle, label: "Manual Payment Rejected" };
+      case "BORROWER_ATTESTATION_SLOT_PROPOSED":
+        return { icon: Calendar, label: "Attestation Slot Proposed" };
+      case "ADMIN_ATTESTATION_PROPOSAL_ACCEPTED":
+        return { icon: Calendar, label: "Attestation Slot Accepted" };
+      case "BORROWER_ATTESTATION_COMPLETE":
+        return { icon: CheckCircle, label: "Attestation Completed" };
       default:
         return { icon: Clock, label: action };
     }
@@ -526,6 +566,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
 
   const actionInfo = getActionInfo(event.action, event);
   const Icon = actionInfo.icon;
+  const actorLabel = timelineActorLabel(event, borrowerDisplayName);
 
   return (
     <div className="flex gap-4">
@@ -542,11 +583,60 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
             {formatRelativeTime(event.createdAt)}
           </span>
         </div>
-        {event.user && (
-          <p className="text-sm text-muted-foreground mb-2">
-            by {event.user.name || event.user.email}
-          </p>
-        )}
+        {actorLabel ? <p className="text-sm text-muted-foreground mb-2">by {actorLabel}</p> : null}
+        {event.newData && event.action === "BORROWER_MANUAL_PAYMENT_REQUEST_CREATED" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">
+                Amount:{" "}
+                <span className="font-medium text-foreground">
+                  {formatCurrency(toSafeNumber(data.amount as number))}
+                </span>
+                {data.reference ? (
+                  <span className="ml-2 text-foreground">Ref: {String(data.reference)}</span>
+                ) : null}
+              </p>
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "BORROWER_MANUAL_PAYMENT_APPROVED" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">
+                Amount:{" "}
+                <span className="font-medium text-foreground">
+                  {formatCurrency(toSafeNumber(data.amount as number))}
+                </span>
+                {data.reference ? (
+                  <span className="ml-2 text-foreground">Ref: {String(data.reference)}</span>
+                ) : null}
+              </p>
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "BORROWER_MANUAL_PAYMENT_REJECTED" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Amount:{" "}
+                <span className="font-medium text-foreground">
+                  {formatCurrency(toSafeNumber(data.amount as number))}
+                </span>
+                {data.reference ? (
+                  <span className="ml-2 text-foreground">Ref: {String(data.reference)}</span>
+                ) : null}
+              </p>
+              {data.reason ? (
+                <p className="text-xs text-muted-foreground">
+                  Reason: <span className="text-foreground">{String(data.reason)}</span>
+                </p>
+              ) : null}
+            </div>
+          );
+        })()}
         {event.newData && event.action === "RECORD_PAYMENT" && (() => {
           const data = event.newData as Record<string, unknown>;
           const amount = data.totalAmount ?? data.amount;
@@ -1709,12 +1799,13 @@ export default function LoanDetailPage() {
   const signedAgreementApproved = (loan.signedAgreementReviewStatus ?? "NONE") === "APPROVED";
   const attestationComplete = Boolean(loan.attestationCompletedAt);
   const isOnlineLoan = loan.loanChannel === "ONLINE";
+  const requiresAttestation = isOnlineLoan;
   const isAwaitingDisbursement =
     loan.status === "PENDING_DISBURSEMENT" || loan.status === "PENDING_ATTESTATION";
   const statusUi = loanDetailStatusDisplay(loan);
   const canDisburseLoan =
     Boolean(loan.agreementDate) &&
-    attestationComplete &&
+    (!requiresAttestation || attestationComplete) &&
     (!hasGuarantors || allGuarantorAgreementsGenerated) &&
     hasSignedAgreementFile &&
     signedAgreementApproved;
@@ -1722,7 +1813,7 @@ export default function LoanDetailPage() {
     ? isOnlineLoan
       ? "Borrower must finish agreement steps in the borrower portal (agreement date fixed) before disbursement"
       : "Generate the agreement PDF first to fix the agreement date before disbursement"
-    : !attestationComplete
+    : requiresAttestation && !attestationComplete
       ? "Borrower must complete attestation (video or lawyer meeting) in the borrower portal before disbursement"
       : hasGuarantors && !allGuarantorAgreementsGenerated
         ? "Generate all guarantor agreement PDFs before disbursement"
@@ -1840,7 +1931,7 @@ export default function LoanDetailPage() {
                 <div className="flex items-center gap-3">
                   <Calendar className="h-5 w-5 text-amber-600 shrink-0" />
                   <div>
-                    {!attestationComplete ? (
+                    {requiresAttestation && !attestationComplete ? (
                       <>
                         <p className="font-medium text-amber-600">Pending Attestation</p>
                         <p className="text-xs text-muted-foreground">
@@ -1860,7 +1951,7 @@ export default function LoanDetailPage() {
                       </>
                     ) : (
                       <>
-                        <p className="font-medium text-amber-600">Pending disbursement</p>
+                        <p className="font-medium text-amber-600">Pending Disbursement</p>
                         <p className="text-xs text-muted-foreground">Awaiting disbursement</p>
                       </>
                     )}
@@ -3713,7 +3804,7 @@ export default function LoanDetailPage() {
                 ) : (
                   <div className="space-y-0">
                     {timeline.map((event) => (
-                      <TimelineItem key={event.id} event={event} />
+                      <TimelineItem key={event.id} event={event} borrowerDisplayName={borrowerDisplayName ?? null} />
                     ))}
                     {hasMoreTimeline && (
                       <div className="pt-4 text-center">

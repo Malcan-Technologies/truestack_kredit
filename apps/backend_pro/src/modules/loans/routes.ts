@@ -4058,7 +4058,7 @@ router.post('/:loanId/disburse', async (req, res, next) => {
       );
     }
 
-    if (!loan.attestationCompletedAt) {
+    if (loan.loanChannel === 'ONLINE' && !loan.attestationCompletedAt) {
       throw new BadRequestError(
         'Borrower attestation must be completed before disbursement. Ask the borrower to finish attestation in the borrower portal.'
       );

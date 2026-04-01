@@ -182,12 +182,19 @@ const PRE_DISBURSEMENT_PHASES: LoanJourneyPhase[] = [
   "disbursement",
 ];
 
-function JourneyStepper({ currentPhase }: { currentPhase: LoanJourneyPhase }) {
-  const currentIdx = PRE_DISBURSEMENT_PHASES.indexOf(currentPhase);
+function JourneyStepper({
+  currentPhase,
+  loanChannel,
+}: {
+  currentPhase: LoanJourneyPhase;
+  loanChannel?: "ONLINE" | "PHYSICAL";
+}) {
+  const phases = loanChannel === "PHYSICAL" ? (["disbursement"] as LoanJourneyPhase[]) : PRE_DISBURSEMENT_PHASES;
+  const currentIdx = phases.indexOf(currentPhase);
 
   return (
     <ul className="space-y-1.5">
-      {PRE_DISBURSEMENT_PHASES.map((phase, idx) => {
+      {phases.map((phase, idx) => {
         const isCompleted = currentIdx > idx;
         const isCurrent = currentIdx === idx;
         return (
@@ -777,7 +784,7 @@ function LoanCardsGrid({
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
                       Journey progress
                     </p>
-                    <JourneyStepper currentPhase={journeyPhase} />
+                    <JourneyStepper currentPhase={journeyPhase} loanChannel={loan.loanChannel} />
                   </div>
                 )}
 
@@ -887,7 +894,13 @@ function LoanApplicationsTable({
               app={app}
               onChanged={onChanged}
               onOpen={(id, isDraft) => {
-                if (isDraft) router.push(`/applications/apply?applicationId=${id}`);
+                if (isDraft) {
+                  const target =
+                    app.loanChannel === "PHYSICAL"
+                      ? `/applications/${id}`
+                      : `/applications/apply?applicationId=${id}`;
+                  router.push(target);
+                }
                 else router.push(`/applications/${id}`);
               }}
             />
@@ -914,6 +927,7 @@ function ApplicationTableRow({
   const [loadingTl, setLoadingTl] = useState(false);
   const withdrawable = app.status === "SUBMITTED" || app.status === "UNDER_REVIEW";
   const isDraft = app.status === "DRAFT";
+  const isPhysicalDraft = isDraft && app.loanChannel === "PHYSICAL";
 
   useEffect(() => {
     if (!open) return;
@@ -984,7 +998,9 @@ function ApplicationTableRow({
           <div className="flex flex-wrap justify-end gap-2">
             {isDraft && (
               <Button size="sm" variant="secondary" asChild>
-                <Link href={`/applications/apply?applicationId=${app.id}`}>Continue</Link>
+                <Link href={isPhysicalDraft ? `/applications/${app.id}` : `/applications/apply?applicationId=${app.id}`}>
+                  {isPhysicalDraft ? "View application" : "Continue"}
+                </Link>
               </Button>
             )}
             {withdrawable && (

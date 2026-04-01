@@ -158,6 +158,20 @@ export interface BorrowerLoanMetrics {
   oldestOverdueDays?: number;
 }
 
+export interface BorrowerLoanTimelineEvent {
+  id: string;
+  action: string;
+  previousData: Record<string, unknown> | null;
+  newData: Record<string, unknown> | null;
+  ipAddress: string | null;
+  createdAt: string;
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+  } | null;
+}
+
 export interface RecordBorrowerPaymentBody {
   amount: number;
   reference?: string;

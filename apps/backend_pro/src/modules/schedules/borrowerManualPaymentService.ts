@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { toSafeNumber } from '../../lib/math.js';
 import { handleRecordLoanSpilloverPayment } from './recordLoanSpilloverPayment.js';
+import { AuditService } from '../compliance/auditService.js';
 import type { IncomingHttpHeaders } from 'http';
 
 type SpilloverSuccessBody = {
@@ -90,6 +91,21 @@ export async function approveBorrowerManualPaymentRequest(params: {
     },
   });
 
+  await AuditService.log({
+    tenantId,
+    memberId: memberId ?? undefined,
+    action: 'BORROWER_MANUAL_PAYMENT_APPROVED',
+    entityType: 'Loan',
+    entityId: reqRow.loanId,
+    newData: {
+      requestId,
+      amount,
+      reference: reqRow.reference,
+      paymentTransactionId: txId,
+    },
+    ipAddress: ip,
+  });
+
   const base = body as Record<string, unknown>;
   const innerData = base.data && typeof base.data === 'object' ? (base.data as Record<string, unknown>) : {};
   return {
@@ -107,8 +123,9 @@ export async function rejectBorrowerManualPaymentRequest(params: {
   requestId: string;
   memberId: string | null;
   reason?: string;
+  ip?: string;
 }): Promise<void> {
-  const { tenantId, requestId, memberId, reason } = params;
+  const { tenantId, requestId, memberId, reason, ip } = params;
 
   const reqRow = await prisma.borrowerManualPaymentRequest.findFirst({
     where: { id: requestId, tenantId },
@@ -121,13 +138,30 @@ export async function rejectBorrowerManualPaymentRequest(params: {
     throw new BadRequestError('This payment request is not pending approval');
   }
 
+  const rejectionReason = reason?.trim() || 'Rejected';
+
   await prisma.borrowerManualPaymentRequest.update({
     where: { id: requestId },
     data: {
       status: 'REJECTED',
-      rejectionReason: reason?.trim() || 'Rejected',
+      rejectionReason,
       reviewedAt: new Date(),
       reviewedByMemberId: memberId,
     },
+  });
+
+  await AuditService.log({
+    tenantId,
+    memberId: memberId ?? undefined,
+    action: 'BORROWER_MANUAL_PAYMENT_REJECTED',
+    entityType: 'Loan',
+    entityId: reqRow.loanId,
+    newData: {
+      requestId,
+      amount: toSafeNumber(reqRow.amount),
+      reference: reqRow.reference,
+      reason: rejectionReason,
+    },
+    ipAddress: ip,
   });
 }

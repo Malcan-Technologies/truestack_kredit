@@ -33,7 +33,9 @@ export function deriveLoanJourneyPhase(input: {
     input.loanStatus === "PENDING_ATTESTATION" ||
     input.loanStatus === "PENDING_DISBURSEMENT"
   ) {
-    const requiresAttestation = input.loanChannel !== "PHYSICAL";
+    const isPhysicalLoan = input.loanChannel === "PHYSICAL";
+    if (isPhysicalLoan) return "disbursement";
+    const requiresAttestation = !isPhysicalLoan;
     if (requiresAttestation && !input.attestationCompletedAt) return "attestation";
     if (input.kycComplete === false) return "ekyc";
     const review = input.signedAgreementReviewStatus ?? "NONE";

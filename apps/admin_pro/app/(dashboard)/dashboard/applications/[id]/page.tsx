@@ -685,10 +685,11 @@ export default function ApplicationDetailPage() {
   };
 
   // Calculate loan preview
-  const getPreview = (options?: { term?: number; interestRate?: number }): LoanPreview | null => {
+  const getPreview = (options?: { term?: number; interestRate?: number; amount?: number }): LoanPreview | null => {
     if (!application) return null;
 
-    const loanAmount = toSafeNumber(application.amount);
+    const loanAmount =
+      options?.amount !== undefined ? toSafeNumber(options.amount) : toSafeNumber(application.amount);
     const term = options?.term ?? application.term;
     const interestRate = options?.interestRate ?? toSafeNumber(application.product.interestRate);
 
@@ -812,6 +813,18 @@ export default function ApplicationDetailPage() {
   const pendingBorrowerOffer = application.offerRounds?.find(
     (o) => o.status === "PENDING" && o.fromParty === "BORROWER"
   );
+  const negotiationPreview =
+    pendingBorrowerOffer != null
+      ? getPreview({
+          amount: Number(pendingBorrowerOffer.amount),
+          term: pendingBorrowerOffer.term,
+        })
+      : pendingLenderOffer != null
+        ? getPreview({
+            amount: Number(pendingLenderOffer.amount),
+            term: pendingLenderOffer.term,
+          })
+        : null;
   const canShowNegotiationCard =
     ((application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") &&
       ((application.offerRounds?.length ?? 0) > 0 || !!pendingLenderOffer || !!pendingBorrowerOffer)) ||
@@ -1079,10 +1092,79 @@ export default function ApplicationDetailPage() {
                     applicable.
                   </p>
                 )}
-                {pendingBorrowerOffer && !pendingLenderOffer && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40 p-3 text-sm text-amber-900 dark:text-amber-100">
-                    <strong>Pending borrower offer</strong> — review the amount and term in the history below, then
-                    accept or send a counter-offer from the header.
+                {negotiationPreview && (
+                  <div className="relative overflow-hidden rounded-xl border-2 border-amber-400/90 bg-amber-50 p-5 shadow-sm dark:border-amber-600 dark:bg-amber-950/45 ring-1 ring-amber-200/80 dark:ring-amber-800/50 space-y-3">
+                    <div className="absolute -top-10 -right-10 w-28 h-28 bg-amber-200/40 dark:bg-amber-500/10 rounded-full blur-2xl" />
+                    <div className="relative flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-lg font-semibold flex items-center gap-2 text-foreground">
+                          <div className="p-1.5 rounded-md bg-amber-200/60 dark:bg-amber-900/50">
+                            <Calculator className="h-5 w-5 text-amber-900 dark:text-amber-200" />
+                          </div>
+                          {pendingBorrowerOffer && !pendingLenderOffer
+                            ? "Borrower's offer — estimated terms"
+                            : "Your pending offer — estimated terms"}
+                        </h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {pendingBorrowerOffer && !pendingLenderOffer
+                            ? "Review net disbursement and monthly payment before accepting or countering from the header."
+                            : "What the borrower sees for fees and monthly payment if they accept this offer."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="relative space-y-2.5 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Loan Amount</span>
+                        <span className="font-medium text-foreground">
+                          {formatCurrency(negotiationPreview.loanAmount)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Term</span>
+                        <span className="font-medium text-foreground">{negotiationPreview.term} months</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Legal Fee</span>
+                        <span className="text-foreground">{formatCurrency(negotiationPreview.legalFee)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Stamping Fee</span>
+                        <span className="text-foreground">{formatCurrency(negotiationPreview.stampingFee)}</span>
+                      </div>
+                      <div className="flex justify-between items-center border-t border-amber-200/80 dark:border-amber-800/50 pt-2.5">
+                        <span className="text-muted-foreground">Total Fees</span>
+                        <span className="font-medium text-amber-600 dark:text-amber-400">
+                          {formatCurrency(negotiationPreview.totalFees)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Net Disbursement</span>
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                          {formatCurrency(negotiationPreview.netDisbursement)}
+                        </span>
+                      </div>
+                      <div className="border-t border-amber-200/80 dark:border-amber-800/50 pt-2.5" />
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Interest Rate</span>
+                        <span className="text-foreground">{formatNumber(negotiationPreview.interestRate, 2)}% p.a.</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Total Interest</span>
+                        <span className="text-foreground">{formatCurrency(negotiationPreview.totalInterest)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Total Payable</span>
+                        <span className="font-medium text-foreground">
+                          {formatCurrency(negotiationPreview.totalPayable)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center bg-amber-100/80 dark:bg-amber-950/60 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-amber-200/80 dark:border-amber-800/50">
+                        <span className="font-semibold text-foreground">Monthly Payment</span>
+                        <span className="font-bold text-xl text-foreground">
+                          {formatCurrency(negotiationPreview.monthlyPayment)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
                 {pendingLenderOffer && !pendingBorrowerOffer && (

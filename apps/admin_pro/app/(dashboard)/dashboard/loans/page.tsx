@@ -170,7 +170,9 @@ function loanStatusDisplay(loan: Loan): {
   const label = formatLoanStatusLabelForDisplay(loan);
   const variant =
     loan.status === "PENDING_ATTESTATION" ||
-    (loan.status === "PENDING_DISBURSEMENT" && !loan.attestationCompletedAt)
+    (loan.status === "PENDING_DISBURSEMENT" &&
+      loan.loanChannel === "ONLINE" &&
+      !loan.attestationCompletedAt)
       ? "warning"
       : statusColors[loan.status] || "default";
   return { label, variant };

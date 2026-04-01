@@ -49,6 +49,12 @@ type ManualPaymentItem = {
 
 const PAGE_SIZE = 20;
 
+function notifyManualPaymentRequestsChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("manual-payment-requests-changed"));
+  }
+}
+
 type StatusFilter = "all" | "PENDING" | "APPROVED" | "REJECTED";
 
 function emptyListMessage(filter: StatusFilter): string {
@@ -76,6 +82,7 @@ export default function PaymentApprovalsPage() {
   const [rejectDialog, setRejectDialog] = useState<ManualPaymentItem | null>(null);
   const [rejectReason, setRejectReason] = useState("Could not verify payment");
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
+  const [detailRow, setDetailRow] = useState<ManualPaymentItem | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,6 +117,7 @@ export default function PaymentApprovalsPage() {
       const res = await api.post(`/api/schedules/manual-payment-requests/${id}/approve`, {});
       if (res.success) {
         toast.success("Payment approved and recorded on the loan schedule.");
+        notifyManualPaymentRequestsChanged();
         await load();
       } else {
         toast.error(res.error || "Approve failed");
@@ -131,6 +139,7 @@ export default function PaymentApprovalsPage() {
       if (res.success) {
         toast.success("Payment request rejected.");
         setRejectDialog(null);
+        notifyManualPaymentRequestsChanged();
         await load();
       } else {
         toast.error(res.error || "Reject failed");
@@ -214,7 +223,11 @@ export default function PaymentApprovalsPage() {
                     typeof row.amount === "string" ? parseFloat(row.amount) : Number(row.amount);
                   const isPending = row.status === "PENDING";
                   return (
-                    <TableRow key={row.id}>
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer hover:bg-muted/25"
+                      onClick={() => setDetailRow(row)}
+                    >
                       <TableCell className="whitespace-nowrap text-sm">
                         {formatDateTime(row.createdAt)}
                       </TableCell>
@@ -226,6 +239,7 @@ export default function PaymentApprovalsPage() {
                         <Link
                           href={`/dashboard/loans/${row.loan.id}`}
                           className="inline-flex items-center gap-1 text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           View loan
                           <ExternalLink className="h-3 w-3" />
@@ -274,6 +288,7 @@ export default function PaymentApprovalsPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             View slip
                           </a>
@@ -281,7 +296,7 @@ export default function PaymentApprovalsPage() {
                           <span className="text-muted-foreground text-sm">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right space-x-2">
+                      <TableCell className="text-right space-x-2" onClick={(e) => e.stopPropagation()}>
                         {isPending ? (
                           <>
                             <Button
@@ -335,6 +350,42 @@ export default function PaymentApprovalsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!detailRow} onOpenChange={(o) => !o && setDetailRow(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Payment details</DialogTitle>
+            <DialogDescription>
+              Amount and bank reference for this request. Compare with your bank statement before approving.
+            </DialogDescription>
+          </DialogHeader>
+          {detailRow ? (
+            <div className="space-y-4 py-1">
+              <div className="space-y-1.5">
+                <Label>Amount</Label>
+                <p className="text-lg font-semibold tabular-nums">
+                  {formatCurrency(
+                    typeof detailRow.amount === "string"
+                      ? parseFloat(detailRow.amount)
+                      : Number(detailRow.amount),
+                  )}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Bank reference</Label>
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-sm leading-relaxed break-all">
+                  {detailRow.reference}
+                </p>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDetailRow(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!rejectDialog} onOpenChange={(o) => !o && setRejectDialog(null)}>
         <DialogContent>

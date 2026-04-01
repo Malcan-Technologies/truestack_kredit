@@ -745,15 +745,6 @@ router.post('/manual-payment-requests/:requestId/approve', async (req, res, next
       ip: req.ip,
       headers: req.headers,
     });
-    await AuditService.log({
-      tenantId: req.tenantId!,
-      memberId: req.memberId,
-      action: 'BORROWER_MANUAL_PAYMENT_APPROVED',
-      entityType: 'BorrowerManualPaymentRequest',
-      entityId: requestId,
-      newData: { requestId },
-      ipAddress: req.ip,
-    });
     res.status(201).json(out);
   } catch (error) {
     next(error);
@@ -773,15 +764,7 @@ router.post('/manual-payment-requests/:requestId/reject', async (req, res, next)
       requestId,
       memberId: req.memberId ?? null,
       reason: body.reason,
-    });
-    await AuditService.log({
-      tenantId: req.tenantId!,
-      memberId: req.memberId,
-      action: 'BORROWER_MANUAL_PAYMENT_REJECTED',
-      entityType: 'BorrowerManualPaymentRequest',
-      entityId: requestId,
-      newData: { reason: body.reason },
-      ipAddress: req.ip,
+      ip: req.ip,
     });
     res.json({ success: true });
   } catch (error) {

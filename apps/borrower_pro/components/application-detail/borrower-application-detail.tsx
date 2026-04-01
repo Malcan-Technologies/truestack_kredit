@@ -123,27 +123,118 @@ type TimelineEvent = {
   user?: { id: string; email: string; name: string | null } | null;
 };
 
+function applicationTimelineLabel(action: string): string {
+  const map: Record<string, string> = {
+    CREATE: "Application created",
+    UPDATE: "Application updated",
+    SUBMIT: "Application submitted",
+    APPROVE: "Application approved",
+    REJECT: "Application rejected",
+    RETURN_TO_DRAFT: "Returned for amendments",
+    DOCUMENT_UPLOAD: "Document uploaded",
+    DOCUMENT_DELETE: "Document deleted",
+    BORROWER_CREATE_APPLICATION: "Application created",
+    BORROWER_UPDATE_APPLICATION: "Application updated",
+    BORROWER_SUBMIT_APPLICATION: "Application submitted",
+    BORROWER_APPLICATION_DOCUMENT_UPLOAD: "Document uploaded",
+    BORROWER_APPLICATION_DOCUMENT_DELETE: "Document removed",
+    BORROWER_APPLICATION_STATUS_CHANGE: "Status updated",
+    BORROWER_WITHDRAW_APPLICATION: "Application withdrawn",
+    APPLICATION_COUNTER_OFFER: "Counter offer from lender",
+    APPLICATION_ACCEPT_BORROWER_OFFER: "Borrower offer accepted",
+    APPLICATION_REJECT_OFFERS: "Negotiation offers rejected",
+  };
+  if (map[action]) return map[action];
+  return action
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function LoanSummaryBreakdown({ preview }: { preview: LoanPreviewData }) {
+  return (
+    <div className="relative space-y-2.5 text-sm">
+      <div className="flex justify-between items-center">
+        <span className="text-muted-foreground">Loan Amount</span>
+        <span className="font-medium text-foreground">{formatCurrency(preview.loanAmount)}</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-muted-foreground">Term</span>
+        <span className="font-medium text-foreground">{preview.term} months</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-muted-foreground">Legal Fee</span>
+        <span className="text-foreground">{formatCurrency(preview.legalFee)}</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-muted-foreground">Stamping Fee</span>
+        <span className="text-foreground">{formatCurrency(preview.stampingFee)}</span>
+      </div>
+      <div className="flex justify-between items-center border-t border-border/50 pt-2.5">
+        <span className="text-muted-foreground">Total Fees</span>
+        <span className="font-medium text-warning">{formatCurrency(preview.totalFees)}</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-muted-foreground">Net Disbursement</span>
+        <span className="font-medium text-success">{formatCurrency(preview.netDisbursement)}</span>
+      </div>
+      <div className="border-t border-border/50 pt-2.5" />
+      <div className="flex justify-between items-center">
+        <span className="text-muted-foreground">Interest Rate</span>
+        <span className="text-foreground">{formatNumber(preview.interestRate, 2)}% p.a.</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-muted-foreground">Total Interest</span>
+        <span className="text-foreground">{formatCurrency(preview.totalInterest)}</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-muted-foreground">Total Payable</span>
+        <span className="font-medium text-foreground">{formatCurrency(preview.totalPayable)}</span>
+      </div>
+      <div className="flex justify-between items-center bg-foreground/5 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-border">
+        <span className="font-semibold text-foreground">Monthly Payment</span>
+        <span className="font-bold text-xl text-foreground">{formatCurrency(preview.monthlyPayment)}</span>
+      </div>
+    </div>
+  );
+}
+
 function TimelineItem({ event }: { event: TimelineEvent }) {
   const getActionInfo = (action: string) => {
     switch (action) {
       case "CREATE":
-        return { icon: Plus, label: "Created" };
+      case "BORROWER_CREATE_APPLICATION":
+        return { icon: Plus, label: applicationTimelineLabel(action) };
       case "UPDATE":
-        return { icon: Pencil, label: "Updated" };
+      case "BORROWER_UPDATE_APPLICATION":
+        return { icon: Pencil, label: applicationTimelineLabel(action) };
       case "SUBMIT":
-        return { icon: Send, label: "Submitted" };
+      case "BORROWER_SUBMIT_APPLICATION":
+        return { icon: Send, label: applicationTimelineLabel(action) };
       case "APPROVE":
-        return { icon: Check, label: "Approved" };
+        return { icon: Check, label: applicationTimelineLabel(action) };
       case "REJECT":
-        return { icon: X, label: "Rejected" };
+        return { icon: X, label: applicationTimelineLabel(action) };
       case "RETURN_TO_DRAFT":
-        return { icon: RotateCcw, label: "Returned for Amendments" };
+        return { icon: RotateCcw, label: applicationTimelineLabel(action) };
       case "DOCUMENT_UPLOAD":
-        return { icon: Upload, label: "Document Uploaded" };
+      case "BORROWER_APPLICATION_DOCUMENT_UPLOAD":
+        return { icon: Upload, label: applicationTimelineLabel(action) };
       case "DOCUMENT_DELETE":
-        return { icon: Trash2, label: "Document Deleted" };
+      case "BORROWER_APPLICATION_DOCUMENT_DELETE":
+        return { icon: Trash2, label: applicationTimelineLabel(action) };
+      case "BORROWER_APPLICATION_STATUS_CHANGE":
+        return { icon: Clock, label: applicationTimelineLabel(action) };
+      case "BORROWER_WITHDRAW_APPLICATION":
+        return { icon: X, label: applicationTimelineLabel(action) };
+      case "APPLICATION_COUNTER_OFFER":
+        return { icon: Handshake, label: applicationTimelineLabel(action) };
+      case "APPLICATION_ACCEPT_BORROWER_OFFER":
+      case "APPLICATION_REJECT_OFFERS":
+        return { icon: Handshake, label: applicationTimelineLabel(action) };
       default:
-        return { icon: Clock, label: action.replace(/_/g, " ") };
+        return { icon: Clock, label: applicationTimelineLabel(action) };
     }
   };
 
@@ -160,15 +251,16 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
       </div>
       <div className="flex-1 pb-6">
         <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <span className="font-medium text-foreground">{actionInfo.label}</span>
-          <span className="text-xs text-muted-foreground">{formatRelativeTime(event.createdAt)}</span>
+          <span className="text-sm font-semibold text-foreground leading-snug">{actionInfo.label}</span>
+          <span className="text-xs text-muted-foreground tabular-nums">{formatRelativeTime(event.createdAt)}</span>
         </div>
         {event.user && (
           <p className="text-sm text-muted-foreground mb-2">
             by {event.user.name || event.user.email}
           </p>
         )}
-        {event.action === "DOCUMENT_UPLOAD" && event.newData != null && (
+        {(event.action === "DOCUMENT_UPLOAD" || event.action === "BORROWER_APPLICATION_DOCUMENT_UPLOAD") &&
+          event.newData != null && (
           <div className="bg-secondary border border-border rounded-lg p-3">
             <p className="text-xs text-muted-foreground">
               Uploaded:{" "}
@@ -197,11 +289,12 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
   const refresh = onRefresh ?? onDocumentsChange;
 
   const requiredDocs = app.product?.requiredDocuments ?? [];
+  const isPhysicalDraft = app.loanChannel === "PHYSICAL" && app.status === "DRAFT";
   const canShowDocuments =
     app.status === "DRAFT" ||
     app.status === "SUBMITTED" ||
     app.status === "UNDER_REVIEW";
-  const docMode = app.status === "DRAFT" ? "draft" : "post_submit";
+  const docMode = isPhysicalDraft ? "post_submit" : app.status === "DRAFT" ? "draft" : "post_submit";
   const loanLink = app.loan?.id ? `/loans/${app.loan.id}` : null;
   const borrower = borrowerFromApp(app);
 
@@ -214,6 +307,8 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
   const [negAmount, setNegAmount] = useState("");
   const [negTerm, setNegTerm] = useState("");
   const [negBusy, setNegBusy] = useState(false);
+  const [lenderOfferPreview, setLenderOfferPreview] = useState<LoanPreviewData | null>(null);
+  const [lenderOfferPreviewLoading, setLenderOfferPreviewLoading] = useState(false);
 
   const pendingLenderOffer = (app.offerRounds ?? []).find(
     (o) => o.status === LoanApplicationOfferStatus.PENDING && o.fromParty === LoanApplicationOfferParty.ADMIN
@@ -241,6 +336,34 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
   useEffect(() => {
     void loadPreview();
   }, [loadPreview]);
+
+  useEffect(() => {
+    if (!pendingLenderOffer) {
+      setLenderOfferPreview(null);
+      setLenderOfferPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLenderOfferPreviewLoading(true);
+    void previewBorrowerApplication({
+      productId: app.productId,
+      amount: Number(pendingLenderOffer.amount),
+      term: Number(pendingLenderOffer.term ?? app.term),
+    })
+      .then((r) => {
+        if (!cancelled && r.success) setLenderOfferPreview(r.data);
+        else if (!cancelled) setLenderOfferPreview(null);
+      })
+      .catch(() => {
+        if (!cancelled) setLenderOfferPreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLenderOfferPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [app.productId, pendingLenderOffer?.id, pendingLenderOffer?.amount, pendingLenderOffer?.term]);
 
   useEffect(() => {
     let cancelled = false;
@@ -328,7 +451,7 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
     const docs = app.documents ?? [];
     return requiredDocs.filter((doc) => doc.required && !docs.some((d) => d.category === doc.key));
   };
-  const missingRequiredDocs = app.status === "DRAFT" ? getMissingRequiredDocs() : [];
+  const missingRequiredDocs = app.status === "DRAFT" && !isPhysicalDraft ? getMissingRequiredDocs() : [];
 
   const subtitleName =
     borrower &&
@@ -377,6 +500,16 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
           )}
         </div>
       </div>
+
+      {isPhysicalDraft && (
+        <div className="bg-muted/30 border rounded-lg p-4">
+          <p className="font-medium text-foreground">Read-only physical loan application</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            This draft physical loan application cannot be edited from the borrower portal. Any changes, including
+            document uploads, must be handled by your lender.
+          </p>
+        </div>
+      )}
 
       {missingRequiredDocs.length > 0 && (
         <div className="bg-warning/10 border border-warning/30 rounded-lg p-4">
@@ -527,19 +660,39 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
                     </p>
                   )}
                   {pendingLenderOffer && (
-                    <div className="rounded-lg border border-border bg-secondary/50 p-4 space-y-3">
-                      <p className="text-sm font-medium">Pending offer from lender</p>
-                      <div className="flex flex-wrap gap-6 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Amount</span>
-                          <p className="font-medium">{formatCurrency(Number(pendingLenderOffer.amount))}</p>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Term</span>
-                          <p className="font-medium">{pendingLenderOffer.term} months</p>
-                        </div>
+                    <div className="relative overflow-hidden rounded-xl border-2 border-amber-400/90 bg-amber-50 p-5 shadow-sm dark:border-amber-600 dark:bg-amber-950/45 ring-1 ring-amber-200/80 dark:ring-amber-800/50 space-y-4">
+                      <div className="absolute -top-10 -right-10 w-28 h-28 bg-amber-200/40 dark:bg-amber-500/10 rounded-full blur-2xl" />
+                      <div className="relative">
+                        <h3 className="text-lg font-semibold flex items-center gap-2 text-foreground">
+                          <div className="p-1.5 rounded-md bg-amber-200/60 dark:bg-amber-900/50">
+                            <Calculator className="h-5 w-5 text-amber-900 dark:text-amber-200" />
+                          </div>
+                          Pending offer from lender
+                        </h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Estimated fees, net disbursement, and monthly payment if you accept this offer.
+                        </p>
                       </div>
-                      <div className="flex flex-wrap gap-2 pt-1">
+                      {lenderOfferPreviewLoading ? (
+                        <p className="text-sm text-muted-foreground relative">Calculating estimate…</p>
+                      ) : lenderOfferPreview ? (
+                        <LoanSummaryBreakdown preview={lenderOfferPreview} />
+                      ) : (
+                        <div className="relative space-y-2 text-sm">
+                          <p className="text-muted-foreground">
+                            Amount:{" "}
+                            <span className="font-medium text-foreground">
+                              {formatCurrency(Number(pendingLenderOffer.amount))}
+                            </span>
+                          </p>
+                          <p className="text-muted-foreground">
+                            Term:{" "}
+                            <span className="font-medium text-foreground">{pendingLenderOffer.term} months</span>
+                          </p>
+                          <p className="text-xs text-destructive">Full loan estimate could not be loaded.</p>
+                        </div>
+                      )}
+                      <div className="relative flex flex-wrap gap-2 pt-1">
                         <Button
                           type="button"
                           size="sm"
@@ -605,49 +758,7 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
                   Loan Summary
                 </h3>
               </div>
-              <div className="relative space-y-2.5 text-sm">
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Loan Amount</span>
-                  <span className="font-medium text-foreground">{formatCurrency(preview.loanAmount)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Term</span>
-                  <span className="font-medium text-foreground">{preview.term} months</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Legal Fee</span>
-                  <span className="text-foreground">{formatCurrency(preview.legalFee)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Stamping Fee</span>
-                  <span className="text-foreground">{formatCurrency(preview.stampingFee)}</span>
-                </div>
-                <div className="flex justify-between items-center border-t border-border/50 pt-2.5">
-                  <span className="text-muted-foreground">Total Fees</span>
-                  <span className="font-medium text-warning">{formatCurrency(preview.totalFees)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Net Disbursement</span>
-                  <span className="font-medium text-success">{formatCurrency(preview.netDisbursement)}</span>
-                </div>
-                <div className="border-t border-border/50 pt-2.5" />
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Interest Rate</span>
-                  <span className="text-foreground">{formatNumber(preview.interestRate, 2)}% p.a.</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Total Interest</span>
-                  <span className="text-foreground">{formatCurrency(preview.totalInterest)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Total Payable</span>
-                  <span className="font-medium text-foreground">{formatCurrency(preview.totalPayable)}</span>
-                </div>
-                <div className="flex justify-between items-center bg-foreground/5 -mx-5 px-5 py-3 mt-3 rounded-b-xl border-t border-border">
-                  <span className="font-semibold text-foreground">Monthly Payment</span>
-                  <span className="font-bold text-xl text-foreground">{formatCurrency(preview.monthlyPayment)}</span>
-                </div>
-              </div>
+              <LoanSummaryBreakdown preview={preview} />
               {app.notes && (
                 <div className="relative mt-4 pt-4 border-t border-border/50">
                   <p className="text-sm text-muted-foreground">Notes</p>

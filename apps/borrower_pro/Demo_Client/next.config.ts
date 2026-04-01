@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
-  transpilePackages: [],
+  transpilePackages: ["@kredit/shared"],
 };
 
 export default nextConfig;

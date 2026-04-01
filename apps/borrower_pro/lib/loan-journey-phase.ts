@@ -7,6 +7,7 @@ export type LoanJourneyPhase =
   | "application"
   | "approval"
   | "attestation"
+  | "ekyc"
   | "signing"
   | "disbursement"
   | "active"
@@ -17,6 +18,7 @@ export function deriveLoanJourneyPhase(input: {
   applicationStatus?: string | null;
   loanStatus?: string | null;
   attestationCompletedAt?: string | null;
+  kycComplete?: boolean | null;
   signedAgreementReviewStatus?: string | null;
   agreementPath?: string | null;
   loanChannel?: "ONLINE" | "PHYSICAL" | null;
@@ -33,6 +35,7 @@ export function deriveLoanJourneyPhase(input: {
   ) {
     const requiresAttestation = input.loanChannel !== "PHYSICAL";
     if (requiresAttestation && !input.attestationCompletedAt) return "attestation";
+    if (input.kycComplete === false) return "ekyc";
     const review = input.signedAgreementReviewStatus ?? "NONE";
     if (review === "PENDING") return "disbursement";
     if (review === "APPROVED") return "disbursement";
@@ -49,6 +52,7 @@ export function loanJourneyPhaseLabel(phase: LoanJourneyPhase): string {
     application: "Application",
     approval: "Approval",
     attestation: "Attestation",
+    ekyc: "e-KYC",
     signing: "Signing",
     disbursement: "Disbursement",
     active: "Active loan",
@@ -62,6 +66,7 @@ export function loanJourneyPhaseLabel(phase: LoanJourneyPhase): string {
 export function loanJourneyPhaseBadgeVariant(phase: LoanJourneyPhase): BorrowerSemanticBadgeVariant {
   switch (phase) {
     case "attestation":
+    case "ekyc":
     case "signing":
     case "disbursement":
       return "warning";

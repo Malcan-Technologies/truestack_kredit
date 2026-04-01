@@ -3,11 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Pause, Play, Users, Video } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Play, RotateCcw, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { Label } from "../ui/label";
 import {
   getBorrowerLoan,
@@ -18,6 +26,7 @@ import {
 } from "../../lib/borrower-loans-client";
 import type { BorrowerLoanDetail } from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
+import { cn } from "../../lib/utils";
 
 const ATTESTATION_VIDEO_SRC = "/attestation/attestation-video.mp4";
 
@@ -38,6 +47,10 @@ export function AttestationWatchVideoPanel() {
   const maxWatchedSecRef = useRef(0);
   const [videoPlaying, setVideoPlaying] = useState(false);
   const [videoProgressPct, setVideoProgressPct] = useState(0);
+  const [videoAspectRatio, setVideoAspectRatio] = useState<string>("16 / 9");
+  const [videoReadyToConfirm, setVideoReadyToConfirm] = useState(false);
+  const [confirmationChoice, setConfirmationChoice] = useState<"accept" | "disagree" | "withdraw" | null>(null);
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!loanId) return;
@@ -70,6 +83,9 @@ export function AttestationWatchVideoPanel() {
   useEffect(() => {
     maxWatchedSecRef.current = 0;
     setVideoProgressPct(0);
+    setVideoAspectRatio("16 / 9");
+    setVideoReadyToConfirm(false);
+    setConfirmationChoice(null);
   }, [loanId]);
 
   /** Do not persist playhead: leaving the page or closing the tab always requires watching from the start again. */
@@ -104,6 +120,12 @@ export function AttestationWatchVideoPanel() {
     if (v.currentTime > maxWatchedSecRef.current) {
       maxWatchedSecRef.current = v.currentTime;
     }
+    const remaining = Math.max(0, v.duration - v.currentTime);
+    if (remaining <= 0.25) {
+      setVideoReadyToConfirm(true);
+      setVideoProgressPct(100);
+      return;
+    }
     const p = (v.currentTime / v.duration) * 100;
     setVideoProgressPct(Math.min(100, Math.round(p * 10) / 10));
   };
@@ -119,8 +141,12 @@ export function AttestationWatchVideoPanel() {
   const onVideoLoaded = () => {
     const v = videoRef.current;
     if (!v) return;
+    if (v.videoWidth > 0 && v.videoHeight > 0) {
+      setVideoAspectRatio(`${v.videoWidth} / ${v.videoHeight}`);
+    }
     maxWatchedSecRef.current = 0;
     v.currentTime = 0;
+    setVideoReadyToConfirm(false);
     setVideoProgressPct(0);
   };
 
@@ -129,6 +155,18 @@ export function AttestationWatchVideoPanel() {
     if (!v) return;
     if (v.paused) void v.play();
     else v.pause();
+  };
+
+  const restartVideo = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    v.currentTime = 0;
+    maxWatchedSecRef.current = 0;
+    setVideoPlaying(false);
+    setVideoReadyToConfirm(false);
+    setVideoProgressPct(0);
+    setConfirmationChoice(null);
   };
 
   const devSkipVideoToEnd = () => {
@@ -140,34 +178,61 @@ export function AttestationWatchVideoPanel() {
     }
     maxWatchedSecRef.current = v.duration;
     v.currentTime = v.duration;
+    setVideoReadyToConfirm(true);
     setVideoProgressPct(100);
   };
 
-  const onVideoComplete = () => {
-    const v = videoRef.current;
-    if (!v || !v.duration) {
-      toast.error("Video not ready.");
-      return;
-    }
-    const p = (v.currentTime / v.duration) * 100;
-    if (p < 99.5 && !v.ended) {
-      toast.error("Watch the full video (100%) before continuing.");
-      return;
-    }
-    void runAction(
-      () => postAttestationVideoComplete(loanId, { watchedPercent: 100 }),
-      "Video attestation complete."
-    );
-  };
+  const onVideoComplete = async () => {
+    const attestationAlreadyCompleted =
+      loan?.attestationStatus === "COMPLETED" ||
+      !!loan?.attestationCompletedAt;
+    const videoAlreadyRecorded =
+      attestationAlreadyCompleted ||
+      loan?.attestationStatus === "VIDEO_COMPLETED" ||
+      !!loan?.attestationVideoCompletedAt;
 
-  const onProceedSigning = async () => {
+    if (!videoAlreadyRecorded) {
+      const v = videoRef.current;
+      if (!v || !v.duration) {
+        toast.error("Video not ready.");
+        return;
+      }
+      if (!isVideoFullyWatched) {
+        toast.error("Watch the full video (100%) before continuing.");
+        return;
+      }
+      if (confirmationChoice !== "accept") {
+        toast.error("Confirm that you accept the terms before continuing.");
+        return;
+      }
+    }
+
     setBusy(true);
+    let videoRecorded = false;
     try {
+      if (attestationAlreadyCompleted) {
+        toast.success("Attestation is already complete. Continue from the loan page.");
+        await refresh();
+        router.replace(`/loans/${loanId}`);
+        return;
+      }
+
+      if (!videoAlreadyRecorded) {
+        await postAttestationVideoComplete(loanId, { watchedPercent: 100 });
+        videoRecorded = true;
+      }
+
       await postAttestationProceedToSigning(loanId);
-      toast.success("You can now download and sign the agreement.");
+      toast.success("Attestation complete. Continue with e-KYC.");
       await refresh();
       router.replace(`/loans/${loanId}`);
     } catch (e) {
+      if (videoRecorded) {
+        toast.error("Video attestation was saved, but we could not continue automatically. Continue from the loan page.");
+        await refresh();
+        router.replace(`/loans/${loanId}`);
+        return;
+      }
       toast.error(e instanceof Error ? e.message : "Action failed");
     } finally {
       setBusy(false);
@@ -190,9 +255,38 @@ export function AttestationWatchVideoPanel() {
 
   const onCancelLoan = () =>
     runAction(async () => {
+      setShowWithdrawConfirm(false);
       await postAttestationCancelLoan(loanId, { reason: "WITHDRAWN" });
       router.push("/loans");
     }, "Loan cancelled.");
+
+  const isVideoFullyWatched = videoReadyToConfirm || (() => {
+    const v = videoRef.current;
+    if (!v || !Number.isFinite(v.duration) || v.duration <= 0) {
+      return videoProgressPct >= 99.5;
+    }
+    return v.ended || maxWatchedSecRef.current >= v.duration - 0.25 || videoProgressPct >= 99.5;
+  })();
+  const attestationAlreadyCompleted =
+    loan?.attestationStatus === "COMPLETED" ||
+    !!loan?.attestationCompletedAt;
+  const videoAlreadyRecorded =
+    attestationAlreadyCompleted ||
+    loan?.attestationStatus === "VIDEO_COMPLETED" ||
+    !!loan?.attestationVideoCompletedAt;
+  const videoChoiceUnlocked = isVideoFullyWatched || videoAlreadyRecorded;
+  const canContinueAfterVideo =
+    !busy &&
+    (attestationAlreadyCompleted || videoAlreadyRecorded || (confirmationChoice !== null && isVideoFullyWatched));
+  const primaryActionLabel = attestationAlreadyCompleted
+    ? "Back to loan page"
+    : confirmationChoice === "disagree"
+      ? "Continue to lawyer meeting"
+      : confirmationChoice === "withdraw"
+        ? "Continue to withdraw"
+        : videoAlreadyRecorded && confirmationChoice === null
+          ? "Continue to e-KYC"
+          : "Accept terms and continue";
 
   if (loading || !loanId) {
     return (
@@ -241,10 +335,10 @@ export function AttestationWatchVideoPanel() {
         </Link>
       </Button>
 
-      <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-muted/30 p-6 shadow-sm">
+      <div className="rounded-xl border bg-card p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-heading font-bold text-gradient">Attestation video</h1>
+            <h1 className="text-2xl font-heading font-bold text-foreground">Attestation video</h1>
             <p className="text-muted text-base mt-1">
               {loan.product?.name ?? "Loan"} · {formatRm(loan.principalAmount)} · {loan.term} months
             </p>
@@ -255,7 +349,7 @@ export function AttestationWatchVideoPanel() {
         </div>
       </div>
 
-      <Card className="border-primary/20 shadow-md">
+      <Card className="border-primary/20 bg-muted/10 shadow-md">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Video className="h-5 w-5 text-primary" />
@@ -267,58 +361,74 @@ export function AttestationWatchVideoPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+          <div className="rounded-lg p-4 space-y-3">
             <Label className="text-xs text-muted-foreground">Attestation video</Label>
             {!videoError ? (
               <div className="space-y-2">
-                <video
-                  ref={videoRef}
-                  className="w-full max-h-[280px] rounded-md bg-black/80 cursor-pointer"
-                  controls={false}
-                  disablePictureInPicture
-                  playsInline
-                  preload="metadata"
-                  tabIndex={-1}
-                  src={ATTESTATION_VIDEO_SRC}
-                  onClick={() => toggleVideoPlay()}
-                  onError={() => setVideoError(true)}
-                  onLoadedMetadata={onVideoLoaded}
-                  onTimeUpdate={onVideoTimeUpdate}
-                  onSeeked={onVideoSeeked}
-                  onPlay={() => setVideoPlaying(true)}
-                  onPause={() => setVideoPlaying(false)}
-                  onEnded={() => {
-                    setVideoProgressPct(100);
-                    const v = videoRef.current;
-                    if (v?.duration) maxWatchedSecRef.current = v.duration;
-                  }}
+                <div
+                  className="relative w-full overflow-hidden rounded-md bg-black/80"
+                  style={{ aspectRatio: videoAspectRatio }}
                 >
-                  <track kind="captions" />
-                </video>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="gap-1.5"
+                  <video
+                    ref={videoRef}
+                    className="h-full w-full cursor-pointer object-contain"
+                    controls={false}
+                    disablePictureInPicture
+                    playsInline
+                    preload="metadata"
+                    tabIndex={-1}
+                    src={ATTESTATION_VIDEO_SRC}
                     onClick={() => toggleVideoPlay()}
-                    aria-label={videoPlaying ? "Pause video" : "Play video"}
+                    onError={() => setVideoError(true)}
+                    onLoadedMetadata={onVideoLoaded}
+                    onTimeUpdate={onVideoTimeUpdate}
+                    onSeeked={onVideoSeeked}
+                    onPlay={() => setVideoPlaying(true)}
+                    onPause={() => setVideoPlaying(false)}
+                    onEnded={() => {
+                      setVideoReadyToConfirm(true);
+                      setVideoProgressPct(100);
+                      const v = videoRef.current;
+                      if (v?.duration) maxWatchedSecRef.current = v.duration;
+                    }}
                   >
-                    {videoPlaying ? (
-                      <>
-                        <Pause className="h-4 w-4" />
-                        Pause
-                      </>
-                    ) : (
-                      <>
-                        <Play className="h-4 w-4" />
-                        Play
-                      </>
-                    )}
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    Use play/pause only — you cannot skip ahead until the video has played through.
-                  </span>
+                    <track kind="captions" />
+                  </video>
+                  {!videoPlaying && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon"
+                        className="absolute right-3 top-3 z-10 h-10 w-10 rounded-full border border-background/30 bg-background/85 shadow-lg backdrop-blur-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          restartVideo();
+                        }}
+                        aria-label="Restart video"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon"
+                        className="absolute left-1/2 top-1/2 z-10 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background/30 bg-background/85 shadow-lg backdrop-blur-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleVideoPlay();
+                        }}
+                        aria-label="Play video"
+                      >
+                        <Play className="h-5 w-5" />
+                      </Button>
+                    </>
+                  )}
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-3">
+                    <span className="text-xs text-white/85">
+                      Use play/pause only - you cannot skip ahead until the video has played through.
+                    </span>
+                  </div>
                 </div>
                 {process.env.NODE_ENV === "development" && (
                   <div className="pt-2 border-t border-dashed border-border/60">
@@ -340,41 +450,156 @@ export function AttestationWatchVideoPanel() {
                 to the borrower app, then refresh.
               </p>
             )}
-            <p className="text-xs text-muted-foreground">
-              Progress: {videoProgressPct.toFixed(1)}% (100% required)
-            </p>
+            <p className="text-xs text-muted-foreground">Progress: {videoProgressPct.toFixed(1)}% (100% required)</p>
+            <div className="space-y-3 border-t pt-4">
+              <Label className="text-sm font-medium text-foreground">After watching, choose one option</Label>
+              {attestationAlreadyCompleted ? (
+                <p className="text-xs text-muted-foreground">
+                  This attestation is already complete. Return to the loan page to continue with the next step.
+                </p>
+              ) : videoAlreadyRecorded ? (
+                <p className="text-xs text-muted-foreground">
+                  Your video attestation is already saved. You can continue without submitting it again, or choose
+                  another option below.
+                </p>
+              ) : !isVideoFullyWatched && (
+                <p className="text-xs text-muted-foreground">
+                  Finish the video first to unlock these options.
+                </p>
+              )}
+              <div className="grid gap-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmationChoice("accept")}
+                  disabled={attestationAlreadyCompleted || !videoChoiceUnlocked || busy}
+                  className={cn(
+                    "rounded-lg border-2 p-4 text-left transition-all",
+                    "disabled:cursor-not-allowed disabled:opacity-60",
+                    confirmationChoice === "accept"
+                      ? "border-success/40 bg-success/5"
+                      : "border-border hover:border-muted-foreground/30 hover:bg-muted/30"
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
+                      <Video className="h-4.5 w-4.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">I confirm and accept the terms</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Once the video reaches 100%, you can complete video attestation and continue.
+                      </p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmationChoice("disagree")}
+                  disabled={attestationAlreadyCompleted || !videoChoiceUnlocked || busy}
+                  className={cn(
+                    "rounded-lg border-2 p-4 text-left transition-all",
+                    "disabled:cursor-not-allowed disabled:opacity-60",
+                    confirmationChoice === "disagree"
+                      ? "border-warning/40 bg-warning/5"
+                      : "border-border hover:border-muted-foreground/30 hover:bg-muted/30"
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
+                      <Users className="h-4.5 w-4.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        I disagree or want a lawyer to explain the terms
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        You can schedule an online meeting with a lawyer instead of continuing with the video option.
+                      </p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmationChoice("withdraw")}
+                  disabled={attestationAlreadyCompleted || !videoChoiceUnlocked || busy}
+                  className={cn(
+                    "rounded-lg border-2 p-4 text-left transition-all",
+                    "disabled:cursor-not-allowed disabled:opacity-60",
+                    confirmationChoice === "withdraw"
+                      ? "border-warning/40 bg-warning/5"
+                      : "border-border hover:border-muted-foreground/30 hover:bg-muted/30"
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
+                      <AlertTriangle className="h-4.5 w-4.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">Withdraw my loan application</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Cancel this approved loan and lose your current progress instead of continuing to signing.
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
                 size="sm"
-                disabled={busy || (loan.attestationStatus ?? "NOT_STARTED") !== "NOT_STARTED"}
-                onClick={() => void onVideoComplete()}
+                disabled={!canContinueAfterVideo}
+                onClick={() => {
+                  if (confirmationChoice === "withdraw") {
+                    setShowWithdrawConfirm(true);
+                    return;
+                  }
+                  if (confirmationChoice === "disagree") {
+                    void onRequestMeeting();
+                    return;
+                  }
+                  void onVideoComplete();
+                }}
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Confirm video complete
+                {primaryActionLabel}
               </Button>
             </div>
           </div>
 
-          {loan.attestationStatus === "VIDEO_COMPLETED" && (
-            <div className="flex flex-col gap-3 border-t pt-4">
-              <p className="text-sm font-medium">What would you like to do next?</p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button type="button" onClick={() => void onProceedSigning()} disabled={busy}>
-                  Agree terms and continue
-                </Button>
-                <Button type="button" variant="outline" onClick={() => void onRequestMeeting()} disabled={busy}>
-                  <Users className="h-4 w-4 mr-2" />
-                  Request online meeting
-                </Button>
-                <Button type="button" variant="ghost" className="text-destructive" onClick={() => void onCancelLoan()} disabled={busy}>
-                  Withdraw
-                </Button>
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
+
+      <Dialog open={showWithdrawConfirm} onOpenChange={setShowWithdrawConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Withdraw this loan application?</DialogTitle>
+            <DialogDescription>
+              This will cancel your approved loan application and you will lose all current progress.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+              <p className="text-sm font-medium text-foreground">Before you withdraw</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Your application is already approved. You only need to complete signing next if you want to continue.
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              If you still want to stop here, confirm below to withdraw the loan application.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShowWithdrawConfirm(false)}>
+              Keep my application
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => void onCancelLoan()} disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Withdraw loan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

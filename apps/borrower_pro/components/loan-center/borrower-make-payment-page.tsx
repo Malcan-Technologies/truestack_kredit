@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Banknote,
   Building2,
+  Copy,
   CheckCircle2,
   CreditCard,
   FileUp,
@@ -38,6 +39,16 @@ function formatRm(n: number): string {
   return `RM ${n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function generateTransferReference(loanId: string): string {
+  const loanPart = loanId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase() || "LOAN";
+  const timestampPart = new Date().toISOString().replace(/\D/g, "").slice(-10);
+  const randomPart =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase()
+      : Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `TSK-${loanPart}-${timestampPart}-${randomPart}`;
+}
+
 export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
   const router = useRouter();
   const [loan, setLoan] = useState<BorrowerLoanDetail | null>(null);
@@ -48,6 +59,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
   const [customAmount, setCustomAmount] = useState("");
   const [method, setMethod] = useState<"manual" | "gateway">("manual");
   const [reference, setReference] = useState("");
+  const [referenceCopied, setReferenceCopied] = useState(false);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [monthlyInstallment, setMonthlyInstallment] = useState<number | null>(null);
   const [nextDueDate, setNextDueDate] = useState<string | null>(null);
@@ -86,6 +98,10 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    setReference((current) => current || generateTransferReference(loanId));
+  }, [loanId]);
+
   const resolvedAmount = useMemo(() => {
     if (amountMode === "monthly") {
       return monthlyInstallment;
@@ -100,6 +116,18 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
     !!lender.lenderAccountNumber?.trim();
 
   const canSubmit = method === "manual" && resolvedAmount != null && reference.trim().length > 0;
+
+  const copyReference = async () => {
+    if (!reference.trim()) return;
+    try {
+      await navigator.clipboard.writeText(reference.trim());
+      setReferenceCopied(true);
+      toast.success("Transfer reference copied");
+      window.setTimeout(() => setReferenceCopied(false), 2000);
+    } catch {
+      toast.error("Failed to copy reference");
+    }
+  };
 
   const submitManual = async () => {
     if (method !== "manual") return;
@@ -326,8 +354,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                   <div>
                     <CardTitle className="text-base">Transfer details</CardTitle>
                     <CardDescription>
-                      Transfer to the account below, then enter the reference from your bank (shown after the transfer
-                      completes).
+                      Transfer to the account below and use the generated transfer reference in your bank app.
                     </CardDescription>
                   </div>
                 </div>
@@ -363,7 +390,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                       <span className="font-semibold text-foreground">
                         {resolvedAmount != null ? formatRm(resolvedAmount) : "—"}
                       </span>
-                      . Use the reference field below only after your bank shows the transaction reference or ID.
+                      . Use the transfer reference below when your bank asks for a recipient reference or payment note.
                     </p>
                   </div>
                 ) : (
@@ -376,17 +403,29 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
                 )}
 
                 <div className="space-y-2">
-                  <Label htmlFor="ref">Bank reference / transaction ID</Label>
-                  <Input
-                    id="ref"
-                    value={reference}
-                    onChange={(e) => setReference(e.target.value)}
-                    placeholder="From your bank app or SMS after you complete the transfer"
-                    className="h-11"
-                    disabled={!bankConfigured}
-                  />
+                  <Label htmlFor="ref">Transfer reference</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="ref"
+                      value={reference}
+                      readOnly
+                      className="h-11 font-mono text-sm"
+                      disabled={!bankConfigured}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11 shrink-0"
+                      onClick={() => void copyReference()}
+                      disabled={!bankConfigured || !reference.trim()}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      {referenceCopied ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    This is the reference your bank generates for the transfer — not the lender&apos;s account number.
+                    Copy this value into your bank app&apos;s reference field, then submit the same reference here with
+                    your payment request.
                   </p>
                 </div>
                 <div className="space-y-2">

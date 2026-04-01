@@ -540,7 +540,15 @@ export default function ApplicationsPage() {
                           >
                             {isDraft && (
                               <Button variant="secondary" size="sm" asChild>
-                                <Link href={`/applications/apply?applicationId=${app.id}`}>Continue</Link>
+                                <Link
+                                  href={
+                                    app.loanChannel === "PHYSICAL"
+                                      ? borrowerApplicationDetailPath(app)
+                                      : `/applications/apply?applicationId=${app.id}`
+                                  }
+                                >
+                                  {app.loanChannel === "PHYSICAL" ? "View application" : "Continue"}
+                                </Link>
                               </Button>
                             )}
                             {(app.status === "SUBMITTED" || app.status === "UNDER_REVIEW") && (

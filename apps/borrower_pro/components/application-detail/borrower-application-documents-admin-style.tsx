@@ -43,9 +43,10 @@ export function BorrowerApplicationDocumentsAdminStyle({
 }) {
   const [uploading, setUploading] = useState(false);
   const otherInputRef = useRef<HTMLInputElement>(null);
+  const isPhysicalDraft = app.loanChannel === "PHYSICAL" && app.status === "DRAFT";
 
   const canEdit =
-    app.status === "DRAFT" ||
+    (!isPhysicalDraft && app.status === "DRAFT") ||
     app.status === "SUBMITTED" ||
     app.status === "UNDER_REVIEW";
   const postSubmit = mode === "post_submit";
@@ -110,7 +111,9 @@ export function BorrowerApplicationDocumentsAdminStyle({
           Documents
         </CardTitle>
         <CardDescription>
-          Upload required documents for this application.
+          {isPhysicalDraft
+            ? "Documents are read-only for physical draft applications."
+            : "Upload required documents for this application."}
         </CardDescription>
       </CardHeader>
       <CardContent>

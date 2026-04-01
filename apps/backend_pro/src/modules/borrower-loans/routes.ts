@@ -481,6 +481,80 @@ router.get('/loans/:loanId', async (req, res, next) => {
 });
 
 /**
+ * GET /api/borrower-auth/loans/:loanId/timeline
+ * Borrower-facing activity timeline for the active borrower's loan.
+ */
+router.get('/loans/:loanId/timeline', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+    const { cursor, limit: limitStr = '20' } = req.query;
+    const limit = Math.min(parseInt(limitStr as string, 10), 50);
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+      select: { id: true },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        tenantId: tenant.id,
+        entityType: 'Loan',
+        entityId: loanId,
+        action: { notIn: ['TRUESEND_EMAIL_SENT', 'TRUESEND_EMAIL_RESENT'] },
+        ...(cursor && { createdAt: { lt: new Date(cursor as string) } }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit + 1,
+      include: {
+        member: {
+          include: {
+            user: {
+              select: { id: true, email: true, name: true },
+            },
+          },
+        },
+      },
+    });
+
+    const hasMore = auditLogs.length > limit;
+    const items = hasMore ? auditLogs.slice(0, limit) : auditLogs;
+    const nextCursor =
+      hasMore && items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
+
+    const timeline = items.map((log) => ({
+      id: log.id,
+      action: log.action,
+      previousData: log.previousData,
+      newData: log.newData,
+      ipAddress: log.ipAddress,
+      createdAt: log.createdAt,
+      user: log.member?.user
+        ? {
+            id: log.member.user.id,
+            email: log.member.user.email,
+            name: log.member.user.name,
+          }
+        : null,
+    }));
+
+    res.json({
+      success: true,
+      data: timeline,
+      pagination: {
+        hasMore,
+        nextCursor,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * GET /api/borrower-auth/loans/:loanId/schedule
  * Mirrors schedules/loan/:loanId for borrower-owned loans.
  */

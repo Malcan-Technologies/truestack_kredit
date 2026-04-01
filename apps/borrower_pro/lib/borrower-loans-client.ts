@@ -6,6 +6,7 @@ import type {
   BorrowerLoanDetail,
   BorrowerLoanListItem,
   BorrowerLoanMetrics,
+  BorrowerLoanTimelineEvent,
   LoanCenterOverview,
   RecordBorrowerPaymentBody,
 } from "./borrower-loan-types";
@@ -391,6 +392,37 @@ export async function listBorrowerManualPaymentRequests(loanId: string): Promise
     throw new Error(json.error || "Failed to load payment requests");
   }
   return { success: true, data: json.data ?? [] };
+}
+
+export async function getBorrowerLoanTimeline(
+  loanId: string,
+  params?: { cursor?: string; limit?: number }
+): Promise<{
+  success: boolean;
+  data: BorrowerLoanTimelineEvent[];
+  pagination?: { hasMore: boolean; nextCursor: string | null };
+}> {
+  const search = new URLSearchParams();
+  if (params?.cursor) search.set("cursor", params.cursor);
+  if (params?.limit) search.set("limit", String(params.limit));
+  const query = search.toString();
+  const res = await fetch(`${BASE}/loans/${encodeURIComponent(loanId)}/timeline${query ? `?${query}` : ""}`, {
+    credentials: "include",
+  });
+  const json = await parseJson<{
+    success: boolean;
+    data?: BorrowerLoanTimelineEvent[];
+    pagination?: { hasMore: boolean; nextCursor: string | null };
+    error?: string;
+  }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to load timeline");
+  }
+  return {
+    success: true,
+    data: json.data ?? [],
+    pagination: json.pagination,
+  };
 }
 
 export function borrowerDisbursementProofUrl(loanId: string): string {

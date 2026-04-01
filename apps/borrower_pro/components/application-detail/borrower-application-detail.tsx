@@ -197,11 +197,12 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
   const refresh = onRefresh ?? onDocumentsChange;
 
   const requiredDocs = app.product?.requiredDocuments ?? [];
+  const isPhysicalDraft = app.loanChannel === "PHYSICAL" && app.status === "DRAFT";
   const canShowDocuments =
     app.status === "DRAFT" ||
     app.status === "SUBMITTED" ||
     app.status === "UNDER_REVIEW";
-  const docMode = app.status === "DRAFT" ? "draft" : "post_submit";
+  const docMode = isPhysicalDraft ? "post_submit" : app.status === "DRAFT" ? "draft" : "post_submit";
   const loanLink = app.loan?.id ? `/loans/${app.loan.id}` : null;
   const borrower = borrowerFromApp(app);
 
@@ -328,7 +329,7 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
     const docs = app.documents ?? [];
     return requiredDocs.filter((doc) => doc.required && !docs.some((d) => d.category === doc.key));
   };
-  const missingRequiredDocs = app.status === "DRAFT" ? getMissingRequiredDocs() : [];
+  const missingRequiredDocs = app.status === "DRAFT" && !isPhysicalDraft ? getMissingRequiredDocs() : [];
 
   const subtitleName =
     borrower &&
@@ -377,6 +378,16 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
           )}
         </div>
       </div>
+
+      {isPhysicalDraft && (
+        <div className="bg-muted/30 border rounded-lg p-4">
+          <p className="font-medium text-foreground">Read-only physical loan application</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            This draft physical loan application cannot be edited from the borrower portal. Any changes, including
+            document uploads, must be handled by your lender.
+          </p>
+        </div>
+      )}
 
       {missingRequiredDocs.length > 0 && (
         <div className="bg-warning/10 border border-warning/30 rounded-lg p-4">

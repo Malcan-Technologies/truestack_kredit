@@ -263,7 +263,7 @@ export default function DashboardPage() {
         id: app.id,
         label: `${app.product?.name ?? "Application"} — Draft`,
         sublabel: formatRm(app.amount),
-        href: `/applications/apply?applicationId=${app.id}`,
+        href: app.loanChannel === "PHYSICAL" ? `/applications/${app.id}` : `/applications/apply?applicationId=${app.id}`,
         variant: "info",
         icon: ClipboardList,
       });

@@ -593,6 +593,14 @@ export function TruestackKycCard({
   const sessions = kyc?.sessions ?? [];
   const isCorporate = borrower !== null && borrower.borrowerType === "CORPORATE";
   const ind = borrower ? individualStateFromSessions(sessions) : null;
+  const isKycVerified =
+    borrower !== null &&
+    (isCorporate
+      ? borrower.directors.length > 0 &&
+        borrower.directors
+          .map((d) => mergeDirectorWithSessions(d, sessions))
+          .every((d) => d.status === "completed" && d.result === "approved")
+      : ind?.status === "completed" && ind.result === "approved");
 
   const statusBadge = () => {
     if (!kyc) return null;
@@ -685,19 +693,27 @@ export function TruestackKycCard({
   };
 
   return (
-    <Card className="bg-emerald-500/[0.04] border-emerald-500/15">
+    <Card
+      className={
+        isKycVerified
+          ? "border-success/20 bg-success/5"
+          : "border-warning/25 bg-warning/10"
+      }
+    >
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle className="text-lg font-heading flex items-center gap-2">
-            <Fingerprint className="h-5 w-5 text-emerald-700 dark:text-emerald-500" />
-            TrueStack e-KYC
+            <Fingerprint
+              className={isKycVerified ? "h-5 w-5 text-success" : "h-5 w-5 text-warning"}
+            />
+            e-KYC
           </CardTitle>
           {!loading && borrower ? statusBadge() : null}
         </div>
         <CardDescription className="mt-0.5">
           {isCorporate
             ? "Verify each director's identity via IC capture and facial recognition"
-            : "Verify your identity via IC capture and facial recognition"}
+            : "Verify your identity to enable digital signing"}
         </CardDescription>
       </CardHeader>
 

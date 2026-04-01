@@ -139,6 +139,22 @@ export async function postAttestationRequestMeeting(loanId: string): Promise<{
   return { success: true, data: json.data };
 }
 
+/** Full attestation reset while still on scheduling (MEETING_REQUESTED, before proposing a slot). */
+export async function postAttestationRestart(loanId: string): Promise<{
+  success: boolean;
+  data: unknown;
+}> {
+  const res = await fetch(`${BASE}/loans/${encodeURIComponent(loanId)}/attestation/restart`, {
+    method: "POST",
+    credentials: "include",
+  });
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not restart attestation");
+  }
+  return { success: true, data: json.data };
+}
+
 export async function getAttestationAvailability(loanId: string): Promise<{
   success: boolean;
   data: { slots: Array<{ startAt: string; endAt: string }>; source: string };

@@ -1311,6 +1311,73 @@ router.post('/loans/:loanId/attestation/request-meeting', async (req, res, next)
 });
 
 /**
+ * POST /api/borrower-auth/loans/:loanId/attestation/restart
+ * Borrower backs out of scheduling before proposing a slot: full attestation reset to NOT_STARTED
+ * (video progress cleared) so they can choose instant video or meeting again.
+ */
+router.post('/loans/:loanId/attestation/restart', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (!isPreDisbursementLoanStatus(loan.status)) {
+      throw new BadRequestError('Attestation restart is only available while the loan is pending disbursement.');
+    }
+    if (loan.attestationCompletedAt) {
+      throw new BadRequestError('Attestation is already complete.');
+    }
+    if (loan.attestationStatus !== 'MEETING_REQUESTED') {
+      throw new BadRequestError(
+        'You can only restart from the meeting scheduling step (before a time slot is proposed).'
+      );
+    }
+
+    const updated = await prisma.loan.update({
+      where: { id: loanId },
+      data: {
+        attestationStatus: 'NOT_STARTED',
+        attestationVideoCompletedAt: null,
+        attestationVideoWatchedPercent: 0,
+        attestationMeetingRequestedAt: null,
+        attestationProposalStartAt: null,
+        attestationProposalEndAt: null,
+        attestationProposalDeadlineAt: null,
+        attestationProposalSource: null,
+        attestationBorrowerProposalCount: 0,
+        attestationAssignedMemberId: null,
+        attestationMeetingScheduledAt: null,
+        attestationMeetingStartAt: null,
+        attestationMeetingEndAt: null,
+        attestationMeetingLink: null,
+        attestationMeetingNotes: null,
+        attestationGoogleCalendarEventId: null,
+        attestationMeetingReminder24hSentAt: null,
+      },
+    });
+
+    await AuditService.log({
+      tenantId: tenant.id,
+      action: 'BORROWER_ATTESTATION_RESTARTED',
+      entityType: 'Loan',
+      entityId: loanId,
+      previousData: { attestationStatus: loan.attestationStatus },
+      newData: { attestationStatus: updated.attestationStatus },
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * POST /api/borrower-auth/loans/:loanId/attestation/complete-meeting
  * Borrower cannot self-complete lawyer meetings; lender must confirm on admin side.
  */

@@ -233,6 +233,7 @@ export default function DashboardPage() {
     const items: Array<{
       id: string;
       label: string;
+      statusLabel: string;
       sublabel: string;
       href: string;
       variant: "warning" | "info" | "default";
@@ -250,7 +251,8 @@ export default function DashboardPage() {
       });
       items.push({
         id: loan.id,
-        label: `${loan.product?.name ?? "Loan"} — ${loanJourneyPhaseLabel(phase)}`,
+        label: loan.product?.name ?? "Loan",
+        statusLabel: loanJourneyPhaseLabel(phase),
         sublabel: formatRm(loan.principalAmount),
         href: `/loans/${loan.id}`,
         variant: "warning",
@@ -261,7 +263,8 @@ export default function DashboardPage() {
     for (const app of draftApps) {
       items.push({
         id: app.id,
-        label: `${app.product?.name ?? "Application"} — Draft`,
+        label: app.product?.name ?? "Application",
+        statusLabel: "Draft",
         sublabel: formatRm(app.amount),
         href: `/applications/apply?applicationId=${app.id}`,
         variant: "info",
@@ -330,6 +333,9 @@ export default function DashboardPage() {
                     <p className="text-sm font-medium truncate">{action.label}</p>
                     <p className="text-xs text-muted-foreground">{action.sublabel}</p>
                   </div>
+                  <Badge variant={action.variant} className="shrink-0 self-center">
+                    {action.statusLabel}
+                  </Badge>
                   <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                 </Link>
               ))}

@@ -194,7 +194,7 @@ export default function YourProfilePage() {
             />
             <Button onClick={() => cardRef.current?.startEdit()}>
               <Pencil className="h-4 w-4 mr-2" />
-              Edit Borrower
+              Edit Profile
             </Button>
           </div>
         </div>

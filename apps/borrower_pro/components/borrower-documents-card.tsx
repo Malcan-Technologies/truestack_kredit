@@ -184,9 +184,8 @@ export function BorrowerDocumentsCard({
         </CardTitle>
         <CardDescription>
           Upload and manage documents. Allowed: PDF, PNG, JPG (max 5MB). Approved
-          TrueStack e-KYC sessions import IC front/back, face, and liveness images here
-          automatically. While your identity is verified, those categories stay locked until you
-          start a new KYC session.
+          e-KYC sessions import IC front/back, face, and liveness images here
+          automatically.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -235,7 +234,7 @@ export function BorrowerDocumentsCard({
         </div>
         {uploadCategoryLocked && uploadCategory && (
           <p className="text-xs text-muted-foreground">
-            This category is locked while your identity is verified. Start a new TrueStack KYC
+            This category is locked while your identity is verified. Start a new e-KYC
             session to replace IC, passport, or liveness files.
           </p>
         )}

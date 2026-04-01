@@ -11,6 +11,7 @@
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
+    "baseUrl": ".",
     "module": "esnext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
@@ -25,6 +26,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@kredit/shared": [
+        "../../../packages/shared/src"
+      ],
+      "@kredit/shared/*": [
+        "../../../packages/shared/src/*"
       ],
       "@borrower_pro/components": [
         "../components"

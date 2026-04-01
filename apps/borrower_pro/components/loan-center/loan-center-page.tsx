@@ -38,6 +38,7 @@ import { RefreshButton } from "../ui/refresh-button";
 import { TooltipProvider } from "../ui/tooltip";
 import { Skeleton } from "../ui/skeleton";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "../../lib/borrower-auth-client";
+import { fetchBorrower, getTruestackKycStatus } from "../../lib/borrower-api-client";
 import { listBorrowerApplications } from "../../lib/borrower-applications-client";
 import {
   fetchLoanCenterOverview,
@@ -57,6 +58,7 @@ import {
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { borrowerLoanNeedsContinueAction } from "../../lib/borrower-loan-continue-eligibility";
 import { formatDate } from "../../lib/borrower-form-display";
+import { isBorrowerKycComplete } from "../../lib/borrower-verification";
 import { LoanChannelPill } from "./loan-channel-pill";
 import { cn } from "../../lib/utils";
 
@@ -173,7 +175,9 @@ function ProgressDonut({
 /* ------------------------------------------------------------------ */
 
 const PRE_DISBURSEMENT_PHASES: LoanJourneyPhase[] = [
+  "approval",
   "attestation",
+  "ekyc",
   "signing",
   "disbursement",
 ];
@@ -235,6 +239,7 @@ export function LoanCenterPage() {
   const [activeLoans, setActiveLoans] = useState<BorrowerLoanListItem[]>([]);
   const [pendingDisbursementLoans, setPendingDisbursementLoans] = useState<BorrowerLoanListItem[]>([]);
   const [dischargedLoans, setDischargedLoans] = useState<BorrowerLoanListItem[]>([]);
+  const [borrowerKycDone, setBorrowerKycDone] = useState<boolean | null>(null);
 
   useEffect(() => {
     const nextTab = parseLoanCenterTab(tabParam);
@@ -244,18 +249,25 @@ export function LoanCenterPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, apps, aLoans, pLoans, dLoans] = await Promise.all([
+      const [ov, apps, aLoans, pLoans, dLoans, borrowerRes, kycRes] = await Promise.all([
         fetchLoanCenterOverview(),
         listBorrowerApplications({ pageSize: 200 }),
         listBorrowerLoans({ tab: "active", pageSize: 200 }),
         listBorrowerLoans({ tab: "pending_disbursement", pageSize: 200 }),
         listBorrowerLoans({ tab: "discharged", pageSize: 200 }),
+        fetchBorrower().catch(() => null),
+        getTruestackKycStatus().catch(() => null),
       ]);
       if (ov.success) setOverview(ov.data);
       if (apps.success) setApplications(apps.data);
       setActiveLoans(aLoans.data);
       setPendingDisbursementLoans(pLoans.data);
       setDischargedLoans(dLoans.data);
+      if (borrowerRes?.success) {
+        setBorrowerKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));
+      } else {
+        setBorrowerKycDone(null);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -333,11 +345,11 @@ export function LoanCenterPage() {
   const showLoanCards = ["all", "active", "before_payout", "discharged"].includes(tab);
   const showApplicationTable = tab === "incomplete" || tab === "rejected";
 
-  const listItemCount = showLoanCards ? loanRows.length : applicationRows.length;
   const allLoansTotal =
     counts != null
       ? counts.activeLoans + counts.pendingDisbursementLoans + counts.dischargedLoans
       : 0;
+  const activeLoanCount = counts?.activeLoans ?? 0;
 
   return (
     <div className="space-y-6">
@@ -345,10 +357,13 @@ export function LoanCenterPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-heading font-bold text-gradient">Your loans</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            {listItemCount} {showLoanCards ? "loan" : "application"}
-            {listItemCount !== 1 ? "s" : ""}
-            {productFilter ? " for the selected product" : ""}
+          <p className="mt-1 text-base text-muted-foreground">
+            View and manage your loans. Complete attestation, signing, and repayment here.
+            New or in-review applications stay in{" "}
+            <Link href="/applications" className="font-medium text-primary underline">
+              Applications
+            </Link>
+            .
           </p>
         </div>
         <RefreshButton
@@ -362,6 +377,15 @@ export function LoanCenterPage() {
           className="shrink-0"
         />
       </div>
+
+      {activeLoanCount > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm">
+          <CreditCard className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="font-medium text-foreground">
+            {activeLoanCount} active loan{activeLoanCount !== 1 ? "s" : ""} in your account
+          </span>
+        </div>
+      )}
 
       {/* Tabs + product filter */}
       <div className="flex gap-2 flex-wrap items-center">
@@ -467,6 +491,7 @@ export function LoanCenterPage() {
             <LoanCardsGrid
               loans={loanRows}
               tab={tab}
+              borrowerKycDone={borrowerKycDone}
               onOpenLoan={(id) => router.push(`/loans/${id}`)}
             />
           )}
@@ -504,10 +529,10 @@ export function LoanCenterPage() {
 
 function LoanCardsSkeleton() {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
       {Array.from({ length: 4 }).map((_, i) => (
-        <Card key={i} className="overflow-hidden">
-          <CardContent className="p-5 space-y-4">
+        <Card key={i} className="overflow-hidden h-full flex flex-col">
+          <CardContent className="p-5 flex flex-col flex-1 space-y-4">
             {/* Badge + channel */}
             <div className="flex items-start justify-between">
               <div className="space-y-1.5">
@@ -542,7 +567,7 @@ function LoanCardsSkeleton() {
               </div>
             </div>
             {/* Action */}
-            <Skeleton className="h-9 w-full rounded-md" />
+            <Skeleton className="h-9 w-full rounded-md mt-auto" />
           </CardContent>
         </Card>
       ))}
@@ -557,10 +582,12 @@ function LoanCardsSkeleton() {
 function LoanCardsGrid({
   loans,
   tab,
+  borrowerKycDone,
   onOpenLoan,
 }: {
   loans: BorrowerLoanListItem[];
   tab: LoanCenterTab;
+  borrowerKycDone: boolean | null;
   onOpenLoan: (id: string) => void;
 }) {
 
@@ -577,13 +604,14 @@ function LoanCardsGrid({
 
   return (
     <TooltipProvider>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
         {loans.map((loan) => {
           const progress = loan.progress;
           const journeyPhase = deriveLoanJourneyPhase({
             applicationStatus: loan.application?.status,
             loanStatus: loan.status,
             attestationCompletedAt: loan.attestationCompletedAt,
+            kycComplete: borrowerKycDone,
             signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
             agreementPath: undefined,
             loanChannel: loan.loanChannel,
@@ -607,7 +635,7 @@ function LoanCardsGrid({
             <Card
               key={loan.id}
               className={cn(
-                "group relative overflow-hidden transition-all duration-200",
+                "group relative overflow-hidden transition-all duration-200 h-full flex flex-col",
                 clickable && "cursor-pointer hover:border-foreground/20 hover:shadow-sm",
                 progress?.readyToComplete && "border-emerald-500/30",
                 isPreDisbursement && !progress?.readyToComplete && "border-amber-500/20"
@@ -616,7 +644,7 @@ function LoanCardsGrid({
                 if (clickable) onOpenLoan(loan.id);
               }}
             >
-              <CardContent className="p-5">
+              <CardContent className="p-5 flex flex-col flex-1 min-h-0">
                 {/* Top: badge + ID + channel */}
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="flex flex-col gap-1.5">
@@ -765,7 +793,7 @@ function LoanCardsGrid({
 
                 {/* Actions */}
                 <div
-                  className="flex gap-2 pt-1"
+                  className="flex gap-2 pt-4 mt-auto"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {needsContinue && (

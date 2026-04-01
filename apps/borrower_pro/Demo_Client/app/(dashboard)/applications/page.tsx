@@ -376,7 +376,7 @@ export default function ApplicationsPage() {
               <CardDescription className="mt-1.5">
                 {totalItems} application{totalItems !== 1 ? "s" : ""}
                 {filter ? " matching this filter" : ""}. Click a submitted row to view details (drafts use
-                Continue only). Total submitted to your lender: {submittedToLenderTotal}.
+                Continue only). Total submitted: {submittedToLenderTotal}.
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">

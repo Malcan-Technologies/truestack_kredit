@@ -6,14 +6,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
-  Calendar,
   CheckCircle,
   Clock,
   CreditCard,
   FileText,
   Loader2,
   LogOut,
-  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
@@ -67,7 +65,6 @@ export type LoanCenterTab =
   | "active"
   | "before_payout"
   | "discharged"
-  | "incomplete"
   | "rejected";
 
 const LOAN_CENTER_TABS: LoanCenterTab[] = [
@@ -75,7 +72,6 @@ const LOAN_CENTER_TABS: LoanCenterTab[] = [
   "active",
   "before_payout",
   "discharged",
-  "incomplete",
   "rejected",
 ];
 
@@ -129,11 +125,11 @@ function ProgressDonut({
 
   let strokeColor = "stroke-foreground";
   if (status === "COMPLETED") {
-    strokeColor = "stroke-emerald-500";
+    strokeColor = "stroke-success";
   } else if (status === "DEFAULTED" || status === "WRITTEN_OFF") {
-    strokeColor = "stroke-red-500";
+    strokeColor = "stroke-error";
   } else if (status === "IN_ARREARS") {
-    strokeColor = "stroke-amber-500";
+    strokeColor = "stroke-warning";
   }
 
   return (
@@ -161,9 +157,11 @@ function ProgressDonut({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         {readyToComplete ? (
-          <CheckCircle className="h-5 w-5 text-emerald-500" aria-hidden />
+          <CheckCircle className={cn(size >= 140 ? "h-10 w-10" : size >= 100 ? "h-8 w-8" : size >= 80 ? "h-6 w-6" : "h-5 w-5", "text-success")} aria-hidden />
         ) : (
-          <span className="text-sm font-heading font-bold tabular-nums">{percent}%</span>
+          <span className={cn(size >= 140 ? "text-2xl" : size >= 100 ? "text-xl" : size >= 80 ? "text-base" : "text-sm", "font-heading font-bold tabular-nums")}>
+            {percent}%
+          </span>
         )}
       </div>
     </div>
@@ -182,6 +180,14 @@ const PRE_DISBURSEMENT_PHASES: LoanJourneyPhase[] = [
   "disbursement",
 ];
 
+const PHASE_HINTS: Partial<Record<LoanJourneyPhase, string>> = {
+  approval: "Lender reviews your application",
+  attestation: "Confirm loan terms & conditions",
+  ekyc: "Verify your identity online",
+  signing: "Sign the loan agreement",
+  disbursement: "Funds transferred to your account",
+};
+
 function JourneyStepper({
   currentPhase,
   loanChannel,
@@ -193,40 +199,66 @@ function JourneyStepper({
   const currentIdx = phases.indexOf(currentPhase);
 
   return (
-    <ul className="space-y-1.5">
+    <div className="relative flex flex-col">
       {phases.map((phase, idx) => {
         const isCompleted = currentIdx > idx;
         const isCurrent = currentIdx === idx;
+        const isLast = idx === phases.length - 1;
+        const hint = PHASE_HINTS[phase];
+
         return (
-          <li key={phase} className="flex items-center gap-2">
-            {isCompleted ? (
-              <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
-            ) : (
-              <div
-                className={cn(
-                  "h-4 w-4 rounded-full border-2 shrink-0",
-                  isCurrent
-                    ? "border-amber-500 bg-amber-500/15"
-                    : "border-muted-foreground/30"
-                )}
-              />
-            )}
-            <span
-              className={cn(
-                "text-xs",
-                isCompleted
-                  ? "text-emerald-700 dark:text-emerald-400 font-medium"
-                  : isCurrent
-                    ? "text-foreground font-semibold"
-                    : "text-muted-foreground"
+          <div key={phase} className="relative flex gap-3">
+            {/* Vertical connector line */}
+            <div className="flex flex-col items-center">
+              {/* Step indicator */}
+              {isCompleted ? (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-success/15">
+                  <CheckCircle className="h-4 w-4 text-success" />
+                </div>
+              ) : isCurrent ? (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-warning bg-warning/15">
+                  <div className="h-2.5 w-2.5 rounded-full bg-warning" />
+                </div>
+              ) : (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center">
+                  <div className="h-3 w-3 rounded-full border-2 border-muted-foreground/30" />
+                </div>
               )}
-            >
-              {loanJourneyPhaseLabel(phase)}
-            </span>
-          </li>
+              {/* Connecting line */}
+              {!isLast && (
+                <div
+                  className={cn(
+                    "w-0.5 flex-1 min-h-3",
+                    isCompleted ? "bg-success/40" : "bg-border"
+                  )}
+                />
+              )}
+            </div>
+
+            {/* Step content */}
+            <div className={cn("pb-4", isLast && "pb-0")}>
+              <p
+                className={cn(
+                  "text-sm leading-7",
+                  isCompleted
+                    ? "font-medium text-success"
+                    : isCurrent
+                      ? "font-semibold text-foreground"
+                      : "text-muted-foreground"
+                )}
+              >
+                {loanJourneyPhaseLabel(phase)}
+              </p>
+              {hint && isCurrent && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {hint}
+                </p>
+              )}
+            </div>
+          </div>
         );
       })}
-    </ul>
+    </div>
   );
 }
 
@@ -293,13 +325,19 @@ export function LoanCenterPage() {
   }, [loadAll]);
 
   const allLoansMerged = useMemo(() => {
+    const DISCHARGED_STATUSES = new Set(["COMPLETED", "WRITTEN_OFF", "CANCELLED"]);
     const m = new Map<string, BorrowerLoanListItem>();
     for (const l of [...activeLoans, ...pendingDisbursementLoans, ...dischargedLoans]) {
       m.set(l.id, l);
     }
-    return Array.from(m.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    const PRE_DISBURSEMENT = new Set(["PENDING_ATTESTATION", "PENDING_DISBURSEMENT"]);
+    const tier = (s: string) =>
+      DISCHARGED_STATUSES.has(s) ? 2 : PRE_DISBURSEMENT.has(s) ? 1 : 0;
+    return Array.from(m.values()).sort((a, b) => {
+      const d = tier(a.status) - tier(b.status);
+      if (d !== 0) return d;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
   }, [activeLoans, pendingDisbursementLoans, dischargedLoans]);
 
   const productOptions = useMemo(() => {
@@ -313,10 +351,6 @@ export function LoanCenterPage() {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [applications, allLoansMerged]);
 
-  const incomplete = useMemo(
-    () => applications.filter((a) => a.status === "DRAFT"),
-    [applications]
-  );
   const rejectedApps = useMemo(
     () => applications.filter((a) => ["REJECTED", "CANCELLED"].includes(a.status)),
     [applications]
@@ -343,14 +377,14 @@ export function LoanCenterPage() {
   );
 
   const applicationRows = useMemo(() => {
-    const base = tab === "incomplete" ? incomplete : tab === "rejected" ? rejectedApps : [];
+    const base = tab === "rejected" ? rejectedApps : [];
     return filterByProductName(base, productFilter);
-  }, [tab, incomplete, rejectedApps, productFilter]);
+  }, [tab, rejectedApps, productFilter]);
 
   const counts = overview?.counts;
 
   const showLoanCards = ["all", "active", "before_payout", "discharged"].includes(tab);
-  const showApplicationTable = tab === "incomplete" || tab === "rejected";
+  const showApplicationTable = tab === "rejected";
 
   const allLoansTotal =
     counts != null
@@ -437,18 +471,6 @@ export function LoanCenterPage() {
           ) : null}
         </Button>
         <Button
-          variant={tab === "incomplete" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setTab("incomplete")}
-        >
-          Incomplete
-          {counts != null && counts.incompleteApplications > 0 ? (
-            <span className="ml-1.5 bg-secondary text-secondary-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
-              {counts.incompleteApplications}
-            </span>
-          ) : null}
-        </Button>
-        <Button
           variant={tab === "rejected" ? "default" : "outline"}
           size="sm"
           onClick={() => setTab("rejected")}
@@ -518,7 +540,7 @@ export function LoanCenterPage() {
               <CardContent className="p-0">
                 <LoanApplicationsTable
                   apps={applicationRows}
-                  variant={tab === "rejected" ? "rejected" : "incomplete"}
+                  variant="rejected"
                   onChanged={() => void loadAll()}
                 />
               </CardContent>
@@ -536,45 +558,25 @@ export function LoanCenterPage() {
 
 function LoanCardsSkeleton() {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <Card key={i} className="overflow-hidden h-full flex flex-col">
-          <CardContent className="p-5 flex flex-col flex-1 space-y-4">
-            {/* Badge + channel */}
-            <div className="flex items-start justify-between">
-              <div className="space-y-1.5">
-                <Skeleton className="h-5 w-28 rounded-full" />
-                <Skeleton className="h-3 w-16" />
-              </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-stretch">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <Card key={i} className="overflow-hidden h-full flex flex-col rounded-xl">
+          <CardContent className="p-5 flex flex-col flex-1 items-center space-y-4">
+            <div className="flex w-full items-center justify-between">
+              <Skeleton className="h-5 w-20 rounded-full" />
               <Skeleton className="h-7 w-20 rounded-lg" />
             </div>
-            {/* Product + amount */}
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-36" />
-              <Skeleton className="h-7 w-44" />
-              <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-7 w-36" />
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="mt-2 h-[140px] w-[140px] rounded-full" />
+            <Skeleton className="h-3 w-12" />
+            <Skeleton className="h-5 w-28" />
+            <Skeleton className="h-3 w-36" />
+            <Skeleton className="h-3 w-32" />
+            <div className="mt-auto w-full pt-2">
+              <Skeleton className="h-10 w-full rounded-lg" />
             </div>
-            {/* Progress area */}
-            <div className="border rounded-lg p-4 space-y-3">
-              <div className="flex items-center gap-5">
-                <Skeleton className="h-[72px] w-[72px] rounded-full shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="flex justify-between">
-                    <Skeleton className="h-3 w-12" />
-                    <Skeleton className="h-4 w-24" />
-                  </div>
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-1.5 w-full rounded-full" />
-                </div>
-              </div>
-              <div className="flex gap-1.5">
-                <Skeleton className="h-6 w-24 rounded-md" />
-                <Skeleton className="h-6 w-20 rounded-md" />
-                <Skeleton className="h-6 w-20 rounded-md" />
-              </div>
-            </div>
-            {/* Action */}
-            <Skeleton className="h-9 w-full rounded-md mt-auto" />
           </CardContent>
         </Card>
       ))}
@@ -611,7 +613,7 @@ function LoanCardsGrid({
 
   return (
     <TooltipProvider>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-stretch">
         {loans.map((loan) => {
           const progress = loan.progress;
           const journeyPhase = deriveLoanJourneyPhase({
@@ -642,188 +644,129 @@ function LoanCardsGrid({
             <Card
               key={loan.id}
               className={cn(
-                "group relative overflow-hidden transition-all duration-200 h-full flex flex-col",
+                "group relative overflow-hidden transition-all duration-200 h-full flex flex-col rounded-xl",
                 clickable && "cursor-pointer hover:border-foreground/20 hover:shadow-sm",
-                progress?.readyToComplete && "border-emerald-500/30",
-                isPreDisbursement && !progress?.readyToComplete && "border-amber-500/20"
+                progress?.readyToComplete && "border-success/30",
+                isPreDisbursement && !progress?.readyToComplete && "border-warning/30",
+                isDischarged && "opacity-60"
               )}
               onClick={() => {
                 if (clickable) onOpenLoan(loan.id);
               }}
             >
               <CardContent className="p-5 flex flex-col flex-1 min-h-0">
-                {/* Top: badge + ID + channel */}
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <div className="flex flex-col gap-1.5">
-                    <Badge variant={borrowerLoanStatusBadgeVariant(loan)} className="w-fit">
-                      {loanStatusBadgeLabelFromDb(loan)}
-                    </Badge>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      {shortId(loan.id)}
-                    </span>
-                  </div>
+                {/* Row 1: badge + channel pill */}
+                <div className="flex items-center justify-between gap-3">
+                  <Badge variant={borrowerLoanStatusBadgeVariant(loan)} className="w-fit text-xs font-medium">
+                    {loanStatusBadgeLabelFromDb(loan)}
+                  </Badge>
                   <LoanChannelPill channel={loan.loanChannel} />
                 </div>
 
-                {/* Product name + amount */}
-                <div className="mb-4">
-                  <h3 className="font-heading font-semibold text-base leading-tight truncate">
+                {/* Row 2: product + amount + term (centered for active, left for pre-disb) */}
+                <div className={cn("mt-4", (isActiveLoan || isCompleted) && "text-center")}>
+                  <h3 className="font-heading font-semibold text-base text-muted-foreground">
                     {loan.product?.name ?? "Loan"}
                   </h3>
-                  <p className="text-2xl font-heading font-bold tabular-nums mt-1">
+                  <p className="mt-1 text-3xl font-heading font-bold tracking-tight tabular-nums">
                     {formatRm(loan.principalAmount)}
                   </p>
-                  <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-                    <span>{loan.term} months</span>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {loan.term} months
                     {loan.disbursementDate && (
-                      <>
-                        <span className="opacity-40">·</span>
-                        <span>Disbursed {formatDate(loan.disbursementDate)}</span>
-                      </>
+                      <span className="ml-1">
+                        <span className="mx-1 opacity-40">·</span>
+                        Disbursed {formatDate(loan.disbursementDate)}
+                      </span>
                     )}
-                  </div>
+                  </p>
                 </div>
 
-                {/* Active / completed loan: donut + payment stats + metrics */}
+                {/* Active / completed: centered donut + stats below */}
                 {(isActiveLoan || isCompleted) && progress ? (
-                  <div className="mb-4 bg-muted/5 border rounded-lg p-4 space-y-3">
-                    <div className="flex items-center gap-5">
-                      <ProgressDonut
-                        percent={progress.progressPercent}
-                        readyToComplete={progress.readyToComplete}
-                        size={72}
-                        strokeWidth={5}
-                        status={loan.status}
-                      />
-                      <div className="flex-1 min-w-0 space-y-1.5">
-                        <div className="flex items-baseline justify-between">
-                          <span className="text-xs text-muted-foreground">Paid</span>
-                          <span className="text-sm font-heading font-bold tabular-nums">
-                            {progress.totalPaid != null ? formatRm(progress.totalPaid) : `${progress.paidCount}/${progress.totalRepayments}`}
-                          </span>
-                        </div>
-                        {progress.totalDue != null && progress.totalDue > 0 && (
-                          <p className="text-[11px] text-muted-foreground">
-                            of {formatRm(progress.totalDue)}
-                          </p>
-                        )}
-                        <div className="w-full bg-muted/30 rounded-full h-1.5">
-                          <div
-                            className={cn(
-                              "h-1.5 rounded-full transition-all duration-700 ease-out",
-                              loan.status === "COMPLETED"
-                                ? "bg-emerald-500"
-                                : loan.status === "IN_ARREARS"
-                                  ? "bg-amber-500"
-                                  : loan.status === "DEFAULTED" || loan.status === "WRITTEN_OFF"
-                                    ? "bg-red-500"
-                                    : "bg-foreground"
-                            )}
-                            style={{ width: `${progress.progressPercent}%` }}
-                          />
-                        </div>
-                        {progress.readyToComplete && (
-                          <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-                            Ready to complete
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                  <div className="mt-5 flex flex-col items-center flex-1">
+                    <ProgressDonut
+                      percent={progress.progressPercent}
+                      readyToComplete={progress.readyToComplete}
+                      size={150}
+                      strokeWidth={14}
+                      status={loan.status}
+                    />
+                    <p className="mt-1 text-sm text-muted-foreground">Paid</p>
 
-                    {/* Metric pills */}
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="inline-flex items-center rounded-md bg-secondary border border-border px-2 py-1 text-[11px] tabular-nums">
-                        <span className="text-muted-foreground mr-1">Instalments</span>
-                        <span className="font-semibold">{progress.paidCount}/{progress.totalRepayments}</span>
-                      </span>
-                      {(progress.overdueCount ?? 0) > 0 && (
-                        <span className="inline-flex items-center rounded-md bg-red-500/10 border border-red-500/20 px-2 py-1 text-[11px] tabular-nums text-red-700 dark:text-red-400">
-                          <span className="mr-1">Overdue</span>
-                          <span className="font-semibold">{progress.overdueCount}</span>
-                        </span>
-                      )}
-                      {(progress.totalLateFees ?? 0) > 0 && (
-                        <span className="inline-flex items-center rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1 text-[11px] tabular-nums text-amber-700 dark:text-amber-400">
-                          <span className="mr-1">Late fees</span>
-                          <span className="font-semibold">{formatRm(progress.totalLateFees)}</span>
-                        </span>
-                      )}
-                      {progress.repaymentRate != null && progress.paidCount > 0 && (
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-md border px-2 py-1 text-[11px] tabular-nums",
-                            (progress.repaymentRate) >= 80
-                              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400"
-                              : (progress.repaymentRate) >= 50
-                                ? "bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400"
-                                : "bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-400"
-                          )}
-                        >
-                          <span className="mr-1">On-time</span>
-                          <span className="font-semibold">{progress.repaymentRate}%</span>
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Next payment due */}
+                    <p className="mt-3 text-lg font-heading font-bold tabular-nums">
+                      {progress.totalPaid != null ? formatRm(progress.totalPaid) : `${progress.paidCount}/${progress.totalRepayments}`}
+                    </p>
+                    {progress.totalDue != null && progress.totalDue > 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        paid of {formatRm(progress.totalDue)}
+                      </p>
+                    )}
                     {progress.nextPaymentDue && !isCompleted && (
-                      <div className="flex items-center gap-2 pt-1 border-t border-border/50 text-xs">
-                        <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <span className="text-muted-foreground">Next payment</span>
-                        <span className="font-medium ml-auto tabular-nums">
-                          {formatDate(progress.nextPaymentDue)}
-                        </span>
-                      </div>
+                      <p className="mt-1.5 text-sm text-muted-foreground">
+                        Next payment: {formatDate(progress.nextPaymentDue)}
+                      </p>
+                    )}
+                    {progress.readyToComplete && (
+                      <p className="mt-1.5 text-sm font-medium text-success">Ready to complete</p>
                     )}
                   </div>
                 ) : null}
 
-                {/* Pre-disbursement: journey stepper */}
+                {/* Pre-disbursement: journey progress box */}
                 {isPreDisbursement && (
-                  <div className="mb-4 bg-muted/5 border rounded-lg p-3">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
-                      Journey progress
-                    </p>
-                    <JourneyStepper currentPhase={journeyPhase} loanChannel={loan.loanChannel} />
+                  <div className="mt-5 flex-1">
+                    <div className="rounded-lg border border-border p-4">
+                      <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium mb-3">
+                        Journey progress
+                      </p>
+                      <JourneyStepper currentPhase={journeyPhase} loanChannel={loan.loanChannel} />
+                    </div>
                   </div>
                 )}
 
-                {/* Discharged (non-completed) info */}
+                {/* Discharged (non-completed) */}
                 {isDischarged && !isCompleted && !isActiveLoan && (
-                  <div className="mb-4 bg-muted/5 border rounded-lg p-3 flex items-center gap-2">
-                    <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-xs text-muted-foreground">
-                      Created {formatDate(loan.createdAt)}
-                    </span>
+                  <div className="mt-5 flex-1">
+                    <div className="rounded-lg border border-border p-4 text-sm space-y-2">
+                      <p className="text-muted-foreground">
+                        Created {formatDate(loan.createdAt)}
+                      </p>
+                      {loan.disbursementDate && (
+                        <p className="text-muted-foreground">
+                          Disbursed {formatDate(loan.disbursementDate)}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {/* Actions */}
+                {/* CTA — full-width button at bottom */}
                 <div
-                  className="flex gap-2 pt-4 mt-auto"
+                  className="mt-4 pt-0"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {needsContinue && (
-                    <Button size="sm" className="flex-1" asChild>
+                    <Button className="h-11 w-full rounded-lg text-sm font-semibold" asChild>
                       <Link href={`/loans/${loan.id}`}>
                         Continue
-                        <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                        <ArrowRight className="h-4 w-4 ml-1.5" />
                       </Link>
                     </Button>
                   )}
                   {canPay && (
-                    <Button size="sm" variant="outline" className="flex-1" asChild>
+                    <Button className="h-11 w-full rounded-lg text-sm font-semibold" asChild>
                       <Link href={`/loans/${loan.id}/payment`}>
-                        <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-                        Make payment
+                        <CreditCard className="h-4 w-4 mr-1.5" />
+                        Make Payment
                       </Link>
                     </Button>
                   )}
                   {clickable && !needsContinue && !canPay && (
-                    <Button size="sm" variant="ghost" className="flex-1 text-muted-foreground" asChild>
+                    <Button variant="outline" className="h-11 w-full rounded-lg text-sm font-semibold" asChild>
                       <Link href={`/loans/${loan.id}`}>
                         View details
-                        <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                        <ArrowRight className="h-4 w-4 ml-1.5" />
                       </Link>
                     </Button>
                   )}
@@ -843,11 +786,10 @@ function LoanCardsGrid({
 
 function LoanApplicationsTable({
   apps,
-  variant,
   onChanged,
 }: {
   apps: LoanApplicationDetail[];
-  variant: "incomplete" | "rejected";
+  variant: "rejected";
   onChanged: () => void;
 }) {
   const router = useRouter();
@@ -858,18 +800,8 @@ function LoanApplicationsTable({
         <Clock className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
         <h3 className="text-lg font-semibold">Nothing here</h3>
         <p className="text-sm text-muted-foreground mt-1 mb-6">
-          {variant === "rejected"
-            ? "No rejected or withdrawn applications."
-            : "No incomplete drafts."}
+          No rejected or withdrawn applications.
         </p>
-        {variant === "incomplete" && (
-          <Button asChild>
-            <Link href="/applications/apply">
-              <Plus className="h-4 w-4 mr-2" />
-              Start new application
-            </Link>
-          </Button>
-        )}
       </div>
     );
   }

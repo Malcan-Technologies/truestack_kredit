@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Calendar, Loader2 } from "lucide-react";
+import { ArrowLeft, Calendar, Loader2, RotateCcw, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
@@ -13,6 +13,7 @@ import {
   getBorrowerLoan,
   getAttestationAvailability,
   postAttestationProposeSlot,
+  postAttestationRestart,
 } from "../../lib/borrower-loans-client";
 import type { BorrowerLoanDetail } from "../../lib/borrower-loan-types";
 import { toAmountNumber } from "../../lib/application-form-validation";
@@ -72,6 +73,7 @@ export function AttestationScheduleMeetingPanel() {
   const [selectedSlotStart, setSelectedSlotStart] = useState<string | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
 
   const refreshLoan = useCallback(async () => {
     if (!loanId) return;
@@ -158,6 +160,20 @@ export function AttestationScheduleMeetingPanel() {
     }
   };
 
+  const onRestartAttestation = async () => {
+    if (!loanId) return;
+    setResetBusy(true);
+    try {
+      await postAttestationRestart(loanId);
+      toast.success("Attestation restarted — choose video or meeting again.");
+      router.push(`/loans/${loanId}?focus=attestation`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to restart attestation");
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
   if (loading || !loanId) {
     return (
       <div className="flex justify-center py-24">
@@ -227,6 +243,37 @@ export function AttestationScheduleMeetingPanel() {
           {loan.product?.name ?? "Loan"} · {formatRm(loan.principalAmount)} · {loan.term} months
         </p>
       </div>
+
+      <Card className="border-border/80">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Video className="h-5 w-5" />
+            Prefer instant attestation?
+          </CardTitle>
+          <CardDescription className="text-pretty">
+            <span className="font-medium text-foreground">Video attestation</span> is immediate — watch the
+            required video when you are ready. <span className="font-medium text-foreground">Scheduling a meeting</span>{" "}
+            usually takes <span className="font-medium text-foreground">2–3 business days</span> while your lender
+            confirms a time.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full sm:w-auto gap-2"
+            onClick={() => void onRestartAttestation()}
+            disabled={resetBusy || busy}
+          >
+            {resetBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            Switch to video attestation
+          </Button>
+          {/* <p className="text-xs text-muted-foreground mt-3 max-w-xl">
+            This resets your attestation to the beginning (including any video progress) and returns you to the
+            loan page to choose again.
+          </p> */}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

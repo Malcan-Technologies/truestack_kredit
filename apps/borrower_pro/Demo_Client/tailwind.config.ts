@@ -85,6 +85,16 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontSize: {
+        xs: ["0.8125rem", { lineHeight: "1.125rem" }],
+        sm: ["0.9075rem", { lineHeight: "1.375rem" }],
+        base: ["1.03125rem", { lineHeight: "1.625rem" }],
+        lg: ["1.25rem", { lineHeight: "1.75rem" }],
+        xl: ["1.5rem", { lineHeight: "2rem" }],
+        "2xl": ["1.875rem", { lineHeight: "2.25rem" }],
+        "3xl": ["2.375rem", { lineHeight: "2.75rem" }],
+        "4xl": ["3rem", { lineHeight: "3.25rem" }],
+      },
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",

@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Calendar,
   CheckCircle2,
+  Clock3,
   ChevronRight,
   Circle,
   Download,
@@ -21,6 +22,14 @@ import {
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Checkbox } from "../ui/checkbox";
@@ -97,6 +106,7 @@ type StepId = "attestation" | "ekyc" | "sign" | "review";
 export function LoanPendingAgreementPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const loanId = typeof params.loanId === "string" ? params.loanId : "";
   const [loading, setLoading] = useState(true);
@@ -109,6 +119,7 @@ export function LoanPendingAgreementPage() {
   /** Which journey panel is shown (stepper + back). Upload is never sent until Submit on lender review. */
   const [journeyUiStep, setJourneyUiStep] = useState<"attestation" | "ekyc" | "sign" | "lender_review">("attestation");
   const [confirmSendToLender, setConfirmSendToLender] = useState(false);
+  const [showMeetingConfirm, setShowMeetingConfirm] = useState(false);
   /** Pre-disbursement: switch between full loan detail (like active, no payment) and agreement steps. */
   const [preDisbursementTab, setPreDisbursementTab] = useState<"loan" | "agreement">("agreement");
   const attestationDoneSeenRef = useRef(false);
@@ -183,6 +194,13 @@ export function LoanPendingAgreementPage() {
   useEffect(() => {
     attestationDoneSeenRef.current = false;
   }, [loanId]);
+
+  useEffect(() => {
+    if (searchParams.get("focus") !== "attestation" || !loanId) return;
+    setPreDisbursementTab("agreement");
+    setJourneyUiStep("attestation");
+    router.replace(`/loans/${loanId}`, { scroll: false });
+  }, [searchParams, loanId, router]);
 
   useEffect(() => {
     if (loan?.agreementDate) {
@@ -427,6 +445,7 @@ export function LoanPendingAgreementPage() {
     runAttest(() => postAttestationProceedToSigning(loanId), "Attestation complete. Continue with e-KYC.");
 
   const onRequestMeeting = async () => {
+    setShowMeetingConfirm(false);
     setAttestBusy(true);
     try {
       await postAttestationRequestMeeting(loanId);
@@ -722,34 +741,65 @@ export function LoanPendingAgreementPage() {
               Step {attestationStepNumber} — Attestation
             </CardTitle>
             <CardDescription>
-              You may watch the attestation video, or request an online meeting first. Meet links are sent
-              after your lender confirms a time.
+              You may watch the attestation video, or request an online meeting with a lawyer.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {attestationStatus === "NOT_STARTED" && (
-              <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
-                <p className="text-sm font-medium">Choose how to start</p>
-                <p className="text-xs text-muted-foreground">
-                  Start by watching the attestation video or request an online meeting immediately.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <Button type="button" asChild>
-                    <Link href={`/loans/${loanId}/watch-video`}>
-                      <Video className="h-4 w-4 mr-2" />
-                      Watch a video
-                    </Link>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void onRequestMeeting()}
-                    disabled={attestBusy}
-                  >
-                    <Users className="h-4 w-4 mr-2" />
-                    Request Online Meeting
-                  </Button>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Link
+                  href={`/loans/${loanId}/watch-video`}
+                  className={cn(
+                    "relative rounded-xl border-2 p-4 sm:p-5 text-left transition-all block",
+                    "border-border hover:border-muted-foreground/30 hover:bg-muted/40",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  )}
+                >
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted/50 text-muted-foreground">
+                      <Video className="h-5 w-5" />
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2.5 py-1 text-xs font-medium text-success">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      About 5 mins
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                    Attestation video
+                  </span>
+                  <span className="mt-1 block text-2xl font-bold tracking-tight">Watch video</span>
+                  <span className="mt-1.5 block text-xs text-muted-foreground">
+                    Instant option. Watch the required video and continue as soon as you finish.
+                  </span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setShowMeetingConfirm(true)}
+                  disabled={attestBusy}
+                  className={cn(
+                    "relative rounded-xl border-2 p-4 sm:p-5 text-left transition-all w-full",
+                    "border-border hover:border-muted-foreground/30 hover:bg-muted/40",
+                    "disabled:opacity-50 disabled:pointer-events-none",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  )}
+                >
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted/50 text-muted-foreground">
+                      <Users className="h-5 w-5" />
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      2 - 3 business days
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                    Online meeting
+                  </span>
+                  <span className="mt-1 block text-xl font-semibold tracking-tight">Request online meeting</span>
+                  <span className="mt-1.5 block text-xs text-muted-foreground">
+                    Schedule an online meeting with a lawyer to explain the terms of your loan before you continue.
+                  </span>
+                </button>
               </div>
             )}
 
@@ -900,6 +950,49 @@ export function LoanPendingAgreementPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={showMeetingConfirm} onOpenChange={setShowMeetingConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Video attestation is faster</DialogTitle>
+            <DialogDescription>
+              The attestation video usually takes about 5 minutes. An online meeting usually takes 2 - 3
+              business days because your lender needs to arrange a lawyer session.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <p className="text-sm font-medium text-foreground">Recommended: Watch the video</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This is the instant option and lets you move forward right away once the video is complete.
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <p className="text-sm font-medium text-foreground">Online meeting</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This schedules an online meeting with a lawyer who will explain the loan terms, but it may
+                take 2 - 3 business days before a session is available.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowMeetingConfirm(false);
+                router.push(`/loans/${loanId}/watch-video`);
+              }}
+            >
+              Use video instead
+            </Button>
+            <Button type="button" onClick={() => void onRequestMeeting()} disabled={attestBusy}>
+              {attestBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Continue to online meeting
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {!kycDone && (!requiresAttestation || attestationDone) && (
         <Card className="border-primary/20 shadow-md">

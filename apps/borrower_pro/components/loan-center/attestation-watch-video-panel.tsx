@@ -183,24 +183,45 @@ export function AttestationWatchVideoPanel() {
   };
 
   const onVideoComplete = async () => {
-    const v = videoRef.current;
-    if (!v || !v.duration) {
-      toast.error("Video not ready.");
-      return;
+    const attestationAlreadyCompleted =
+      loan?.attestationStatus === "COMPLETED" ||
+      !!loan?.attestationCompletedAt;
+    const videoAlreadyRecorded =
+      attestationAlreadyCompleted ||
+      loan?.attestationStatus === "VIDEO_COMPLETED" ||
+      !!loan?.attestationVideoCompletedAt;
+
+    if (!videoAlreadyRecorded) {
+      const v = videoRef.current;
+      if (!v || !v.duration) {
+        toast.error("Video not ready.");
+        return;
+      }
+      if (!isVideoFullyWatched) {
+        toast.error("Watch the full video (100%) before continuing.");
+        return;
+      }
+      if (confirmationChoice !== "accept") {
+        toast.error("Confirm that you accept the terms before continuing.");
+        return;
+      }
     }
-    if (!isVideoFullyWatched) {
-      toast.error("Watch the full video (100%) before continuing.");
-      return;
-    }
-    if (confirmationChoice !== "accept") {
-      toast.error("Confirm that you accept the terms before continuing.");
-      return;
-    }
+
     setBusy(true);
     let videoRecorded = false;
     try {
-      await postAttestationVideoComplete(loanId, { watchedPercent: 100 });
-      videoRecorded = true;
+      if (attestationAlreadyCompleted) {
+        toast.success("Attestation is already complete. Continue from the loan page.");
+        await refresh();
+        router.replace(`/loans/${loanId}`);
+        return;
+      }
+
+      if (!videoAlreadyRecorded) {
+        await postAttestationVideoComplete(loanId, { watchedPercent: 100 });
+        videoRecorded = true;
+      }
+
       await postAttestationProceedToSigning(loanId);
       toast.success("Attestation complete. Continue with e-KYC.");
       await refresh();
@@ -246,10 +267,26 @@ export function AttestationWatchVideoPanel() {
     }
     return v.ended || maxWatchedSecRef.current >= v.duration - 0.25 || videoProgressPct >= 99.5;
   })();
+  const attestationAlreadyCompleted =
+    loan?.attestationStatus === "COMPLETED" ||
+    !!loan?.attestationCompletedAt;
+  const videoAlreadyRecorded =
+    attestationAlreadyCompleted ||
+    loan?.attestationStatus === "VIDEO_COMPLETED" ||
+    !!loan?.attestationVideoCompletedAt;
+  const videoChoiceUnlocked = isVideoFullyWatched || videoAlreadyRecorded;
   const canContinueAfterVideo =
     !busy &&
-    confirmationChoice !== null &&
-    isVideoFullyWatched;
+    (attestationAlreadyCompleted || videoAlreadyRecorded || (confirmationChoice !== null && isVideoFullyWatched));
+  const primaryActionLabel = attestationAlreadyCompleted
+    ? "Back to loan page"
+    : confirmationChoice === "disagree"
+      ? "Continue to lawyer meeting"
+      : confirmationChoice === "withdraw"
+        ? "Continue to withdraw"
+        : videoAlreadyRecorded && confirmationChoice === null
+          ? "Continue to e-KYC"
+          : "Accept terms and continue";
 
   if (loading || !loanId) {
     return (
@@ -416,7 +453,16 @@ export function AttestationWatchVideoPanel() {
             <p className="text-xs text-muted-foreground">Progress: {videoProgressPct.toFixed(1)}% (100% required)</p>
             <div className="space-y-3 border-t pt-4">
               <Label className="text-sm font-medium text-foreground">After watching, choose one option</Label>
-              {!isVideoFullyWatched && (
+              {attestationAlreadyCompleted ? (
+                <p className="text-xs text-muted-foreground">
+                  This attestation is already complete. Return to the loan page to continue with the next step.
+                </p>
+              ) : videoAlreadyRecorded ? (
+                <p className="text-xs text-muted-foreground">
+                  Your video attestation is already saved. You can continue without submitting it again, or choose
+                  another option below.
+                </p>
+              ) : !isVideoFullyWatched && (
                 <p className="text-xs text-muted-foreground">
                   Finish the video first to unlock these options.
                 </p>
@@ -425,7 +471,7 @@ export function AttestationWatchVideoPanel() {
                 <button
                   type="button"
                   onClick={() => setConfirmationChoice("accept")}
-                  disabled={!isVideoFullyWatched || busy}
+                  disabled={attestationAlreadyCompleted || !videoChoiceUnlocked || busy}
                   className={cn(
                     "rounded-lg border-2 p-4 text-left transition-all",
                     "disabled:cursor-not-allowed disabled:opacity-60",
@@ -449,7 +495,7 @@ export function AttestationWatchVideoPanel() {
                 <button
                   type="button"
                   onClick={() => setConfirmationChoice("disagree")}
-                  disabled={!isVideoFullyWatched || busy}
+                  disabled={attestationAlreadyCompleted || !videoChoiceUnlocked || busy}
                   className={cn(
                     "rounded-lg border-2 p-4 text-left transition-all",
                     "disabled:cursor-not-allowed disabled:opacity-60",
@@ -475,7 +521,7 @@ export function AttestationWatchVideoPanel() {
                 <button
                   type="button"
                   onClick={() => setConfirmationChoice("withdraw")}
-                  disabled={!isVideoFullyWatched || busy}
+                  disabled={attestationAlreadyCompleted || !videoChoiceUnlocked || busy}
                   className={cn(
                     "rounded-lg border-2 p-4 text-left transition-all",
                     "disabled:cursor-not-allowed disabled:opacity-60",
@@ -516,11 +562,7 @@ export function AttestationWatchVideoPanel() {
                 }}
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {confirmationChoice === "disagree"
-                  ? "Continue to lawyer meeting"
-                  : confirmationChoice === "withdraw"
-                    ? "Continue to withdraw"
-                    : "Accept terms and continue"}
+                {primaryActionLabel}
               </Button>
             </div>
           </div>

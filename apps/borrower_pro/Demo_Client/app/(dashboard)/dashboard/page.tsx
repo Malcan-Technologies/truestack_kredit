@@ -17,9 +17,12 @@ import { Badge } from "@borrower_pro/components/ui/badge";
 import { Button } from "@borrower_pro/components/ui/button";
 import { RefreshButton } from "@borrower_pro/components/ui/refresh-button";
 import { Skeleton } from "@borrower_pro/components/ui/skeleton";
+import { fetchBorrower, getTruestackKycStatus } from "@borrower_pro/lib/borrower-api-client";
 import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
 import { fetchLoanCenterOverview, listBorrowerLoans } from "@borrower_pro/lib/borrower-loans-client";
 import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
+import { borrowerApplicationDetailPath } from "@borrower_pro/lib/borrower-application-navigation";
+import { isBorrowerKycComplete } from "@borrower_pro/lib/borrower-verification";
 import { ONBOARDING_DRAFT_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
 import type { LoanCenterOverview, BorrowerLoanListItem } from "@borrower_pro/lib/borrower-loan-types";
 import type { LoanApplicationDetail } from "@borrower_pro/lib/application-form-types";
@@ -34,6 +37,7 @@ import {
   loanStatusBadgeLabelFromDb,
 } from "@borrower_pro/lib/loan-status-label";
 import { cn } from "@borrower_pro/lib/utils";
+import { LoanApplicationOfferParty, LoanApplicationOfferStatus } from "@kredit/shared";
 
 function formatRm(v: unknown): string {
   const n = typeof v === "number" ? v : toAmountNumber(v);
@@ -55,6 +59,17 @@ function formatDateShort(iso: string | null | undefined): string {
 
 function shortId(id: string): string {
   return id.slice(0, 8).toUpperCase();
+}
+
+function getPendingLenderCounterOffer(app: LoanApplicationDetail) {
+  if (app.status !== "SUBMITTED" && app.status !== "UNDER_REVIEW") return null;
+  return (
+    (app.offerRounds ?? []).find(
+      (offer) =>
+        offer.status === LoanApplicationOfferStatus.PENDING &&
+        offer.fromParty === LoanApplicationOfferParty.ADMIN
+    ) ?? null
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -178,30 +193,43 @@ export default function DashboardPage() {
   const [activeLoans, setActiveLoans] = useState<BorrowerLoanListItem[]>([]);
   const [pendingLoans, setPendingLoans] = useState<BorrowerLoanListItem[]>([]);
   const [draftApps, setDraftApps] = useState<LoanApplicationDetail[]>([]);
+  const [counterOfferApps, setCounterOfferApps] = useState<LoanApplicationDetail[]>([]);
   const [borrowerName, setBorrowerName] = useState<string | null>(null);
+  const [borrowerKycDone, setBorrowerKycDone] = useState<boolean | null>(null);
 
   const resetDashboardState = useCallback(() => {
     setOverview(null);
     setActiveLoans([]);
     setPendingLoans([]);
     setDraftApps([]);
+    setCounterOfferApps([]);
     setBorrowerName(null);
+    setBorrowerKycDone(null);
   }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, aLoans, pLoans, apps, me] = await Promise.all([
+      const [ov, aLoans, pLoans, apps, me, borrowerRes, kycRes] = await Promise.all([
         fetchLoanCenterOverview(),
         listBorrowerLoans({ tab: "active", pageSize: 200 }),
         listBorrowerLoans({ tab: "pending_disbursement", pageSize: 200 }),
         listBorrowerApplications({ pageSize: 200 }),
         fetchBorrowerMe().catch(() => null),
+        fetchBorrower().catch(() => null),
+        getTruestackKycStatus().catch(() => null),
       ]);
       setOverview(ov.success ? ov.data : null);
       setActiveLoans(aLoans.data);
       setPendingLoans(pLoans.data);
-      setDraftApps(apps.success ? apps.data.filter((a) => a.status === "DRAFT") : []);
+      const applicationRows = apps.success ? apps.data : [];
+      setDraftApps(applicationRows.filter((a) => a.status === "DRAFT"));
+      setCounterOfferApps(applicationRows.filter((a) => getPendingLenderCounterOffer(a) != null));
+      if (borrowerRes?.success) {
+        setBorrowerKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));
+      } else {
+        setBorrowerKycDone(null);
+      }
       setBorrowerName(
         me?.success && me.data.activeBorrower
           ? (
@@ -246,11 +274,13 @@ export default function DashboardPage() {
         applicationStatus: loan.application?.status,
         loanStatus: loan.status,
         attestationCompletedAt: loan.attestationCompletedAt,
+        kycComplete: borrowerKycDone,
         signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
         agreementPath: undefined,
+        loanChannel: loan.loanChannel,
       });
       items.push({
-        id: loan.id,
+        id: `loan-${loan.id}`,
         label: loan.product?.name ?? "Loan",
         statusLabel: loanJourneyPhaseLabel(phase),
         sublabel: formatRm(loan.principalAmount),
@@ -260,9 +290,25 @@ export default function DashboardPage() {
       });
     }
 
+    for (const app of counterOfferApps) {
+      const pendingOffer = getPendingLenderCounterOffer(app);
+      const amountLabel = pendingOffer?.amount != null ? formatRm(pendingOffer.amount) : formatRm(app.amount);
+      const termLabel = pendingOffer?.term != null ? `${pendingOffer.term} months` : `${app.term} months`;
+
+      items.push({
+        id: `counter-offer-${app.id}`,
+        label: app.product?.name ?? "Application",
+        statusLabel: "Counter offer",
+        sublabel: `${amountLabel} - ${termLabel}`,
+        href: borrowerApplicationDetailPath(app),
+        variant: "warning",
+        icon: ClipboardList,
+      });
+    }
+
     for (const app of draftApps) {
       items.push({
-        id: app.id,
+        id: `draft-${app.id}`,
         label: app.product?.name ?? "Application",
         statusLabel: "Draft",
         sublabel: formatRm(app.amount),
@@ -273,7 +319,7 @@ export default function DashboardPage() {
     }
 
     return items;
-  }, [pendingLoans, draftApps]);
+  }, [pendingLoans, counterOfferApps, draftApps, borrowerKycDone]);
 
   const summary = overview?.summary;
   const counts = overview?.counts;
@@ -525,8 +571,10 @@ export default function DashboardPage() {
                 applicationStatus: loan.application?.status,
                 loanStatus: loan.status,
                 attestationCompletedAt: loan.attestationCompletedAt,
+                kycComplete: borrowerKycDone,
                 signedAgreementReviewStatus: loan.signedAgreementReviewStatus,
                 agreementPath: undefined,
+                loanChannel: loan.loanChannel,
               });
               const needsAction = borrowerLoanNeedsContinueAction(loan);
               return (

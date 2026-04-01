@@ -13,8 +13,8 @@ export default function PdpaNoticePage() {
           PDPA notice
         </h1>
         <p className="text-sm text-muted-foreground">
-          Personal Data Protection Act 2010 (Malaysia) — template notice for borrowers. Last updated:{" "}
-          {new Date().toISOString().slice(0, 10)}. Replace with your registered data user notice as required.
+          Personal Data Protection Act 2010 (Malaysia). Last updated:{" "}
+          {new Date().toISOString().slice(0, 10)}.
         </p>
       </header>
 

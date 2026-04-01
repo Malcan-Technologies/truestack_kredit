@@ -1,5 +1,6 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MermaidDiagram } from "@borrower_pro/components/help/mermaid-diagram";
@@ -131,6 +132,26 @@ export function HelpMarkdown({ content, className }: HelpMarkdownProps) {
               "font-medium text-primary underline underline-offset-4 transition-opacity hover:opacity-80",
               anchorClassName
             );
+            const linkContent = (
+              <span className="inline-flex items-center gap-1 align-middle">
+                <span>{children}</span>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              </span>
+            );
+
+            if (href?.startsWith("/legal/")) {
+              return (
+                <a
+                  href={href}
+                  className={classes}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  {...props}
+                >
+                  {linkContent}
+                </a>
+              );
+            }
 
             if (href?.startsWith("/")) {
               return (
@@ -148,7 +169,7 @@ export function HelpMarkdown({ content, className }: HelpMarkdownProps) {
                 rel="noreferrer noopener"
                 {...props}
               >
-                {children}
+                {linkContent}
               </a>
             );
           },

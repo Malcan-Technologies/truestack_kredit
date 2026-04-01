@@ -16,6 +16,7 @@ import { APP_VERSION } from "@/lib/version";
 const POLICY_LINKS = [
   { href: "/legal/terms", label: "Terms of use" },
   { href: "/legal/privacy", label: "Privacy policy" },
+  { href: "/legal/security", label: "Security policy" },
   { href: "/legal/pdpa", label: "PDPA notice" },
   { href: "/legal/cookies", label: "Cookie policy" },
 ] as const;

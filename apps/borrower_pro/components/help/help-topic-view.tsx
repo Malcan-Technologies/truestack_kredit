@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BookOpenText, CircleHelp } from "lucide-react";
+import { HelpContactCard } from "@borrower_pro/components/help/help-contact-card";
 import { HelpMarkdown } from "@borrower_pro/components/help/help-markdown";
 import {
   Card,
@@ -35,6 +36,9 @@ export function HelpTopicView({ topics, topic }: HelpTopicViewProps) {
             </CardDescription>
           </div>
         </CardHeader>
+        <CardContent className="pt-0">
+          <HelpContactCard />
+        </CardContent>
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">

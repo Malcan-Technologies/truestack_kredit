@@ -13,7 +13,7 @@ export default function PrivacyPolicyPage() {
           Privacy policy
         </h1>
         <p className="text-sm text-muted-foreground">
-          Last updated: {new Date().toISOString().slice(0, 10)} · Template — align with your PDPA notice and local counsel.
+          Last updated: {new Date().toISOString().slice(0, 10)}
         </p>
       </header>
 

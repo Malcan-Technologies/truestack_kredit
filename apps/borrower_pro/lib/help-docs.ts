@@ -42,6 +42,14 @@ const HELP_TOPICS: HelpTopicSummary[] = [
     fileName: "why-e-kyc-is-required.md",
     order: 3,
   },
+  {
+    slug: "security-and-privacy",
+    title: "Security and privacy",
+    summary:
+      "Learn how your personal data, e-KYC information, identity documents, and account access are protected in the portal.",
+    fileName: "security-and-privacy.md",
+    order: 4,
+  },
 ];
 
 export async function getHelpTopics(): Promise<HelpTopicSummary[]> {

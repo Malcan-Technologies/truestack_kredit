@@ -13,7 +13,7 @@ export default function TermsOfUsePage() {
           Terms of use
         </h1>
         <p className="text-sm text-muted-foreground">
-          Last updated: {new Date().toISOString().slice(0, 10)} · Template — replace with counsel-approved terms before production.
+          Last updated: {new Date().toISOString().slice(0, 10)}
         </p>
       </header>
 

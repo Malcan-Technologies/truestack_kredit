@@ -19,7 +19,7 @@ flowchart TD
     J --> K[Borrower: Complete e-KYC]
     K --> L[Borrower: Obtain digital signing certificate]
     L --> M[Borrower: Digitally sign loan agreement]
-    M --> N[Admin: Verify signed agreement and prepare release]
+    M --> N[Admin: Admin and witness digitally sign and prepare release]
     N --> O[Admin: Disburse funds]
     O --> P[Borrower: Make repayment by due date]
     P --> Q{Payment made on time?}
@@ -31,6 +31,14 @@ flowchart TD
     U --> P
     R -->|Yes| V[Admin: Process discharge / close the loan]
     V --> W[Borrower: Loan fully settled]
+
+    classDef borrower fill:#eff6ff,stroke:#2563eb,color:#0f172a,stroke-width:1.5px;
+    classDef admin fill:#fff7ed,stroke:#ea580c,color:#431407,stroke-width:1.5px;
+    classDef general fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:1.5px;
+
+    class A,D,F,G,J,K,L,M,P,T,U,W borrower;
+    class B,C,E,H,I,N,O,V admin;
+    class Q,R,S general;
 ```
 
 ## Who does what
@@ -44,7 +52,7 @@ flowchart TD
 | e-KYC | Borrower | You complete identity verification and any supporting checks required by the portal workflow. |
 | Digital signing certificate | Borrower | You obtain the certificate needed for compliant digital signing. |
 | Loan agreement signing | Borrower | You review and digitally sign the finalized loan agreement. |
-| Disbursement preparation | Admin | The admin team verifies the signed package and confirms everything is ready for payout. |
+| Disbursement preparation | Admin | After you sign, the admin team and a witness also sign digitally, complete the signed package, and confirm everything is ready for payout. |
 | Disbursement | Admin | The approved loan amount is released to you. |
 | Repayment | Borrower | You make repayments according to the schedule shown in the portal. |
 | Late payment handling | Borrower | If a payment is overdue, late payment charges may accrue daily according to your loan terms until the overdue amount is cleared. |
@@ -118,12 +126,13 @@ This certificate is used to support compliant digital execution of the agreement
 
 After signing, your part of the documentation workflow is usually complete.
 
-### 8. Admin verifies and disburses the loan
+### 8. Admin and witness complete signing, then disburse the loan
 
 **Admin step**
 
 - The admin team checks that all required borrower actions are complete.
-- The admin team verifies the signed agreement package.
+- The admin team and a witness also digitally sign the loan agreement.
+- The admin team completes the signed agreement package and prepares it for release.
 - The admin team processes the disbursement.
 
 Once disbursed, the loan becomes active.

@@ -13,7 +13,7 @@ export default function CookiePolicyPage() {
           Cookie policy
         </h1>
         <p className="text-sm text-muted-foreground">
-          Last updated: {new Date().toISOString().slice(0, 10)} · Template — customise for your analytics and third-party tools.
+          Last updated: {new Date().toISOString().slice(0, 10)}
         </p>
       </header>
 

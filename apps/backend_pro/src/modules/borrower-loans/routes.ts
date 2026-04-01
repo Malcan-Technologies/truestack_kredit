@@ -489,7 +489,8 @@ router.get('/loans/:loanId/timeline', async (req, res, next) => {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const { loanId } = req.params;
     const { cursor, limit: limitStr = '20' } = req.query;
-    const limit = Math.min(parseInt(limitStr as string, 10), 50);
+    const parsedLimit = parseInt(limitStr as string, 10);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 50) : 20;
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId: tenant.id, borrowerId },
@@ -509,15 +510,6 @@ router.get('/loans/:loanId/timeline', async (req, res, next) => {
       },
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
-      include: {
-        member: {
-          include: {
-            user: {
-              select: { id: true, email: true, name: true },
-            },
-          },
-        },
-      },
     });
 
     const hasMore = auditLogs.length > limit;
@@ -532,13 +524,7 @@ router.get('/loans/:loanId/timeline', async (req, res, next) => {
       newData: log.newData,
       ipAddress: log.ipAddress,
       createdAt: log.createdAt,
-      user: log.member?.user
-        ? {
-            id: log.member.user.id,
-            email: log.member.user.email,
-            name: log.member.user.name,
-          }
-        : null,
+      user: null,
     }));
 
     res.json({

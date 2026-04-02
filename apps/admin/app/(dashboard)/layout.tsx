@@ -164,6 +164,8 @@ const PATHS_REQUIRING_PAID = [
   "/dashboard/modules",
 ];
 
+const SECURITY_PATHS = new Set(["/dashboard/profile", "/dashboard/security-setup"]);
+
 function pathRequiresMembership(href: string): boolean {
   return PATHS_REQUIRING_MEMBERSHIP.some((p) => href === p || href.startsWith(p + "/"));
 }
@@ -184,7 +186,7 @@ export default function DashboardLayout({
   const [subscriptionStatus, setSubscriptionStatus] = useState<'FREE' | 'PAID' | 'OVERDUE' | 'SUSPENDED'>('FREE');
   const [hasTenants, setHasTenants] = useState<boolean>(true);
   const [membershipCheckComplete, setMembershipCheckComplete] = useState(false);
-  const [securityCheckComplete, setSecurityCheckComplete] = useState(false);
+  const [securityStatus, setSecurityStatus] = useState<"loading" | "complete" | "incomplete" | "error">("loading");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedNavGroups, setExpandedNavGroups] = useState<Record<string, boolean>>({
@@ -224,35 +226,39 @@ export default function DashboardLayout({
   useEffect(() => {
     if (isPending) return;
     if (!session) {
-      setSecurityCheckComplete(true);
+      setSecurityStatus("complete");
       return;
     }
 
-    const securityPaths = new Set(["/dashboard/profile", "/dashboard/security-setup"]);
-    const isSecurityPath = securityPaths.has(pathname);
     let cancelled = false;
 
-    setSecurityCheckComplete(false);
+    setSecurityStatus("loading");
 
     void fetchSecurityStatus(session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean })
       .then((status) => {
         if (cancelled) return;
-        if (!status.isSecuritySetupComplete && !isSecurityPath) {
-          router.replace(`/dashboard/security-setup?returnTo=${encodeURIComponent(pathname)}`);
-          return;
-        }
-        setSecurityCheckComplete(true);
+        setSecurityStatus(status.isSecuritySetupComplete ? "complete" : "incomplete");
       })
       .catch(() => {
-        if (!cancelled) {
-          setSecurityCheckComplete(true);
-        }
+        if (cancelled) return;
+        setSecurityStatus("error");
       });
 
     return () => {
       cancelled = true;
     };
-  }, [session, isPending, pathname, router]);
+  }, [session, isPending]);
+
+  useEffect(() => {
+    if (isPending || !session || securityStatus === "loading") return;
+
+    const isSecurityPath = SECURITY_PATHS.has(pathname);
+    if (isSecurityPath) return;
+
+    if (securityStatus === "incomplete" || securityStatus === "error") {
+      router.replace(`/dashboard/security-setup?returnTo=${encodeURIComponent(pathname)}`);
+    }
+  }, [session, isPending, pathname, router, securityStatus]);
 
   useEffect(() => {
     if (pathname.startsWith("/dashboard/modules")) {
@@ -424,7 +430,7 @@ export default function DashboardLayout({
     );
   }
 
-  if (!securityCheckComplete) {
+  if (securityStatus === "loading") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-muted">Loading...</div>

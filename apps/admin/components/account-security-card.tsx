@@ -4,9 +4,22 @@ import { useEffect, useMemo, useState } from "react";
 import { KeyRound, Loader2, MailCheck, Shield, Trash2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
+import {
+  clearPendingTotpSetup,
+  getPendingTotpSetup,
+  setPendingTotpSetup,
+} from "@kredit/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,6 +28,7 @@ import {
   authClient,
   deletePasskey,
   disableTwoFactor,
+  enableTwoFactor,
   fetchSecurityStatus,
   getTotpUri,
   listUserPasskeys,
@@ -40,6 +54,8 @@ function getTotpSecret(totpUri: string): string {
   const match = totpUri.match(/[?&]secret=([^&]+)/i);
   return match ? decodeURIComponent(match[1]) : "";
 }
+
+const ONBOARDING_NAMESPACE = "admin";
 
 export function AccountSecurityCard({
   passwordChangedAt,
@@ -75,6 +91,52 @@ export function AccountSecurityCard({
 
   const emailVerified = Boolean(currentUser?.emailVerified);
   const twoFactorEnabled = Boolean(currentUser?.twoFactorEnabled);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setSetupState(null);
+      return;
+    }
+
+    if (twoFactorEnabled) {
+      clearPendingTotpSetup(ONBOARDING_NAMESPACE);
+      setSetupState(null);
+      return;
+    }
+
+    const pendingSetup = getPendingTotpSetup(ONBOARDING_NAMESPACE);
+    if (!pendingSetup) {
+      return;
+    }
+
+    if (pendingSetup.userId !== currentUser.id) {
+      clearPendingTotpSetup(ONBOARDING_NAMESPACE);
+      return;
+    }
+
+    setSetupState({
+      totpURI: pendingSetup.totpURI,
+    });
+  }, [currentUser?.id, twoFactorEnabled]);
+
+  const openSetupDialog = (totpURI: string) => {
+    if (currentUser?.id) {
+      setPendingTotpSetup(ONBOARDING_NAMESPACE, {
+        userId: currentUser.id,
+        totpURI,
+      });
+    }
+    setSetupPassword("");
+    setVerificationCode("");
+    setSetupState({ totpURI });
+  };
+
+  const closeSetupDialog = () => {
+    clearPendingTotpSetup(ONBOARDING_NAMESPACE);
+    setVerificationCode("");
+    setSetupPassword("");
+    setSetupState(null);
+  };
 
   const refreshStatus = async () => {
     if (!currentUser) {
@@ -160,14 +222,18 @@ export function AccountSecurityCard({
 
     setStartingTwoFactor(true);
     try {
-      const result = await getTotpUri({ password: setupPassword });
-      if (!result.totpURI) {
+      const enableResult = await enableTwoFactor({ password: setupPassword });
+      if (enableResult.error) {
+        throw new Error(enableResult.error.message || "Unable to start two-factor setup");
+      }
+
+      const qrResult = await getTotpUri({ password: setupPassword });
+      const totpURI = qrResult.totpURI;
+      if (!totpURI) {
         throw new Error("Missing authenticator setup details");
       }
-      setVerificationCode("");
-      setSetupState({
-        totpURI: result.totpURI,
-      });
+
+      openSetupDialog(totpURI);
       toast.success("Scan the QR code and enter the 6-digit code to finish setup.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to start two-factor setup");
@@ -188,9 +254,7 @@ export function AccountSecurityCard({
       if (result.error) {
         throw new Error(result.error.message || "Invalid authenticator code");
       }
-      setVerificationCode("");
-      setSetupPassword("");
-      setSetupState(null);
+      closeSetupDialog();
       await refetch();
       await refreshStatus();
       toast.success("Two-factor authentication enabled.");
@@ -342,47 +406,6 @@ export function AccountSecurityCard({
             </div>
           )}
 
-          {setupState && (
-            <div className="space-y-4 rounded-lg border border-border p-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                <div className="mx-auto rounded-lg border border-border bg-white p-3">
-                  <QRCodeSVG value={setupState.totpURI} size={144} level="M" />
-                </div>
-                <div className="space-y-3">
-                  <p className="text-sm text-muted">
-                    Scan this QR code with Google Authenticator, 1Password, or another authenticator app.
-                  </p>
-                  <div className="rounded-md bg-muted p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Manual setup key</p>
-                    <p className="mt-1 break-all font-mono text-sm">{getTotpSecret(setupState.totpURI) || "Unavailable"}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-3">
-                <Input
-                  inputMode="numeric"
-                  value={verificationCode}
-                  onChange={(event) => setVerificationCode(event.target.value)}
-                  placeholder="Enter 6-digit code"
-                />
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={handleConfirmTwoFactor} disabled={confirmingTwoFactor}>
-                    {confirmingTwoFactor ? "Verifying..." : "Verify and enable"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setSetupState(null);
-                      setVerificationCode("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {twoFactorEnabled && (
             <div className="space-y-4">
               <div className="space-y-3">
@@ -438,6 +461,76 @@ export function AccountSecurityCard({
             <p className="text-sm text-muted">No login history available.</p>
           )}
         </div>
+
+        <Dialog
+          open={Boolean(setupState)}
+          onOpenChange={(open) => {
+            if (!open && setupState) {
+              closeSetupDialog();
+            }
+          }}
+        >
+          <DialogContent
+            className="max-w-xl [&>button]:hidden"
+            onEscapeKeyDown={(event) => event.preventDefault()}
+            onInteractOutside={(event) => event.preventDefault()}
+          >
+            <DialogHeader>
+              <DialogTitle>Finish authenticator setup</DialogTitle>
+              <DialogDescription>
+                Scan the QR code with Google Authenticator, 1Password, or another app, then
+                enter the 6-digit code to verify and enable it.
+              </DialogDescription>
+            </DialogHeader>
+
+            {setupState ? (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                  <div className="mx-auto rounded-lg border border-border bg-white p-3">
+                    <QRCodeSVG value={setupState.totpURI} size={168} level="M" />
+                  </div>
+                  <div className="space-y-3">
+                    <div className="rounded-md bg-muted p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                        Manual setup key
+                      </p>
+                      <p className="mt-1 break-all font-mono text-sm">
+                        {getTotpSecret(setupState.totpURI) || "Unavailable"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Input
+                    inputMode="numeric"
+                    value={verificationCode}
+                    onChange={(event) => setVerificationCode(event.target.value)}
+                    placeholder="Enter 6-digit code"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeSetupDialog}
+                disabled={confirmingTwoFactor}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmTwoFactor}
+                disabled={confirmingTwoFactor}
+              >
+                {confirmingTwoFactor ? "Verifying..." : "Verify and enable"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

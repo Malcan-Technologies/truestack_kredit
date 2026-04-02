@@ -1,5 +1,10 @@
 export type SecuritySetupPreference = "passkey" | "authenticator" | "either";
 
+export interface PendingTotpSetup {
+  userId: string;
+  totpURI: string;
+}
+
 const SECURITY_SETUP_PREFERENCE_COPY: Record<
   SecuritySetupPreference,
   { title: string; description: string }
@@ -107,4 +112,53 @@ export function getSecuritySetupPreferenceCopy(
   preference: SecuritySetupPreference
 ) {
   return SECURITY_SETUP_PREFERENCE_COPY[preference];
+}
+
+export function getPendingTotpSetup(namespace: string): PendingTotpSetup | null {
+  const storage = getStorage();
+  if (!storage) return null;
+
+  const value = storage.getItem(makeKey(namespace, "pending-totp-setup"));
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<PendingTotpSetup>;
+    if (
+      typeof parsed.userId === "string" &&
+      parsed.userId &&
+      typeof parsed.totpURI === "string" &&
+      parsed.totpURI
+    ) {
+      return {
+        userId: parsed.userId,
+        totpURI: parsed.totpURI,
+      };
+    }
+  } catch {
+    // Ignore invalid session storage content.
+  }
+
+  return null;
+}
+
+export function setPendingTotpSetup(
+  namespace: string,
+  pendingSetup: PendingTotpSetup
+) {
+  const storage = getStorage();
+  if (!storage) return;
+
+  storage.setItem(
+    makeKey(namespace, "pending-totp-setup"),
+    JSON.stringify(pendingSetup)
+  );
+}
+
+export function clearPendingTotpSetup(namespace: string) {
+  const storage = getStorage();
+  if (!storage) return;
+
+  storage.removeItem(makeKey(namespace, "pending-totp-setup"));
 }

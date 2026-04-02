@@ -1,4 +1,4 @@
-import { FileText, ShieldCheck, Store, type LucideIcon } from "lucide-react";
+import { Gift, FileText, ShieldCheck, Store, type LucideIcon } from "lucide-react";
 
 export interface Promotion {
   id: string;
@@ -21,6 +21,31 @@ export interface Promotion {
   /** When set, promotions page uses this for CTA (link + "Contact" label) instead of href/cta */
   contactHref?: string;
 }
+
+export const PROMOTIONS: Promotion[] = [
+  {
+    id: "refer-and-earn",
+    title: "Refer & Earn",
+    tagline: "Invite a friend and earn RM499 in cash!",
+    description:
+      "Know someone who could benefit from TrueKredit? Refer them and once they subscribe, you'll receive RM499 cash — no strings attached. They get a powerful loan management system, you get rewarded.",
+    icon: Gift,
+    illustration: "/illustrations/undraw_happy-birthday_lmk0.svg",
+    badge: "Available",
+    badgeVariant: "success",
+    gradient: "from-foreground/[0.12] via-card to-foreground/[0.09] dark:from-black/[0.15] dark:via-card dark:to-black/[0.08]",
+    borderColor: "border-foreground/[0.08] dark:border-white/[0.08]",
+    href: "/dashboard/profile",
+    features: [
+      "RM499 cash reward per successful referral",
+      "No limit on the number of referrals",
+      "Referral tracked automatically",
+      "Payout after referee's first billing cycle",
+    ],
+    cta: "Start Referring",
+    footerText: "Get started and share your referral link.",
+  },
+];
 
 // ============================================
 // KPKT Services & Digital License Promotions

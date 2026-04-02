@@ -24,6 +24,25 @@ import { BackToTruestackButton, BackToRootButton } from "@/components/powered-by
 
 const ONBOARDING_NAMESPACE = "admin-pro";
 
+function isEmailVerificationSignInError(
+  error: { status?: number; message?: string | null } | null | undefined
+) {
+  if (!error || error.status !== 403) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() ?? "";
+  return (
+    message.includes("email") &&
+    (
+      message.includes("not verified") ||
+      message.includes("unverified") ||
+      message.includes("verify your email") ||
+      message.includes("email verification")
+    )
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState<"credentials" | "passkey" | null>(null);
@@ -61,12 +80,19 @@ export default function LoginPage() {
     setLoading("credentials");
 
     try {
+      const normalizedEmail = formData.email.trim();
       const result = await signIn.email({
-        email: formData.email,
+        email: normalizedEmail,
         password: formData.password,
       });
 
       if (result.error) {
+        if (isEmailVerificationSignInError(result.error) && normalizedEmail) {
+          setPendingVerificationEmail(ONBOARDING_NAMESPACE, normalizedEmail);
+          router.push(`/verify-email?email=${encodeURIComponent(normalizedEmail)}&source=signin`);
+          return;
+        }
+
         throw new Error(result.error.message || "Login failed");
       }
 
@@ -83,7 +109,7 @@ export default function LoginPage() {
       if (
         preferredSetup &&
         pendingEmail &&
-        pendingEmail.toLowerCase() === formData.email.trim().toLowerCase()
+        pendingEmail.toLowerCase() === normalizedEmail.toLowerCase()
       ) {
         clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
         await ensureActiveTenantAfterLogin();
@@ -98,11 +124,6 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Login failed";
-      if (/not verified|verify/i.test(message) && formData.email.trim()) {
-        setPendingVerificationEmail(ONBOARDING_NAMESPACE, formData.email.trim());
-        router.push(`/verify-email?email=${encodeURIComponent(formData.email.trim())}&source=signin`);
-        return;
-      }
       toast.error(message);
       if (message === ADMIN_ACCESS_REQUIRED_MESSAGE) {
         router.replace("/login");

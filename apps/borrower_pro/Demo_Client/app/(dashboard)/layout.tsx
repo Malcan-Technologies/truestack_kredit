@@ -50,6 +50,7 @@ const navItems = [
 ];
 
 const PROFILE_REQUIRED_NAV_PATHS = new Set(["/applications", "/loans", "/profile"]);
+const SECURITY_PATHS = new Set(["/account", "/security-setup", "/onboarding"]);
 
 function isOnboardingExemptPath(pathname: string): boolean {
   return (
@@ -72,7 +73,7 @@ export default function DashboardLayout({
   const { data: session, isPending } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [securityCheckComplete, setSecurityCheckComplete] = useState(false);
+  const [securityStatus, setSecurityStatus] = useState<"loading" | "complete" | "incomplete" | "error">("loading");
   const [hasBorrowerProfiles, setHasBorrowerProfiles] = useState<boolean | null>(null);
   /** Matches loan center "All" tab: active + before payout + discharged */
   const [allLoansCount, setAllLoansCount] = useState(0);
@@ -117,35 +118,39 @@ export default function DashboardLayout({
   useEffect(() => {
     if (isPending) return;
     if (!session) {
-      setSecurityCheckComplete(true);
+      setSecurityStatus("complete");
       return;
     }
 
-    const securityPaths = new Set(["/account", "/security-setup", "/onboarding"]);
-    const isSecurityPath = securityPaths.has(pathname);
     let cancelled = false;
 
-    setSecurityCheckComplete(false);
+    setSecurityStatus("loading");
 
     void fetchSecurityStatus(session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean })
       .then((status) => {
         if (cancelled) return;
-        if (!status.isSecuritySetupComplete && !isSecurityPath) {
-          router.replace(`/security-setup?returnTo=${encodeURIComponent(pathname)}`);
-          return;
-        }
-        setSecurityCheckComplete(true);
+        setSecurityStatus(status.isSecuritySetupComplete ? "complete" : "incomplete");
       })
       .catch(() => {
-        if (!cancelled) {
-          setSecurityCheckComplete(true);
-        }
+        if (cancelled) return;
+        setSecurityStatus("error");
       });
 
     return () => {
       cancelled = true;
     };
-  }, [session, isPending, pathname, router]);
+  }, [session, isPending]);
+
+  useEffect(() => {
+    if (isPending || !session || securityStatus === "loading") return;
+
+    const isSecurityPath = SECURITY_PATHS.has(pathname);
+    if (isSecurityPath) return;
+
+    if (securityStatus === "incomplete" || securityStatus === "error") {
+      router.replace(`/security-setup?returnTo=${encodeURIComponent(pathname)}`);
+    }
+  }, [session, isPending, pathname, router, securityStatus]);
 
   // Redirect to onboarding when no borrower profiles, unless user previously dismissed
   useEffect(() => {
@@ -208,7 +213,7 @@ export default function DashboardLayout({
     return null;
   }
 
-  if (!securityCheckComplete) {
+  if (securityStatus === "loading") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-muted">Loading...</div>

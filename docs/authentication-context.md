@@ -34,6 +34,7 @@ This document captures the current authentication architecture and policy across
 
 - Shared auth constants and URL/origin helpers live in `packages/shared/src/auth-config.ts`.
 - Signup/login onboarding helpers live in `packages/shared/src/auth-onboarding.ts`.
+- `packages/shared/src/auth-onboarding.ts` also stores pending authenticator setup state in session storage so the QR flow can survive client remounts until the user verifies or cancels.
 - Current shared timings:
   - auth links: 15 minutes
   - TOTP challenge cookie: 10 minutes
@@ -48,6 +49,7 @@ This document captures the current authentication architecture and policy across
 - If email is unverified, login redirects to `/verify-email` and preserves the pending email in session storage.
 - After first verified login, the app can continue to `/dashboard/security-setup` based on the saved setup preference.
 - Dashboard layout blocks non-security pages until the user has either a passkey or authenticator configured.
+- If a security-status check fails, security pages are still allowed, but non-security pages redirect back to `/dashboard/security-setup` instead of failing open.
 - `apps/admin` is the SaaS admin app: users can self-sign up, and access is gated by tenant membership/active tenant selection rather than a separate admin-access allowlist.
 - `apps/admin_pro` is the invite-based admin app: post-login completion should verify that the user has at least one admin membership before sending them into the dashboard.
 
@@ -57,14 +59,17 @@ This document captures the current authentication architecture and policy across
 - Adds borrower-specific onboarding rules on top of security setup.
 - New borrowers without profiles are redirected to `/onboarding`, except for exempt pages like `/dashboard`, `/account`, `/about`, `/help`, `/security-setup`.
 - Sidebar items that require a borrower profile are visually disabled until onboarding is complete.
+- If a security-status check fails, security pages remain accessible, but other protected pages redirect back to `/security-setup`.
 
 ## Security UI Conventions
 
 All three auth-owning frontends now follow the same security-management behavior:
 
 - passkey add/remove UI
-- authenticator setup starts by requesting the TOTP URI with the current password
+- authenticator setup starts by enabling pending 2FA with the current password and then requesting the TOTP URI
 - authenticator setup button is inline with the password field
+- authenticator QR and verification flow appear in a modal rather than inline in the card
+- pending authenticator setup is restored from session storage until the user verifies or cancels
 - badge text uses `Required for 2FA`
 - disable-two-factor action is inline with the password field
 - backup-code view/regeneration UI is intentionally hidden from the account screen

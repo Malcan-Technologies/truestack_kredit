@@ -16,6 +16,8 @@ RUN npm ci
 FROM base AS builder
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps ./apps
+COPY --from=deps /app/packages ./packages
 COPY . .
 
 WORKDIR /app/apps/admin

@@ -52,6 +52,7 @@ ENV HOSTNAME=0.0.0.0
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nodejs
 
+COPY --from=builder --chown=nodejs:nodejs /app/packages/shared /app/packages/shared
 COPY --from=builder --chown=nodejs:nodejs /app/apps/admin_pro/.next/standalone ./
 COPY --from=builder --chown=nodejs:nodejs /app/apps/admin_pro/.next/static ./apps/admin_pro/.next/static
 COPY --from=builder --chown=nodejs:nodejs /app/apps/admin_pro/public ./apps/admin_pro/public

@@ -26,7 +26,8 @@ COPY --from=deps /app/apps ./apps
 COPY --from=deps /app/packages ./packages
 COPY . .
 
-# Generate Prisma client and compile backend.
+# Build workspace packages needed by the backend, then generate Prisma client and compile.
+RUN npm run build -w packages/shared
 RUN npx prisma generate --schema=apps/backend_pro/prisma/schema.prisma
 RUN npm run build -w apps/backend_pro
 
@@ -43,6 +44,7 @@ RUN adduser --system --uid 1001 nodejs
 
 # Runtime files
 COPY --from=builder --chown=nodejs:nodejs /app/node_modules /app/node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/packages/shared /app/packages/shared
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend_pro/dist ./dist
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend_pro/prisma ./prisma
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend_pro/package.json ./package.json

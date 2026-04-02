@@ -30,6 +30,9 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV BACKEND_URL=${BACKEND_URL}
 
+# Next.js imports from the shared workspace package during build.
+RUN npm run build -w packages/shared
+
 # Admin auth route uses Prisma via Better Auth; generate client in this image.
 RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" \
   npx prisma generate --schema=/app/apps/backend/prisma/schema.prisma
@@ -48,6 +51,7 @@ ENV HOSTNAME=0.0.0.0
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nodejs
 
+COPY --from=builder --chown=nodejs:nodejs /app/packages/shared /app/packages/shared
 COPY --from=builder --chown=nodejs:nodejs /app/apps/admin/.next/standalone ./
 COPY --from=builder --chown=nodejs:nodejs /app/apps/admin/.next/static ./apps/admin/.next/static
 COPY --from=builder --chown=nodejs:nodejs /app/apps/admin/public ./apps/admin/public

@@ -33,7 +33,7 @@ import {
   Sparkles,
   Banknote,
 } from "lucide-react";
-import { useSession, signOut } from "@/lib/auth-client";
+import { fetchSecurityStatus, useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +57,12 @@ import { api } from "@/lib/api";
 import { TENANT_DATA_UPDATED_EVENT } from "@/lib/tenant-events";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  ADMIN_ACCESS_REQUIRED_MESSAGE,
+  ADMIN_ACCESS_RETRYABLE_MESSAGE,
+  fetchAdminMembershipAccess,
+  revokeUnauthorizedAdminAccess,
+} from "@/lib/finish-login";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 
@@ -165,6 +171,8 @@ const PATHS_REQUIRING_MEMBERSHIP = [
   "/dashboard/truekredit-pro",
 ];
 
+const SECURITY_PATHS = new Set(["/dashboard/profile", "/dashboard/security-setup"]);
+
 function pathRequiresMembership(href: string): boolean {
   return PATHS_REQUIRING_MEMBERSHIP.some((p) => href === p || href.startsWith(p + "/"));
 }
@@ -181,6 +189,11 @@ export default function DashboardLayout({
   const [subscriptionStatus, setSubscriptionStatus] = useState<'FREE' | 'PAID' | 'OVERDUE' | 'SUSPENDED'>('PAID');
   const [hasTenants, setHasTenants] = useState<boolean>(true);
   const [membershipCheckComplete, setMembershipCheckComplete] = useState(false);
+  const [membershipAccessState, setMembershipAccessState] = useState<
+    "unknown" | "authorized" | "unauthorized" | "error"
+  >("unknown");
+  const [membershipCheckError, setMembershipCheckError] = useState<string | null>(null);
+  const [securityStatus, setSecurityStatus] = useState<"loading" | "complete" | "incomplete" | "error">("loading");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedNavGroups, setExpandedNavGroups] = useState<Record<string, boolean>>({
@@ -191,6 +204,7 @@ export default function DashboardLayout({
   const [loansPendingAttestationCount, setLoansPendingAttestationCount] = useState(0);
   const [attestationSlotProposedCount, setAttestationSlotProposedCount] = useState(0);
   const [paymentApprovalsPendingCount, setPaymentApprovalsPendingCount] = useState(0);
+  const [isSigningOutUnauthorized, setIsSigningOutUnauthorized] = useState(false);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -339,46 +353,28 @@ export default function DashboardLayout({
 
   const ensureActiveTenantAndFetchMembership = useCallback(async () => {
     try {
-      const membershipsRes = await fetch("/api/proxy/auth/memberships", {
-        credentials: "include",
-      });
+      const access = await fetchAdminMembershipAccess();
 
-      if (membershipsRes.status === 401) {
+      if (access.kind === "unauthorized") {
         setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
         setHasTenants(false);
-        setMembershipCheckComplete(true);
+        setMembershipAccessState("unauthorized");
+        setMembershipCheckError(null);
         return;
       }
 
-      let membershipsData: { success?: boolean; data?: { memberships?: unknown[]; activeTenantId?: string } };
-      try {
-        membershipsData = await membershipsRes.json();
-      } catch {
-        setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
-        setHasTenants(false);
-        setMembershipCheckComplete(true);
-        return;
-      }
-
-      if (
-        !membershipsData.success ||
-        !membershipsData.data?.memberships?.length
-      ) {
-        setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
-        setHasTenants(false);
-        setMembershipCheckComplete(true);
+      if (access.kind === "error") {
+        setMembershipAccessState("error");
+        setMembershipCheckError(access.message);
         return;
       }
 
       setHasTenants(true);
+      setMembershipAccessState("authorized");
+      setMembershipCheckError(null);
 
-      if (!membershipsData.data.activeTenantId) {
-        const firstTenant = membershipsData.data.memberships[0] as {
-          tenantId: string;
-          role: string;
-          tenantName?: string;
-          tenantLogoUrl?: string | null;
-        };
+      if (!access.activeTenantId) {
+        const firstTenant = access.memberships[0];
         await fetch("/api/proxy/auth/switch-tenant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -390,52 +386,68 @@ export default function DashboardLayout({
           tenantName: firstTenant.tenantName,
           tenantLogoUrl: firstTenant.tenantLogoUrl ?? null,
         });
-        setMembershipCheckComplete(true);
         return;
       }
 
-      const activeMembership = (membershipsData.data.memberships as {
-        tenantId: string;
-        tenantName?: string;
-        tenantLogoUrl?: string | null;
-      }[]).find(
-        (m) => m.tenantId === membershipsData.data!.activeTenantId,
+      const activeMembership = access.memberships.find(
+        (m) => m.tenantId === access.activeTenantId,
       );
 
       const response = await fetch("/api/proxy/auth/me", {
         credentials: "include",
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          const tenant = data.data.tenant as
-            | { subscriptionStatus?: string; status?: string; logoUrl?: string | null }
-            | null
-            | undefined;
-          setMembership({
-            role: data.data.user.role,
-            tenantName:
-              activeMembership?.tenantName || data.data.user.tenantName,
-            tenantLogoUrl:
-              activeMembership?.tenantLogoUrl ?? tenant?.logoUrl ?? null,
-          });
-          const isPro = process.env.NEXT_PUBLIC_PRODUCT_MODE === "pro";
-          if (isPro) {
-            setSubscriptionStatus(tenant?.status === "SUSPENDED" ? "SUSPENDED" : "PAID");
-          } else {
-            const status = tenant?.subscriptionStatus;
-            if (status === "PAID" || status === "OVERDUE" || status === "SUSPENDED") {
-              setSubscriptionStatus(status);
-            } else {
-              setSubscriptionStatus("FREE");
-            }
+
+      if (!response.ok) {
+        throw new Error(ADMIN_ACCESS_RETRYABLE_MESSAGE);
+      }
+
+      const data = (await response.json().catch(() => null)) as
+        | {
+            success?: boolean;
+            error?: string;
+            message?: string;
+            data?: {
+              user: { role: string; tenantName?: string };
+              tenant?: { subscriptionStatus?: string; status?: string; logoUrl?: string | null } | null;
+            };
           }
+        | null;
+
+      if (!data?.success || !data.data) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            ADMIN_ACCESS_RETRYABLE_MESSAGE,
+        );
+      }
+
+      const tenant = data.data.tenant;
+      setMembership({
+        role: data.data.user.role,
+        tenantName:
+          activeMembership?.tenantName || data.data.user.tenantName,
+        tenantLogoUrl:
+          activeMembership?.tenantLogoUrl ?? tenant?.logoUrl ?? null,
+      });
+      const isPro = process.env.NEXT_PUBLIC_PRODUCT_MODE === "pro";
+      if (isPro) {
+        setSubscriptionStatus(tenant?.status === "SUSPENDED" ? "SUSPENDED" : "PAID");
+      } else {
+        const status = tenant?.subscriptionStatus;
+        if (status === "PAID" || status === "OVERDUE" || status === "SUSPENDED") {
+          setSubscriptionStatus(status);
+        } else {
+          setSubscriptionStatus("FREE");
         }
       }
     } catch (error) {
       console.error("Failed to fetch membership:", error);
-      setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
-      setHasTenants(false);
+      setMembershipAccessState("error");
+      setMembershipCheckError(
+        error instanceof Error && error.message
+          ? error.message
+          : ADMIN_ACCESS_RETRYABLE_MESSAGE,
+      );
     } finally {
       setMembershipCheckComplete(true);
     }
@@ -455,6 +467,38 @@ export default function DashboardLayout({
   }, [session, ensureActiveTenantAndFetchMembership]);
 
   useEffect(() => {
+    if (
+      !session ||
+      !membershipCheckComplete ||
+      membershipAccessState !== "unauthorized" ||
+      hasTenants ||
+      isSigningOutUnauthorized
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsSigningOutUnauthorized(true);
+    toast.error(ADMIN_ACCESS_REQUIRED_MESSAGE);
+
+    void revokeUnauthorizedAdminAccess().finally(() => {
+      if (cancelled) return;
+      router.replace("/login");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    session,
+    membershipCheckComplete,
+    membershipAccessState,
+    hasTenants,
+    isSigningOutUnauthorized,
+    router,
+  ]);
+
+  useEffect(() => {
     // Redirect to login if not authenticated
     if (!isPending && !session) {
       router.push("/login");
@@ -466,6 +510,43 @@ export default function DashboardLayout({
       void ensureActiveTenantAndFetchMembership();
     }
   }, [session, isPending, router, ensureActiveTenantAndFetchMembership]);
+
+  useEffect(() => {
+    if (isPending) return;
+    if (!session) {
+      setSecurityStatus("complete");
+      return;
+    }
+
+    let cancelled = false;
+
+    setSecurityStatus("loading");
+
+    void fetchSecurityStatus(session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean })
+      .then((status) => {
+        if (cancelled) return;
+        setSecurityStatus(status.isSecuritySetupComplete ? "complete" : "incomplete");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSecurityStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, isPending]);
+
+  useEffect(() => {
+    if (isPending || !session || securityStatus === "loading") return;
+
+    const isSecurityPath = SECURITY_PATHS.has(pathname);
+    if (isSecurityPath) return;
+
+    if (securityStatus === "incomplete" || securityStatus === "error") {
+      router.replace(`/dashboard/security-setup?returnTo=${encodeURIComponent(pathname)}`);
+    }
+  }, [session, isPending, pathname, router, securityStatus]);
 
   const handleLogout = async () => {
     await signOut();
@@ -490,6 +571,45 @@ export default function DashboardLayout({
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-muted">Loading...</div>
+      </div>
+    );
+  }
+
+  if (membershipAccessState === "error") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 text-center shadow-sm space-y-4">
+          <div className="space-y-2">
+            <h1 className="text-lg font-semibold">Unable to verify admin access</h1>
+            <p className="text-sm text-muted-foreground">
+              {membershipCheckError || ADMIN_ACCESS_RETRYABLE_MESSAGE}
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <Button onClick={() => void ensureActiveTenantAndFetchMembership()}>
+              Retry
+            </Button>
+            <Button variant="outline" onClick={handleLogout}>
+              Sign out
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (securityStatus === "loading") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted">Loading...</div>
+      </div>
+    );
+  }
+
+  if (isSigningOutUnauthorized || membershipAccessState === "unauthorized") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted">Redirecting...</div>
       </div>
     );
   }

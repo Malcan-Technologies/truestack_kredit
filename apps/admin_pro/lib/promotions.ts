@@ -1,9 +1,5 @@
 import { Gift, FileText, ShieldCheck, Store, type LucideIcon } from "lucide-react";
 
-// ============================================
-// Promotion / Advertisement Data
-// ============================================
-
 export interface Promotion {
   id: string;
   title: string;

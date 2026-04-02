@@ -1,15 +1,54 @@
+import { PrismaClient } from "@prisma/client";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
-import { PrismaClient } from "@prisma/client";
-import crypto from "node:crypto";
+import { twoFactor } from "better-auth/plugins/two-factor";
+import { passkey } from "@better-auth/passkey";
+import {
+  AUTH_LINK_TOKEN_MAX_AGE_SECONDS,
+  TWO_FACTOR_COOKIE_MAX_AGE_SECONDS,
+  TRUSTED_DEVICE_MAX_AGE_SECONDS,
+  buildAbsoluteUrl,
+  collectOrigins,
+  getPasskeyRpId,
+  resolveAuthBaseUrl,
+  splitOrigins,
+} from "@kredit/shared";
 import { sendEmail } from "./sendEmail";
 
 const prisma = new PrismaClient();
 
-const RESET_CODE_EXPIRY_SECONDS = 15 * 60; // 15 minutes
+const APP_NAME = "TrueKredit";
+const appUrl = resolveAuthBaseUrl(
+  process.env.BETTER_AUTH_URL ??
+    process.env.NEXT_PUBLIC_BETTER_AUTH_URL ??
+    process.env.NEXT_PUBLIC_APP_URL,
+  "http://localhost:3000"
+);
+const trustedOrigins = collectOrigins(
+  appUrl,
+  process.env.NEXT_PUBLIC_API_URL,
+  splitOrigins(process.env.BETTER_AUTH_TRUSTED_ORIGINS)
+);
+const passkeyOrigins = collectOrigins(
+  appUrl,
+  splitOrigins(process.env.BETTER_AUTH_PASSKEY_ORIGINS)
+);
+const passkeyRpId = process.env.BETTER_AUTH_PASSKEY_RP_ID || getPasskeyRpId(appUrl);
 
+function sendAuthEmail(params: {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}) {
+  void sendEmail(params).then((result) => {
+    if (!result.ok) {
+      console.error(`[auth] Failed to send "${params.subject}" email:`, result.error);
+    }
+  });
+}
 // Define permission statements for your application
 const statement = {
   // Loan management permissions
@@ -71,57 +110,57 @@ export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
-  
-  // Secret for signing tokens (required in production)
   secret: process.env.BETTER_AUTH_SECRET,
-  
-  // Base URL for auth endpoints
-  baseURL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-  
-  // Enable email/password authentication
+  baseURL: appUrl,
+  appName: APP_NAME,
+  emailVerification: {
+    sendOnSignUp: true,
+    sendOnSignIn: true,
+    sendVerificationEmail: async ({ user, token }) => {
+      const verifyUrl = buildAbsoluteUrl(
+        appUrl,
+        `/verify-email/confirm?token=${encodeURIComponent(token)}`
+      );
+      sendAuthEmail({
+        to: user.email,
+        subject: `Verify your ${APP_NAME} email`,
+        text: `Verify your email address by opening this link: ${verifyUrl}`,
+        html: `
+          <p>Hi ${user.name || "there"},</p>
+          <p>Verify your email address to continue securing your ${APP_NAME} account.</p>
+          <p><a href="${verifyUrl}">Verify email</a></p>
+          <p>If you did not create this account, you can ignore this email.</p>
+        `,
+      });
+    },
+  },
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
-    // Auto sign in after registration
-    autoSignIn: true,
-    resetPasswordTokenExpiresIn: RESET_CODE_EXPIRY_SECONDS,
-    sendResetPassword: async ({ user, token }, _request) => {
-      const code = String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
-      const emailLower = user.email.toLowerCase();
-      const codeHash = crypto
-        .createHash("sha256")
-        .update(`${emailLower}:${code}`)
-        .digest("hex");
-      const expiresAt = new Date(Date.now() + RESET_CODE_EXPIRY_SECONDS * 1000);
-
-      await prisma.passwordResetCode.deleteMany({
-        where: { email: emailLower, usedAt: null },
-      });
-      await prisma.passwordResetCode.create({
-        data: {
-          email: emailLower,
-          codeHash,
-          betterAuthToken: token,
-          expiresAt,
-        },
-      });
-      const result = await sendEmail({
+    autoSignIn: false,
+    requireEmailVerification: true,
+    revokeSessionsOnPasswordReset: true,
+    resetPasswordTokenExpiresIn: AUTH_LINK_TOKEN_MAX_AGE_SECONDS,
+    sendResetPassword: async ({ user, token }) => {
+      const resetUrl = buildAbsoluteUrl(
+        appUrl,
+        `/reset-password?token=${encodeURIComponent(token)}`
+      );
+      sendAuthEmail({
         to: user.email,
-        subject: "Reset your TrueKredit password",
+        subject: `Reset your ${APP_NAME} password`,
+        text: `Reset your password by opening this link: ${resetUrl}`,
         html: `
           <p>Hi ${user.name || "there"},</p>
-          <p>Use this code to reset your password:</p>
-          <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${code}</p>
-          <p>This code expires in 15 minutes.</p>
+          <p>Use the secure link below to reset your password.</p>
+          <p><a href="${resetUrl}">Reset password</a></p>
+          <p>This link expires in 15 minutes.</p>
           <p>If you didn't request this, you can ignore this email.</p>
         `,
       });
-      if (!result.ok) {
-        console.error("[auth] Password reset email failed:", result.error);
-      }
     },
-    onPasswordReset: async ({ user }, _request) => {
+    onPasswordReset: async ({ user }) => {
       await prisma.user.update({
         where: { id: user.id },
         data: { passwordChangedAt: new Date() },
@@ -129,7 +168,6 @@ export const auth = betterAuth({
     },
   },
 
-  // Rate limit: global + stricter login (10 attempts per 5 minutes, then cooldown)
   rateLimit: {
     window: 60,
     max: 100,
@@ -141,15 +179,13 @@ export const auth = betterAuth({
     },
   },
   
-  // Session configuration
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
-    updateAge: 60 * 60 * 24, // Update session every 24 hours
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
     cookieCache: {
       enabled: true,
-      maxAge: 60 * 5, // 5 minutes
+      maxAge: 60 * 5,
     },
-    // Additional session fields for multi-tenant support
     additionalFields: {
       activeTenantId: {
         type: "string",
@@ -158,7 +194,6 @@ export const auth = betterAuth({
     },
   },
   
-  // User fields (identity only, membership handled separately)
   user: {
     additionalFields: {
       isActive: {
@@ -175,7 +210,6 @@ export const auth = betterAuth({
     },
   },
   
-  // Plugins
   plugins: [
     admin({
       ac,
@@ -185,10 +219,25 @@ export const auth = betterAuth({
         staff: staffRole,
       },
       defaultRole: "staff",
+    }) as any,
+    twoFactor({
+      issuer: APP_NAME,
+      twoFactorCookieMaxAge: TWO_FACTOR_COOKIE_MAX_AGE_SECONDS,
+      trustDeviceMaxAge: TRUSTED_DEVICE_MAX_AGE_SECONDS,
+      totpOptions: {
+        digits: 6,
+        period: 30,
+      },
+      backupCodeOptions: {
+        amount: 10,
+        length: 10,
+      },
+    }),
+    passkey({
+      rpID: passkeyRpId,
+      origin: passkeyOrigins,
     }),
   ],
-  
-  // Advanced settings for security
   advanced: {
     useSecureCookies: process.env.NODE_ENV === "production",
     defaultCookieAttributes: {
@@ -198,12 +247,7 @@ export const auth = betterAuth({
     },
   },
   
-  // Trusting host headers (for reverse proxy setups)
-  trustedOrigins: [
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
-  ],
+  trustedOrigins,
 });
 
-// Export type for session
 export type Session = typeof auth.$Infer.Session;

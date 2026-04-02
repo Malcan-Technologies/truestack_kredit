@@ -18,7 +18,7 @@ import {
   Menu,
   UserCircle,
 } from "lucide-react";
-import { useSession, signOut } from "@borrower_pro/lib/auth-client";
+import { fetchSecurityStatus, useSession, signOut } from "@/lib/auth-client";
 import { Button } from "@borrower_pro/components/ui/button";
 import {
   DropdownMenu,
@@ -49,6 +49,20 @@ const navItems = [
   { name: "Help", href: "/help", icon: CircleHelp },
 ];
 
+const PROFILE_REQUIRED_NAV_PATHS = new Set(["/applications", "/loans", "/profile"]);
+const SECURITY_PATHS = new Set(["/account", "/security-setup", "/onboarding"]);
+
+function isOnboardingExemptPath(pathname: string): boolean {
+  return (
+    pathname === "/dashboard" ||
+    pathname === "/account" ||
+    pathname === "/about" ||
+    pathname === "/onboarding" ||
+    pathname === "/security-setup" ||
+    pathname.startsWith("/help")
+  );
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -59,6 +73,8 @@ export default function DashboardLayout({
   const { data: session, isPending } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [securityStatus, setSecurityStatus] = useState<"loading" | "complete" | "incomplete" | "error">("loading");
+  const [hasBorrowerProfiles, setHasBorrowerProfiles] = useState<boolean | null>(null);
   /** Matches loan center "All" tab: active + before payout + discharged */
   const [allLoansCount, setAllLoansCount] = useState(0);
 
@@ -99,21 +115,74 @@ export default function DashboardLayout({
     }
   }, [session, isPending, router]);
 
+  useEffect(() => {
+    if (isPending) return;
+    if (!session) {
+      setSecurityStatus("complete");
+      return;
+    }
+
+    let cancelled = false;
+
+    setSecurityStatus("loading");
+
+    void fetchSecurityStatus(session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean })
+      .then((status) => {
+        if (cancelled) return;
+        setSecurityStatus(status.isSecuritySetupComplete ? "complete" : "incomplete");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSecurityStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, isPending]);
+
+  useEffect(() => {
+    if (isPending || !session || securityStatus === "loading") return;
+
+    const isSecurityPath = SECURITY_PATHS.has(pathname);
+    if (isSecurityPath) return;
+
+    if (securityStatus === "incomplete" || securityStatus === "error") {
+      router.replace(`/security-setup?returnTo=${encodeURIComponent(pathname)}`);
+    }
+  }, [session, isPending, pathname, router, securityStatus]);
+
   // Redirect to onboarding when no borrower profiles, unless user previously dismissed
   useEffect(() => {
-    if (isPending || !session || pathname === "/onboarding") return;
+    if (isPending) return;
+    if (!session) {
+      setHasBorrowerProfiles(null);
+      return;
+    }
     const dismissed = (() => {
       try { return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true"; }
       catch { return false; }
     })();
-    if (dismissed) return;
+    let cancelled = false;
+
     fetchBorrowerMe()
       .then((res) => {
-        if (res.success && res.data.profileCount === 0) {
+        if (!res.success || cancelled) return;
+        const nextHasProfiles = res.data.profileCount > 0;
+        setHasBorrowerProfiles(nextHasProfiles);
+        if (!nextHasProfiles && !dismissed && !isOnboardingExemptPath(pathname)) {
           router.replace("/onboarding");
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) {
+          setHasBorrowerProfiles(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [session, isPending, pathname, router]);
 
   useEffect(() => {
@@ -142,6 +211,14 @@ export default function DashboardLayout({
 
   if (!session) {
     return null;
+  }
+
+  if (securityStatus === "loading") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted">Loading...</div>
+      </div>
+    );
   }
 
   const user = session.user;
@@ -184,18 +261,51 @@ export default function DashboardLayout({
                 const isActive =
                   pathname === item.href ||
                   (item.href !== "/dashboard" && pathname.startsWith(item.href));
-                const linkInner = (
+                const isDisabled = hasBorrowerProfiles === false && PROFILE_REQUIRED_NAV_PATHS.has(item.href);
+                const itemClasses = cn(
+                  "flex items-center rounded-lg text-sm font-medium transition-colors",
+                  sidebarCollapsed
+                    ? "justify-center px-0 py-2 relative"
+                    : "gap-3 px-3 py-2",
+                  isDisabled
+                    ? "cursor-not-allowed text-muted-foreground/40"
+                    : isActive
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                );
+                const linkInner = isDisabled ? (
+                  <div
+                    aria-disabled="true"
+                    className={itemClasses}
+                    title="Complete onboarding to unlock this page."
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {!sidebarCollapsed && (
+                      <>
+                        <span className="flex-1 min-w-0">{item.name}</span>
+                        {item.href === "/loans" && allLoansCount > 0 ? (
+                          <Badge
+                            variant="secondary"
+                            className="h-5 min-w-5 shrink-0 px-1.5 text-xs opacity-50"
+                            title="Total loans (All)"
+                          >
+                            {allLoansCount > 99 ? "99+" : allLoansCount}
+                          </Badge>
+                        ) : null}
+                      </>
+                    )}
+                    {sidebarCollapsed && item.href === "/loans" && allLoansCount > 0 ? (
+                      <span className="absolute right-0.5 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary/50 px-1 text-[10px] font-medium leading-none">
+                        {allLoansCount > 9 ? "9+" : allLoansCount}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
                   <Link
                     href={item.href}
                     onClick={() => setSidebarOpen(false)}
                     className={cn(
-                      "flex items-center rounded-lg text-sm font-medium transition-colors",
-                      sidebarCollapsed
-                        ? "justify-center px-0 py-2 relative"
-                        : "gap-3 px-3 py-2",
-                      isActive
-                        ? "bg-secondary text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      itemClasses
                     )}
                   >
                     <item.icon className="h-5 w-5 shrink-0" />
@@ -225,8 +335,13 @@ export default function DashboardLayout({
                   return (
                     <Tooltip key={item.href}>
                       <TooltipTrigger asChild>{linkInner}</TooltipTrigger>
-                      <TooltipContent side="right">
+                      <TooltipContent side="right" className={isDisabled ? "max-w-xs" : undefined}>
                         <p>{item.name}</p>
+                        {isDisabled ? (
+                          <p className="opacity-70 text-xs mt-1">
+                            Complete onboarding to unlock this page.
+                          </p>
+                        ) : null}
                       </TooltipContent>
                     </Tooltip>
                   );

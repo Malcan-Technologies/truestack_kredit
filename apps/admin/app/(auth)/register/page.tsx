@@ -4,16 +4,26 @@ import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import {
+  type SecuritySetupPreference,
+  getSecuritySetupPreferenceCopy,
+  setPendingVerificationEmail,
+  setSecuritySetupPreference,
+} from "@kredit/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { BackToTruestackButton, BackToRootButton } from "@/components/powered-by-truestack";
 
+const ONBOARDING_NAMESPACE = "admin";
+
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
+  const [securityPreference, setSecurityPreference] =
+    useState<SecuritySetupPreference>("either");
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -54,8 +64,11 @@ function RegisterForm() {
         throw new Error(data.error || "Registration failed");
       }
 
-      toast.success("Registration successful! Welcome to TrueKredit.");
-      router.push("/dashboard");
+      const email = data?.data?.email || formData.email;
+      setPendingVerificationEmail(ONBOARDING_NAMESPACE, email);
+      setSecuritySetupPreference(ONBOARDING_NAMESPACE, securityPreference);
+      toast.success("Account created. Check your email to verify your address.");
+      router.push(`/verify-email?email=${encodeURIComponent(email)}&source=signup`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Registration failed");
     } finally {
@@ -144,6 +157,30 @@ function RegisterForm() {
                   setFormData({ ...formData, referralCode: e.target.value.trim() })
                 }
               />
+            </div>
+            <div className="space-y-2">
+              <Label>After you verify, what would you like to set up next?</Label>
+              <div className="grid gap-2">
+                {(
+                  ["passkey", "authenticator", "either"] as SecuritySetupPreference[]
+                ).map((option) => {
+                  const copy = getSecuritySetupPreferenceCopy(option);
+                  return (
+                    <Button
+                      key={option}
+                      type="button"
+                      variant={securityPreference === option ? "default" : "outline"}
+                      className="h-auto justify-start py-3 text-left whitespace-normal"
+                      onClick={() => setSecurityPreference(option)}
+                    >
+                      <span className="block">
+                        <span className="block font-medium">{copy.title}</span>
+                        <span className="block text-xs opacity-80">{copy.description}</span>
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">

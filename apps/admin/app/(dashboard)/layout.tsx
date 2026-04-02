@@ -33,7 +33,7 @@ import {
   Send,
   Fingerprint,
 } from "lucide-react";
-import { useSession, signOut } from "@/lib/auth-client";
+import { fetchSecurityStatus, useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -164,6 +164,8 @@ const PATHS_REQUIRING_PAID = [
   "/dashboard/modules",
 ];
 
+const SECURITY_PATHS = new Set(["/dashboard/profile", "/dashboard/security-setup"]);
+
 function pathRequiresMembership(href: string): boolean {
   return PATHS_REQUIRING_MEMBERSHIP.some((p) => href === p || href.startsWith(p + "/"));
 }
@@ -184,6 +186,7 @@ export default function DashboardLayout({
   const [subscriptionStatus, setSubscriptionStatus] = useState<'FREE' | 'PAID' | 'OVERDUE' | 'SUSPENDED'>('FREE');
   const [hasTenants, setHasTenants] = useState<boolean>(true);
   const [membershipCheckComplete, setMembershipCheckComplete] = useState(false);
+  const [securityStatus, setSecurityStatus] = useState<"loading" | "complete" | "incomplete" | "error">("loading");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedNavGroups, setExpandedNavGroups] = useState<Record<string, boolean>>({
@@ -219,6 +222,43 @@ export default function DashboardLayout({
       ensureActiveTenantAndFetchMembership();
     }
   }, [session, isPending, router]);
+
+  useEffect(() => {
+    if (isPending) return;
+    if (!session) {
+      setSecurityStatus("complete");
+      return;
+    }
+
+    let cancelled = false;
+
+    setSecurityStatus("loading");
+
+    void fetchSecurityStatus(session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean })
+      .then((status) => {
+        if (cancelled) return;
+        setSecurityStatus(status.isSecuritySetupComplete ? "complete" : "incomplete");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSecurityStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, isPending]);
+
+  useEffect(() => {
+    if (isPending || !session || securityStatus === "loading") return;
+
+    const isSecurityPath = SECURITY_PATHS.has(pathname);
+    if (isSecurityPath) return;
+
+    if (securityStatus === "incomplete" || securityStatus === "error") {
+      router.replace(`/dashboard/security-setup?returnTo=${encodeURIComponent(pathname)}`);
+    }
+  }, [session, isPending, pathname, router, securityStatus]);
 
   useEffect(() => {
     if (pathname.startsWith("/dashboard/modules")) {
@@ -383,6 +423,14 @@ export default function DashboardLayout({
   // Don't render tenant-scoped content until we know if user has a tenant
   // (avoids 401s from dashboard/other pages calling tenant APIs before we've set hasTenants)
   if (!membershipCheckComplete) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted">Loading...</div>
+      </div>
+    );
+  }
+
+  if (securityStatus === "loading") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-muted">Loading...</div>

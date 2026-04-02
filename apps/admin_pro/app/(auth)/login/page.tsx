@@ -3,72 +3,133 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { KeyRound } from "lucide-react";
 import { toast } from "sonner";
+import {
+  clearPendingVerificationEmail,
+  getPendingVerificationEmail,
+  getSecuritySetupPreference,
+  setPendingVerificationEmail,
+} from "@kredit/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { signIn } from "@/lib/auth-client";
+import { signIn, signInWithPasskey } from "@/lib/auth-client";
+import {
+  ADMIN_ACCESS_REQUIRED_MESSAGE,
+  ensureActiveTenantAfterLogin,
+} from "@/lib/finish-login";
 import { BackToTruestackButton, BackToRootButton } from "@/components/powered-by-truestack";
+
+const ONBOARDING_NAMESPACE = "admin-pro";
+
+function isEmailVerificationSignInError(
+  error: { status?: number; message?: string | null } | null | undefined
+) {
+  if (!error || error.status !== 403) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() ?? "";
+  return (
+    message.includes("email") &&
+    (
+      message.includes("not verified") ||
+      message.includes("unverified") ||
+      message.includes("verify your email") ||
+      message.includes("email verification")
+    )
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<"credentials" | "passkey" | null>(null);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+  const handlePasskeySignIn = async () => {
+    setLoading("passkey");
 
     try {
+      const result = await signInWithPasskey();
+      if (result.error) {
+        throw new Error(result.error.message || "Passkey sign-in failed");
+      }
+
+      await ensureActiveTenantAfterLogin();
+      toast.success("Signed in with passkey");
+      router.push("/dashboard");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Passkey sign-in failed";
+      toast.error(message);
+      if (message === ADMIN_ACCESS_REQUIRED_MESSAGE) {
+        router.replace("/login");
+      }
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading("credentials");
+
+    try {
+      const normalizedEmail = formData.email.trim();
       const result = await signIn.email({
-        email: formData.email,
+        email: normalizedEmail,
         password: formData.password,
       });
 
-      console.log("[Login] signIn result:", result);
-
       if (result.error) {
+        if (isEmailVerificationSignInError(result.error) && normalizedEmail) {
+          setPendingVerificationEmail(ONBOARDING_NAMESPACE, normalizedEmail);
+          router.push(`/verify-email?email=${encodeURIComponent(normalizedEmail)}&source=signin`);
+          return;
+        }
+
         throw new Error(result.error.message || "Login failed");
       }
 
-      // Small delay to ensure cookie is set by browser
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // After login, set the active tenant to the first available membership
-      // Use proxy route for backend calls (ensures cookies work correctly)
-      const membershipsRes = await fetch("/api/proxy/auth/memberships", {
-        credentials: "include",
-      });
-      console.log("[Login] memberships response status:", membershipsRes.status);
-      const membershipsData = await membershipsRes.json();
-      console.log("[Login] memberships data:", membershipsData);
-
-      if (membershipsData.success && membershipsData.data.memberships.length > 0) {
-        // If no active tenant is set, set the first one
-        if (!membershipsData.data.activeTenantId) {
-          const firstTenant = membershipsData.data.memberships[0];
-          console.log("[Login] Setting active tenant:", firstTenant.tenantId);
-          const switchRes = await fetch("/api/proxy/auth/switch-tenant", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ tenantId: firstTenant.tenantId }),
-          });
-          const switchData = await switchRes.json();
-          console.log("[Login] switch-tenant result:", switchData);
-        }
+      const requiresTwoFactor = Boolean(
+        (result.data as { twoFactorRedirect?: boolean } | null | undefined)?.twoFactorRedirect
+      );
+      if (requiresTwoFactor) {
+        router.replace("/two-factor");
+        return;
       }
 
+      const pendingEmail = getPendingVerificationEmail(ONBOARDING_NAMESPACE);
+      const preferredSetup = getSecuritySetupPreference(ONBOARDING_NAMESPACE);
+      if (
+        preferredSetup &&
+        pendingEmail &&
+        pendingEmail.toLowerCase() === normalizedEmail.toLowerCase()
+      ) {
+        clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
+        await ensureActiveTenantAfterLogin();
+        toast.success("Login successful. Let's finish securing your account.");
+        router.push(`/dashboard/security-setup?setup=${encodeURIComponent(preferredSetup)}`);
+        return;
+      }
+
+      clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
+      await ensureActiveTenantAfterLogin();
       toast.success("Login successful");
       router.push("/dashboard");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Login failed");
+      const message = error instanceof Error ? error.message : "Login failed";
+      toast.error(message);
+      if (message === ADMIN_ACCESS_REQUIRED_MESSAGE) {
+        router.replace("/login");
+      }
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   };
 
@@ -86,6 +147,24 @@ export default function LoginPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={loading !== null}
+              onClick={handlePasskeySignIn}
+            >
+              <KeyRound className="mr-2 h-4 w-4" />
+              {loading === "passkey" ? "Waiting for passkey..." : "Sign In with Passkey"}
+            </Button>
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">Or use email and password</span>
+              </div>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -96,6 +175,7 @@ export default function LoginPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, email: e.target.value })
                 }
+                autoComplete="username webauthn"
                 required
               />
             </div>
@@ -121,14 +201,18 @@ export default function LoginPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, password: e.target.value })
                 }
+                autoComplete="current-password webauthn"
                 required
               />
             </div>
           </CardContent>
-          <CardFooter>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
+          <CardFooter className="flex flex-col gap-4">
+            <Button type="submit" className="w-full" disabled={loading !== null}>
+              {loading === "credentials" ? "Signing in..." : "Sign In"}
             </Button>
+            <p className="text-sm text-muted text-center">
+              Admin access is invite-only. Ask your organization owner to add you.
+            </p>
           </CardFooter>
         </form>
       </Card>

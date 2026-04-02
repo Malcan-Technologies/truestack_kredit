@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { AUTH_COOKIE_PREFIXES } from "@kredit/shared";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4001";
-const OWN_AUTH_COOKIE_PREFIXES = ["truestack-borrower.", "__Secure-truestack-borrower."] as const;
+const OWN_AUTH_COOKIE_PREFIXES = [
+  `${AUTH_COOKIE_PREFIXES.borrower}.`,
+  `__Secure-${AUTH_COOKIE_PREFIXES.borrower}.`,
+] as const;
 const OTHER_AUTH_COOKIE_PREFIXES = [
-  "better-auth.",
-  "__Secure-better-auth.",
-  "truestack-admin.",
-  "__Secure-truestack-admin.",
+  `${AUTH_COOKIE_PREFIXES.default}.`,
+  `__Secure-${AUTH_COOKIE_PREFIXES.default}.`,
+  `${AUTH_COOKIE_PREFIXES.admin}.`,
+  `__Secure-${AUTH_COOKIE_PREFIXES.admin}.`,
 ] as const;
 
 function shouldForwardCookie(name: string): boolean {

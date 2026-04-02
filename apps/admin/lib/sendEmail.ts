@@ -15,7 +15,7 @@ export async function sendEmail(params: {
 
   if (!apiKey) {
     console.error(
-      "[sendEmail] RESEND_API_KEY is not set in apps/admin/.env — password reset emails will NOT be sent. Add RESEND_API_KEY to fix."
+      "[sendEmail] RESEND_API_KEY is not set in apps/admin env. Auth emails will not be sent until RESEND_API_KEY is configured."
     );
     return { ok: false, error: "RESEND_API_KEY not configured" };
   }

@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { UserCircle, Share2, Users, Shield, Eye, EyeOff, Building2, Plus, Pencil } from "lucide-react";
+import { UserCircle, Share2, Users, Building2, Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,11 +16,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSession, updateUser } from "@/lib/auth-client";
-import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { CopyField } from "@/components/ui/copy-field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BANK_OPTIONS, getBankLabel } from "@/lib/bank-options";
+import { AccountSecurityCard } from "@/components/account-security-card";
 import Link from "next/link";
 
 interface CurrentMembership {
@@ -101,19 +101,8 @@ export default function ProfilePage() {
   const [referralBankAccountNo, setReferralBankAccountNo] = useState("");
   const [passwordInfo, setPasswordInfo] = useState<PasswordInfo | null>(null);
   const [loginLogs, setLoginLogs] = useState<LoginLog[]>([]);
-  const [showChangePassword, setShowChangePassword] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-  });
   const [tenants, setTenants] = useState<TenantMembership[]>([]);
   const [loadingTenants, setLoadingTenants] = useState(false);
-
-  const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const currentUser = session?.user;
   const hasLoadedOnce = useRef(false);
@@ -271,42 +260,6 @@ Referral Code: ${referralCode}
 
 Sign up here: ${referralLink}`
     : "";
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      toast.error("New passwords do not match");
-      return;
-    }
-    if (passwordForm.newPassword.length < 8) {
-      toast.error("Password must be at least 8 characters");
-      return;
-    }
-    setChangingPassword(true);
-    try {
-      const response = await fetch("/api/proxy/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
-        }),
-      });
-      const res = await response.json();
-      if (res.success) {
-        toast.success("Password changed successfully. Please log in again.");
-        setShowChangePassword(false);
-        setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-        router.push("/login");
-      } else {
-        toast.error(res.error || "Failed to change password");
-      }
-    } catch {
-      toast.error("Failed to change password");
-    }
-    setChangingPassword(false);
-  };
 
   const handleShare = async () => {
     if (!shareMessage) return;
@@ -489,144 +442,10 @@ Sign up here: ${referralLink}`
 
       {/* Security + Your Tenants - 2 columns */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Security */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <Shield className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <CardTitle className="font-heading">Security</CardTitle>
-                <CardDescription>Account security settings</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between py-2">
-              <div>
-                <p className="font-medium">Change Password</p>
-                <p className="text-sm text-muted">
-                  Last changed: {passwordInfo?.passwordChangedAt
-                    ? formatDate(passwordInfo.passwordChangedAt)
-                    : "Never"}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => setShowChangePassword(!showChangePassword)}
-              >
-                {showChangePassword ? "Cancel" : "Change Password"}
-              </Button>
-            </div>
-
-            {showChangePassword && (
-              <form onSubmit={handleChangePassword} className="p-4 border border-border rounded-lg space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Current Password *</label>
-                  <div className="relative">
-                    <Input
-                      type={showCurrentPassword ? "text" : "password"}
-                      value={passwordForm.currentPassword}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                      required
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    >
-                      {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">New Password *</label>
-                  <div className="relative">
-                    <Input
-                      type={showNewPassword ? "text" : "password"}
-                      value={passwordForm.newPassword}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                      minLength={8}
-                      required
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                    >
-                      {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted">
-                    Min 8 characters, 1 uppercase, 1 lowercase, 1 number
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Confirm New Password *</label>
-                  <Input
-                    type="password"
-                    value={passwordForm.confirmPassword}
-                    onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                    minLength={8}
-                    required
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={changingPassword}>
-                    {changingPassword ? "Changing..." : "Update Password"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setShowChangePassword(false);
-                      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            )}
-
-            <Separator />
-
-            <div className="py-2">
-              <p className="font-medium mb-3">Recent Login Activity</p>
-              {loginLogs.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date & Time</TableHead>
-                      <TableHead>Device</TableHead>
-                      <TableHead>IP Address</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loginLogs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell>
-                          <span title={formatDate(log.createdAt)}>
-                            {formatRelativeTime(log.createdAt)}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{log.deviceType || "Unknown"}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {log.ipAddress || "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-sm text-muted">No login history available</p>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        <AccountSecurityCard
+          passwordChangedAt={passwordInfo?.passwordChangedAt ?? null}
+          loginLogs={loginLogs}
+        />
 
         {/* Your Tenants */}
         <Card>

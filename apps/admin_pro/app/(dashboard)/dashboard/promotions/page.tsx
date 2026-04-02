@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { PROMOTIONS, KPKT_PROMOTIONS, type Promotion } from "@/lib/promotions";
+import { KPKT_PROMOTIONS, type Promotion } from "@/lib/promotions";
 
 export default function PromotionsPage() {
   return (
@@ -17,12 +17,9 @@ export default function PromotionsPage() {
         <p className="text-muted">Special offers, just for you</p>
       </div>
 
-      {/* Promotion Cards - KPKT first (left), then Refer & Earn */}
+      {/* Promotion Cards */}
       <div className="grid w-full grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {KPKT_PROMOTIONS.map((promo) => (
-          <PromotionCard key={promo.id} promotion={promo} />
-        ))}
-        {PROMOTIONS.map((promo) => (
           <PromotionCard key={promo.id} promotion={promo} />
         ))}
       </div>
@@ -116,7 +113,7 @@ function PromotionCard({ promotion }: { promotion: Promotion }) {
               (promotion.badge === "Coming Soon"
                 ? "Under development. Stay tuned!"
                 : promotion.contactHref ?? promotion.href
-                  ? "Get started and share your referral link."
+                  ? "Contact us to learn more."
                   : "Contact your account manager to enable.")}
           </p>
           {(promotion.contactHref ?? promotion.href) ? (

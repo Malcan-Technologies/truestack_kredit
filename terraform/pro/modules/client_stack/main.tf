@@ -763,11 +763,14 @@ resource "aws_ecs_task_definition" "borrower" {
         { name = "PORT", value = tostring(var.borrower_port) },
         { name = "BACKEND_URL", value = "https://${var.api_domain}" },
         { name = "NEXT_PUBLIC_BACKEND_URL", value = "https://${var.api_domain}" },
-        { name = "NEXT_PUBLIC_APP_URL", value = "https://${var.borrower_domain}" }
+        { name = "NEXT_PUBLIC_APP_URL", value = "https://${var.borrower_domain}" },
+        { name = "EMAIL_FROM_NAME", value = var.email_from_name },
+        { name = "EMAIL_FROM_ADDRESS", value = var.email_from_address }
       ]
       secrets = [
         { name = "DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.app.arn}:database_url::" },
-        { name = "BETTER_AUTH_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:better_auth_secret::" }
+        { name = "BETTER_AUTH_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:better_auth_secret::" },
+        { name = "RESEND_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:resend_api_key::" }
       ]
       logConfiguration = {
         logDriver = "awslogs"

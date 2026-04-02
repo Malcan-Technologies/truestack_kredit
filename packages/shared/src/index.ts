@@ -1,5 +1,8 @@
 // Shared types and constants for TrueKredit
 
+export * from "./auth-config";
+export * from "./auth-onboarding";
+
 // ============================================
 // Enums
 // ============================================

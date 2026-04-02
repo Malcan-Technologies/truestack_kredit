@@ -52,6 +52,7 @@ This document captures the current authentication architecture and policy across
 - If a security-status check fails, security pages are still allowed, but non-security pages redirect back to `/dashboard/security-setup` instead of failing open.
 - `apps/admin` is the SaaS admin app: users can self-sign up, and access is gated by tenant membership/active tenant selection rather than a separate admin-access allowlist.
 - `apps/admin_pro` is the invite-based admin app: post-login completion should verify that the user has at least one admin membership before sending them into the dashboard.
+- `apps/admin_pro` should only revoke the session on definitive admin-access failures (invalid session or confirmed empty memberships). Transport, proxy, or parsing failures while checking memberships are retryable and must not force sign-out.
 
 ### Borrower Pro
 
@@ -65,6 +66,8 @@ This document captures the current authentication architecture and policy across
 
 All three auth-owning frontends now follow the same security-management behavior:
 
+- client-side security-status checks should trust `session.user.twoFactorEnabled` as a local source of truth before depending on passkey list requests
+- transient passkey lookup failures must not downgrade a session that already has `twoFactorEnabled === true` into a forced security-setup redirect
 - passkey add/remove UI
 - authenticator setup starts by enabling pending 2FA with the current password and then requesting the TOTP URI
 - authenticator setup button is inline with the password field
@@ -137,6 +140,7 @@ When changing auth behavior in the future, start with these files:
 - `apps/admin/components/account-security-card.tsx`
 - `apps/admin_pro/lib/auth-client.ts`
 - `apps/admin_pro/lib/auth-server.ts`
+- `apps/admin_pro/lib/finish-login.ts`
 - `apps/admin_pro/app/(auth)/login/page.tsx`
 - `apps/admin_pro/app/(dashboard)/layout.tsx`
 - `apps/admin_pro/components/account-security-card.tsx`

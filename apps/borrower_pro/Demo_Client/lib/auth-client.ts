@@ -124,13 +124,25 @@ export function deletePasskey(args: { id: string }) {
 }
 
 export async function fetchSecurityStatus(user: AuthUserSecurityFields | null | undefined) {
-  const passkeys = await listUserPasskeys();
+  const twoFactorEnabled = Boolean(user?.twoFactorEnabled);
+  let passkeys: RegisteredPasskey[] = [];
+
+  try {
+    passkeys = await listUserPasskeys();
+  } catch (error) {
+    // If 2FA is already enabled in the local session, keep that stronger signal
+    // instead of blocking dashboard access on a transient passkey lookup failure.
+    if (!twoFactorEnabled) {
+      throw error;
+    }
+  }
+
   return {
     emailVerified: Boolean(user?.emailVerified),
-    twoFactorEnabled: Boolean(user?.twoFactorEnabled),
+    twoFactorEnabled,
     passkeys,
     hasPasskey: passkeys.length > 0,
-    isSecuritySetupComplete: Boolean(user?.twoFactorEnabled) || passkeys.length > 0,
+    isSecuritySetupComplete: twoFactorEnabled || passkeys.length > 0,
   };
 }
 

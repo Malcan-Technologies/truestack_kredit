@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { ZodError } from 'zod';
 import { AppError } from '../lib/errors.js';
 import { config } from '../lib/config.js';
 
@@ -40,12 +41,12 @@ export function errorHandler(
   }
 
   // Handle validation errors (Zod)
-  if (err.name === 'ZodError') {
+  if (err instanceof ZodError) {
     res.status(400).json({
       success: false,
       error: 'Validation failed',
       code: 'VALIDATION_ERROR',
-      details: (err as unknown as { errors: unknown[] }).errors,
+      details: err.issues,
     });
     return;
   }

@@ -20,8 +20,6 @@ COPY --from=deps /app/apps ./apps
 COPY --from=deps /app/packages ./packages
 COPY . .
 
-WORKDIR /app/apps/admin
-
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL=https://kredit-api.truestack.my
 ARG NEXT_PUBLIC_APP_URL=https://kredit.truestack.my
@@ -36,6 +34,8 @@ RUN npm run build -w packages/shared
 # Admin auth route uses Prisma via Better Auth; generate client in this image.
 RUN DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" \
   npx prisma generate --schema=/app/apps/backend/prisma/schema.prisma
+
+WORKDIR /app/apps/admin
 
 RUN npm run build
 

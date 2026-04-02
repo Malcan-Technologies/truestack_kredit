@@ -41,6 +41,7 @@ RUN adduser --system --uid 1001 nodejs
 
 # Runtime files
 COPY --from=builder --chown=nodejs:nodejs /app/node_modules /app/node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/apps/backend/node_modules ./node_modules
 COPY --from=builder --chown=nodejs:nodejs /app/packages/shared /app/packages/shared
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend/dist ./dist
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend/prisma ./prisma

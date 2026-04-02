@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, KeyRound, Loader2, MailCheck, Shield, Trash2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ import { Separator } from "./ui/separator";
 import {
   addPasskey,
   authClient,
+  changePassword,
   deletePasskey,
   disableTwoFactor,
   enableTwoFactor,
@@ -278,8 +279,8 @@ export function AccountSecurityCard() {
     }
   };
 
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleChangePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (form.newPassword !== form.confirmPassword) {
       toast.error("New passwords do not match");
       return;
@@ -290,18 +291,12 @@ export function AccountSecurityCard() {
     }
     setChanging(true);
     try {
-      const res = await fetch("/api/proxy/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          currentPassword: form.currentPassword,
-          newPassword: form.newPassword,
-        }),
+      const result = await changePassword({
+        currentPassword: form.currentPassword,
+        newPassword: form.newPassword,
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json?.error || "Failed to change password");
+      if (result.error) {
+        throw new Error(result.error.message || "Failed to change password");
       }
       setShowChangePassword(false);
       setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
@@ -512,7 +507,7 @@ export function AccountSecurityCard() {
                   </button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Min 8 characters, 1 uppercase, 1 lowercase, 1 number
+                  Use at least 8 characters.
                 </p>
               </div>
               <div className="space-y-2">

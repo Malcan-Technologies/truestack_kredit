@@ -33,6 +33,7 @@ This document captures the current authentication architecture and policy across
 ## Shared Helpers
 
 - Shared auth constants and URL/origin helpers live in `packages/shared/src/auth-config.ts`.
+- Shared auth URL helpers normalize pathful auth endpoint URLs such as `https://example.com/api/auth` back to bare origins like `https://example.com` before building user-facing links, trusted origins, or passkey origins.
 - Signup/login onboarding helpers live in `packages/shared/src/auth-onboarding.ts`.
 - `packages/shared/src/auth-onboarding.ts` also stores pending authenticator setup state in session storage so the QR flow can survive client remounts until the user verifies or cancels.
 - Current shared timings:
@@ -75,6 +76,8 @@ All three auth-owning frontends now follow the same security-management behavior
 - pending authenticator setup is restored from session storage until the user verifies or cancels
 - badge text uses `Required for 2FA`
 - disable-two-factor action is inline with the password field
+- credential-based account screens must keep an authenticated password-change form available from the security card
+- password changes from the frontend should use Better Auth's client `changePassword` action instead of bespoke proxy fetches when the app already owns auth
 - backup-code view/regeneration UI is intentionally hidden from the account screen
 
 ## Email Delivery
@@ -104,7 +107,7 @@ Defaults exist for sender name/address, but `RESEND_API_KEY` must be present or 
   - `NEXT_PUBLIC_APP_URL`
   - `BACKEND_URL`
   - `RESEND_API_KEY` for auth emails
-- `apps/backend` uses `BETTER_AUTH_BASE_URL` or `BETTER_AUTH_URL` or `FRONTEND_URL` to validate sessions and origins.
+- `apps/backend` uses `BETTER_AUTH_BASE_URL` or `BETTER_AUTH_URL` or `FRONTEND_URL` to validate sessions and origins. If those env vars include `/api/auth`, shared helpers normalize them back to the browser origin before trusted-origin checks.
 
 ### Pro Stack
 
@@ -116,6 +119,7 @@ Defaults exist for sender name/address, but `RESEND_API_KEY` must be present or 
   - `NEXT_PUBLIC_APP_URL`
   - backend URL
   - `RESEND_API_KEY` for auth emails
+- Shared auth helpers normalize pathful `BETTER_AUTH_URL` values back to bare browser origins before generating auth emails, trusted origins, and passkey origin settings.
 - Passkey origin/RP ID can be overridden with:
   - `BETTER_AUTH_PASSKEY_ORIGINS`
   - `BETTER_AUTH_PASSKEY_RP_ID`

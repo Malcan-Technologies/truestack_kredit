@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { KeyRound, Loader2, MailCheck, Shield, Trash2 } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff, KeyRound, Loader2, MailCheck, Shield, Trash2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import {
@@ -26,6 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   addPasskey,
   authClient,
+  changePassword,
   deletePasskey,
   disableTwoFactor,
   enableTwoFactor,
@@ -88,6 +89,16 @@ export function AccountSecurityCard({
   const [confirmingTwoFactor, setConfirmingTwoFactor] = useState(false);
   const [disablePassword, setDisablePassword] = useState("");
   const [disablingTwoFactor, setDisablingTwoFactor] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [latestPasswordChangedAt, setLatestPasswordChangedAt] = useState(passwordChangedAt ?? null);
 
   const emailVerified = Boolean(currentUser?.emailVerified);
   const twoFactorEnabled = Boolean(currentUser?.twoFactorEnabled);
@@ -118,6 +129,10 @@ export function AccountSecurityCard({
       totpURI: pendingSetup.totpURI,
     });
   }, [currentUser?.id, twoFactorEnabled]);
+
+  useEffect(() => {
+    setLatestPasswordChangedAt(passwordChangedAt ?? null);
+  }, [passwordChangedAt]);
 
   const openSetupDialog = (totpURI: string) => {
     if (currentUser?.id) {
@@ -287,6 +302,56 @@ export function AccountSecurityCard({
     }
   };
 
+  const resetPasswordForm = () => {
+    setShowChangePassword(false);
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setPasswordForm({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+  };
+
+  const handleChangePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast.error("New passwords do not match.");
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (passwordForm.currentPassword === passwordForm.newPassword) {
+      toast.error("New password must be different from your current password.");
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const result = await changePassword({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+      if (result.error) {
+        throw new Error(result.error.message || "Unable to change password");
+      }
+
+      resetPasswordForm();
+      setLatestPasswordChangedAt(new Date().toISOString());
+      await refetch();
+      toast.success("Password updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to change password");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -294,7 +359,9 @@ export function AccountSecurityCard({
           <Shield className="h-5 w-5 text-muted-foreground" />
           <div>
             <CardTitle className="font-heading">Security</CardTitle>
-            <CardDescription>Manage verification, passkeys, authenticator setup, and recent sign-ins.</CardDescription>
+            <CardDescription>
+              Manage verification, passkeys, authenticator setup, password changes, and recent sign-ins.
+            </CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -427,13 +494,109 @@ export function AccountSecurityCard({
         </div>
 
         <div className="rounded-lg border border-border p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <MailCheck className="h-4 w-4 text-muted-foreground" />
-            <p className="font-medium">Password and login activity</p>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2">
+              <MailCheck className="h-4 w-4 text-muted-foreground" />
+              <p className="font-medium">Password and login activity</p>
+            </div>
+            <Button variant="outline" onClick={() => (showChangePassword ? resetPasswordForm() : setShowChangePassword(true))}>
+              {showChangePassword ? "Cancel" : "Change password"}
+            </Button>
           </div>
           <p className="text-sm text-muted">
-            Password last changed: {passwordChangedAt ? formatDate(passwordChangedAt) : "Never"}
+            Password last changed: {latestPasswordChangedAt ? formatDate(latestPasswordChangedAt) : "Never"}
           </p>
+
+          {showChangePassword && (
+            <form onSubmit={handleChangePassword} className="rounded-lg border border-border p-4 space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="current-password">
+                  Current password
+                </label>
+                <div className="relative">
+                  <Input
+                    id="current-password"
+                    type={showCurrentPassword ? "text" : "password"}
+                    value={passwordForm.currentPassword}
+                    onChange={(event) =>
+                      setPasswordForm((current) => ({
+                        ...current,
+                        currentPassword: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                  <button
+                    type="button"
+                    aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowCurrentPassword((current) => !current)}
+                  >
+                    {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="new-password">
+                  New password
+                </label>
+                <div className="relative">
+                  <Input
+                    id="new-password"
+                    type={showNewPassword ? "text" : "password"}
+                    value={passwordForm.newPassword}
+                    onChange={(event) =>
+                      setPasswordForm((current) => ({
+                        ...current,
+                        newPassword: event.target.value,
+                      }))
+                    }
+                    minLength={8}
+                    required
+                  />
+                  <button
+                    type="button"
+                    aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowNewPassword((current) => !current)}
+                  >
+                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-muted">Use at least 8 characters.</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="confirm-new-password">
+                  Confirm new password
+                </label>
+                <Input
+                  id="confirm-new-password"
+                  type="password"
+                  value={passwordForm.confirmPassword}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      confirmPassword: event.target.value,
+                    }))
+                  }
+                  minLength={8}
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button type="submit" disabled={changingPassword}>
+                  {changingPassword ? "Updating..." : "Update password"}
+                </Button>
+                <Button type="button" variant="outline" onClick={resetPasswordForm} disabled={changingPassword}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          )}
+
           {loginLogs.length > 0 ? (
             <Table>
               <TableHeader>

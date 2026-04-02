@@ -14,9 +14,24 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+function stripPathToOrigin(value: string): string {
+  const trimmed = trimTrailingSlash(value.trim());
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.host) {
+      return `${parsed.protocol}//${parsed.host}`;
+    }
+  } catch {
+    // Keep non-URL patterns such as wildcard origins untouched.
+  }
+
+  return trimmed;
+}
+
 export function normalizeOrigin(value: string | null | undefined): string | null {
   if (!value?.trim()) return null;
-  return trimTrailingSlash(value.trim());
+  return stripPathToOrigin(value);
 }
 
 export function splitOrigins(value: string | null | undefined): string[] {

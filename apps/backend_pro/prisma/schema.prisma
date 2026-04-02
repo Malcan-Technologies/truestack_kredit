@@ -213,6 +213,7 @@ model User {
   // Better Auth admin plugin fields (app-level; tenant role is in TenantMember)
   role   String  @default("staff")
   banned Boolean @default(false)
+  twoFactorEnabled Boolean @default(false)
 
   // User-level settings
   isActive          Boolean   @default(true)
@@ -221,6 +222,8 @@ model User {
   // Better Auth relations
   sessions Session[]
   accounts Account[]
+  twoFactors TwoFactor[]
+  passkeys Passkey[]
 
   // Borrower profile links (self-service: user can act as linked borrowers)
   borrowerProfileLinks BorrowerProfileLink[]
@@ -377,20 +380,35 @@ model Verification {
   @@index([identifier])
 }
 
-// Password reset code - app-owned table for code-based reset UX
-// Stores hashed code, Better Auth token, and enforces single-use + expiry
-model PasswordResetCode {
-  id              String    @id @default(cuid())
-  email           String
-  codeHash        String    // Hashed 6-digit code (never store plaintext)
-  betterAuthToken String    // Token from Better Auth for resetPassword call
-  expiresAt       DateTime
-  usedAt          DateTime? // Set when code is consumed (single-use)
-  attemptCount    Int       @default(0) // For throttling verification attempts
-  createdAt       DateTime  @default(now())
+model TwoFactor {
+  id          String @id @default(cuid())
+  userId      String
+  secret      String
+  backupCodes String
 
-  @@index([email])
-  @@index([email, usedAt])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([secret])
+  @@index([userId])
+}
+
+model Passkey {
+  id           String   @id @default(cuid())
+  name         String?
+  publicKey    String
+  userId       String
+  credentialID String
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime @default(now())
+  aaguid       String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([credentialID])
 }
 
 // Admin audit log for tracking admin actions (login, user management, etc.)

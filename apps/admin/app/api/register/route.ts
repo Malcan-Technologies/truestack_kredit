@@ -117,8 +117,7 @@ export async function POST(request: NextRequest) {
     // Auto-generate referral code for the new user so they always have one
     await ensureReferralCode(signUpResult.user.id);
 
-    // Return the session with cookies (NO tenant creation, NO activeTenantId set)
-    const response = NextResponse.json({
+    return NextResponse.json({
       success: true,
       data: {
         user: {
@@ -126,25 +125,15 @@ export async function POST(request: NextRequest) {
           email: signUpResult.user.email,
           name: signUpResult.user.name,
         },
+        email: signUpResult.user.email,
       },
     });
-
-    // Copy session cookies from Better Auth response if available (headers may exist at runtime)
-    const headers = (signUpResult as { headers?: Headers }).headers;
-    if (headers) {
-      const setCookieHeader = headers.get("set-cookie");
-      if (setCookieHeader) {
-        response.headers.set("set-cookie", setCookieHeader);
-      }
-    }
-
-    return response;
   } catch (error) {
     console.error("Registration error:", error);
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: error.errors[0]?.message || "Validation failed" },
+        { error: error.issues[0]?.message || "Validation failed" },
         { status: 400 }
       );
     }

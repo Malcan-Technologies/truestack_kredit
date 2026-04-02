@@ -1,18 +1,7 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { collectOrigins, resolveAuthBaseUrl, splitOrigins } from "@kredit/shared";
 import { prisma } from "./prisma.js";
-
-/**
- * Parse comma-separated absolute origins (no trailing slash).
- * Used for Better Auth `trustedOrigins` when multiple frontends share this API.
- */
-function splitOrigins(value: string | undefined): string[] {
-  if (!value?.trim()) return [];
-  return value
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 /**
  * Better Auth on this Express app verifies sessions created by Next.js apps (admin_pro,
@@ -30,19 +19,20 @@ function splitOrigins(value: string | undefined): string[] {
  *   Local defaults below always include :3005 and :3006 so both apps work without setting it.
  */
 const explicitTrusted = splitOrigins(process.env.BETTER_AUTH_TRUSTED_ORIGINS);
-const baseURL =
-  process.env.BETTER_AUTH_BASE_URL ||
-  process.env.FRONTEND_URL ||
-  explicitTrusted[0] ||
-  "http://localhost:3005";
+const baseURL = resolveAuthBaseUrl(
+  process.env.BETTER_AUTH_BASE_URL ??
+    process.env.BETTER_AUTH_URL ??
+    process.env.FRONTEND_URL ??
+    explicitTrusted[0],
+  "http://localhost:3005"
+);
 
-const trustedOrigins = [
+const trustedOrigins = collectOrigins(
   baseURL,
-  ...explicitTrusted,
-  // Local dev: admin_pro + borrower_pro (Demo_Client) without requiring env
+  explicitTrusted,
   "http://localhost:3005",
-  "http://localhost:3006",
-].filter((origin, index, arr) => arr.indexOf(origin) === index);
+  "http://localhost:3006"
+);
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {

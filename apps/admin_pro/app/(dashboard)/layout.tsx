@@ -33,7 +33,7 @@ import {
   Sparkles,
   Banknote,
 } from "lucide-react";
-import { useSession, signOut } from "@/lib/auth-client";
+import { fetchSecurityStatus, useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +57,10 @@ import { api } from "@/lib/api";
 import { TENANT_DATA_UPDATED_EVENT } from "@/lib/tenant-events";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  ADMIN_ACCESS_REQUIRED_MESSAGE,
+  revokeUnauthorizedAdminAccess,
+} from "@/lib/finish-login";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 
@@ -181,6 +185,7 @@ export default function DashboardLayout({
   const [subscriptionStatus, setSubscriptionStatus] = useState<'FREE' | 'PAID' | 'OVERDUE' | 'SUSPENDED'>('PAID');
   const [hasTenants, setHasTenants] = useState<boolean>(true);
   const [membershipCheckComplete, setMembershipCheckComplete] = useState(false);
+  const [securityCheckComplete, setSecurityCheckComplete] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedNavGroups, setExpandedNavGroups] = useState<Record<string, boolean>>({
@@ -191,6 +196,7 @@ export default function DashboardLayout({
   const [loansPendingAttestationCount, setLoansPendingAttestationCount] = useState(0);
   const [attestationSlotProposedCount, setAttestationSlotProposedCount] = useState(0);
   const [paymentApprovalsPendingCount, setPaymentApprovalsPendingCount] = useState(0);
+  const [isSigningOutUnauthorized, setIsSigningOutUnauthorized] = useState(false);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -455,6 +461,31 @@ export default function DashboardLayout({
   }, [session, ensureActiveTenantAndFetchMembership]);
 
   useEffect(() => {
+    if (!session || !membershipCheckComplete || hasTenants || isSigningOutUnauthorized) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsSigningOutUnauthorized(true);
+    toast.error(ADMIN_ACCESS_REQUIRED_MESSAGE);
+
+    void revokeUnauthorizedAdminAccess().finally(() => {
+      if (cancelled) return;
+      router.replace("/login");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    session,
+    membershipCheckComplete,
+    hasTenants,
+    isSigningOutUnauthorized,
+    router,
+  ]);
+
+  useEffect(() => {
     // Redirect to login if not authenticated
     if (!isPending && !session) {
       router.push("/login");
@@ -466,6 +497,39 @@ export default function DashboardLayout({
       void ensureActiveTenantAndFetchMembership();
     }
   }, [session, isPending, router, ensureActiveTenantAndFetchMembership]);
+
+  useEffect(() => {
+    if (isPending) return;
+    if (!session) {
+      setSecurityCheckComplete(true);
+      return;
+    }
+
+    const securityPaths = new Set(["/dashboard/profile", "/dashboard/security-setup"]);
+    const isSecurityPath = securityPaths.has(pathname);
+    let cancelled = false;
+
+    setSecurityCheckComplete(false);
+
+    void fetchSecurityStatus(session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean })
+      .then((status) => {
+        if (cancelled) return;
+        if (!status.isSecuritySetupComplete && !isSecurityPath) {
+          router.replace(`/dashboard/security-setup?returnTo=${encodeURIComponent(pathname)}`);
+          return;
+        }
+        setSecurityCheckComplete(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSecurityCheckComplete(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, isPending, pathname, router]);
 
   const handleLogout = async () => {
     await signOut();
@@ -490,6 +554,22 @@ export default function DashboardLayout({
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-muted">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!securityCheckComplete) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted">Loading...</div>
+      </div>
+    );
+  }
+
+  if (isSigningOutUnauthorized || !hasTenants) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted">Redirecting...</div>
       </div>
     );
   }

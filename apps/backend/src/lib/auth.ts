@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { collectOrigins, resolveAuthBaseUrl, splitOrigins } from "@kredit/shared";
 import { prisma } from "./prisma.js";
 
 /**
@@ -12,25 +13,28 @@ export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
-  
-  // Secret for verifying signed cookies (must match frontend)
   secret: process.env.BETTER_AUTH_SECRET,
-  
-  // Base URL - this is the frontend URL since that's where auth routes are
-  baseURL: process.env.FRONTEND_URL || "http://localhost:3000",
-  
-  // Session configuration (should match frontend)
+  baseURL: resolveAuthBaseUrl(
+    process.env.BETTER_AUTH_BASE_URL ??
+      process.env.BETTER_AUTH_URL ??
+      process.env.FRONTEND_URL,
+    "http://localhost:3000"
+  ),
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
-    updateAge: 60 * 60 * 24, // Update session every 24 hours
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
     cookieCache: {
       enabled: true,
-      maxAge: 60 * 5, // 5 minutes
+      maxAge: 60 * 5,
     },
   },
-  
-  // Advanced settings for cookie verification
   advanced: {
     useSecureCookies: process.env.NODE_ENV === "production",
   },
+  trustedOrigins: collectOrigins(
+    process.env.BETTER_AUTH_BASE_URL ??
+      process.env.BETTER_AUTH_URL ??
+      process.env.FRONTEND_URL,
+    splitOrigins(process.env.BETTER_AUTH_TRUSTED_ORIGINS)
+  ),
 });

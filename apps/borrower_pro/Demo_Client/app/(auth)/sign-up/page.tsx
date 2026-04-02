@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { signUp } from "@borrower_pro/lib/auth-client";
+import { useRouter } from "next/navigation";
+import { signUp } from "@/lib/auth-client";
+import {
+  type SecuritySetupPreference,
+  getSecuritySetupPreferenceCopy,
+  setPendingVerificationEmail,
+  setSecuritySetupPreference,
+} from "@kredit/shared";
 import { Button } from "@borrower_pro/components/ui/button";
 import { Input } from "@borrower_pro/components/ui/input";
 import { Label } from "@borrower_pro/components/ui/label";
@@ -16,18 +23,24 @@ import {
 } from "@borrower_pro/components/ui/card";
 import { toast } from "sonner";
 
+const ONBOARDING_NAMESPACE = "borrower";
+
 export default function SignUpPage() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [securityPreference, setSecurityPreference] =
+    useState<SecuritySetupPreference>("either");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+    const normalizedEmail = email.trim();
     const { error } = await signUp.email({
       name: name.trim() || "User",
-      email,
+      email: normalizedEmail,
       password,
     });
     setLoading(false);
@@ -35,8 +48,10 @@ export default function SignUpPage() {
       toast.error(error.message ?? "Sign up failed");
       return;
     }
-    toast.success("Account created. Please sign in.");
-    window.location.href = "/sign-in";
+    setPendingVerificationEmail(ONBOARDING_NAMESPACE, normalizedEmail);
+    setSecuritySetupPreference(ONBOARDING_NAMESPACE, securityPreference);
+    toast.success("Account created. Check your email to verify your address.");
+    router.replace(`/verify-email?email=${encodeURIComponent(normalizedEmail)}&source=signup`);
   }
 
   return (
@@ -85,6 +100,30 @@ export default function SignUpPage() {
                 minLength={8}
                 autoComplete="new-password"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>After you verify, what would you like to set up next?</Label>
+              <div className="grid gap-2">
+                {(
+                  ["passkey", "authenticator", "either"] as SecuritySetupPreference[]
+                ).map((option) => {
+                  const copy = getSecuritySetupPreferenceCopy(option);
+                  return (
+                    <Button
+                      key={option}
+                      type="button"
+                      variant={securityPreference === option ? "default" : "outline"}
+                      className="h-auto justify-start py-3 text-left whitespace-normal"
+                      onClick={() => setSecurityPreference(option)}
+                    >
+                      <span className="block">
+                        <span className="block font-medium">{copy.title}</span>
+                        <span className="block text-xs opacity-80">{copy.description}</span>
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">

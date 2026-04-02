@@ -768,6 +768,7 @@ jobs:
           secrets: |
             DATABASE_URL=${{ env.APP_SECRETS_ARN }}:database_url::
             BETTER_AUTH_SECRET=${{ env.APP_SECRETS_ARN }}:better_auth_secret::
+            RESEND_API_KEY=${{ env.APP_SECRETS_ARN }}:resend_api_key::
 
       - name: Deploy borrower task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1

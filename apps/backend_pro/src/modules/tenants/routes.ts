@@ -24,7 +24,7 @@ const router = Router();
 const createTenantSchema = z.object({
   name: z.string().min(2).max(100),
   slug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
-  type: z.enum(["PPW", "PPG"], { required_error: "License type is required" }),
+  type: z.enum(["PPW", "PPG"], { error: "License type is required" }),
   licenseNumber: z.string().min(1).max(50),
   registrationNumber: z.string().min(1).max(50),
   email: z.string().email(),

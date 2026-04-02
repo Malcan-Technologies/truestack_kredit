@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth-server";
 
-const PUBLIC_PATHS = ["/", "/health", "/sign-in", "/sign-up"];
+const PUBLIC_PATHS = [
+  "/",
+  "/health",
+  "/sign-in",
+  "/sign-up",
+  "/two-factor",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+];
 const AUTH_API_PREFIX = "/api/auth";
 const APP_API_PROXY_PREFIX = "/api/proxy";
 

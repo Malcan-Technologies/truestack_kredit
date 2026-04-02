@@ -1,9 +1,10 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import { fromNodeHeaders } from 'better-auth/node';
+import { AUTH_COOKIE_PREFIXES } from '@kredit/shared';
 
-const DEFAULT_PREFIX = 'better-auth';
-const ADMIN_PREFIX = 'truestack-admin';
-const BORROWER_PREFIX = 'truestack-borrower';
+const DEFAULT_PREFIX = AUTH_COOKIE_PREFIXES.default;
+const ADMIN_PREFIX = AUTH_COOKIE_PREFIXES.admin;
+const BORROWER_PREFIX = AUTH_COOKIE_PREFIXES.borrower;
 const PREFIXES = [DEFAULT_PREFIX, ADMIN_PREFIX, BORROWER_PREFIX] as const;
 
 function parseCookies(cookieHeader: string | undefined): Array<{ name: string; value: string }> {

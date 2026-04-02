@@ -3,8 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signIn } from "@borrower_pro/lib/auth-client";
-import { fetchBorrowerMe } from "@borrower_pro/lib/borrower-auth-client";
+import { KeyRound } from "lucide-react";
+import { signIn, signInWithPasskey } from "@/lib/auth-client";
+import {
+  clearPendingVerificationEmail,
+  getPendingVerificationEmail,
+  getSecuritySetupPreference,
+  setPendingVerificationEmail,
+} from "@kredit/shared";
+import { getBorrowerPostLoginDestination } from "@borrower_pro/lib/finish-login";
 import { Button } from "@borrower_pro/components/ui/button";
 import { Input } from "@borrower_pro/components/ui/input";
 import { Label } from "@borrower_pro/components/ui/label";
@@ -18,43 +25,79 @@ import {
 } from "@borrower_pro/components/ui/card";
 import { toast } from "sonner";
 
+const ONBOARDING_NAMESPACE = "borrower";
+
 export default function SignInPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<"credentials" | "passkey" | null>(null);
+
+  async function handlePasskeySignIn() {
+    setLoading("passkey");
+    try {
+      const result = await signInWithPasskey();
+      if (result.error) {
+        throw new Error(result.error.message ?? "Passkey sign in failed");
+      }
+
+      const destination = await getBorrowerPostLoginDestination();
+      toast.success("Signed in successfully");
+      router.replace(destination);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Passkey sign in failed");
+    } finally {
+      setLoading(null);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setLoading("credentials");
     try {
-      const { error } = await signIn.email({ email, password });
-      if (error) {
-        toast.error(error.message ?? "Sign in failed");
+      const result = await signIn.email({ email, password });
+      if (result.error) {
+        throw new Error(result.error.message ?? "Sign in failed");
+      }
+
+      const requiresTwoFactor = Boolean(
+        (result.data as { twoFactorRedirect?: boolean } | null | undefined)?.twoFactorRedirect
+      );
+      if (requiresTwoFactor) {
+        router.replace("/two-factor");
         return;
       }
-      toast.success("Signed in successfully");
 
-      // Wait briefly for the browser to persist the auth cookie before asking
-      // the borrower proxy which post-login route should be used.
-      let destination = "/dashboard";
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
-        try {
-          const me = await fetchBorrowerMe();
-          if (me.success) {
-            destination = me.data.profileCount > 0 ? "/dashboard" : "/onboarding";
-            break;
-          }
-        } catch {
-          /* retry until cookie is visible to the proxy */
-        }
+      const pendingEmail = getPendingVerificationEmail(ONBOARDING_NAMESPACE);
+      const preferredSetup = getSecuritySetupPreference(ONBOARDING_NAMESPACE);
+      if (
+        preferredSetup &&
+        pendingEmail &&
+        pendingEmail.toLowerCase() === email.trim().toLowerCase()
+      ) {
+        clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
+        toast.success("Signed in successfully. Let's finish securing your account.");
+        router.replace(`/security-setup?setup=${encodeURIComponent(preferredSetup)}`);
+        router.refresh();
+        return;
       }
 
+      clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
+      const destination = await getBorrowerPostLoginDestination();
+      toast.success("Signed in successfully");
       router.replace(destination);
       router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Sign in failed";
+      if (/not verified|verify/i.test(message) && email.trim()) {
+        setPendingVerificationEmail(ONBOARDING_NAMESPACE, email.trim());
+        router.push(`/verify-email?email=${encodeURIComponent(email.trim())}&source=signin`);
+        return;
+      }
+      toast.error(message);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
@@ -69,6 +112,24 @@ export default function SignInPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={loading !== null}
+              onClick={handlePasskeySignIn}
+            >
+              <KeyRound className="mr-2 h-4 w-4" />
+              {loading === "passkey" ? "Waiting for passkey..." : "Sign in with passkey"}
+            </Button>
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">Or use email and password</span>
+              </div>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -78,11 +139,19 @@ export default function SignInPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                autoComplete="email"
+                autoComplete="username webauthn"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  href={email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim())}` : "/forgot-password"}
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"
@@ -90,13 +159,13 @@ export default function SignInPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                autoComplete="current-password"
+                autoComplete="current-password webauthn"
               />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in…" : "Sign in"}
+            <Button type="submit" className="w-full" disabled={loading !== null}>
+              {loading === "credentials" ? "Signing in…" : "Sign in"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Don&apos;t have an account?{" "}

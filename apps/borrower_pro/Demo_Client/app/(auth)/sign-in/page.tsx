@@ -6,9 +6,6 @@ import { useRouter } from "next/navigation";
 import { KeyRound } from "lucide-react";
 import { signIn, signInWithPasskey } from "@/lib/auth-client";
 import {
-  clearPendingVerificationEmail,
-  getPendingVerificationEmail,
-  getSecuritySetupPreference,
   setPendingVerificationEmail,
 } from "@kredit/shared";
 import { getBorrowerPostLoginDestination } from "@borrower_pro/lib/finish-login";
@@ -69,21 +66,6 @@ export default function SignInPage() {
         return;
       }
 
-      const pendingEmail = getPendingVerificationEmail(ONBOARDING_NAMESPACE);
-      const preferredSetup = getSecuritySetupPreference(ONBOARDING_NAMESPACE);
-      if (
-        preferredSetup &&
-        pendingEmail &&
-        pendingEmail.toLowerCase() === email.trim().toLowerCase()
-      ) {
-        clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
-        toast.success("Signed in successfully. Let's finish securing your account.");
-        router.replace(`/security-setup?setup=${encodeURIComponent(preferredSetup)}`);
-        router.refresh();
-        return;
-      }
-
-      clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
       const destination = await getBorrowerPostLoginDestination();
       toast.success("Signed in successfully");
       router.replace(destination);

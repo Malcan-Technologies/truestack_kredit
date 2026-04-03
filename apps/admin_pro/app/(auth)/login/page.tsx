@@ -6,9 +6,6 @@ import { useRouter } from "next/navigation";
 import { KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import {
-  clearPendingVerificationEmail,
-  getPendingVerificationEmail,
-  getSecuritySetupPreference,
   setPendingVerificationEmail,
 } from "@kredit/shared";
 import { Button } from "@/components/ui/button";
@@ -104,21 +101,6 @@ export default function LoginPage() {
         return;
       }
 
-      const pendingEmail = getPendingVerificationEmail(ONBOARDING_NAMESPACE);
-      const preferredSetup = getSecuritySetupPreference(ONBOARDING_NAMESPACE);
-      if (
-        preferredSetup &&
-        pendingEmail &&
-        pendingEmail.toLowerCase() === normalizedEmail.toLowerCase()
-      ) {
-        clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
-        await ensureActiveTenantAfterLogin();
-        toast.success("Login successful. Let's finish securing your account.");
-        router.push(`/dashboard/security-setup?setup=${encodeURIComponent(preferredSetup)}`);
-        return;
-      }
-
-      clearPendingVerificationEmail(ONBOARDING_NAMESPACE);
       await ensureActiveTenantAfterLogin();
       toast.success("Login successful");
       router.push("/dashboard");

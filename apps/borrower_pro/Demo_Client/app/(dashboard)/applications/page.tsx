@@ -87,6 +87,11 @@ function formatCurrencyMaybe(v: unknown): string {
 
 function navigateForApplication(router: ReturnType<typeof useRouter>, app: LoanApplicationDetail) {
   if (app.status === "DRAFT") {
+    const href =
+      app.loanChannel === "PHYSICAL"
+        ? borrowerApplicationDetailPath(app)
+        : `/applications/apply?applicationId=${app.id}`;
+    router.push(href);
     return;
   }
   router.push(borrowerApplicationDetailPath(app));
@@ -461,8 +466,7 @@ export default function ApplicationsPage() {
               ) : (
                 <CardDescription className="mt-1.5">
                   {totalItems} application{totalItems !== 1 ? "s" : ""}
-                  {filter ? " matching this filter" : ""}. Click a submitted row to view details (drafts use
-                  Continue only). Total submitted: {submittedToLenderTotal}.
+                  {filter ? " matching this filter" : ""}. Click a row to view details. Total submitted: {submittedToLenderTotal}.
                 </CardDescription>
               )}
             </div>
@@ -587,15 +591,8 @@ export default function ApplicationsPage() {
                     return (
                       <TableRow
                         key={app.id}
-                        className={
-                          isDraft
-                            ? ""
-                            : "cursor-pointer transition-colors hover:bg-muted/20"
-                        }
-                        onClick={() => {
-                          if (!isDraft) navigateForApplication(router, app);
-                        }}
-                        data-state={isDraft ? "static" : undefined}
+                        className="cursor-pointer transition-colors hover:bg-muted/20"
+                        onClick={() => navigateForApplication(router, app)}
                       >
                         <TableCell className="font-medium">{app.product?.name ?? "—"}</TableCell>
                         <TableCell>{formatCurrencyMaybe(app.amount)}</TableCell>
@@ -636,34 +633,14 @@ export default function ApplicationsPage() {
                               </Button>
                             )}
                             {(app.status === "SUBMITTED" || app.status === "UNDER_REVIEW") && (
-                              <>
-                                {loanId && (
-                                  <Button variant="outline" size="sm" asChild>
-                                    <Link href={`/loans/${loanId}`}>Open loan</Link>
-                                  </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  className="bg-foreground text-background hover:bg-foreground/90"
-                                  asChild
-                                >
-                                  <Link href={borrowerApplicationDetailPath(app)}>View application</Link>
-                                </Button>
-                              </>
+                              <Button variant="outline" size="sm" asChild>
+                                <Link href={borrowerApplicationDetailPath(app)}>View</Link>
+                              </Button>
                             )}
                             {app.status === "APPROVED" && (
-                              <>
-                                <Button variant="outline" size="sm" asChild>
-                                  <Link href={loanId ? `/loans/${loanId}` : "/loans"}>Open loan</Link>
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  className="bg-foreground text-background hover:bg-foreground/90"
-                                  asChild
-                                >
-                                  <Link href={borrowerApplicationDetailPath(app)}>View application</Link>
-                                </Button>
-                              </>
+                              <Button variant="outline" size="sm" asChild>
+                                <Link href={borrowerApplicationDetailPath(app)}>View</Link>
+                              </Button>
                             )}
                           </div>
                         </TableCell>

@@ -8,10 +8,7 @@ import { authClient } from "@/lib/auth-client";
 import {
   clearPendingVerificationEmail,
   getPendingVerificationEmail,
-  getSecuritySetupPreference,
-  getSecuritySetupPreferenceCopy,
   setPendingVerificationEmail,
-  type SecuritySetupPreference,
 } from "@kredit/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,8 +29,6 @@ function VerifyEmailContent() {
   const emailFromUrl = searchParams.get("email")?.trim() ?? "";
   const source = searchParams.get("source")?.trim() ?? "";
   const [email, setEmail] = useState(emailFromUrl);
-  const [securityPreference, setSecurityPreference] =
-    useState<SecuritySetupPreference | null>(null);
   const [statusMessage, setStatusMessage] = useState(
     "Check your inbox for the verification link. If it didn't arrive, resend it below."
   );
@@ -45,8 +40,6 @@ function VerifyEmailContent() {
       setEmail(nextEmail);
       setPendingVerificationEmail(ONBOARDING_NAMESPACE, nextEmail);
     }
-
-    setSecurityPreference(getSecuritySetupPreference(ONBOARDING_NAMESPACE));
 
     if (source === "signup") {
       setStatusMessage("We sent you a verification email. Open the link in that email to continue.");
@@ -103,16 +96,6 @@ function VerifyEmailContent() {
             <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
               {statusMessage}
             </div>
-            {securityPreference ? (
-              <div className="rounded-lg border border-border p-4 text-sm">
-                <p className="font-medium">
-                  Preferred next step: {getSecuritySetupPreferenceCopy(securityPreference).title}
-                </p>
-                <p className="mt-1 text-muted-foreground">
-                  {getSecuritySetupPreferenceCopy(securityPreference).description}
-                </p>
-              </div>
-            ) : null}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input

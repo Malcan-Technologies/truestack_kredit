@@ -1,27 +1,7 @@
-export type SecuritySetupPreference = "passkey" | "authenticator" | "either";
-
 export interface PendingTotpSetup {
   userId: string;
   totpURI: string;
 }
-
-const SECURITY_SETUP_PREFERENCE_COPY: Record<
-  SecuritySetupPreference,
-  { title: string; description: string }
-> = {
-  passkey: {
-    title: "Passkey",
-    description: "Use Touch ID, Face ID, Windows Hello, or a security key for faster sign-in.",
-  },
-  authenticator: {
-    title: "Authenticator app",
-    description: "Use Google Authenticator, 1Password, or another app to generate one-time codes.",
-  },
-  either: {
-    title: "Decide after verification",
-    description: "You can choose between passkey and authenticator setup after you sign in.",
-  },
-};
 
 type StorageLike = {
   getItem(key: string): string | null;
@@ -71,47 +51,6 @@ export function clearPendingVerificationEmail(namespace: string) {
   if (!storage) return;
 
   storage.removeItem(makeKey(namespace, "pending-verification-email"));
-}
-
-export function getSecuritySetupPreference(
-  namespace: string
-): SecuritySetupPreference | null {
-  const storage = getStorage();
-  if (!storage) return null;
-
-  const value = storage.getItem(makeKey(namespace, "security-setup-preference"));
-  if (
-    value === "passkey" ||
-    value === "authenticator" ||
-    value === "either"
-  ) {
-    return value;
-  }
-
-  return null;
-}
-
-export function setSecuritySetupPreference(
-  namespace: string,
-  preference: SecuritySetupPreference
-) {
-  const storage = getStorage();
-  if (!storage) return;
-
-  storage.setItem(makeKey(namespace, "security-setup-preference"), preference);
-}
-
-export function clearSecuritySetupPreference(namespace: string) {
-  const storage = getStorage();
-  if (!storage) return;
-
-  storage.removeItem(makeKey(namespace, "security-setup-preference"));
-}
-
-export function getSecuritySetupPreferenceCopy(
-  preference: SecuritySetupPreference
-) {
-  return SECURITY_SETUP_PREFERENCE_COPY[preference];
 }
 
 export function getPendingTotpSetup(namespace: string): PendingTotpSetup | null {

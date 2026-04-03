@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { UserCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSession, updateUser } from "@/lib/auth-client";
 import { formatDate } from "@/lib/utils";
 import { AccountSecurityCard } from "@/components/account-security-card";
+import { LoginActivityCard } from "@/components/login-activity-card";
 
 interface ProfileDetails {
   createdAt: string | null;
@@ -43,6 +44,17 @@ export default function ProfilePage() {
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const currentUser = session?.user;
   const hasLoadedOnce = useRef(false);
+
+  const handleVisibilityChange = useCallback(() => {
+    if (document.visibilityState === "visible") {
+      refetchSession();
+    }
+  }, [refetchSession]);
+
+  useEffect(() => {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [handleVisibilityChange]);
 
   const fetchProfileData = async () => {
     if (!session) return;
@@ -163,8 +175,8 @@ export default function ProfilePage() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Email</label>
-                  <Input value={currentUser?.email || ""} disabled className="bg-surface" />
-                  <p className="text-xs text-muted">Email cannot be changed</p>
+                  <Input value={currentUser?.email || ""} disabled className="bg-muted" />
+                  <p className="text-xs text-muted-foreground">To change your email, go to the Security card below</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -201,12 +213,11 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      <div>
-        <AccountSecurityCard
-          passwordChangedAt={passwordInfo?.passwordChangedAt ?? null}
-          loginLogs={loginLogs}
-        />
-      </div>
+      <AccountSecurityCard
+        passwordChangedAt={passwordInfo?.passwordChangedAt ?? null}
+      />
+
+      <LoginActivityCard loginLogs={loginLogs} />
     </div>
   );
 }

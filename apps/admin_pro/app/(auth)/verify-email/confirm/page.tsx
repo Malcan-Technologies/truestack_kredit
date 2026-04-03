@@ -4,10 +4,6 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  getSecuritySetupPreference,
-  getSecuritySetupPreferenceCopy,
-} from "@kredit/shared";
-import {
   Card,
   CardContent,
   CardDescription,
@@ -18,23 +14,12 @@ import {
 import { Button } from "@/components/ui/button";
 
 type VerifyState = "loading" | "success" | "error";
-const ONBOARDING_NAMESPACE = "admin-pro";
 
 function VerifyEmailConfirmContent() {
   const searchParams = useSearchParams();
   const token = useMemo(() => searchParams.get("token")?.trim() ?? "", [searchParams]);
   const [state, setState] = useState<VerifyState>(token ? "loading" : "error");
   const [message, setMessage] = useState("Verifying your email...");
-  const [nextStepMessage, setNextStepMessage] = useState("");
-
-  useEffect(() => {
-    const preference = getSecuritySetupPreference(ONBOARDING_NAMESPACE);
-    if (!preference) return;
-
-    setNextStepMessage(
-      `Next, sign in and set up ${getSecuritySetupPreferenceCopy(preference).title.toLowerCase()}.`
-    );
-  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -82,8 +67,6 @@ function VerifyEmailConfirmContent() {
         <CardContent>
           {state === "loading" ? (
             <p className="text-sm text-muted-foreground text-center">Verifying your email...</p>
-          ) : nextStepMessage ? (
-            <p className="text-sm text-muted-foreground text-center">{nextStepMessage}</p>
           ) : null}
         </CardContent>
         <CardFooter className="flex flex-col gap-3">

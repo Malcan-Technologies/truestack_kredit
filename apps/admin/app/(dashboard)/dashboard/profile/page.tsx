@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { UserCircle, Share2, Users, Building2, Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { CopyField } from "@/components/ui/copy-field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BANK_OPTIONS, getBankLabel } from "@/lib/bank-options";
 import { AccountSecurityCard } from "@/components/account-security-card";
+import { LoginActivityCard } from "@/components/login-activity-card";
 import Link from "next/link";
 
 interface CurrentMembership {
@@ -106,6 +107,17 @@ export default function ProfilePage() {
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const currentUser = session?.user;
   const hasLoadedOnce = useRef(false);
+
+  const handleVisibilityChange = useCallback(() => {
+    if (document.visibilityState === "visible") {
+      refetchSession();
+    }
+  }, [refetchSession]);
+
+  useEffect(() => {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [handleVisibilityChange]);
 
   const fetchData = async () => {
     if (!session) return;
@@ -391,9 +403,9 @@ Sign up here: ${referralLink}`
                   <Input
                     value={currentUser?.email || ""}
                     disabled
-                    className="bg-surface"
+                    className="bg-muted"
                   />
-                  <p className="text-xs text-muted">Email cannot be changed</p>
+                  <p className="text-xs text-muted-foreground">To change your email, go to the Security card below</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -440,109 +452,109 @@ Sign up here: ${referralLink}`
         </CardContent>
       </Card>
 
-      {/* Security + Your Tenants - 2 columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AccountSecurityCard
-          passwordChangedAt={passwordInfo?.passwordChangedAt ?? null}
-          loginLogs={loginLogs}
-        />
-
-        {/* Your Tenants */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Building2 className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <CardTitle className="font-heading">Your Tenants</CardTitle>
-                  <CardDescription>Organizations you belong to with their plans and billing</CardDescription>
-                </div>
+      {/* Your Tenants */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Building2 className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle className="font-heading">Your Tenants</CardTitle>
+                <CardDescription>Organizations you belong to with their plans and billing</CardDescription>
               </div>
-              <Button variant="default" size="sm" asChild>
-                <Link href="/dashboard/onboarding">
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Tenant
-                </Link>
-              </Button>
             </div>
-          </CardHeader>
-          <CardContent>
-            {loadingTenants ? (
-              <div className="space-y-4">
-                <Skeleton className="h-24 w-full rounded-lg" />
-                <Skeleton className="h-24 w-full rounded-lg" />
-              </div>
-            ) : tenants.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No tenants yet</p>
-            ) : (
-              <div className="space-y-4">
-                {tenants.map((t) => (
-                  <div
-                    key={t.tenantId}
-                    className="flex items-center justify-between gap-4 p-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="shrink-0 h-10 w-10 rounded-lg bg-surface border border-border flex items-center justify-center">
-                        <Building2 className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold font-heading">{t.tenantName}</p>
-                          <Badge variant="outline" className="text-xs">
-                            {t.role}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {[
-                            `Plan: ${t.subscription?.plan ? t.subscription.plan.charAt(0).toUpperCase() + t.subscription.plan.slice(1) : "Free"}`,
-                            t.addOns && t.addOns.length > 0
-                              ? `Add-ons: ${t.addOns.filter((a) => a.status === "ACTIVE").map((a) => a.addOnType === "TRUESEND" ? "TrueSend" : a.addOnType === "TRUEIDENTITY" ? "TrueIdentity" : a.addOnType).join(", ")}`
-                              : null,
-                            t.subscription
-                              ? t.subscription.status === "GRACE_PERIOD" && t.subscription.gracePeriodEnd
-                                ? `Due ${formatDate(t.subscription.gracePeriodEnd)}`
-                                : t.subscription.currentPeriodEnd
-                                  ? `Renews ${formatDate(t.subscription.currentPeriodEnd)}`
-                                  : null
-                              : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
-                      </div>
+            <Button variant="default" size="sm" asChild>
+              <Link href="/dashboard/onboarding">
+                <Plus className="h-4 w-4 mr-2" />
+                New Tenant
+              </Link>
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingTenants ? (
+            <div className="space-y-4">
+              <Skeleton className="h-24 w-full rounded-lg" />
+              <Skeleton className="h-24 w-full rounded-lg" />
+            </div>
+          ) : tenants.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No tenants yet</p>
+          ) : (
+            <div className="space-y-4">
+              {tenants.map((t) => (
+                <div
+                  key={t.tenantId}
+                  className="flex items-center justify-between gap-4 p-4 rounded-lg bg-neutral-100 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="shrink-0 h-10 w-10 rounded-lg bg-surface border border-border flex items-center justify-center">
+                      <Building2 className="h-5 w-5 text-muted-foreground" />
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={async () => {
-                        try {
-                          const res = await fetch("/api/proxy/auth/switch-tenant", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            credentials: "include",
-                            body: JSON.stringify({ tenantId: t.tenantId }),
-                          });
-                          const data = await res.json();
-                          if (data.success) {
-                            toast.success(`Switched to ${data.data.tenantName}`);
-                            window.location.href = "/dashboard/billing";
-                          } else {
-                            toast.error(data.error || "Failed to switch tenant");
-                          }
-                        } catch {
-                          toast.error("Failed to switch tenant");
-                        }
-                      }}
-                    >
-                      Billing
-                    </Button>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold font-heading">{t.tenantName}</p>
+                        <Badge variant="outline" className="text-xs">
+                          {t.role}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {[
+                          `Plan: ${t.subscription?.plan ? t.subscription.plan.charAt(0).toUpperCase() + t.subscription.plan.slice(1) : "Free"}`,
+                          t.addOns && t.addOns.length > 0
+                            ? `Add-ons: ${t.addOns.filter((a) => a.status === "ACTIVE").map((a) => a.addOnType === "TRUESEND" ? "TrueSend" : a.addOnType === "TRUEIDENTITY" ? "TrueIdentity" : a.addOnType).join(", ")}`
+                            : null,
+                          t.subscription
+                            ? t.subscription.status === "GRACE_PERIOD" && t.subscription.gracePeriodEnd
+                              ? `Due ${formatDate(t.subscription.gracePeriodEnd)}`
+                              : t.subscription.currentPeriodEnd
+                                ? `Renews ${formatDate(t.subscription.currentPeriodEnd)}`
+                                : null
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const res = await fetch("/api/proxy/auth/switch-tenant", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          credentials: "include",
+                          body: JSON.stringify({ tenantId: t.tenantId }),
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                          toast.success(`Switched to ${data.data.tenantName}`);
+                          window.location.href = "/dashboard/billing";
+                        } else {
+                          toast.error(data.error || "Failed to switch tenant");
+                        }
+                      } catch {
+                        toast.error("Failed to switch tenant");
+                      }
+                    }}
+                  >
+                    Billing
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Security */}
+      <AccountSecurityCard
+        passwordChangedAt={passwordInfo?.passwordChangedAt ?? null}
+      />
+
+      {/* Recent Login Activity */}
+      <LoginActivityCard loginLogs={loginLogs} />
 
       {/* Referrals - combined code + my referrals */}
       <Card>

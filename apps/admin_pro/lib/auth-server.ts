@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { betterAuth } from "better-auth";
+import { createAuthMiddleware } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
@@ -197,6 +198,9 @@ export const auth = betterAuth({
   },
   
   user: {
+    changeEmail: {
+      enabled: true,
+    },
     additionalFields: {
       isActive: {
         type: "boolean",
@@ -240,6 +244,34 @@ export const auth = betterAuth({
       origin: passkeyOrigins,
     }),
   ],
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/passkey/verify-registration") {
+        try {
+          const returned = ctx.context.returned;
+          if (!returned) return;
+          let data: Record<string, unknown> | null = null;
+          if (returned instanceof Response) {
+            if (returned.status === 200) {
+              data = await returned.clone().json();
+            }
+          } else if (typeof returned === "object" && !("stack" in (returned as object))) {
+            data = returned as Record<string, unknown>;
+          }
+          const id = data?.id as string | undefined;
+          if (id) {
+            await prisma.passkey.update({
+              where: { id },
+              data: { rpId: passkeyRpId },
+            });
+          }
+        } catch (err) {
+          console.error("[auth] Failed to stamp rpId on passkey:", err);
+        }
+      }
+    }),
+  },
+
   advanced: {
     cookiePrefix: AUTH_COOKIE_PREFIX,
     useSecureCookies: process.env.NODE_ENV === "production",

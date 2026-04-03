@@ -9,7 +9,6 @@ import {
   Calendar,
   CheckCircle,
   ClipboardList,
-  FileEdit,
   FileText,
   Fingerprint,
   PenTool,
@@ -197,7 +196,6 @@ export default function DashboardPage() {
   const [overview, setOverview] = useState<LoanCenterOverview | null>(null);
   const [activeLoans, setActiveLoans] = useState<BorrowerLoanListItem[]>([]);
   const [pendingLoans, setPendingLoans] = useState<BorrowerLoanListItem[]>([]);
-  const [draftApps, setDraftApps] = useState<LoanApplicationDetail[]>([]);
   const [counterOfferApps, setCounterOfferApps] = useState<LoanApplicationDetail[]>([]);
   const [borrowerName, setBorrowerName] = useState<string | null>(null);
   const [borrowerKycDone, setBorrowerKycDone] = useState<boolean | null>(null);
@@ -207,7 +205,6 @@ export default function DashboardPage() {
     setOverview(null);
     setActiveLoans([]);
     setPendingLoans([]);
-    setDraftApps([]);
     setCounterOfferApps([]);
     setBorrowerName(null);
     setBorrowerKycDone(null);
@@ -229,7 +226,6 @@ export default function DashboardPage() {
       setActiveLoans(aLoans.data);
       setPendingLoans(pLoans.data);
       const applicationRows = apps.success ? apps.data : [];
-      setDraftApps(applicationRows.filter((a) => a.status === "DRAFT"));
       setCounterOfferApps(applicationRows.filter((a) => getPendingLenderCounterOffer(a) != null));
       if (borrowerRes?.success) {
         setBorrowerKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));
@@ -355,25 +351,8 @@ export default function DashboardPage() {
       });
     }
 
-    for (const app of draftApps) {
-      items.push({
-        id: `draft-${app.id}`,
-        label: "Draft Application",
-        statusLabel: "DRAFT",
-        sublabel: `${app.product?.name ?? "Application"} (${formatRm(app.amount)})`,
-        description: "Continue filling out your loan application.",
-        href: app.loanChannel === "PHYSICAL" ? `/applications/${app.id}` : `/applications/apply?applicationId=${app.id}`,
-        badgeVariant: "default",
-        icon: FileEdit,
-        iconBg: "bg-muted/20",
-        iconColor: "text-muted-foreground",
-        tier: "low",
-        ctaLabel: "Resume",
-      });
-    }
-
     return items;
-  }, [pendingLoans, counterOfferApps, draftApps, borrowerKycDone]);
+  }, [pendingLoans, counterOfferApps, borrowerKycDone]);
 
   const summary = overview?.summary;
   const counts = overview?.counts;
@@ -524,8 +503,8 @@ export default function DashboardPage() {
                     className={cn(
                       "block rounded-xl border px-4 py-3 transition-colors group",
                       action.tier === "urgent"
-                        ? "border-border bg-card hover:bg-accent"
-                        : "border-border/60 bg-card/50 hover:bg-accent/50"
+                        ? "border-warning/15 bg-warning/5 hover:bg-warning/10"
+                        : "border-warning/10 bg-warning/5 hover:bg-warning/10"
                     )}
                   >
                     <div className="flex items-center gap-3">

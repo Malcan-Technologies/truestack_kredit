@@ -133,10 +133,21 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 // Start server
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   console.log(`🚀 TrueKredit API running on port ${config.port}`);
   console.log(`   Environment: ${config.nodeEnv}`);
 
   // Initialize cron jobs after server starts
   initCronJobs();
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `Port ${config.port} is already in use. Stop the other process (e.g. lsof -i :${config.port}) or change PORT in .env.`,
+    );
+  } else {
+    console.error(err);
+  }
+  process.exit(1);
 });

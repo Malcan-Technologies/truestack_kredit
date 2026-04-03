@@ -445,7 +445,7 @@ router.get('/passkeys', requireSession, async (req, res, next) => {
   try {
     const rpId = typeof req.query.rpId === 'string' ? req.query.rpId : undefined;
 
-    const where: Record<string, unknown> = { userId: req.userId };
+    const where: Record<string, unknown> = { userId: req.user!.userId };
     if (rpId) {
       where.OR = [{ rpId }, { rpId: null }];
     }

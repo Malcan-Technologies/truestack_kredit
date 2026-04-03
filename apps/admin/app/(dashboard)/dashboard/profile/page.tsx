@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { UserCircle, Share2, Users, Building2, Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { CopyField } from "@/components/ui/copy-field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BANK_OPTIONS, getBankLabel } from "@/lib/bank-options";
 import { AccountSecurityCard } from "@/components/account-security-card";
+import { LoginActivityCard } from "@/components/login-activity-card";
 import Link from "next/link";
 
 interface CurrentMembership {
@@ -106,6 +107,17 @@ export default function ProfilePage() {
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const currentUser = session?.user;
   const hasLoadedOnce = useRef(false);
+
+  const handleVisibilityChange = useCallback(() => {
+    if (document.visibilityState === "visible") {
+      refetchSession();
+    }
+  }, [refetchSession]);
+
+  useEffect(() => {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [handleVisibilityChange]);
 
   const fetchData = async () => {
     if (!session) return;
@@ -391,9 +403,9 @@ Sign up here: ${referralLink}`
                   <Input
                     value={currentUser?.email || ""}
                     disabled
-                    className="bg-surface"
+                    className="bg-muted"
                   />
-                  <p className="text-xs text-muted">Email cannot be changed</p>
+                  <p className="text-xs text-muted-foreground">To change your email, go to the Security card below</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -444,7 +456,6 @@ Sign up here: ${referralLink}`
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AccountSecurityCard
           passwordChangedAt={passwordInfo?.passwordChangedAt ?? null}
-          loginLogs={loginLogs}
         />
 
         {/* Your Tenants */}
@@ -543,6 +554,9 @@ Sign up here: ${referralLink}`
           </CardContent>
         </Card>
       </div>
+
+      {/* Recent Login Activity */}
+      <LoginActivityCard loginLogs={loginLogs} />
 
       {/* Referrals - combined code + my referrals */}
       <Card>

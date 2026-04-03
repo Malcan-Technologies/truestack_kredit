@@ -57,6 +57,7 @@ export const {
   useSession,
   getSession,
   changePassword,
+  changeEmail,
   updateUser,
 } = authClient;
 
@@ -103,11 +104,17 @@ export function addPasskey(args?: {
   return authClientUnsafe.passkey.addPasskey(args);
 }
 
-export function listUserPasskeys() {
-  return authJson<RegisteredPasskey[]>("/passkey/list-user-passkeys", {
-    method: "GET",
-    headers: {},
-  });
+export async function listUserPasskeys() {
+  const rpId = new URL(
+    process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+  ).hostname;
+  const res = await fetch(
+    `/api/proxy/auth/passkeys?rpId=${encodeURIComponent(rpId)}`,
+    { credentials: "include" }
+  );
+  const json = await res.json();
+  if (!json.success) throw new Error("Failed to load passkeys");
+  return json.data as RegisteredPasskey[];
 }
 
 export function updatePasskey(args: { id: string; name: string }) {

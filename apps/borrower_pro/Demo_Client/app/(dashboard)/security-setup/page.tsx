@@ -1,25 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { ShieldAlert } from "lucide-react";
-import {
-  getSecuritySetupPreferenceCopy,
-  type SecuritySetupPreference,
-} from "@kredit/shared";
 import { Button } from "@borrower_pro/components/ui/button";
 import { AccountSecurityCard } from "@borrower_pro/components/account-security-card";
 
 export default function SecuritySetupPage() {
-  const searchParams = useSearchParams();
-  const requestedSetup = searchParams.get("setup");
-  const setupPreference =
-    requestedSetup === "passkey" ||
-    requestedSetup === "authenticator" ||
-    requestedSetup === "either"
-      ? (requestedSetup as SecuritySetupPreference)
-      : null;
-
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -30,12 +16,6 @@ export default function SecuritySetupPage() {
         <p className="text-muted-foreground">
           Before you can use the rest of the app, set up either a passkey or an authenticator app.
         </p>
-        {setupPreference ? (
-          <p className="text-sm text-muted-foreground">
-            You chose {getSecuritySetupPreferenceCopy(setupPreference).title.toLowerCase()} during
-            signup. Start there, or switch to the other option if you prefer.
-          </p>
-        ) : null}
       </div>
 
       <AccountSecurityCard />

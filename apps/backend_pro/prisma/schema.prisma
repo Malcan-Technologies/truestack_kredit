@@ -404,6 +404,7 @@ model Passkey {
   transports   String?
   createdAt    DateTime @default(now())
   aaguid       String?
+  rpId         String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

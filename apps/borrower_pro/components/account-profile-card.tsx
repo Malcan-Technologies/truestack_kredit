@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { UserCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
@@ -19,12 +19,23 @@ interface AccountData {
 }
 
 export function AccountProfileCard() {
-  const { data: session, isPending } = useSession();
+  const { data: session, isPending, refetch } = useSession();
   const [account, setAccount] = useState<AccountData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const handleVisibilityChange = useCallback(() => {
+    if (document.visibilityState === "visible") {
+      refetch();
+    }
+  }, [refetch]);
+
+  useEffect(() => {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [handleVisibilityChange]);
 
   useEffect(() => {
     if (!session) return;
@@ -128,7 +139,7 @@ export function AccountProfileCard() {
                   disabled
                   className="bg-muted"
                 />
-                <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                <p className="text-xs text-muted-foreground">To change your email, go to the Security card below</p>
               </div>
             </div>
             <div className="flex gap-2">

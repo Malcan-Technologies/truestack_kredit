@@ -438,6 +438,38 @@ router.get('/password-info', requireSession, async (req, res, next) => {
 });
 
 /**
+ * List passkeys for the authenticated user, optionally filtered by rpId.
+ * GET /api/auth/passkeys?rpId=hostname
+ */
+router.get('/passkeys', requireSession, async (req, res, next) => {
+  try {
+    const rpId = typeof req.query.rpId === 'string' ? req.query.rpId : undefined;
+
+    const where: Record<string, unknown> = { userId: req.userId };
+    if (rpId) {
+      where.OR = [{ rpId }, { rpId: null }];
+    }
+
+    const passkeys = await prisma.passkey.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        deviceType: true,
+        backedUp: true,
+        createdAt: true,
+        rpId: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ success: true, data: passkeys });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Get recent login history
  * GET /api/auth/login-history
  * 

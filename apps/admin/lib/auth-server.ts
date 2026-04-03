@@ -195,6 +195,9 @@ export const auth = betterAuth({
   },
   
   user: {
+    changeEmail: {
+      enabled: true,
+    },
     additionalFields: {
       isActive: {
         type: "boolean",

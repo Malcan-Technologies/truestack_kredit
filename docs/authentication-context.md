@@ -34,8 +34,8 @@ This document captures the current authentication architecture and policy across
 
 - Shared auth constants and URL/origin helpers live in `packages/shared/src/auth-config.ts`.
 - Shared auth URL helpers normalize pathful auth endpoint URLs such as `https://example.com/api/auth` back to bare origins like `https://example.com` before building user-facing links, trusted origins, or passkey origins.
-- Signup/login onboarding helpers live in `packages/shared/src/auth-onboarding.ts`.
-- `packages/shared/src/auth-onboarding.ts` also stores pending authenticator setup state in session storage so the QR flow can survive client remounts until the user verifies or cancels.
+- Onboarding helpers (pending verification email, pending TOTP setup) live in `packages/shared/src/auth-onboarding.ts`.
+- `packages/shared/src/auth-onboarding.ts` stores pending authenticator setup state in session storage so the QR flow can survive client remounts until the user verifies or cancels.
 - Current shared timings:
   - auth links: 15 minutes
   - TOTP challenge cookie: 10 minutes
@@ -48,7 +48,6 @@ This document captures the current authentication architecture and policy across
 - Login pages offer passkey-first sign-in and email/password fallback.
 - If password sign-in requires TOTP, the app redirects to `/two-factor`.
 - If email is unverified, login redirects to `/verify-email` and preserves the pending email in session storage.
-- After first verified login, the app can continue to `/dashboard/security-setup` based on the saved setup preference.
 - Dashboard layout blocks non-security pages until the user has either a passkey or authenticator configured.
 - If a security-status check fails, security pages are still allowed, but non-security pages redirect back to `/dashboard/security-setup` instead of failing open.
 - `apps/admin` is the SaaS admin app: users can self-sign up, and access is gated by tenant membership/active tenant selection rather than a separate admin-access allowlist.
@@ -154,6 +153,41 @@ When changing auth behavior in the future, start with these files:
 - `apps/borrower_pro/components/account-security-card.tsx`
 - `apps/backend/src/lib/auth.ts`
 - `apps/backend_pro/src/lib/auth.ts`
+
+## Passkey rpId Scoping (Pro Stack)
+
+- The `Passkey` model has an optional `rpId` column that records the domain that registered the passkey.
+- Better Auth `databaseHooks` in `admin_pro` and `borrower_pro` automatically stamp `rpId` on every new passkey.
+- The custom `GET /api/auth/passkeys?rpId=` endpoint in `backend_pro` filters passkeys by `rpId` (plus legacy passkeys where `rpId` is null).
+- Frontend `listUserPasskeys()` calls the filtered endpoint so each subdomain only shows passkeys registered on that subdomain.
+- TOTP/Authenticator is shared across subdomains by design — no rpId scoping needed.
+
+## Change Email Flow
+
+All three auth-owning frontends support email address changes via Better Auth's built-in `changeEmail` endpoint.
+
+### How it works
+
+1. User enters a new email in the Security card's email verification sub-card and confirms via a dialog.
+2. Better Auth's `POST /change-email` sends a verification link to the **new** email address using the existing `emailVerification.sendVerificationEmail` handler.
+3. The user clicks the link in their new email inbox.
+4. The existing `/verify-email/confirm?token=` page processes the token, atomically updating the email.
+
+### Configuration
+
+- `user.changeEmail.enabled: true` is set in each app's `auth-server.ts`.
+- No `sendChangeEmailConfirmation` callback is configured — this means the flow is a single step (verification sent directly to the new email) rather than requiring approval from the old email first.
+- `changeEmail` is exported from each app's `auth-client.ts`.
+
+### Anti-enumeration
+
+Better Auth silently returns success (HTTP 200) without sending any email if the new email already belongs to another user. The confirmation dialog warns users about this.
+
+### Impact on other credentials
+
+- **Passkeys**: Unaffected — bound to `userId` + `rpId`, not email.
+- **TOTP/Authenticator**: Unaffected — bound to `userId`.
+- **Password**: Unchanged — stored in the `Account` table by `userId`.
 
 ## Known Intentional Behavior
 

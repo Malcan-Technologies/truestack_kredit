@@ -1,7 +1,7 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, KeyRound, Loader2, MailCheck, Shield, Trash2 } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff, KeyRound, Loader2, Lock, MailCheck, Shield, Smartphone, Trash2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import {
@@ -21,11 +21,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   addPasskey,
   authClient,
+  changeEmail,
   changePassword,
   deletePasskey,
   disableTwoFactor,
@@ -37,18 +36,10 @@ import {
   useSession,
   verifyTotp,
 } from "@/lib/auth-client";
-import { formatDate, formatRelativeTime } from "@/lib/utils";
-
-interface LoginLog {
-  id: string;
-  ipAddress: string | null;
-  deviceType: string | null;
-  createdAt: string;
-}
+import { formatDate } from "@/lib/utils";
 
 interface AccountSecurityCardProps {
   passwordChangedAt?: string | null;
-  loginLogs: LoginLog[];
 }
 
 function getTotpSecret(totpUri: string): string {
@@ -60,7 +51,6 @@ const ONBOARDING_NAMESPACE = "admin";
 
 export function AccountSecurityCard({
   passwordChangedAt,
-  loginLogs,
 }: AccountSecurityCardProps) {
   const { data: session, refetch } = useSession();
   const currentUser = useMemo(
@@ -99,6 +89,10 @@ export function AccountSecurityCard({
     confirmPassword: "",
   });
   const [latestPasswordChangedAt, setLatestPasswordChangedAt] = useState(passwordChangedAt ?? null);
+  const [showChangeEmail, setShowChangeEmail] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [changingEmail, setChangingEmail] = useState(false);
+  const [showChangeEmailConfirm, setShowChangeEmailConfirm] = useState(false);
 
   const emailVerified = Boolean(currentUser?.emailVerified);
   const twoFactorEnabled = Boolean(currentUser?.twoFactorEnabled);
@@ -175,6 +169,17 @@ export function AccountSecurityCard({
     void refreshStatus();
   }, [currentUser?.id]);
 
+  const handleVisibilityChange = useCallback(() => {
+    if (document.visibilityState === "visible") {
+      refetch();
+    }
+  }, [refetch]);
+
+  useEffect(() => {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [handleVisibilityChange]);
+
   const handleResendVerification = async () => {
     if (!currentUser?.email) return;
 
@@ -191,6 +196,30 @@ export function AccountSecurityCard({
       toast.error(error instanceof Error ? error.message : "Unable to send verification email");
     } finally {
       setResendingVerification(false);
+    }
+  };
+
+  const handleChangeEmailSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!newEmail.trim()) return;
+    setShowChangeEmailConfirm(true);
+  };
+
+  const handleChangeEmailConfirm = async () => {
+    setShowChangeEmailConfirm(false);
+    setChangingEmail(true);
+    try {
+      const result = await changeEmail({ newEmail: newEmail.trim() });
+      if (result.error) {
+        throw new Error(result.error.message || "Unable to change email");
+      }
+      toast.success("A verification email has been sent to your new email address. Please check your inbox to confirm the change.");
+      setShowChangeEmail(false);
+      setNewEmail("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to change email");
+    } finally {
+      setChangingEmail(false);
     }
   };
 
@@ -360,121 +389,279 @@ export function AccountSecurityCard({
           <div>
             <CardTitle className="font-heading">Security</CardTitle>
             <CardDescription>
-              Manage verification, passkeys, authenticator setup, password changes, and recent sign-ins.
+              Manage verification, password, passkeys, and authenticator setup.
             </CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="rounded-lg border border-border p-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="font-medium">Email verification</p>
-              <p className="text-sm text-muted">
-                Password sign-in stays blocked until this email is verified.
+        {/* Top row: Email Verification + Change Password */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Email Verification */}
+          <div className="rounded-lg border border-border p-4">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <MailCheck className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Email verification</p>
+                </div>
+                <Badge variant={emailVerified ? "success" : "outline"}>
+                  {emailVerified ? "Verified" : "Verification required"}
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {currentUser?.email}
               </p>
+              {!emailVerified ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Password sign-in stays blocked until this email is verified.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={handleResendVerification} disabled={resendingVerification} className="self-start">
+                    {resendingVerification ? "Sending..." : "Resend email"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {!showChangeEmail ? (
+                    <Button variant="outline" size="sm" onClick={() => setShowChangeEmail(true)} className="self-start">
+                      Change email
+                    </Button>
+                  ) : (
+                    <form onSubmit={handleChangeEmailSubmit} className="rounded-lg border border-border p-4 space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">New Email Address</label>
+                        <Input
+                          type="email"
+                          placeholder="Enter new email address"
+                          value={newEmail}
+                          onChange={(e) => setNewEmail(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        A verification link will be sent to the new email address. Your email will only be updated after you verify the new address.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button type="submit" size="sm" disabled={changingEmail || !newEmail.trim()}>
+                          {changingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          {changingEmail ? "Sending..." : "Change email"}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => { setShowChangeEmail(false); setNewEmail(""); }}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+                </>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <Badge variant={emailVerified ? "success" : "outline"}>
-                {emailVerified ? "Verified" : "Verification required"}
-              </Badge>
-              {!emailVerified && (
-                <Button variant="outline" onClick={handleResendVerification} disabled={resendingVerification}>
-                  {resendingVerification ? "Sending..." : "Resend email"}
+          </div>
+
+          {/* Change Password */}
+          <div className="rounded-lg border border-border p-4">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Lock className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Password</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => (showChangePassword ? resetPasswordForm() : setShowChangePassword(true))}>
+                  {showChangePassword ? "Cancel" : "Change password"}
                 </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Last changed: {latestPasswordChangedAt ? formatDate(latestPasswordChangedAt) : "Never"}
+              </p>
+
+              {showChangePassword && (
+                <form onSubmit={handleChangePassword} className="rounded-lg border border-border p-4 space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="current-password">
+                      Current password
+                    </label>
+                    <div className="relative">
+                      <Input
+                        id="current-password"
+                        type={showCurrentPassword ? "text" : "password"}
+                        value={passwordForm.currentPassword}
+                        onChange={(event) =>
+                          setPasswordForm((current) => ({
+                            ...current,
+                            currentPassword: event.target.value,
+                          }))
+                        }
+                        required
+                      />
+                      <button
+                        type="button"
+                        aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowCurrentPassword((current) => !current)}
+                      >
+                        {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="new-password">
+                      New password
+                    </label>
+                    <div className="relative">
+                      <Input
+                        id="new-password"
+                        type={showNewPassword ? "text" : "password"}
+                        value={passwordForm.newPassword}
+                        onChange={(event) =>
+                          setPasswordForm((current) => ({
+                            ...current,
+                            newPassword: event.target.value,
+                          }))
+                        }
+                        minLength={8}
+                        required
+                      />
+                      <button
+                        type="button"
+                        aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowNewPassword((current) => !current)}
+                      >
+                        {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Use at least 8 characters.</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="confirm-new-password">
+                      Confirm new password
+                    </label>
+                    <Input
+                      id="confirm-new-password"
+                      type="password"
+                      value={passwordForm.confirmPassword}
+                      onChange={(event) =>
+                        setPasswordForm((current) => ({
+                          ...current,
+                          confirmPassword: event.target.value,
+                        }))
+                      }
+                      minLength={8}
+                      required
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button type="submit" disabled={changingPassword}>
+                      {changingPassword ? "Updating..." : "Update password"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={resetPasswordForm} disabled={changingPassword}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
               )}
             </div>
           </div>
         </div>
 
+        {/* Passkeys */}
         <div className="rounded-lg border border-border p-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-medium">Passkeys</p>
-              <p className="text-sm text-muted">
-                Use passkeys as your preferred sign-in path instead of email and password.
-              </p>
-            </div>
-            <Badge variant={passkeys.length > 0 ? "success" : "outline"}>
-              {passkeys.length > 0 ? `${passkeys.length} registered` : "Not set up"}
-            </Badge>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Input
-              value={passkeyName}
-              onChange={(event) => setPasskeyName(event.target.value)}
-              placeholder="Optional passkey name"
-            />
-            <Button onClick={handleAddPasskey} disabled={addingPasskey}>
-              {addingPasskey ? "Registering..." : "Add passkey"}
-            </Button>
-          </div>
-
-          {loadingStatus ? (
-            <div className="flex items-center gap-2 text-sm text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading passkeys...
-            </div>
-          ) : passkeys.length > 0 ? (
-            <div className="space-y-3">
-              {passkeys.map((passkey) => (
-                <div key={passkey.id} className="flex flex-col gap-3 rounded-lg border border-border p-3 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <KeyRound className="h-4 w-4 text-muted-foreground" />
-                      <p className="font-medium">{passkey.name?.trim() || "Unnamed passkey"}</p>
-                    </div>
-                    <p className="text-sm text-muted">
-                      {passkey.deviceType} {passkey.backedUp ? "· synced" : "· local only"} · added {formatDate(passkey.createdAt)}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={removingPasskeyId === passkey.id}
-                    onClick={() => void handleDeletePasskey(passkey.id)}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {removingPasskeyId === passkey.id ? "Removing..." : "Remove"}
-                  </Button>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Passkeys</p>
                 </div>
-              ))}
+                <p className="text-sm text-muted-foreground">
+                  Use passkeys instead of email and password.
+                </p>
+              </div>
+              <Badge variant={passkeys.length > 0 ? "success" : "outline"}>
+                {passkeys.length > 0 ? `${passkeys.length} registered` : "Not set up"}
+              </Badge>
             </div>
-          ) : (
-            <p className="text-sm text-muted">No passkeys registered yet.</p>
-          )}
-        </div>
 
-        <div className="rounded-lg border border-border p-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-medium">Authenticator app</p>
-              <p className="text-sm text-muted">
-                Trusted devices skip the extra prompt for 7 days after a successful password login.
-              </p>
-            </div>
-            <Badge variant={twoFactorEnabled ? "success" : "outline"}>
-              {twoFactorEnabled ? "Enabled" : "Required for 2FA"}
-            </Badge>
-          </div>
-
-          {!twoFactorEnabled && !setupState && (
             <div className="flex flex-col gap-3 sm:flex-row">
               <Input
-                type="password"
-                value={setupPassword}
-                onChange={(event) => setSetupPassword(event.target.value)}
-                placeholder="Current password"
+                value={passkeyName}
+                onChange={(event) => setPasskeyName(event.target.value)}
+                placeholder="Optional passkey name"
               />
-              <Button onClick={handleStartTwoFactor} disabled={startingTwoFactor}>
-                {startingTwoFactor ? "Preparing..." : "Set up app"}
+              <Button onClick={handleAddPasskey} disabled={addingPasskey} className="shrink-0">
+                {addingPasskey ? "Registering..." : "Add passkey"}
               </Button>
             </div>
-          )}
 
-          {twoFactorEnabled && (
-            <div className="space-y-4">
+            {loadingStatus ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading passkeys...
+              </div>
+            ) : passkeys.length > 0 ? (
+              <div className="space-y-3">
+                {passkeys.map((passkey) => (
+                  <div key={passkey.id} className="flex flex-col gap-3 rounded-lg border border-border p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <KeyRound className="h-4 w-4 text-muted-foreground" />
+                        <p className="font-medium">{passkey.name?.trim() || "Unnamed passkey"}</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {passkey.deviceType} {passkey.backedUp ? "· synced" : "· local only"} · added {formatDate(passkey.createdAt)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={removingPasskeyId === passkey.id}
+                      onClick={() => void handleDeletePasskey(passkey.id)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {removingPasskeyId === passkey.id ? "Removing..." : "Remove"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No passkeys registered yet.</p>
+            )}
+          </div>
+
+        {/* Authenticator App */}
+        <div className="rounded-lg border border-border p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Authenticator app</p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Trusted devices skip the extra prompt for 7 days.
+                </p>
+              </div>
+              <Badge variant={twoFactorEnabled ? "success" : "outline"}>
+                {twoFactorEnabled ? "Enabled" : "Not set up"}
+              </Badge>
+            </div>
+
+            {!twoFactorEnabled && !setupState && (
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Input
+                  type="password"
+                  value={setupPassword}
+                  onChange={(event) => setSetupPassword(event.target.value)}
+                  placeholder="Current password"
+                />
+                <Button onClick={handleStartTwoFactor} disabled={startingTwoFactor} className="shrink-0">
+                  {startingTwoFactor ? "Preparing..." : "Set up app"}
+                </Button>
+              </div>
+            )}
+
+            {twoFactorEnabled && (
               <div className="space-y-3">
                 <p className="text-sm font-medium">Disable authenticator app</p>
                 <div className="flex flex-col gap-3 sm:flex-row">
@@ -484,147 +671,15 @@ export function AccountSecurityCard({
                     onChange={(event) => setDisablePassword(event.target.value)}
                     placeholder="Current password"
                   />
-                  <Button variant="outline" onClick={handleDisableTwoFactor} disabled={disablingTwoFactor}>
+                  <Button variant="outline" onClick={handleDisableTwoFactor} disabled={disablingTwoFactor} className="shrink-0">
                     {disablingTwoFactor ? "Disabling..." : "Disable two-factor"}
                   </Button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
 
-        <div className="rounded-lg border border-border p-4 space-y-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2">
-              <MailCheck className="h-4 w-4 text-muted-foreground" />
-              <p className="font-medium">Password and login activity</p>
-            </div>
-            <Button variant="outline" onClick={() => (showChangePassword ? resetPasswordForm() : setShowChangePassword(true))}>
-              {showChangePassword ? "Cancel" : "Change password"}
-            </Button>
-          </div>
-          <p className="text-sm text-muted">
-            Password last changed: {latestPasswordChangedAt ? formatDate(latestPasswordChangedAt) : "Never"}
-          </p>
-
-          {showChangePassword && (
-            <form onSubmit={handleChangePassword} className="rounded-lg border border-border p-4 space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="current-password">
-                  Current password
-                </label>
-                <div className="relative">
-                  <Input
-                    id="current-password"
-                    type={showCurrentPassword ? "text" : "password"}
-                    value={passwordForm.currentPassword}
-                    onChange={(event) =>
-                      setPasswordForm((current) => ({
-                        ...current,
-                        currentPassword: event.target.value,
-                      }))
-                    }
-                    required
-                  />
-                  <button
-                    type="button"
-                    aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowCurrentPassword((current) => !current)}
-                  >
-                    {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="new-password">
-                  New password
-                </label>
-                <div className="relative">
-                  <Input
-                    id="new-password"
-                    type={showNewPassword ? "text" : "password"}
-                    value={passwordForm.newPassword}
-                    onChange={(event) =>
-                      setPasswordForm((current) => ({
-                        ...current,
-                        newPassword: event.target.value,
-                      }))
-                    }
-                    minLength={8}
-                    required
-                  />
-                  <button
-                    type="button"
-                    aria-label={showNewPassword ? "Hide new password" : "Show new password"}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowNewPassword((current) => !current)}
-                  >
-                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-muted">Use at least 8 characters.</p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="confirm-new-password">
-                  Confirm new password
-                </label>
-                <Input
-                  id="confirm-new-password"
-                  type="password"
-                  value={passwordForm.confirmPassword}
-                  onChange={(event) =>
-                    setPasswordForm((current) => ({
-                      ...current,
-                      confirmPassword: event.target.value,
-                    }))
-                  }
-                  minLength={8}
-                  required
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <Button type="submit" disabled={changingPassword}>
-                  {changingPassword ? "Updating..." : "Update password"}
-                </Button>
-                <Button type="button" variant="outline" onClick={resetPasswordForm} disabled={changingPassword}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          )}
-
-          {loginLogs.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date & Time</TableHead>
-                  <TableHead>Device</TableHead>
-                  <TableHead>IP Address</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loginLogs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell>
-                      <span title={formatDate(log.createdAt)}>{formatRelativeTime(log.createdAt)}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{log.deviceType || "Unknown"}</Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">{log.ipAddress || "—"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="text-sm text-muted">No login history available.</p>
-          )}
-        </div>
-
+        {/* TOTP Setup Dialog */}
         <Dialog
           open={Boolean(setupState)}
           onOpenChange={(open) => {
@@ -690,6 +745,26 @@ export function AccountSecurityCard({
                 disabled={confirmingTwoFactor}
               >
                 {confirmingTwoFactor ? "Verifying..." : "Verify and enable"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Change Email Confirmation Dialog */}
+        <Dialog open={showChangeEmailConfirm} onOpenChange={setShowChangeEmailConfirm}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Change email address?</DialogTitle>
+              <DialogDescription>
+                You are changing your email to <strong>{newEmail}</strong>. This email will be used to log in to your account. A verification link will be sent to the new address. If the email is already associated with another account, no email will be sent.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowChangeEmailConfirm(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleChangeEmailConfirm}>
+                Confirm
               </Button>
             </DialogFooter>
           </DialogContent>

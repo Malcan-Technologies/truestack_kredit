@@ -1,7 +1,7 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, KeyRound, Loader2, MailCheck, Shield, Trash2 } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff, KeyRound, Loader2, Lock, MailCheck, Shield, Smartphone, Trash2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import {
@@ -21,10 +21,10 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
-import { Separator } from "./ui/separator";
 import {
   addPasskey,
   authClient,
+  changeEmail,
   changePassword,
   deletePasskey,
   disableTwoFactor,
@@ -82,6 +82,11 @@ export function AccountSecurityCard() {
   const [confirmingTwoFactor, setConfirmingTwoFactor] = useState(false);
   const [disablePassword, setDisablePassword] = useState("");
   const [disablingTwoFactor, setDisablingTwoFactor] = useState(false);
+  const [passwordChangedAt, setPasswordChangedAt] = useState<string | null>(null);
+  const [showChangeEmail, setShowChangeEmail] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [changingEmail, setChangingEmail] = useState(false);
+  const [showChangeEmailConfirm, setShowChangeEmailConfirm] = useState(false);
 
   const emailVerified = Boolean(currentUser?.emailVerified);
   const twoFactorEnabled = Boolean(currentUser?.twoFactorEnabled);
@@ -154,6 +159,29 @@ export function AccountSecurityCard() {
     void refreshStatus();
   }, [currentUser?.id]);
 
+  const handleVisibilityChange = useCallback(() => {
+    if (document.visibilityState === "visible") {
+      refetch();
+    }
+  }, [refetch]);
+
+  useEffect(() => {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [handleVisibilityChange]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    fetch("/api/proxy/auth/password-info", { credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success && json.data?.passwordChangedAt) {
+          setPasswordChangedAt(json.data.passwordChangedAt);
+        }
+      })
+      .catch(() => {});
+  }, [currentUser?.id]);
+
   const handleResendVerification = async () => {
     if (!currentUser?.email) return;
 
@@ -170,6 +198,30 @@ export function AccountSecurityCard() {
       toast.error(error instanceof Error ? error.message : "Unable to send verification email");
     } finally {
       setResendingVerification(false);
+    }
+  };
+
+  const handleChangeEmailSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!newEmail.trim()) return;
+    setShowChangeEmailConfirm(true);
+  };
+
+  const handleChangeEmailConfirm = async () => {
+    setShowChangeEmailConfirm(false);
+    setChangingEmail(true);
+    try {
+      const result = await changeEmail({ newEmail: newEmail.trim() });
+      if (result.error) {
+        throw new Error(result.error.message || "Unable to change email");
+      }
+      toast.success("A verification email has been sent to your new email address. Please check your inbox to confirm the change.");
+      setShowChangeEmail(false);
+      setNewEmail("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to change email");
+    } finally {
+      setChangingEmail(false);
     }
   };
 
@@ -279,6 +331,13 @@ export function AccountSecurityCard() {
     }
   };
 
+  const handleCancel = () => {
+    setShowChangePassword(false);
+    setShowCurrent(false);
+    setShowNew(false);
+    setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  };
+
   const handleChangePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (form.newPassword !== form.confirmPassword) {
@@ -298,19 +357,14 @@ export function AccountSecurityCard() {
       if (result.error) {
         throw new Error(result.error.message || "Failed to change password");
       }
-      setShowChangePassword(false);
-      setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      handleCancel();
+      setPasswordChangedAt(new Date().toISOString());
       toast.success("Password updated");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to change password");
     } finally {
       setChanging(false);
     }
-  };
-
-  const handleCancel = () => {
-    setShowChangePassword(false);
-    setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
   };
 
   return (
@@ -320,120 +374,251 @@ export function AccountSecurityCard() {
           <Shield className="h-5 w-5 text-muted-foreground" />
           <div>
             <CardTitle className="font-heading">Security</CardTitle>
-            <CardDescription>Manage verification, passkeys, authenticator setup, and your password.</CardDescription>
+            <CardDescription>Manage verification, password, passkeys, and authenticator setup.</CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="rounded-lg border border-border p-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="font-medium">Email verification</p>
+        {/* Top row: Email Verification + Change Password */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Email Verification */}
+          <div className="rounded-lg border border-border p-4">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <MailCheck className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Email verification</p>
+                </div>
+                <Badge variant={emailVerified ? "success" : "outline"}>
+                  {emailVerified ? "Verified" : "Verification required"}
+                </Badge>
+              </div>
               <p className="text-sm text-muted-foreground">
-                Password sign-in stays blocked until this email is verified.
+                {currentUser?.email}
               </p>
+              {!emailVerified ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Password sign-in stays blocked until this email is verified.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={handleResendVerification} disabled={resendingVerification} className="self-start">
+                    {resendingVerification ? "Sending..." : "Resend email"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {!showChangeEmail ? (
+                    <Button variant="outline" size="sm" onClick={() => setShowChangeEmail(true)} className="self-start">
+                      Change email
+                    </Button>
+                  ) : (
+                    <form onSubmit={handleChangeEmailSubmit} className="rounded-lg border border-border p-4 space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">New Email Address</label>
+                        <Input
+                          type="email"
+                          placeholder="Enter new email address"
+                          value={newEmail}
+                          onChange={(e) => setNewEmail(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        A verification link will be sent to the new email address. Your email will only be updated after you verify the new address.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button type="submit" size="sm" disabled={changingEmail || !newEmail.trim()}>
+                          {changingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          {changingEmail ? "Sending..." : "Change email"}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => { setShowChangeEmail(false); setNewEmail(""); }}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+                </>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <Badge variant={emailVerified ? "success" : "outline"}>
-                {emailVerified ? "Verified" : "Verification required"}
-              </Badge>
-              {!emailVerified && (
-                <Button variant="outline" onClick={handleResendVerification} disabled={resendingVerification}>
-                  {resendingVerification ? "Sending..." : "Resend email"}
+          </div>
+
+          {/* Change Password */}
+          <div className="rounded-lg border border-border p-4">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Lock className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Password</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => (showChangePassword ? handleCancel() : setShowChangePassword(true))}>
+                  {showChangePassword ? "Cancel" : "Change password"}
                 </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Last changed: {passwordChangedAt ? formatDate(passwordChangedAt) : "Never"}
+              </p>
+
+              {showChangePassword && (
+                <form onSubmit={handleChangePassword} className="rounded-lg border border-border p-4 space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Current Password *</label>
+                    <div className="relative">
+                      <Input
+                        type={showCurrent ? "text" : "password"}
+                        value={form.currentPassword}
+                        onChange={(e) => setForm({ ...form, currentPassword: e.target.value })}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowCurrent(!showCurrent)}
+                      >
+                        {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">New Password *</label>
+                    <div className="relative">
+                      <Input
+                        type={showNew ? "text" : "password"}
+                        value={form.newPassword}
+                        onChange={(e) => setForm({ ...form, newPassword: e.target.value })}
+                        minLength={8}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowNew(!showNew)}
+                      >
+                        {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Use at least 8 characters.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Confirm New Password *</label>
+                    <Input
+                      type="password"
+                      value={form.confirmPassword}
+                      onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                      minLength={8}
+                      required
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="submit" disabled={changing}>
+                      {changing ? "Changing..." : "Update Password"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handleCancel}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
               )}
             </div>
           </div>
         </div>
 
+        {/* Passkeys */}
         <div className="rounded-lg border border-border p-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-medium">Passkeys</p>
-              <p className="text-sm text-muted-foreground">
-                Use passkeys as your preferred sign-in path instead of email and password.
-              </p>
-            </div>
-            <Badge variant={passkeys.length > 0 ? "success" : "outline"}>
-              {passkeys.length > 0 ? `${passkeys.length} registered` : "Not set up"}
-            </Badge>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Input
-              value={passkeyName}
-              onChange={(event) => setPasskeyName(event.target.value)}
-              placeholder="Optional passkey name"
-            />
-            <Button onClick={handleAddPasskey} disabled={addingPasskey}>
-              {addingPasskey ? "Registering..." : "Add passkey"}
-            </Button>
-          </div>
-
-          {loadingStatus ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading passkeys...
-            </div>
-          ) : passkeys.length > 0 ? (
-            <div className="space-y-3">
-              {passkeys.map((passkey) => (
-                <div key={passkey.id} className="flex flex-col gap-3 rounded-lg border border-border p-3 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <KeyRound className="h-4 w-4 text-muted-foreground" />
-                      <p className="font-medium">{passkey.name?.trim() || "Unnamed passkey"}</p>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {passkey.deviceType} {passkey.backedUp ? "· synced" : "· local only"} · added {formatDate(passkey.createdAt)}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={removingPasskeyId === passkey.id}
-                    onClick={() => void handleDeletePasskey(passkey.id)}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {removingPasskeyId === passkey.id ? "Removing..." : "Remove"}
-                  </Button>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Passkeys</p>
                 </div>
-              ))}
+                <p className="text-sm text-muted-foreground">
+                  Use passkeys instead of email and password.
+                </p>
+              </div>
+              <Badge variant={passkeys.length > 0 ? "success" : "outline"}>
+                {passkeys.length > 0 ? `${passkeys.length} registered` : "Not set up"}
+              </Badge>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No passkeys registered yet.</p>
-          )}
-        </div>
 
-        <div className="rounded-lg border border-border p-4 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-medium">Authenticator app</p>
-              <p className="text-sm text-muted-foreground">
-                Trusted devices skip the extra prompt for 7 days after a successful password login.
-              </p>
-            </div>
-            <Badge variant={twoFactorEnabled ? "success" : "outline"}>
-              {twoFactorEnabled ? "Enabled" : "Required for 2FA"}
-            </Badge>
-          </div>
-
-          {!twoFactorEnabled && !setupState && (
             <div className="flex flex-col gap-3 sm:flex-row">
               <Input
-                type="password"
-                value={setupPassword}
-                onChange={(event) => setSetupPassword(event.target.value)}
-                placeholder="Current password"
+                value={passkeyName}
+                onChange={(event) => setPasskeyName(event.target.value)}
+                placeholder="Optional passkey name"
               />
-              <Button onClick={handleStartTwoFactor} disabled={startingTwoFactor}>
-                {startingTwoFactor ? "Preparing..." : "Set up app"}
+              <Button onClick={handleAddPasskey} disabled={addingPasskey} className="shrink-0">
+                {addingPasskey ? "Registering..." : "Add passkey"}
               </Button>
             </div>
-          )}
 
-          {twoFactorEnabled && (
-            <div className="space-y-4">
+            {loadingStatus ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading passkeys...
+              </div>
+            ) : passkeys.length > 0 ? (
+              <div className="space-y-3">
+                {passkeys.map((passkey) => (
+                  <div key={passkey.id} className="flex flex-col gap-3 rounded-lg border border-border p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <KeyRound className="h-4 w-4 text-muted-foreground" />
+                        <p className="font-medium">{passkey.name?.trim() || "Unnamed passkey"}</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {passkey.deviceType} {passkey.backedUp ? "· synced" : "· local only"} · added {formatDate(passkey.createdAt)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={removingPasskeyId === passkey.id}
+                      onClick={() => void handleDeletePasskey(passkey.id)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {removingPasskeyId === passkey.id ? "Removing..." : "Remove"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No passkeys registered yet.</p>
+            )}
+          </div>
+
+        {/* Authenticator App */}
+        <div className="rounded-lg border border-border p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">Authenticator app</p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Trusted devices skip the extra prompt for 7 days.
+                </p>
+              </div>
+              <Badge variant={twoFactorEnabled ? "success" : "outline"}>
+                {twoFactorEnabled ? "Enabled" : "Not set up"}
+              </Badge>
+            </div>
+
+            {!twoFactorEnabled && !setupState && (
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Input
+                  type="password"
+                  value={setupPassword}
+                  onChange={(event) => setSetupPassword(event.target.value)}
+                  placeholder="Current password"
+                />
+                <Button onClick={handleStartTwoFactor} disabled={startingTwoFactor} className="shrink-0">
+                  {startingTwoFactor ? "Preparing..." : "Set up app"}
+                </Button>
+              </div>
+            )}
+
+            {twoFactorEnabled && (
               <div className="space-y-3">
                 <p className="text-sm font-medium">Disable authenticator app</p>
                 <div className="flex flex-col gap-3 sm:flex-row">
@@ -443,95 +628,15 @@ export function AccountSecurityCard() {
                     onChange={(event) => setDisablePassword(event.target.value)}
                     placeholder="Current password"
                   />
-                  <Button variant="outline" onClick={handleDisableTwoFactor} disabled={disablingTwoFactor}>
+                  <Button variant="outline" onClick={handleDisableTwoFactor} disabled={disablingTwoFactor} className="shrink-0">
                     {disablingTwoFactor ? "Disabling..." : "Disable two-factor"}
                   </Button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
 
-        <Separator />
-
-        <div className="space-y-4">
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <MailCheck className="h-4 w-4 text-muted-foreground" />
-                <p className="font-medium">Change password</p>
-              </div>
-              <p className="text-sm text-muted-foreground">Update your account password</p>
-            </div>
-            <Button variant="outline" onClick={() => setShowChangePassword(!showChangePassword)}>
-              {showChangePassword ? "Cancel" : "Change Password"}
-            </Button>
-          </div>
-
-          {showChangePassword && (
-            <form onSubmit={handleChangePassword} className="rounded-lg border border-border p-4 space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Current Password *</label>
-                <div className="relative">
-                  <Input
-                    type={showCurrent ? "text" : "password"}
-                    value={form.currentPassword}
-                    onChange={(e) => setForm({ ...form, currentPassword: e.target.value })}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowCurrent(!showCurrent)}
-                  >
-                    {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">New Password *</label>
-                <div className="relative">
-                  <Input
-                    type={showNew ? "text" : "password"}
-                    value={form.newPassword}
-                    onChange={(e) => setForm({ ...form, newPassword: e.target.value })}
-                    minLength={8}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowNew(!showNew)}
-                  >
-                    {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Use at least 8 characters.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Confirm New Password *</label>
-                <Input
-                  type="password"
-                  value={form.confirmPassword}
-                  onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                  minLength={8}
-                  required
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button type="submit" disabled={changing}>
-                  {changing ? "Changing..." : "Update Password"}
-                </Button>
-                <Button type="button" variant="outline" onClick={handleCancel}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          )}
-        </div>
-
+        {/* TOTP Setup Dialog */}
         <Dialog
           open={Boolean(setupState)}
           onOpenChange={(open) => {
@@ -597,6 +702,25 @@ export function AccountSecurityCard() {
                 disabled={confirmingTwoFactor}
               >
                 {confirmingTwoFactor ? "Verifying..." : "Verify and enable"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* Change Email Confirmation Dialog */}
+        <Dialog open={showChangeEmailConfirm} onOpenChange={setShowChangeEmailConfirm}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Change email address?</DialogTitle>
+              <DialogDescription>
+                You are changing your email to <strong>{newEmail}</strong>. This email will be used to log in to your account. A verification link will be sent to the new address. If the email is already associated with another account, no email will be sent.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowChangeEmailConfirm(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleChangeEmailConfirm}>
+                Confirm
               </Button>
             </DialogFooter>
           </DialogContent>

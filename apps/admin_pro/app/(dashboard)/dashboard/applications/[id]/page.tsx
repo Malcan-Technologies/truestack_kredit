@@ -48,6 +48,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CopyField } from "@/components/ui/copy-field";
+import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
@@ -1637,6 +1638,8 @@ export default function ApplicationDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          <InternalStaffNotesPanel apiPath={`loans/applications/${applicationId}/staff-notes`} />
 
           {/* Activity Timeline */}
           <Card>

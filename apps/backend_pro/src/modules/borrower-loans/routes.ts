@@ -2,6 +2,7 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { requireBorrowerSession } from '../../middleware/authenticateBorrower.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
@@ -28,6 +29,7 @@ import {
   expireStaleAttestationProposalForLoan,
 } from '../../lib/attestationBookingService.js';
 import { isPreDisbursementLoanStatus } from '../../lib/loanStatusHelpers.js';
+import { getEarlySettlementQuoteForLoan } from '../loans/earlySettlementQuoteService.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -926,6 +928,146 @@ router.get('/loans/:loanId/manual-payment-requests', async (req, res, next) => {
  * GET /api/borrower-auth/loans/:loanId/manual-payment-requests/:requestId/receipt
  * Download optional borrower-uploaded payment slip (not the generated PDF receipt).
  */
+const createEarlySettlementRequestSchema = z.object({
+  borrowerNote: z.string().max(1000).optional(),
+  reference: z.string().max(200).optional(),
+});
+
+/**
+ * GET /api/borrower-auth/loans/:loanId/early-settlement/quote
+ */
+router.get('/loans/:loanId/early-settlement/quote', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    const out = await getEarlySettlementQuoteForLoan(tenant.id, loanId);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/borrower-auth/loans/:loanId/early-settlement/requests
+ */
+router.post('/loans/:loanId/early-settlement/requests', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+    const body = createEarlySettlementRequestSchema.parse(req.body ?? {});
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    if (loan.status !== 'ACTIVE' && loan.status !== 'IN_ARREARS') {
+      throw new BadRequestError('Early settlement is only available for active or in-arrears loans');
+    }
+
+    const pending = await prisma.borrowerEarlySettlementRequest.findFirst({
+      where: { loanId, tenantId: tenant.id, status: 'PENDING' },
+    });
+    if (pending) {
+      throw new BadRequestError('You already have a pending early settlement request for this loan');
+    }
+
+    const quote = await getEarlySettlementQuoteForLoan(tenant.id, loanId);
+    const d = quote.data as {
+      eligible?: boolean;
+      reason?: string;
+      totalSettlement?: number;
+      totalWithoutLateFees?: number;
+      outstandingLateFees?: number;
+      discountAmount?: number;
+      remainingPrincipal?: number;
+      remainingInterest?: number;
+      unpaidInstallments?: number;
+    };
+
+    if (!d.eligible) {
+      throw new BadRequestError(d.reason || 'Early settlement is not available for this loan');
+    }
+    if (!d.unpaidInstallments || d.unpaidInstallments < 1) {
+      throw new BadRequestError('No unpaid installments to settle');
+    }
+
+    const row = await prisma.borrowerEarlySettlementRequest.create({
+      data: {
+        tenantId: tenant.id,
+        loanId,
+        borrowerId,
+        status: 'PENDING',
+        snapshotEligible: true,
+        snapshotReason: null,
+        snapshotTotalSettlement: new Prisma.Decimal(d.totalSettlement ?? 0),
+        snapshotTotalWithoutLateFees: new Prisma.Decimal(d.totalWithoutLateFees ?? 0),
+        snapshotOutstandingLateFees: new Prisma.Decimal(d.outstandingLateFees ?? 0),
+        snapshotDiscountAmount: new Prisma.Decimal(d.discountAmount ?? 0),
+        snapshotRemainingPrincipal: new Prisma.Decimal(d.remainingPrincipal ?? 0),
+        snapshotRemainingInterest: new Prisma.Decimal(d.remainingInterest ?? 0),
+        snapshotUnpaidInstallments: d.unpaidInstallments,
+        borrowerNote: body.borrowerNote?.trim() || null,
+        reference: body.reference?.trim() || null,
+      },
+    });
+
+    await AuditService.log({
+      tenantId: tenant.id,
+      action: 'BORROWER_EARLY_SETTLEMENT_REQUEST_CREATED',
+      entityType: 'Loan',
+      entityId: loanId,
+      newData: {
+        requestId: row.id,
+        snapshotTotalSettlement: d.totalSettlement,
+      },
+    });
+
+    res.status(201).json({ success: true, data: row });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/borrower-auth/loans/:loanId/early-settlement/requests
+ */
+router.get('/loans/:loanId/early-settlement/requests', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    const rows = await prisma.borrowerEarlySettlementRequest.findMany({
+      where: { loanId, tenantId: tenant.id, borrowerId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        paymentTransaction: { select: { id: true, receiptNumber: true, paymentDate: true } },
+      },
+    });
+
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/loans/:loanId/manual-payment-requests/:requestId/receipt', async (req, res, next) => {
   try {
     const { borrowerId, tenant } = await requireActiveBorrower(req);

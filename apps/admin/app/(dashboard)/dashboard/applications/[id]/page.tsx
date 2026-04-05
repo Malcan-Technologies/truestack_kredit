@@ -32,6 +32,7 @@ import {
   ChartPie,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -1414,6 +1415,8 @@ export default function ApplicationDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          <InternalStaffNotesPanel apiPath={`loans/applications/${applicationId}/staff-notes`} />
 
           {/* Activity Timeline */}
           <Card>

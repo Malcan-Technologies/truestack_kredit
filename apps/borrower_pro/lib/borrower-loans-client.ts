@@ -380,6 +380,93 @@ export async function createBorrowerManualPaymentRequest(
   return { success: true, data: json.data ?? json };
 }
 
+export type EarlySettlementQuoteData = {
+  eligible: boolean;
+  reason?: string;
+  lockInEndDate?: string | null;
+  remainingPrincipal?: number;
+  remainingInterest?: number;
+  remainingFutureInterest?: number;
+  discountType?: string;
+  discountValue?: number;
+  discountAmount?: number;
+  outstandingLateFees?: number;
+  totalWithoutLateFees?: number;
+  totalSettlement?: number;
+  totalSavings?: number;
+  unpaidInstallments?: number;
+};
+
+export async function getBorrowerEarlySettlementQuote(loanId: string): Promise<{
+  success: boolean;
+  data: EarlySettlementQuoteData;
+}> {
+  const res = await fetch(`${BASE}/loans/${encodeURIComponent(loanId)}/early-settlement/quote`, {
+    credentials: "include",
+  });
+  const json = await parseJson<{ success: boolean; data?: EarlySettlementQuoteData; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to load settlement quote");
+  }
+  if (!json.data) {
+    throw new Error("No quote data");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function createBorrowerEarlySettlementRequest(
+  loanId: string,
+  body: { borrowerNote?: string; reference?: string }
+): Promise<{ success: boolean; data: unknown }> {
+  const res = await fetch(`${BASE}/loans/${encodeURIComponent(loanId)}/early-settlement/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not submit early settlement request");
+  }
+  return { success: true, data: json.data ?? json };
+}
+
+export async function listBorrowerEarlySettlementRequests(loanId: string): Promise<{
+  success: boolean;
+  data: Array<{
+    id: string;
+    status: string;
+    borrowerNote?: string | null;
+    reference?: string | null;
+    rejectionReason?: string | null;
+    createdAt: string;
+    snapshotTotalSettlement?: unknown;
+    paymentTransaction?: { id: string; receiptNumber?: string | null } | null;
+  }>;
+}> {
+  const res = await fetch(`${BASE}/loans/${encodeURIComponent(loanId)}/early-settlement/requests`, {
+    credentials: "include",
+  });
+  const json = await parseJson<{
+    success: boolean;
+    data?: Array<{
+      id: string;
+      status: string;
+      borrowerNote?: string | null;
+      reference?: string | null;
+      rejectionReason?: string | null;
+      createdAt: string;
+      snapshotTotalSettlement?: unknown;
+      paymentTransaction?: { id: string; receiptNumber?: string | null } | null;
+    }>;
+    error?: string;
+  }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to load early settlement requests");
+  }
+  return { success: true, data: json.data ?? [] };
+}
+
 export async function listBorrowerManualPaymentRequests(loanId: string): Promise<{
   success: boolean;
   data: Array<{

@@ -47,7 +47,7 @@ import {
   postAttestationDeclineCounter,
   postAttestationCancelLoan,
 } from "../../lib/borrower-loans-client";
-import { fetchBorrower, getTruestackKycStatus } from "../../lib/borrower-api-client";
+import { fetchBorrower, getTruestackKycStatusWithActiveSessionSync } from "../../lib/borrower-api-client";
 import type {
   BorrowerLoanDetail,
   SignedAgreementReviewStatus,
@@ -169,7 +169,7 @@ export function LoanPendingAgreementPage() {
     try {
       const [borrowerRes, kycRes] = await Promise.all([
         fetchBorrower(),
-        getTruestackKycStatus().catch(() => null),
+        getTruestackKycStatusWithActiveSessionSync().catch(() => null),
       ]);
       if (borrowerRes.success) {
         setKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));

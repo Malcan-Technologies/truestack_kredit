@@ -18,7 +18,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import {
   fetchBorrower,
-  getTruestackKycStatus,
+  getTruestackKycStatusWithActiveSessionSync,
   refreshTruestackKycSession,
   startTruestackKycSession,
   type BorrowerDetail,
@@ -243,13 +243,26 @@ function DirectorKycCard({
           </div>
         ) : null}
         {isExpired ? (
-          <div className="space-y-2 mb-3 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 p-3 opacity-60">
-            <p className="text-xs text-muted-foreground line-through">
+          <div className="space-y-2 mb-3 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground line-through opacity-60">
               Verification link has expired
             </p>
             <p className="text-xs text-muted-foreground">
-              The QR code and link are no longer valid. Retry to generate a new verification link.
+              The QR code and link are no longer valid. You can sync once more with TrueStack, then retry to generate a new
+              link if needed.
             </p>
+            {d.externalSessionId ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={() => void handleSync()}
+                disabled={syncing}
+              >
+                {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Sync status
+              </Button>
+            ) : null}
           </div>
         ) : null}
         {isFailed ? (
@@ -509,12 +522,10 @@ export function TruestackKycCard({
       if (bRes.success) setBorrower(bRes.data);
       else setBorrower(null);
       try {
-        const kRes = await getTruestackKycStatus();
+        const kRes = await getTruestackKycStatusWithActiveSessionSync();
         if (kRes.success) {
           setKyc(kRes.data);
-          bumpDocs = kRes.data.sessions.some(
-            (s) => s.status === "completed" && s.result === "approved"
-          );
+          bumpDocs = kRes.data.sessions.some((s) => s.status === "completed" && s.result === "approved");
         }
       } catch (ke) {
         setKyc(null);
@@ -811,13 +822,34 @@ export function TruestackKycCard({
                   </div>
                 ) : null}
                 {ind.status === "expired" ? (
-                  <div className="space-y-2 mb-3 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 p-3 opacity-60">
-                    <p className="text-xs text-muted-foreground line-through">
+                  <div className="space-y-2 mb-3 rounded-md border border-dashed border-muted-foreground/40 bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground line-through opacity-60">
                       Verification link has expired
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      The QR code and link are no longer valid. Please retry to generate a new verification link.
+                      The QR code and link are no longer valid. Sync with TrueStack or retry to generate a new verification
+                      link.
                     </p>
+                    {ind.externalSessionId ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-1.5"
+                        onClick={() =>
+                          void (async () => {
+                            try {
+                              await handleSyncSession(ind.externalSessionId!);
+                              toast.success("Status synced from TrueStack");
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : "Sync failed");
+                            }
+                          })()
+                        }
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Sync status
+                      </Button>
+                    ) : null}
                   </div>
                 ) : null}
                 <IndividualKycBottomActions

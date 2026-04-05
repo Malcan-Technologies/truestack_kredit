@@ -73,6 +73,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { TrueIdentityBox } from "@/components/trueidentity-box";
+import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import {
@@ -3802,6 +3803,8 @@ export default function BorrowerDetailPage() {
               </Card>
             );
           })()}
+
+          <InternalStaffNotesPanel apiPath={`borrowers/${borrowerId}/staff-notes`} />
 
           {/* Activity Timeline */}
           <Card>

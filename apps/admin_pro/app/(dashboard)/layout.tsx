@@ -32,6 +32,7 @@ import {
   Fingerprint,
   Sparkles,
   Banknote,
+  Percent,
 } from "lucide-react";
 import { fetchSecurityStatus, useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -136,6 +137,11 @@ const navigationSections: NavSection[] = [
         href: "/dashboard/truekredit-pro/payment-approvals",
         icon: Banknote,
       },
+      {
+        name: "Early settlement",
+        href: "/dashboard/truekredit-pro/early-settlement-approvals",
+        icon: Percent,
+      },
     ],
   },
   {
@@ -204,6 +210,7 @@ export default function DashboardLayout({
   const [loansPendingAttestationCount, setLoansPendingAttestationCount] = useState(0);
   const [attestationSlotProposedCount, setAttestationSlotProposedCount] = useState(0);
   const [paymentApprovalsPendingCount, setPaymentApprovalsPendingCount] = useState(0);
+  const [earlySettlementApprovalsPendingCount, setEarlySettlementApprovalsPendingCount] = useState(0);
   const [isSigningOutUnauthorized, setIsSigningOutUnauthorized] = useState(false);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -309,6 +316,26 @@ export default function DashboardLayout({
     }
   }, [hasTenants]);
 
+  const fetchEarlySettlementApprovalsPendingCount = useCallback(async () => {
+    if (!hasTenants) {
+      setEarlySettlementApprovalsPendingCount(0);
+      return;
+    }
+    try {
+      const res = await api.get<{
+        items: unknown[];
+        pagination: { total: number };
+      }>("/api/schedules/early-settlement-requests?status=PENDING&page=1&pageSize=1");
+      if (res.success && res.data?.pagination) {
+        setEarlySettlementApprovalsPendingCount(res.data.pagination.total ?? 0);
+      } else {
+        setEarlySettlementApprovalsPendingCount(0);
+      }
+    } catch {
+      setEarlySettlementApprovalsPendingCount(0);
+    }
+  }, [hasTenants]);
+
   // Fetch loan-related sidebar counts on mount and when count may have changed
   useEffect(() => {
     void fetchLoanCounts();
@@ -318,14 +345,19 @@ export default function DashboardLayout({
     void fetchPaymentApprovalsPendingCount();
   }, [fetchPaymentApprovalsPendingCount]);
 
+  useEffect(() => {
+    void fetchEarlySettlementApprovalsPendingCount();
+  }, [fetchEarlySettlementApprovalsPendingCount]);
+
   // Refresh attestation / loan badges when opening TrueKredit Pro (e.g. borrower proposed a slot while you were elsewhere)
   useEffect(() => {
     if (!hasTenants) return;
     if (pathname.startsWith("/dashboard/truekredit-pro")) {
       void fetchLoanCounts();
       void fetchPaymentApprovalsPendingCount();
+      void fetchEarlySettlementApprovalsPendingCount();
     }
-  }, [pathname, hasTenants, fetchLoanCounts, fetchPaymentApprovalsPendingCount]);
+  }, [pathname, hasTenants, fetchLoanCounts, fetchPaymentApprovalsPendingCount, fetchEarlySettlementApprovalsPendingCount]);
 
   // Listen for count changes (approve, reject, return-to-draft on application detail)
   useEffect(() => {
@@ -350,6 +382,12 @@ export default function DashboardLayout({
     window.addEventListener("manual-payment-requests-changed", handler);
     return () => window.removeEventListener("manual-payment-requests-changed", handler);
   }, [fetchPaymentApprovalsPendingCount]);
+
+  useEffect(() => {
+    const handler = () => void fetchEarlySettlementApprovalsPendingCount();
+    window.addEventListener("early-settlement-requests-changed", handler);
+    return () => window.removeEventListener("early-settlement-requests-changed", handler);
+  }, [fetchEarlySettlementApprovalsPendingCount]);
 
   const ensureActiveTenantAndFetchMembership = useCallback(async () => {
     try {
@@ -932,6 +970,8 @@ export default function DashboardLayout({
                           item.href === "/dashboard/truekredit-pro/attestation-meetings";
                         const isPaymentApprovals =
                           item.href === "/dashboard/truekredit-pro/payment-approvals";
+                        const isEarlySettlementApprovals =
+                          item.href === "/dashboard/truekredit-pro/early-settlement-approvals";
                         const linkContent = (
                           <Link
                             key={item.name}
@@ -972,6 +1012,13 @@ export default function DashboardLayout({
                                     {paymentApprovalsPendingCount > 99 ? "99+" : paymentApprovalsPendingCount}
                                   </Badge>
                                 )}
+                                {isEarlySettlementApprovals && earlySettlementApprovalsPendingCount > 0 && (
+                                  <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-xs">
+                                    {earlySettlementApprovalsPendingCount > 99
+                                      ? "99+"
+                                      : earlySettlementApprovalsPendingCount}
+                                  </Badge>
+                                )}
                               </>
                             )}
                             {sidebarCollapsed && isApplications && applicationsPendingCount > 0 && (
@@ -996,6 +1043,15 @@ export default function DashboardLayout({
                             {sidebarCollapsed && isPaymentApprovals && paymentApprovalsPendingCount > 0 && (
                               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
                                 {paymentApprovalsPendingCount > 99 ? "99+" : paymentApprovalsPendingCount}
+                              </span>
+                            )}
+                            {sidebarCollapsed &&
+                              isEarlySettlementApprovals &&
+                              earlySettlementApprovalsPendingCount > 0 && (
+                              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                                {earlySettlementApprovalsPendingCount > 99
+                                  ? "99+"
+                                  : earlySettlementApprovalsPendingCount}
                               </span>
                             )}
                           </Link>
@@ -1037,6 +1093,12 @@ export default function DashboardLayout({
                                   <p className="opacity-70 text-xs mt-1">
                                     {paymentApprovalsPendingCount} payment request
                                     {paymentApprovalsPendingCount === 1 ? "" : "s"} to approve
+                                  </p>
+                                )}
+                                {isEarlySettlementApprovals && earlySettlementApprovalsPendingCount > 0 && (
+                                  <p className="opacity-70 text-xs mt-1">
+                                    {earlySettlementApprovalsPendingCount} early settlement request
+                                    {earlySettlementApprovalsPendingCount === 1 ? "" : "s"} to review
                                   </p>
                                 )}
                               </TooltipContent>

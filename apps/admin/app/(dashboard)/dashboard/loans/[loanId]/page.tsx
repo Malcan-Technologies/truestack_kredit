@@ -102,6 +102,7 @@ import {
   formatDateForInput,
 } from "@/lib/utils";
 import { TrueSendEmailLog } from "@/components/truesend-email-log";
+import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
 import { TrueSendBadge } from "@/components/truesend-badge";
 
 // ============================================
@@ -3378,6 +3379,8 @@ export default function LoanDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          <InternalStaffNotesPanel apiPath={`loans/${loanId}/staff-notes`} />
 
           {/* Activity Timeline */}
           <Card>

@@ -125,8 +125,23 @@ export function deletePasskey(args: { id: string }) {
   });
 }
 
+const skipSecuritySetupRedirect =
+  process.env.NEXT_PUBLIC_SKIP_SECURITY_SETUP_REDIRECT === "true";
+
 export async function fetchSecurityStatus(user: AuthUserSecurityFields | null | undefined) {
   const twoFactorEnabled = Boolean(user?.twoFactorEnabled);
+
+  /** Local dev only: skip forcing passkey or TOTP before dashboard. Do not set in production. */
+  if (skipSecuritySetupRedirect) {
+    return {
+      emailVerified: Boolean(user?.emailVerified),
+      twoFactorEnabled,
+      passkeys: [],
+      hasPasskey: false,
+      isSecuritySetupComplete: true,
+    };
+  }
+
   let passkeys: RegisteredPasskey[] = [];
 
   try {

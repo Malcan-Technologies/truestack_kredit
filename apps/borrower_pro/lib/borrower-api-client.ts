@@ -247,6 +247,45 @@ export async function getTruestackKycStatus(): Promise<{
   return res.json() as Promise<{ success: boolean; data: TruestackKycStatusData }>;
 }
 
+/**
+ * Fetches KYC status and pulls the latest state from TrueStack for in-flight sessions
+ * (same behavior as TruestackKycCard initial load), so callers like before-payout gates
+ * see current completion without waiting for a manual sync.
+ */
+export async function getTruestackKycStatusWithActiveSessionSync(): Promise<{
+  success: boolean;
+  data: TruestackKycStatusData;
+}> {
+  const kRes = await getTruestackKycStatus();
+  if (!kRes.success) return kRes;
+  let effectiveSessions = kRes.data.sessions;
+  const toRefresh = kRes.data.sessions.filter(
+    (s) =>
+      Boolean(s.externalSessionId?.trim()) &&
+      s.status !== "completed" &&
+      s.status !== "expired" &&
+      s.status !== "failed"
+  );
+  const seen = new Set<string>();
+  for (const s of toRefresh) {
+    const sid = s.externalSessionId!.trim();
+    if (seen.has(sid)) continue;
+    seen.add(sid);
+    try {
+      await refreshTruestackKycSession(sid);
+    } catch {
+      /* ignore per-session provider errors */
+    }
+  }
+  if (seen.size > 0) {
+    const k2 = await getTruestackKycStatus();
+    if (k2.success) {
+      effectiveSessions = k2.data.sessions;
+    }
+  }
+  return { success: true, data: { ...kRes.data, sessions: effectiveSessions } };
+}
+
 export async function refreshTruestackKycSession(
   externalSessionId: string
 ): Promise<{ success: boolean; data: Record<string, unknown> }> {

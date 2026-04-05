@@ -20,6 +20,10 @@ import {
   approveBorrowerManualPaymentRequest,
   rejectBorrowerManualPaymentRequest,
 } from './borrowerManualPaymentService.js';
+import {
+  approveBorrowerEarlySettlementRequest,
+  rejectBorrowerEarlySettlementRequest,
+} from './borrowerEarlySettlementApprovalService.js';
 
 const router = Router();
 
@@ -760,6 +764,118 @@ router.post('/manual-payment-requests/:requestId/reject', async (req, res, next)
     const { requestId } = req.params;
     const body = rejectManualPaymentBodySchema.parse(req.body ?? {});
     await rejectBorrowerManualPaymentRequest({
+      tenantId: req.tenantId!,
+      requestId,
+      memberId: req.memberId ?? null,
+      reason: body.reason,
+      ip: req.ip,
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const approveEarlySettlementBodySchema = z.object({
+  waiveLateFees: z.boolean().optional(),
+  adminNotes: z.string().max(1000).optional(),
+  paymentDate: z.string().datetime().optional(),
+  reference: z.string().max(200).optional(),
+});
+
+/**
+ * List borrower early settlement requests (admin queue)
+ * GET /api/schedules/early-settlement-requests
+ */
+router.get('/early-settlement-requests', async (req, res, next) => {
+  try {
+    const status = (req.query.status as string) || 'PENDING';
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+    const pageSize = Math.min(50, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20));
+    const skip = (page - 1) * pageSize;
+
+    const where = {
+      tenantId: req.tenantId!,
+      ...(status === 'all' ? {} : { status: status as 'PENDING' | 'APPROVED' | 'REJECTED' }),
+    };
+
+    const [rows, total] = await Promise.all([
+      prisma.borrowerEarlySettlementRequest.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          loan: {
+            select: {
+              id: true,
+              status: true,
+              borrowerId: true,
+            },
+          },
+          borrower: {
+            select: {
+              id: true,
+              name: true,
+              icNumber: true,
+              companyName: true,
+              borrowerType: true,
+            },
+          },
+          paymentTransaction: {
+            select: { id: true, receiptNumber: true, totalAmount: true, paymentDate: true },
+          },
+        },
+      }),
+      prisma.borrowerEarlySettlementRequest.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        items: rows,
+        pagination: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Approve borrower early settlement request
+ * POST /api/schedules/early-settlement-requests/:requestId/approve
+ */
+router.post('/early-settlement-requests/:requestId/approve', async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const body = approveEarlySettlementBodySchema.parse(req.body ?? {});
+    const { httpStatus, body: out } = await approveBorrowerEarlySettlementRequest({
+      tenantId: req.tenantId!,
+      requestId,
+      memberId: req.memberId ?? null,
+      ip: req.ip,
+      headers: req.headers,
+      waiveLateFees: body.waiveLateFees,
+      adminNotes: body.adminNotes,
+      paymentDate: body.paymentDate,
+      reference: body.reference,
+    });
+    res.status(httpStatus).json(out);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Reject borrower early settlement request
+ * POST /api/schedules/early-settlement-requests/:requestId/reject
+ */
+router.post('/early-settlement-requests/:requestId/reject', async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const body = rejectManualPaymentBodySchema.parse(req.body ?? {});
+    await rejectBorrowerEarlySettlementRequest({
       tenantId: req.tenantId!,
       requestId,
       memberId: req.memberId ?? null,

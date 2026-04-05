@@ -1602,6 +1602,131 @@ router.get('/applications/:applicationId/timeline', async (req, res, next) => {
   }
 });
 
+const applicationStaffNoteBodySchema = z.object({
+  body: z.string().trim().min(1).max(16000),
+});
+
+function mapApplicationStaffNoteAuthor(createdBy: {
+  user: { id: string; name: string | null; email: string };
+} | null) {
+  if (!createdBy?.user) return null;
+  return {
+    id: createdBy.user.id,
+    name: createdBy.user.name,
+    email: createdBy.user.email,
+  };
+}
+
+/**
+ * Staff internal notes on an application
+ * GET /api/loans/applications/:applicationId/staff-notes
+ */
+router.get('/applications/:applicationId/staff-notes', async (req, res, next) => {
+  try {
+    const applicationId = req.params.applicationId;
+    const { cursor, limit: limitStr = '30' } = req.query;
+    const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
+
+    const application = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: req.tenantId },
+      select: { id: true },
+    });
+    if (!application) throw new NotFoundError('Application');
+
+    const rows = await prisma.applicationNote.findMany({
+      where: {
+        tenantId: req.tenantId!,
+        applicationId,
+        ...(cursor && { createdAt: { lt: new Date(cursor as string) } }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit + 1,
+      include: {
+        createdBy: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasMore && items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
+
+    res.json({
+      success: true,
+      data: items.map((n) => ({
+        id: n.id,
+        body: n.body,
+        createdAt: n.createdAt.toISOString(),
+        author: mapApplicationStaffNoteAuthor(n.createdBy),
+      })),
+      pagination: { hasMore, nextCursor },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/loans/applications/:applicationId/staff-notes
+ */
+router.post('/applications/:applicationId/staff-notes', async (req, res, next) => {
+  try {
+    const applicationId = req.params.applicationId;
+    const parsed = applicationStaffNoteBodySchema.parse(req.body);
+
+    const application = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: req.tenantId },
+      select: { id: true },
+    });
+    if (!application) throw new NotFoundError('Application');
+
+    const note = await prisma.applicationNote.create({
+      data: {
+        tenantId: req.tenantId!,
+        applicationId,
+        body: parsed.body,
+        createdByMemberId: req.memberId ?? null,
+      },
+      include: {
+        createdBy: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'STAFF_NOTE_CREATE',
+      entityType: 'LoanApplication',
+      entityId: applicationId,
+      newData: {
+        noteId: note.id,
+        excerpt: parsed.body.slice(0, 500),
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id: note.id,
+        body: note.body,
+        createdAt: note.createdAt.toISOString(),
+        author: mapApplicationStaffNoteAuthor(note.createdBy),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ============================================
 // Application Documents
 // ============================================
@@ -1987,6 +2112,131 @@ router.get('/late-fee-logs', async (req, res, next) => {
     const limit = parseInt(req.query.limit as string) || 20;
     const logs = await LateFeeProcessor.getRecentLogs(limit, req.tenantId!);
     res.json({ success: true, data: logs });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const loanStaffNoteBodySchema = z.object({
+  body: z.string().trim().min(1).max(16000),
+});
+
+function mapLoanStaffNoteAuthor(createdBy: {
+  user: { id: string; name: string | null; email: string };
+} | null) {
+  if (!createdBy?.user) return null;
+  return {
+    id: createdBy.user.id,
+    name: createdBy.user.name,
+    email: createdBy.user.email,
+  };
+}
+
+/**
+ * Staff internal notes on a loan
+ * GET /api/loans/:loanId/staff-notes
+ */
+router.get('/:loanId/staff-notes', async (req, res, next) => {
+  try {
+    const loanId = req.params.loanId;
+    const { cursor, limit: limitStr = '30' } = req.query;
+    const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: req.tenantId },
+      select: { id: true },
+    });
+    if (!loan) throw new NotFoundError('Loan');
+
+    const rows = await prisma.loanNote.findMany({
+      where: {
+        tenantId: req.tenantId!,
+        loanId,
+        ...(cursor && { createdAt: { lt: new Date(cursor as string) } }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit + 1,
+      include: {
+        createdBy: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasMore && items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
+
+    res.json({
+      success: true,
+      data: items.map((n) => ({
+        id: n.id,
+        body: n.body,
+        createdAt: n.createdAt.toISOString(),
+        author: mapLoanStaffNoteAuthor(n.createdBy),
+      })),
+      pagination: { hasMore, nextCursor },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/loans/:loanId/staff-notes
+ */
+router.post('/:loanId/staff-notes', async (req, res, next) => {
+  try {
+    const loanId = req.params.loanId;
+    const parsed = loanStaffNoteBodySchema.parse(req.body);
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: req.tenantId },
+      select: { id: true },
+    });
+    if (!loan) throw new NotFoundError('Loan');
+
+    const note = await prisma.loanNote.create({
+      data: {
+        tenantId: req.tenantId!,
+        loanId,
+        body: parsed.body,
+        createdByMemberId: req.memberId ?? null,
+      },
+      include: {
+        createdBy: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'STAFF_NOTE_CREATE',
+      entityType: 'Loan',
+      entityId: loanId,
+      newData: {
+        noteId: note.id,
+        excerpt: parsed.body.slice(0, 500),
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id: note.id,
+        body: note.body,
+        createdAt: note.createdAt.toISOString(),
+        author: mapLoanStaffNoteAuthor(note.createdBy),
+      },
+    });
   } catch (error) {
     next(error);
   }

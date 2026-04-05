@@ -604,6 +604,131 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+const staffNoteBodySchema = z.object({
+  body: z.string().trim().min(1).max(16000),
+});
+
+function mapStaffNoteAuthor(createdBy: {
+  user: { id: string; name: string | null; email: string };
+} | null) {
+  if (!createdBy?.user) return null;
+  return {
+    id: createdBy.user.id,
+    name: createdBy.user.name,
+    email: createdBy.user.email,
+  };
+}
+
+/**
+ * Staff-only internal notes for a borrower
+ * GET /api/borrowers/:borrowerId/staff-notes
+ */
+router.get('/:borrowerId/staff-notes', async (req, res, next) => {
+  try {
+    const borrowerId = req.params.borrowerId;
+    const { cursor, limit: limitStr = '30' } = req.query;
+    const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
+
+    const borrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId, tenantId: req.tenantId },
+      select: { id: true },
+    });
+    if (!borrower) throw new NotFoundError('Borrower');
+
+    const rows = await prisma.borrowerNote.findMany({
+      where: {
+        tenantId: req.tenantId!,
+        borrowerId,
+        ...(cursor && { createdAt: { lt: new Date(cursor as string) } }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit + 1,
+      include: {
+        createdBy: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor =
+      hasMore && items.length > 0 ? items[items.length - 1].createdAt.toISOString() : null;
+
+    res.json({
+      success: true,
+      data: items.map((n) => ({
+        id: n.id,
+        body: n.body,
+        createdAt: n.createdAt.toISOString(),
+        author: mapStaffNoteAuthor(n.createdBy),
+      })),
+      pagination: { hasMore, nextCursor },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/borrowers/:borrowerId/staff-notes
+ */
+router.post('/:borrowerId/staff-notes', async (req, res, next) => {
+  try {
+    const borrowerId = req.params.borrowerId;
+    const parsed = staffNoteBodySchema.parse(req.body);
+
+    const borrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId, tenantId: req.tenantId },
+      select: { id: true },
+    });
+    if (!borrower) throw new NotFoundError('Borrower');
+
+    const note = await prisma.borrowerNote.create({
+      data: {
+        tenantId: req.tenantId!,
+        borrowerId,
+        body: parsed.body,
+        createdByMemberId: req.memberId ?? null,
+      },
+      include: {
+        createdBy: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'STAFF_NOTE_CREATE',
+      entityType: 'Borrower',
+      entityId: borrowerId,
+      newData: {
+        noteId: note.id,
+        excerpt: parsed.body.slice(0, 500),
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id: note.id,
+        body: note.body,
+        createdAt: note.createdAt.toISOString(),
+        author: mapStaffNoteAuthor(note.createdBy),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 /**
  * Get single borrower
  * GET /api/borrowers/:borrowerId

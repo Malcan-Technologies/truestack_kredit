@@ -173,6 +173,9 @@ model Tenant {
   trueIdentityUsageDaily TrueIdentityUsageDaily[]
   trueIdentityUsagePaid  TrueIdentityUsagePaid[]
   subscriptionPaymentRequests SubscriptionPaymentRequest[]
+  borrowerNotes               BorrowerNote[]
+  applicationNotes            ApplicationNote[]
+  loanNotes                   LoanNote[]
 }
 
 // ============================================
@@ -277,6 +280,9 @@ model TenantMember {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   auditLogs AuditLog[]
+  authoredBorrowerNotes     BorrowerNote[]
+  authoredApplicationNotes  ApplicationNote[]
+  authoredLoanNotes         LoanNote[]
 
   @@unique([userId, tenantId])
   @@index([userId])
@@ -664,6 +670,7 @@ model Borrower {
   emailLogs    EmailLog[] // TrueSend email delivery logs
   performanceProjection BorrowerPerformanceProjection?
   trueIdentitySessions TrueIdentitySession[]
+  staffNotes           BorrowerNote[]
 
   @@unique([tenantId, icNumber])
   @@index([tenantId])
@@ -802,6 +809,7 @@ model LoanApplication {
   loan      Loan?
   documents ApplicationDocument[]
   guarantors ApplicationGuarantor[]
+  staffNotes ApplicationNote[]
 
   @@index([tenantId])
   @@index([status])
@@ -947,6 +955,7 @@ model Loan {
   transactions     PaymentTransaction[]
   lateFeeEntries   LateFeeEntry[]
   emailLogs        EmailLog[] // TrueSend email delivery logs
+  staffNotes       LoanNote[]
 
   @@index([tenantId])
   @@index([status])
@@ -1089,6 +1098,58 @@ model PaymentAllocation {
 
   @@index([transactionId])
   @@index([repaymentId])
+}
+
+// ============================================
+// Internal staff notes (admin-only; not borrower-visible)
+// ============================================
+
+model BorrowerNote {
+  id                String   @id @default(cuid())
+  tenantId          String
+  borrowerId        String
+  body              String   @db.Text
+  createdByMemberId String?
+  createdAt         DateTime @default(now())
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower  Borrower      @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  createdBy TenantMember? @relation(fields: [createdByMemberId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, borrowerId, createdAt(sort: Desc)])
+  @@map("borrower_notes")
+}
+
+model ApplicationNote {
+  id                String   @id @default(cuid())
+  tenantId          String
+  applicationId     String
+  body              String   @db.Text
+  createdByMemberId String?
+  createdAt         DateTime @default(now())
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  createdBy   TenantMember?   @relation(fields: [createdByMemberId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, applicationId, createdAt(sort: Desc)])
+  @@map("application_notes")
+}
+
+model LoanNote {
+  id                String   @id @default(cuid())
+  tenantId          String
+  loanId            String
+  body              String   @db.Text
+  createdByMemberId String?
+  createdAt         DateTime @default(now())
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  loan      Loan          @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  createdBy TenantMember? @relation(fields: [createdByMemberId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, loanId, createdAt(sort: Desc)])
+  @@map("loan_notes")
 }
 
 // ============================================

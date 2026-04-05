@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -22,9 +22,11 @@ import {
   TrendingUp,
   User,
   XCircle,
+  Percent,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { CopyField } from "../ui/copy-field";
@@ -42,6 +44,9 @@ import {
   getBorrowerLoanSchedule,
   getBorrowerLoanMetrics,
   listBorrowerManualPaymentRequests,
+  getBorrowerEarlySettlementQuote,
+  createBorrowerEarlySettlementRequest,
+  listBorrowerEarlySettlementRequests,
   borrowerDisbursementProofUrl,
   borrowerStampCertificateUrl,
   borrowerTransactionReceiptUrl,
@@ -52,6 +57,7 @@ import type {
   BorrowerLoanMetrics,
   BorrowerLoanTimelineEvent,
 } from "../../lib/borrower-loan-types";
+import type { EarlySettlementQuoteData } from "../../lib/borrower-loans-client";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { formatICForDisplay } from "../../lib/borrower-form-display";
@@ -62,6 +68,12 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { PhoneDisplay } from "../ui/phone-display";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 import { cn } from "../../lib/utils";
 
 function formatRm(v: unknown): string {
@@ -109,6 +121,12 @@ function borrowerTimelineActionInfo(action: string): {
       return { icon: CheckCircle, label: "Manual payment approved" };
     case "BORROWER_MANUAL_PAYMENT_REJECTED":
       return { icon: XCircle, label: "Manual payment rejected" };
+    case "BORROWER_EARLY_SETTLEMENT_REQUEST_CREATED":
+      return { icon: Percent, label: "Early settlement request submitted" };
+    case "BORROWER_EARLY_SETTLEMENT_APPROVED":
+      return { icon: CheckCircle, label: "Early settlement approved" };
+    case "BORROWER_EARLY_SETTLEMENT_REJECTED":
+      return { icon: XCircle, label: "Early settlement request declined" };
     case "RECORD_PAYMENT":
       return { icon: CreditCard, label: "Payment recorded" };
     case "BORROWER_ATTESTATION_SLOT_PROPOSED":
@@ -341,6 +359,24 @@ export function BorrowerLoanServicingPanel({
   const [hasMoreTimeline, setHasMoreTimeline] = useState(false);
   const [timelineExpanded, setTimelineExpanded] = useState(true);
   const [loadingMoreTimeline, setLoadingMoreTimeline] = useState(false);
+  const [earlyQuote, setEarlyQuote] = useState<EarlySettlementQuoteData | null>(null);
+  const [earlyRequests, setEarlyRequests] = useState<
+    Array<{
+      id: string;
+      status: string;
+      borrowerNote?: string | null;
+      reference?: string | null;
+      rejectionReason?: string | null;
+      createdAt: string;
+      snapshotTotalSettlement?: unknown;
+      paymentTransaction?: { id: string; receiptNumber?: string | null } | null;
+    }>
+  >([]);
+  const [earlySettlementNote, setEarlySettlementNote] = useState("");
+  const [earlySettlementRef, setEarlySettlementRef] = useState("");
+  const [earlySubmitting, setEarlySubmitting] = useState(false);
+
+  const earlySettlementSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canPay =
     loan.status === "ACTIVE" || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
@@ -365,12 +401,32 @@ export function BorrowerLoanServicingPanel({
       setTimeline(timelineRes.data ?? []);
       setHasMoreTimeline(timelineRes.pagination?.hasMore ?? false);
       setTimelineCursor(timelineRes.pagination?.nextCursor ?? null);
+
+      if (
+        (loan.status === "ACTIVE" || loan.status === "IN_ARREARS") &&
+        loan.product?.earlySettlementEnabled
+      ) {
+        try {
+          const [q, r] = await Promise.all([
+            getBorrowerEarlySettlementQuote(loanId),
+            listBorrowerEarlySettlementRequests(loanId),
+          ]);
+          setEarlyQuote(q.data);
+          setEarlyRequests(r.data ?? []);
+        } catch {
+          setEarlyQuote(null);
+          setEarlyRequests([]);
+        }
+      } else {
+        setEarlyQuote(null);
+        setEarlyRequests([]);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load schedule");
     } finally {
       setLoading(false);
     }
-  }, [loanId]);
+  }, [loanId, loan.status, loan.product?.earlySettlementEnabled]);
 
   const loadMoreTimeline = useCallback(async () => {
     if (!timelineCursor) return;
@@ -396,6 +452,7 @@ export function BorrowerLoanServicingPanel({
   const product = loan.product;
   const applicationId = loan.application?.id;
   const borrower = loan.borrower;
+  const pendingEarlySettlement = earlyRequests.filter((r) => r.status === "PENDING").length;
   const isCorporate = borrower?.borrowerType === "CORPORATE";
   const borrowerDisplayName =
     isCorporate && borrower?.companyName?.trim()
@@ -405,6 +462,40 @@ export function BorrowerLoanServicingPanel({
   const handleRefreshPage = async () => {
     onRefresh();
     await load();
+  };
+
+  const submitEarlySettlementRequest = async () => {
+    setEarlySubmitting(true);
+    try {
+      await createBorrowerEarlySettlementRequest(loanId, {
+        borrowerNote: earlySettlementNote.trim() || undefined,
+        reference: earlySettlementRef.trim() || undefined,
+      });
+      toast.success("Early settlement request sent. Your lender will review it.");
+      setEarlySettlementNote("");
+      setEarlySettlementRef("");
+      await load();
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not submit request");
+    } finally {
+      setEarlySubmitting(false);
+    }
+  };
+
+  const showEarlySettlementCard =
+    product?.earlySettlementEnabled &&
+    (loan.status === "ACTIVE" || loan.status === "IN_ARREARS");
+
+  const showEarlySettlementHeader =
+    loan.status === "ACTIVE" || loan.status === "IN_ARREARS";
+
+  const earlySettlementHeaderDisabledReason = !product?.earlySettlementEnabled
+    ? "Early settlement is not enabled for this product."
+    : null;
+
+  const scrollToEarlySettlement = () => {
+    earlySettlementSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
@@ -443,6 +534,12 @@ export function BorrowerLoanServicingPanel({
             approval.
           </div>
         ) : null}
+        {pendingEarlySettlement > 0 ? (
+          <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm text-blue-950 dark:text-blue-50">
+            <span className="font-medium">Early settlement: </span>
+            {pendingEarlySettlement} request(s) awaiting lender approval. You will be notified when the loan is settled.
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-2 justify-end">
           <RefreshButton
             onRefresh={() => void handleRefreshPage()}
@@ -450,14 +547,45 @@ export function BorrowerLoanServicingPanel({
             showToast
             successMessage="Loan data refreshed"
           />
-          {canPay && (
+          {canPay ? (
             <Button size="sm" asChild>
               <Link href={`/loans/${loanId}/payment`}>
                 <CreditCard className="h-4 w-4 mr-2" />
                 Make payment
               </Link>
             </Button>
-          )}
+          ) : null}
+          {showEarlySettlementHeader ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="inline-flex">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (earlySettlementHeaderDisabledReason) return;
+                        scrollToEarlySettlement();
+                      }}
+                      disabled={Boolean(earlySettlementHeaderDisabledReason)}
+                      className={
+                        earlySettlementHeaderDisabledReason ? "pointer-events-none opacity-50" : ""
+                      }
+                    >
+                      <Banknote className="h-4 w-4 mr-2" />
+                      Early settlement
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {earlySettlementHeaderDisabledReason ? (
+                  <TooltipContent className="max-w-xs">
+                    <p>{earlySettlementHeaderDisabledReason}</p>
+                  </TooltipContent>
+                ) : null}
+              </Tooltip>
+            </TooltipProvider>
+          ) : null}
         </div>
       </div>
 
@@ -566,6 +694,142 @@ export function BorrowerLoanServicingPanel({
               )}
             </CardContent>
           </Card>
+
+          {showEarlySettlementCard ? (
+            <div
+              ref={earlySettlementSectionRef}
+              id="borrower-early-settlement"
+              className="scroll-mt-24"
+            >
+              <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Percent className="h-5 w-5 text-muted-foreground" />
+                  Early settlement
+                </CardTitle>
+                <CardDescription>
+                  Request to settle your loan in full. Your lender will confirm the amount and complete the settlement after
+                  approval (same rules as the admin portal).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {loading && !earlyQuote ? (
+                  <p className="text-sm text-muted-foreground">Loading quote…</p>
+                ) : earlyQuote && !earlyQuote.eligible ? (
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                    <p className="font-medium">Not available right now</p>
+                    <p className="text-muted-foreground mt-1">{earlyQuote.reason ?? "See product terms."}</p>
+                  </div>
+                ) : earlyQuote?.eligible ? (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-md border border-border p-3">
+                        <p className="text-muted-foreground text-xs">Estimated settlement</p>
+                        <p className="text-xl font-heading font-bold tabular-nums">
+                          {formatRm(earlyQuote.totalSettlement ?? 0)}
+                        </p>
+                        {earlyQuote.totalSavings != null && earlyQuote.totalSavings > 0 ? (
+                          <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+                            Includes discount: {formatRm(earlyQuote.totalSavings)}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="rounded-md border border-border p-3 space-y-1 text-xs text-muted-foreground">
+                        <p>
+                          <span className="font-medium text-foreground">Remaining principal:</span>{" "}
+                          {formatRm(earlyQuote.remainingPrincipal ?? 0)}
+                        </p>
+                        <p>
+                          <span className="font-medium text-foreground">Late fees (in quote):</span>{" "}
+                          {formatRm(earlyQuote.outstandingLateFees ?? 0)}
+                        </p>
+                        <p>
+                          <span className="font-medium text-foreground">Unpaid installments:</span>{" "}
+                          {earlyQuote.unpaidInstallments ?? "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Figures are indicative until your lender approves. Final amount may change if your schedule or payments
+                      change.
+                    </p>
+                    {pendingEarlySettlement > 0 ? (
+                      <p className="text-sm text-amber-700 dark:text-amber-300">
+                        You already have a pending request. Please wait for your lender to respond.
+                      </p>
+                    ) : (
+                      <div className="space-y-3 border-t pt-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground">Reference (optional)</label>
+                          <Input
+                            value={earlySettlementRef}
+                            onChange={(e) => setEarlySettlementRef(e.target.value)}
+                            placeholder="e.g. bank transfer ref you plan to use"
+                            maxLength={200}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground">Note to lender (optional)</label>
+                          <textarea
+                            className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            value={earlySettlementNote}
+                            onChange={(e) => setEarlySettlementNote(e.target.value)}
+                            placeholder="Any context for your lender…"
+                            maxLength={1000}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          onClick={() => void submitEarlySettlementRequest()}
+                          disabled={earlySubmitting}
+                        >
+                          {earlySubmitting ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Submitting…
+                            </>
+                          ) : (
+                            "Request early settlement"
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Unable to load settlement quote.</p>
+                )}
+
+                {earlyRequests.length > 0 ? (
+                  <div className="border-t pt-4 space-y-2">
+                    <p className="text-sm font-medium">Your requests</p>
+                    <ul className="space-y-2 text-sm">
+                      {earlyRequests.map((r) => (
+                        <li
+                          key={r.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+                        >
+                          <span>
+                            {formatRelativeTime(r.createdAt)} ·{" "}
+                            <span className="font-medium">{r.status}</span>
+                            {r.status === "APPROVED" && r.paymentTransaction?.receiptNumber ? (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                · Receipt {r.paymentTransaction.receiptNumber}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="text-muted-foreground tabular-nums">
+                            {formatRm(r.snapshotTotalSettlement ?? 0)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+            </div>
+          ) : null}
 
           {/* Borrower + Loan details — admin_pro dashboard/loans/[loanId] */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -119,6 +119,7 @@ type TimelineEvent = {
   id: string;
   action: string;
   createdAt: string;
+  previousData?: unknown;
   newData?: unknown;
   user?: { id: string; email: string; name: string | null } | null;
 };
@@ -150,6 +151,80 @@ function applicationTimelineLabel(action: string): string {
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function applicationActorLabel(event: TimelineEvent): string | null {
+  if (event.user?.name || event.user?.email) return event.user.name || event.user.email;
+  if (event.action.startsWith("BORROWER_")) return "You";
+  if (
+    event.action.startsWith("APPLICATION_") ||
+    event.action === "APPROVE" ||
+    event.action === "REJECT" ||
+    event.action === "RETURN_TO_DRAFT"
+  ) {
+    return "Lender";
+  }
+  return null;
+}
+
+function formatTimelineValue(value: unknown, key: string): string {
+  if (value == null) return "(empty)";
+  if (typeof value === "number") {
+    if (/(amount|fee|value|income|capital)/i.test(key)) return formatCurrency(value);
+    return String(value);
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string") {
+    if (key === "status" || key === "fromParty" || key === "category") {
+      return value.replace(/_/g, " ");
+    }
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime()) && (/date|at/i.test(key) || /^\d{4}-\d{2}-\d{2}/.test(value))) {
+      return formatDate(value);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "(none)";
+    return value
+      .map((item) => (typeof item === "object" && item !== null ? JSON.stringify(item) : String(item)))
+      .join("; ");
+  }
+  return JSON.stringify(value);
+}
+
+function applicationFieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    amount: "Amount",
+    term: "Term",
+    status: "Status",
+    reason: "Reason",
+    notes: "Notes",
+    originalName: "File",
+    filename: "File",
+    category: "Category",
+    collateralType: "Collateral type",
+    collateralValue: "Collateral value",
+  };
+  return labels[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (s) => s.toUpperCase());
+}
+
+function applicationChanges(event: TimelineEvent): Array<{ field: string; from: string; to: string }> {
+  const prev =
+    event.previousData && typeof event.previousData === "object"
+      ? (event.previousData as Record<string, unknown>)
+      : null;
+  const next =
+    event.newData && typeof event.newData === "object" ? (event.newData as Record<string, unknown>) : null;
+  if (!prev || !next) return [];
+  const keys = Array.from(new Set([...Object.keys(prev), ...Object.keys(next)]));
+  return keys
+    .filter((key) => JSON.stringify(prev[key]) !== JSON.stringify(next[key]))
+    .map((key) => ({
+      field: applicationFieldLabel(key),
+      from: formatTimelineValue(prev[key], key),
+      to: formatTimelineValue(next[key], key),
+    }));
 }
 
 function LoanSummaryBreakdown({ preview }: { preview: LoanPreviewData }) {
@@ -240,6 +315,134 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
 
   const actionInfo = getActionInfo(event.action);
   const Icon = actionInfo.icon;
+  const actorLabel = applicationActorLabel(event);
+  const data =
+    event.newData && typeof event.newData === "object" ? (event.newData as Record<string, unknown>) : null;
+  const previous =
+    event.previousData && typeof event.previousData === "object"
+      ? (event.previousData as Record<string, unknown>)
+      : null;
+  const changes = applicationChanges(event);
+
+  const renderDetails = () => {
+    if ((event.action === "DOCUMENT_UPLOAD" || event.action === "BORROWER_APPLICATION_DOCUMENT_UPLOAD") && data) {
+      return (
+        <div className="bg-secondary border border-border rounded-lg p-3">
+          <p className="text-xs text-muted-foreground">
+            Uploaded:{" "}
+            <span className="font-medium text-foreground">
+              {String(data.originalName ?? data.filename ?? "—")}
+            </span>
+            {data.category ? <span className="ml-2">({formatTimelineValue(data.category, "category")})</span> : null}
+          </p>
+        </div>
+      );
+    }
+
+    if ((event.action === "DOCUMENT_DELETE" || event.action === "BORROWER_APPLICATION_DOCUMENT_DELETE") && (previous || data)) {
+      const source = previous ?? data;
+      return (
+        <div className="bg-secondary border border-border rounded-lg p-3">
+          <p className="text-xs text-muted-foreground">
+            Removed:{" "}
+            <span className="font-medium text-foreground">
+              {String(source?.originalName ?? source?.filename ?? "—")}
+            </span>
+            {source?.category ? (
+              <span className="ml-2">({formatTimelineValue(source.category, "category")})</span>
+            ) : null}
+          </p>
+        </div>
+      );
+    }
+
+    if (
+      (event.action === "BORROWER_APPLICATION_STATUS_CHANGE" ||
+        event.action === "APPROVE" ||
+        event.action === "REJECT" ||
+        event.action === "RETURN_TO_DRAFT") &&
+      data
+    ) {
+      return (
+        <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
+          <p className="text-xs text-muted-foreground">
+            {previous?.status ? (
+              <>
+                <span className="font-medium text-foreground">{formatTimelineValue(previous.status, "status")}</span>
+                {" -> "}
+                <span className="font-medium text-foreground">{formatTimelineValue(data.status, "status")}</span>
+              </>
+            ) : (
+              <span className="font-medium text-foreground">{formatTimelineValue(data.status, "status")}</span>
+            )}
+          </p>
+          {data.reason ? (
+            <p className="text-xs text-muted-foreground">
+              Reason: <span className="text-foreground">{formatTimelineValue(data.reason, "reason")}</span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (
+      (event.action === "APPLICATION_COUNTER_OFFER" || event.action === "APPLICATION_ACCEPT_BORROWER_OFFER") &&
+      data
+    ) {
+      return (
+        <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
+          {data.amount != null ? (
+            <p className="text-xs text-muted-foreground">
+              Amount: <span className="font-medium text-foreground">{formatTimelineValue(data.amount, "amount")}</span>
+            </p>
+          ) : null}
+          {data.term != null ? (
+            <p className="text-xs text-muted-foreground">
+              Term: <span className="font-medium text-foreground">{formatTimelineValue(data.term, "term")} months</span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if ((event.action === "APPLICATION_REJECT_OFFERS" || event.action === "BORROWER_WITHDRAW_APPLICATION") && data) {
+      return (
+        <div className="bg-secondary border border-border rounded-lg p-3">
+          <p className="text-xs text-muted-foreground">
+            {data.reason || data.notes ? (
+              <>
+                Reason:{" "}
+                <span className="font-medium text-foreground">
+                  {formatTimelineValue(data.reason ?? data.notes, "reason")}
+                </span>
+              </>
+            ) : (
+              <span className="font-medium text-foreground">No additional details provided.</span>
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (changes.length > 0) {
+      return (
+        <div className="bg-secondary border border-border rounded-lg p-3 space-y-2">
+          {changes.map((change) => (
+            <div key={`${event.id}-${change.field}`} className="text-xs space-y-0.5">
+              <p className="font-medium text-foreground">{change.field}</p>
+              <p className="text-muted-foreground">
+                <span className="line-through">{change.from}</span>
+                {" -> "}
+                <span className="font-medium text-foreground">{change.to}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className="flex gap-4">
@@ -254,24 +457,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
           <span className="text-sm font-semibold text-foreground leading-snug">{actionInfo.label}</span>
           <span className="text-xs text-muted-foreground tabular-nums">{formatRelativeTime(event.createdAt)}</span>
         </div>
-        {event.user && (
+        {actorLabel && (
           <p className="text-sm text-muted-foreground mb-2">
-            by {event.user.name || event.user.email}
+            by {actorLabel}
           </p>
         )}
-        {(event.action === "DOCUMENT_UPLOAD" || event.action === "BORROWER_APPLICATION_DOCUMENT_UPLOAD") &&
-          event.newData != null && (
-          <div className="bg-secondary border border-border rounded-lg p-3">
-            <p className="text-xs text-muted-foreground">
-              Uploaded:{" "}
-              <span className="font-medium text-foreground">
-                {String(
-                  (event.newData as Record<string, unknown>).originalName ?? "—",
-                )}
-              </span>
-            </p>
-          </div>
-        )}
+        {renderDetails()}
         <p className="text-xs text-muted-foreground mt-2">{formatDate(event.createdAt)}</p>
       </div>
     </div>

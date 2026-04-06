@@ -987,21 +987,33 @@ export default function LoanDetailPage() {
       return;
     }
 
-    // If there's a file, upload it for the transaction
+    // If there's a file, upload it for each created transaction
     if (paymentFile && paymentRes.data) {
-      const transaction = (paymentRes.data as { transaction: { id: string } }).transaction;
-      if (transaction?.id) {
-        const formData = new FormData();
-        formData.append("file", paymentFile);
+      const data = paymentRes.data as {
+        transaction?: { id: string };
+        transactions?: Array<{ id: string }>;
+      };
+      const transactionIds = (data.transactions?.map((tx) => tx.id).filter(Boolean) ?? []).length
+        ? data.transactions!.map((tx) => tx.id).filter(Boolean)
+        : data.transaction?.id
+          ? [data.transaction.id]
+          : [];
 
+      if (transactionIds.length > 0) {
         try {
-          const uploadRes = await fetch(`/api/proxy/schedules/transactions/${transaction.id}/proof`, {
-            method: "POST",
-            credentials: "include",
-            body: formData,
-          });
-          const uploadJson = await uploadRes.json();
-          if (!uploadJson.success) {
+          const uploadResults = await Promise.all(
+            transactionIds.map(async (transactionId) => {
+              const formData = new FormData();
+              formData.append("file", paymentFile);
+              const uploadRes = await fetch(`/api/proxy/schedules/transactions/${transactionId}/proof`, {
+                method: "POST",
+                credentials: "include",
+                body: formData,
+              });
+              return uploadRes.json();
+            })
+          );
+          if (uploadResults.some((uploadJson) => !uploadJson.success)) {
             toast.warning("Payment recorded but failed to upload proof of payment");
           }
         } catch {

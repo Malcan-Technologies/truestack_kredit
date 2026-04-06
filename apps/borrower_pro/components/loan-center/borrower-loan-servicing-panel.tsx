@@ -13,12 +13,15 @@ import {
   CheckCircle,
   Clock,
   CreditCard,
+  Download,
   ExternalLink,
+  FileCheck,
   Loader2,
   MoreHorizontal,
   FileText,
   Shield,
   ShieldCheck,
+  Receipt,
   TrendingUp,
   User,
   XCircle,
@@ -45,6 +48,7 @@ import {
   listBorrowerManualPaymentRequests,
   getBorrowerEarlySettlementQuote,
   listBorrowerEarlySettlementRequests,
+  borrowerLoanViewSignedAgreementUrl,
   borrowerDisbursementProofUrl,
   borrowerStampCertificateUrl,
   borrowerTransactionReceiptUrl,
@@ -63,6 +67,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { PhoneDisplay } from "../ui/phone-display";
@@ -96,6 +101,103 @@ function formatDateShort(iso: string | null | undefined): string {
   }
 }
 
+function formatDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleString("en-MY", { timeZone: "Asia/Kuala_Lumpur" });
+}
+
+function humanizeWords(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function fieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    status: "Status",
+    reason: "Reason",
+    amount: "Amount",
+    totalAmount: "Amount",
+    totalDue: "Total due",
+    totalPaid: "Total paid",
+    totalFeeCharged: "Late fee charged",
+    totalLateFees: "Late fees",
+    totalLateFeesPaid: "Late fees paid",
+    lateFee: "Late fee",
+    discountAmount: "Discount",
+    settlementAmount: "Settlement amount",
+    receiptNumber: "Receipt number",
+    reference: "Reference",
+    filename: "File",
+    originalName: "File",
+    agreementDate: "Agreement date",
+    documentType: "Document type",
+    repaymentsAffected: "Repayments affected",
+    cancelledRepayments: "Cancelled repayments",
+    paymentDate: "Payment date",
+    disbursementDate: "Disbursement date",
+    borrowerName: "Borrower",
+    borrowerIc: "Borrower IC",
+    attestationStatus: "Attestation status",
+    proposalStartAt: "Proposed start",
+    proposalEndAt: "Proposed end",
+    meetingStartAt: "Meeting start",
+    meetingEndAt: "Meeting end",
+  };
+  return labels[key] ?? humanizeWords(key);
+}
+
+function formatAuditValue(value: unknown, key: string): string {
+  if (value == null) return "(empty)";
+  if (typeof value === "number") {
+    if (Number.isFinite(value) && /(amount|fee|paid|due|value|discount|settlement|principal|interest|total)/i.test(key)) {
+      return formatRm(value);
+    }
+    return String(value);
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string") {
+    const asDate = formatDateTime(value);
+    if (asDate && (/date|at/i.test(key) || /^\d{4}-\d{2}-\d{2}T/.test(value) || /^\d{4}-\d{2}-\d{2}$/.test(value))) {
+      return asDate;
+    }
+    if (key === "status" || key.endsWith("Status") || key === "documentType") {
+      return humanizeWords(value);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "(none)";
+    return value
+      .map((item) => {
+        if (typeof item === "object" && item !== null) return JSON.stringify(item);
+        return String(item);
+      })
+      .join("; ");
+  }
+  return JSON.stringify(value);
+}
+
+function getAuditChanges(
+  previousData: Record<string, unknown> | null,
+  newData: Record<string, unknown> | null
+): Array<{ field: string; from: string; to: string }> {
+  if (!previousData || !newData) return [];
+  const keys = Array.from(new Set([...Object.keys(previousData), ...Object.keys(newData)]));
+  return keys
+    .filter((key) => JSON.stringify(previousData[key]) !== JSON.stringify(newData[key]))
+    .map((key) => ({
+      field: fieldLabel(key),
+      from: formatAuditValue(previousData[key], key),
+      to: formatAuditValue(newData[key], key),
+    }));
+}
+
 function formatRelativeTime(iso: string): string {
   const createdAt = new Date(iso);
   const diffMs = createdAt.getTime() - Date.now();
@@ -113,12 +215,20 @@ function borrowerTimelineActionInfo(action: string): {
   label: string;
 } {
   switch (action) {
+    case "CREATE":
+      return { icon: CheckCircle, label: "Loan created" };
+    case "DISBURSE":
+      return { icon: Banknote, label: "Loan disbursed" };
     case "BORROWER_MANUAL_PAYMENT_REQUEST_CREATED":
       return { icon: CreditCard, label: "Manual payment submitted" };
     case "BORROWER_MANUAL_PAYMENT_APPROVED":
       return { icon: CheckCircle, label: "Manual payment approved" };
     case "BORROWER_MANUAL_PAYMENT_REJECTED":
       return { icon: XCircle, label: "Manual payment rejected" };
+    case "BORROWER_ATTESTATION_MEETING_REQUESTED":
+      return { icon: Calendar, label: "Attestation meeting requested" };
+    case "BORROWER_ATTESTATION_RESTARTED":
+      return { icon: Clock, label: "Attestation restarted" };
     case "BORROWER_EARLY_SETTLEMENT_REQUEST_CREATED":
       return { icon: Percent, label: "Early settlement request submitted" };
     case "BORROWER_EARLY_SETTLEMENT_APPROVED":
@@ -135,17 +245,53 @@ function borrowerTimelineActionInfo(action: string): {
       return { icon: CheckCircle, label: "Attestation completed" };
     case "BORROWER_UPLOAD_AGREEMENT":
       return { icon: FileText, label: "Signed agreement uploaded" };
+    case "UPLOAD_AGREEMENT":
+      return { icon: FileText, label: "Signed agreement uploaded" };
+    case "UPLOAD_DISBURSEMENT_PROOF":
+      return { icon: FileText, label: "Proof of disbursement uploaded" };
+    case "UPLOAD_STAMP_CERTIFICATE":
+      return { icon: Shield, label: "Stamp certificate uploaded" };
+    case "STATUS_UPDATE":
+      return { icon: Clock, label: "Loan status updated" };
+    case "LATE_FEE_ACCRUAL":
+      return { icon: AlertTriangle, label: "Late fees charged" };
+    case "DEFAULT_READY":
+      return { icon: AlertTriangle, label: "Default threshold reached" };
+    case "EARLY_SETTLEMENT":
+      return { icon: Banknote, label: "Early settlement recorded" };
+    case "EXPORT":
+      return { icon: FileText, label: "Document exported" };
+    case "COMPLETE":
+      return { icon: CheckCircle, label: "Loan completed" };
+    case "MARK_DEFAULT":
+      return { icon: XCircle, label: "Loan marked default" };
     default:
-      return { icon: Clock, label: action.replace(/_/g, " ") };
+      return { icon: Clock, label: humanizeWords(action) };
   }
 }
 
 function borrowerTimelineActorLabel(event: BorrowerLoanTimelineEvent): string | null {
+  if (event.user?.name || event.user?.email) return event.user.name || event.user.email;
   if (event.action === "BORROWER_MANUAL_PAYMENT_APPROVED" || event.action === "BORROWER_MANUAL_PAYMENT_REJECTED") {
     return "Admin";
   }
   if (event.action.startsWith("BORROWER_")) return "You";
   if (event.action.startsWith("ADMIN_")) return "Admin";
+  if (
+    event.action === "DISBURSE" ||
+    event.action === "STATUS_UPDATE" ||
+    event.action === "RECORD_PAYMENT" ||
+    event.action === "LATE_FEE_ACCRUAL" ||
+    event.action === "EARLY_SETTLEMENT" ||
+    event.action === "UPLOAD_DISBURSEMENT_PROOF" ||
+    event.action === "UPLOAD_STAMP_CERTIFICATE" ||
+    event.action === "UPLOAD_AGREEMENT" ||
+    event.action === "EXPORT" ||
+    event.action === "COMPLETE" ||
+    event.action === "MARK_DEFAULT"
+  ) {
+    return "Admin";
+  }
   if (event.user) return "Admin";
   return null;
 }
@@ -154,7 +300,7 @@ function BorrowerTimelineItem({ event }: { event: BorrowerLoanTimelineEvent }) {
   const actionInfo = borrowerTimelineActionInfo(event.action);
   const Icon = actionInfo.icon;
   const actorLabel = borrowerTimelineActorLabel(event);
-
+  const changes = getAuditChanges(event.previousData, event.newData);
   const nd = event.newData;
   const isManualPaymentLifecycle =
     event.action === "BORROWER_MANUAL_PAYMENT_REQUEST_CREATED" ||
@@ -181,6 +327,184 @@ function BorrowerTimelineItem({ event }: { event: BorrowerLoanTimelineEvent }) {
     (amount != null && amount > 0 && (isManualPaymentLifecycle || isRecordPayment)) ||
     (event.action === "BORROWER_MANUAL_PAYMENT_REJECTED" && rejectReason !== "");
 
+  const renderDetail = () => {
+    if (showAmountBox) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          {amount != null && amount > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Amount: <span className="font-medium text-foreground">{formatRm(amount)}</span>
+              {reference ? <span className="ml-2 break-all">Ref: {reference}</span> : null}
+            </p>
+          ) : null}
+          {rejectReason ? (
+            <p className="text-xs text-muted-foreground">
+              Reason: <span className="text-foreground">{rejectReason}</span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (event.action === "STATUS_UPDATE" && nd) {
+      const prevStatus = event.previousData?.status;
+      const nextStatus = nd.status;
+      const reason = nd.reason;
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground">
+            {prevStatus ? (
+              <>
+                <span className="font-medium text-foreground">{formatAuditValue(prevStatus, "status")}</span>
+                {" -> "}
+                <span className="font-medium text-foreground">{formatAuditValue(nextStatus, "status")}</span>
+              </>
+            ) : (
+              <span className="font-medium text-foreground">{formatAuditValue(nextStatus, "status")}</span>
+            )}
+          </p>
+          {reason ? (
+            <p className="text-xs text-muted-foreground">
+              Reason: <span className="text-foreground">{formatAuditValue(reason, "reason")}</span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (event.action === "LATE_FEE_ACCRUAL" && nd) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground">
+            Fee charged:{" "}
+            <span className="font-medium text-foreground">
+              {formatAuditValue(nd.totalFeeCharged, "totalFeeCharged")}
+            </span>
+          </p>
+          {nd.repaymentsAffected != null ? (
+            <p className="text-xs text-muted-foreground">
+              Repayments affected:{" "}
+              <span className="font-medium text-foreground">
+                {formatAuditValue(nd.repaymentsAffected, "repaymentsAffected")}
+              </span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (event.action === "EARLY_SETTLEMENT" && nd) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground">
+            Settlement amount:{" "}
+            <span className="font-medium text-foreground">
+              {formatAuditValue(nd.settlementAmount, "settlementAmount")}
+            </span>
+          </p>
+          {nd.discountAmount != null ? (
+            <p className="text-xs text-muted-foreground">
+              Discount:{" "}
+              <span className="font-medium text-foreground">
+                {formatAuditValue(nd.discountAmount, "discountAmount")}
+              </span>
+            </p>
+          ) : null}
+          {nd.receiptNumber ? (
+            <p className="text-xs text-muted-foreground">
+              Receipt: <span className="font-medium text-foreground">{formatAuditValue(nd.receiptNumber, "receiptNumber")}</span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (
+      (event.action === "BORROWER_UPLOAD_AGREEMENT" ||
+        event.action === "UPLOAD_AGREEMENT" ||
+        event.action === "UPLOAD_DISBURSEMENT_PROOF" ||
+        event.action === "UPLOAD_STAMP_CERTIFICATE") &&
+      nd
+    ) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground">
+            File:{" "}
+            <span className="font-medium text-foreground">
+              {formatAuditValue(nd.filename ?? nd.originalName ?? nd.path, "filename")}
+            </span>
+          </p>
+          {nd.agreementDate ? (
+            <p className="text-xs text-muted-foreground">
+              Agreement date:{" "}
+              <span className="font-medium text-foreground">
+                {formatAuditValue(nd.agreementDate, "agreementDate")}
+              </span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (event.action === "DISBURSE" && nd) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          {nd.disbursementDate ? (
+            <p className="text-xs text-muted-foreground">
+              Disbursed on:{" "}
+              <span className="font-medium text-foreground">
+                {formatAuditValue(nd.disbursementDate, "disbursementDate")}
+              </span>
+            </p>
+          ) : null}
+          {nd.reference ? (
+            <p className="text-xs text-muted-foreground">
+              Reference: <span className="font-medium text-foreground">{formatAuditValue(nd.reference, "reference")}</span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (event.action === "EXPORT" && nd) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground">
+            Document:{" "}
+            <span className="font-medium text-foreground">
+              {formatAuditValue(nd.documentType, "documentType")}
+            </span>
+          </p>
+          {nd.borrowerName ? (
+            <p className="text-xs text-muted-foreground">
+              Borrower:{" "}
+              <span className="font-medium text-foreground">{formatAuditValue(nd.borrowerName, "borrowerName")}</span>
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (changes.length > 0) {
+      return (
+        <div className="space-y-2 rounded-lg border border-border bg-secondary p-3">
+          {changes.map((change) => (
+            <div key={`${event.id}-${change.field}`} className="text-xs space-y-0.5">
+              <p className="font-medium text-foreground">{change.field}</p>
+              <p className="text-muted-foreground">
+                <span className="line-through">{change.from}</span>
+                {" -> "}
+                <span className="font-medium text-foreground">{change.to}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <div className="flex gap-4">
       <div className="flex flex-col items-center">
@@ -195,21 +519,7 @@ function BorrowerTimelineItem({ event }: { event: BorrowerLoanTimelineEvent }) {
           <span className="text-xs text-muted-foreground">{formatRelativeTime(event.createdAt)}</span>
         </div>
         {actorLabel ? <p className="mb-2 text-sm text-muted-foreground">by {actorLabel}</p> : null}
-        {showAmountBox ? (
-          <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
-            {amount != null && amount > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                Amount: <span className="font-medium text-foreground">{formatRm(amount)}</span>
-                {reference ? <span className="ml-2 break-all">Ref: {reference}</span> : null}
-              </p>
-            ) : null}
-            {rejectReason ? (
-              <p className="text-xs text-muted-foreground">
-                Reason: <span className="text-foreground">{rejectReason}</span>
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+        {renderDetail()}
         <p className="mt-2 text-xs text-muted-foreground">{formatDateShort(event.createdAt)}</p>
       </div>
     </div>
@@ -320,7 +630,9 @@ type SchedulePayload = {
       lateFeeAccrued?: unknown;
       lateFeesPaid?: unknown;
       allocations?: Array<{
+        id?: string;
         amount: unknown;
+        allocatedAt?: string;
         transaction?: {
           id: string;
           receiptPath?: string | null;
@@ -445,6 +757,7 @@ export function BorrowerLoanServicingPanel({
   const applicationId = loan.application?.id;
   const borrower = loan.borrower;
   const pendingEarlySettlement = earlyRequests.filter((r) => r.status === "PENDING").length;
+  const hasLoanDocuments = Boolean(loan.agreementPath || loan.disbursementProofPath || loan.stampCertPath);
   const isCorporate = borrower?.borrowerType === "CORPORATE";
   const borrowerDisplayName =
     isCorporate && borrower?.companyName?.trim()
@@ -877,7 +1190,7 @@ export function BorrowerLoanServicingPanel({
             </Card>
           </div>
 
-          {(loan.disbursementProofPath || loan.stampCertPath) && (
+          {hasLoanDocuments && (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -887,6 +1200,21 @@ export function BorrowerLoanServicingPanel({
                 <CardDescription>Files shared by your lender (view or download).</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
+                {loan.agreementPath ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border rounded-md p-3">
+                    <div className="min-w-0">
+                      <p className="font-medium">Signed loan agreement</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {loan.agreementOriginalName ?? "Agreement on file"}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={borrowerLoanViewSignedAgreementUrl(loanId)} target="_blank" rel="noopener noreferrer">
+                        View / download
+                      </a>
+                    </Button>
+                  </div>
+                ) : null}
                 {loan.disbursementProofPath ? (
                   <div className="flex flex-wrap items-center justify-between gap-2 border rounded-md p-3">
                     <span className="font-medium">Proof of disbursement</span>
@@ -980,7 +1308,40 @@ export function BorrowerLoanServicingPanel({
                           ? 0
                           : Math.max(0, totalDue - paid);
                         const st = r.status.replace(/_/g, " ");
-                        const tx = (r.allocations ?? []).find((a) => a.transaction)?.transaction;
+                        const transactionGroups = Array.from(
+                          (r.allocations ?? []).reduce((map, allocation, allocationIndex) => {
+                            const tx = allocation.transaction;
+                            if (!tx) return map;
+
+                            const existing = map.get(tx.id);
+                            const amount = toAmountNumber(allocation.amount);
+                            if (existing) {
+                              existing.amount += amount;
+                              existing.count += 1;
+                              return map;
+                            }
+
+                            map.set(tx.id, {
+                              id: tx.id,
+                              amount,
+                              count: 1,
+                              receiptPath: tx.receiptPath ?? null,
+                              proofPath: tx.proofPath ?? null,
+                              sortKey: allocation.allocatedAt ?? `${allocationIndex}`,
+                            });
+                            return map;
+                          }, new Map<string, {
+                            id: string;
+                            amount: number;
+                            count: number;
+                            receiptPath: string | null;
+                            proofPath: string | null;
+                            sortKey: string;
+                          }>())
+                          .values()
+                        ).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+                        const hasReceipt = transactionGroups.some((tx) => Boolean(tx.receiptPath));
+                        const hasProof = transactionGroups.some((tx) => Boolean(tx.proofPath));
                         return (
                           <TableRow
                             key={r.id}
@@ -1021,9 +1382,23 @@ export function BorrowerLoanServicingPanel({
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              <span className={paid > 0 ? "text-success tabular-nums" : "tabular-nums"}>
-                                {formatRm(paid)}
-                              </span>
+                              <div>
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className={paid > 0 ? "text-success tabular-nums" : "tabular-nums"}>
+                                    {formatRm(paid)}
+                                  </span>
+                                  {transactionGroups.length > 0 ? (
+                                    <>
+                                      <span title={hasReceipt ? "Has payment receipt" : "Receipt not yet generated"}>
+                                        <Receipt className={cn("h-3.5 w-3.5", hasReceipt ? "text-success" : "text-amber-500")} />
+                                      </span>
+                                      <span title={hasProof ? "Has proof of payment" : "Proof of payment not yet uploaded"}>
+                                        <FileCheck className={cn("h-3.5 w-3.5", hasProof ? "text-success" : "text-amber-500")} />
+                                      </span>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </div>
                             </TableCell>
                             <TableCell>
                               <Badge
@@ -1034,39 +1409,59 @@ export function BorrowerLoanServicingPanel({
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right">
-                              {r.status === "PAID" && tx ? (
+                              {transactionGroups.length > 0 ? (
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Row actions">
                                       <MoreHorizontal className="h-4 w-4" />
                                     </Button>
                                   </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    {tx.receiptPath ? (
-                                      <DropdownMenuItem asChild>
-                                        <a
-                                          href={borrowerTransactionReceiptUrl(tx.id)}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                        >
-                                          View receipt
-                                        </a>
-                                      </DropdownMenuItem>
-                                    ) : null}
-                                    {tx.proofPath ? (
-                                      <DropdownMenuItem asChild>
-                                        <a
-                                          href={borrowerTransactionProofUrl(tx.id)}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                        >
-                                          View proof of payment
-                                        </a>
-                                      </DropdownMenuItem>
-                                    ) : null}
-                                    {!tx.receiptPath && !tx.proofPath ? (
-                                      <DropdownMenuItem disabled>No documents yet</DropdownMenuItem>
-                                    ) : null}
+                                  <DropdownMenuContent align="end" className="w-72">
+                                    <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                                      {transactionGroups.length} Payment
+                                      {transactionGroups.length > 1 ? "s" : ""} Recorded
+                                    </div>
+                                    <DropdownMenuSeparator />
+                                    {transactionGroups.map((tx, transactionIndex) => {
+                                      const hasTransactionReceipt = Boolean(tx.receiptPath);
+                                      const hasTransactionProof = Boolean(tx.proofPath);
+                                      return (
+                                        <div key={tx.id}>
+                                          {transactionIndex > 0 ? <DropdownMenuSeparator /> : null}
+                                          <div className="px-2 py-1.5 text-xs font-normal text-muted-foreground">
+                                            Payment {transactionIndex + 1}: {formatRm(tx.amount)}
+                                            {tx.count > 1 ? ` • ${tx.count} allocations` : ""}
+                                          </div>
+                                          {hasTransactionReceipt ? (
+                                            <DropdownMenuItem asChild>
+                                              <a
+                                                href={borrowerTransactionReceiptUrl(tx.id)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                              >
+                                                <Receipt className="mr-2 h-4 w-4" />
+                                                View Receipt
+                                              </a>
+                                            </DropdownMenuItem>
+                                          ) : null}
+                                          {hasTransactionProof ? (
+                                            <DropdownMenuItem asChild>
+                                              <a
+                                                href={borrowerTransactionProofUrl(tx.id)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                              >
+                                                <Download className="mr-2 h-4 w-4" />
+                                                View Proof of Payment
+                                              </a>
+                                            </DropdownMenuItem>
+                                          ) : null}
+                                          {!hasTransactionReceipt && !hasTransactionProof ? (
+                                            <DropdownMenuItem disabled>No documents yet</DropdownMenuItem>
+                                          ) : null}
+                                        </div>
+                                      );
+                                    })}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               ) : (

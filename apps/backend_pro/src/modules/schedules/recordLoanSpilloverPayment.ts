@@ -167,13 +167,12 @@ interface ReceiptParams {
     email: string | null;
     logoUrl: string | null;
   };
-  totalLateFees: number;
   totalOutstandingAfter: number;
 }
 
 // Generate and store receipt PDF
 export async function generateAndStoreReceipt(params: ReceiptParams): Promise<string> {
-  const { transaction, allocations, loan, borrower, tenant, totalLateFees, totalOutstandingAfter } = params;
+  const { transaction, allocations, loan, borrower, tenant, totalOutstandingAfter } = params;
   const originalFilename = `${transaction.receiptNumber}.pdf`;
 
   // Format currency helper
@@ -302,20 +301,26 @@ export async function generateAndStoreReceipt(params: ReceiptParams): Promise<st
         rowY += 20;
       }
 
-      // Total line
+      // Total line — sums table rows only (this payment / installment portions)
       doc.moveTo(50, rowY).lineTo(550, rowY).stroke('#E5E7EB');
       rowY += 10;
-      
-      const totalAmount = toSafeNumber(transaction.totalAmount);
-      // totalAmount already includes late fees, so split it for display
-      const principalInterestTotal = safeSubtract(totalAmount, totalLateFees);
+
+      const rowPrincipalInterestTotal = allocations.reduce(
+        (s, a) => safeAdd(s, toSafeNumber(a.amount)),
+        0
+      );
+      const rowLateFeesTotal = allocations.reduce(
+        (s, a) => safeAdd(s, toSafeNumber(a.lateFee)),
+        0
+      );
+      const receiptTotalPaid = safeAdd(rowPrincipalInterestTotal, rowLateFeesTotal);
 
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#000000');
       doc.text('TOTAL PAID', 50, rowY);
-      doc.text(formatRM(principalInterestTotal), 280, rowY, { width: 80, align: 'right' });
-      doc.text(totalLateFees > 0 ? formatRM(totalLateFees) : '-', 380, rowY, { width: 80, align: 'right' });
+      doc.text(formatRM(rowPrincipalInterestTotal), 280, rowY, { width: 80, align: 'right' });
+      doc.text(rowLateFeesTotal > 0 ? formatRM(rowLateFeesTotal) : '-', 380, rowY, { width: 80, align: 'right' });
       doc.fontSize(12).fillColor('#000000')
-         .text(formatRM(totalAmount), 460, rowY - 2, { width: 80, align: 'right' });
+         .text(formatRM(receiptTotalPaid), 460, rowY - 2, { width: 80, align: 'right' });
 
       // Reference
       if (transaction.reference) {
@@ -382,6 +387,24 @@ export type RecordLoanSpilloverContext = {
 export type RecordLoanSpilloverResult =
   | { kind: 'replay'; status: number; body: unknown }
   | { kind: 'created'; body: unknown };
+
+type SpilloverReceiptTransaction = {
+  transaction: {
+    id: string;
+    receiptNumber: string | null;
+    paymentDate: Date;
+    totalAmount: number;
+    reference: string | null;
+  };
+  allocation: {
+    id: string;
+    repaymentNumber: number;
+    dueDate: Date;
+    amount: number;
+    lateFee: number;
+  };
+  outstandingAfter: number;
+};
 
 export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverContext): Promise<RecordLoanSpilloverResult> {
   const {
@@ -673,27 +696,27 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
         throw new BadRequestError('Payment amount is too small to allocate');
       }
 
-      const receiptNumber = await generateReceiptNumber(tx, paymentDate);
+      let runningOutstanding = totalOutstandingBefore;
+      const createdTransactions: SpilloverReceiptTransaction[] = [];
 
-      // Create PaymentTransaction
-      const transaction = await tx.paymentTransaction.create({
-        data: {
-          tenantId: tenantId,
-          loanId,
-          totalAmount: data.amount,
-          reference: data.reference,
-          notes: data.notes,
-          paymentDate,
-          receiptNumber,
-        },
-      });
-
-      // Create allocations
-      const createdAllocations: { id: string; repaymentNumber: number; dueDate: Date; amount: unknown; lateFee: unknown }[] = [];
       for (const alloc of allocationData) {
+        const transactionAmount = safeAdd(alloc.amount, alloc.lateFeeAllocated);
+        const receiptNumber = await generateReceiptNumber(tx, paymentDate);
+        const paymentTransaction = await tx.paymentTransaction.create({
+          data: {
+            tenantId: tenantId,
+            loanId,
+            totalAmount: transactionAmount,
+            reference: data.reference,
+            notes: data.notes,
+            paymentDate,
+            receiptNumber,
+          },
+        });
+
         const allocation = await tx.paymentAllocation.create({
           data: {
-            transactionId: transaction.id,
+            transactionId: paymentTransaction.id,
             repaymentId: alloc.repaymentId,
             amount: alloc.amount,
             lateFee: alloc.lateFeeAllocated > 0 ? alloc.lateFeeAllocated : null,
@@ -701,15 +724,26 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
             allocatedAt: paymentDate,
           },
         });
-        createdAllocations.push({ 
-          id: allocation.id,
-          repaymentNumber: alloc.repaymentNumber, 
-          dueDate: alloc.dueDate,
-          amount: allocation.amount,
-          lateFee: allocation.lateFee,
+
+        runningOutstanding = Math.max(0, safeSubtract(runningOutstanding, transactionAmount));
+        createdTransactions.push({
+          transaction: {
+            id: paymentTransaction.id,
+            receiptNumber: paymentTransaction.receiptNumber,
+            paymentDate: paymentTransaction.paymentDate,
+            totalAmount: transactionAmount,
+            reference: paymentTransaction.reference,
+          },
+          allocation: {
+            id: allocation.id,
+            repaymentNumber: alloc.repaymentNumber,
+            dueDate: alloc.dueDate,
+            amount: toSafeNumber(allocation.amount),
+            lateFee: toSafeNumber(allocation.lateFee),
+          },
+          outstandingAfter: runningOutstanding,
         });
 
-        // Update repayment status and balances using locked snapshot + this allocation.
         const baseRepayment = lockedUnpaidRepayments.find(r => r.id === alloc.repaymentId);
         if (!baseRepayment) continue;
 
@@ -740,9 +774,8 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
       }
 
       return {
-        transaction,
-        allocations: createdAllocations,
-        receiptNumber,
+        transactions: createdTransactions,
+        outstandingAfter: runningOutstanding,
         totalLateFeesPaid,
         totalOutstandingBefore,
         allocationData,
@@ -753,8 +786,10 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
     replayResponseBody = {
       success: true,
       data: {
-        transaction: result.transaction,
-        receiptNumber: result.receiptNumber,
+        transaction: result.transactions[0]?.transaction ?? null,
+        transactions: result.transactions.map(entry => entry.transaction),
+        receiptNumber: result.transactions[0]?.transaction.receiptNumber ?? null,
+        receiptNumbers: result.transactions.map(entry => entry.transaction.receiptNumber).filter(Boolean),
         allocations: result.allocationData.map(a => ({
           repaymentNumber: a.repaymentNumber,
           amount: a.amount,
@@ -818,54 +853,58 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
     }
 
     const borrower = loan.borrower;
-    let receiptPath: string | null = null;
-    let updatedTransaction = await prisma.paymentTransaction.findUnique({
-      where: { id: result.transaction.id },
-      include: { allocations: true },
-    });
-    if (!updatedTransaction) {
-      throw new NotFoundError('Payment transaction');
-    }
+    const updatedTransactions: Array<Awaited<ReturnType<typeof prisma.paymentTransaction.update>>> = [];
 
-    // Receipt generation is best-effort and should not roll back recorded payments
-    try {
-      receiptPath = await generateAndStoreReceipt({
-        transaction: result.transaction,
-        allocations: result.allocations,
-        loan,
-        borrower: {
-          displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName
-            ? borrower.companyName
-            : borrower.name,
-          identificationNumber: borrower.icNumber,
-          phone: borrower.phone,
-          email: borrower.email,
-        },
-        tenant: {
-          name: loan.tenant.name,
-          registrationNumber: loan.tenant.registrationNumber,
-          licenseNumber: loan.tenant.licenseNumber,
-          businessAddress: loan.tenant.businessAddress,
-          contactNumber: loan.tenant.contactNumber,
-          email: loan.tenant.email,
-          logoUrl: loan.tenant.logoUrl,
-        },
-        totalLateFees: result.totalLateFeesPaid,
-        totalOutstandingAfter: safeSubtract(result.totalOutstandingBefore, data.amount),
-      });
+    for (const entry of result.transactions) {
+      try {
+        const receiptPath = await generateAndStoreReceipt({
+          transaction: entry.transaction,
+          allocations: [entry.allocation],
+          loan,
+          borrower: {
+            displayName: borrower.borrowerType === 'CORPORATE' && borrower.companyName
+              ? borrower.companyName
+              : borrower.name,
+            identificationNumber: borrower.icNumber,
+            phone: borrower.phone,
+            email: borrower.email,
+          },
+          tenant: {
+            name: loan.tenant.name,
+            registrationNumber: loan.tenant.registrationNumber,
+            licenseNumber: loan.tenant.licenseNumber,
+            businessAddress: loan.tenant.businessAddress,
+            contactNumber: loan.tenant.contactNumber,
+            email: loan.tenant.email,
+            logoUrl: loan.tenant.logoUrl,
+          },
+          totalOutstandingAfter: entry.outstandingAfter,
+        });
 
-      updatedTransaction = await prisma.paymentTransaction.update({
-        where: { id: result.transaction.id },
-        data: {
-          receiptPath,
-          receiptGenAt: new Date(),
-        },
-        include: {
-          allocations: true,
-        },
-      });
-    } catch (receiptErr) {
-      console.error(`[RecordPayment] Receipt generation failed for loan ${loanId}:`, receiptErr);
+        const updatedTransaction = await prisma.paymentTransaction.update({
+          where: { id: entry.transaction.id },
+          data: {
+            receiptPath,
+            receiptGenAt: new Date(),
+          },
+          include: {
+            allocations: true,
+          },
+        });
+        updatedTransactions.push(updatedTransaction);
+      } catch (receiptErr) {
+        console.error(
+          `[RecordPayment] Receipt generation failed for loan ${loanId}, transaction ${entry.transaction.id}:`,
+          receiptErr
+        );
+        const existing = await prisma.paymentTransaction.findUnique({
+          where: { id: entry.transaction.id },
+          include: { allocations: true },
+        });
+        if (existing) {
+          updatedTransactions.push(existing);
+        }
+      }
     }
 
     // Log to audit trail
@@ -876,15 +915,19 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
       entityType: 'Loan',
       entityId: loanId,
       newData: {
-        transactionId: result.transaction.id,
-        receiptNumber: result.receiptNumber,
+        transactionId: result.transactions[0]?.transaction.id ?? null,
+        transactionIds: result.transactions.map(entry => entry.transaction.id),
+        receiptNumber: result.transactions[0]?.transaction.receiptNumber ?? null,
+        receiptNumbers: result.transactions.map(entry => entry.transaction.receiptNumber).filter(Boolean),
         totalAmount: data.amount,
-        allocations: result.allocationData.map(a => ({
+        allocations: result.allocationData.map((a, index) => ({
           repaymentNumber: a.repaymentNumber,
           amount: a.amount,
           lateFeeAllocated: a.lateFeeAllocated,
           interestAllocated: a.interestAllocated,
           principalAllocated: a.principalAllocated,
+          transactionId: result.transactions[index]?.transaction.id ?? null,
+          receiptNumber: result.transactions[index]?.transaction.receiptNumber ?? null,
         })),
         totalLateFeesPaid: result.totalLateFeesPaid,
         reference: data.reference || null,
@@ -906,7 +949,8 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
         newData: {
           status: 'ACTIVE',
           reason: 'All overdue repayments fully paid - default cleared',
-          paymentTransactionId: result.transaction.id,
+          paymentTransactionId: result.transactions[0]?.transaction.id ?? null,
+          paymentTransactionIds: result.transactions.map(entry => entry.transaction.id),
         },
         ipAddress: ipAddress,
       });
@@ -920,31 +964,40 @@ export async function handleRecordLoanSpilloverPayment(ctx: RecordLoanSpilloverC
 
     // TrueSend: send payment receipt email with PDF attached
     let emailSent = false;
-    if (receiptPath) {
+    for (const transaction of updatedTransactions) {
+      if (!transaction.receiptPath || !transaction.receiptNumber) continue;
       try {
-        emailSent = await TrueSendService.sendPaymentReceipt(
+        const sent = await TrueSendService.sendPaymentReceipt(
           tenantId,
           loanId,
-          receiptPath,
-          data.amount,
-          result.receiptNumber
+          transaction.receiptPath,
+          toSafeNumber(transaction.totalAmount),
+          transaction.receiptNumber
         );
+        emailSent = emailSent || sent;
       } catch (emailErr) {
-        console.error(`[RecordPayment] TrueSend email failed for loan ${loanId}:`, emailErr);
+        console.error(
+          `[RecordPayment] TrueSend email failed for loan ${loanId}, transaction ${transaction.id}:`,
+          emailErr
+        );
       }
     }
 
     const responsePayload = {
       success: true,
       data: {
-        transaction: updatedTransaction,
-        receiptNumber: result.receiptNumber,
-        allocations: result.allocationData.map(a => ({
+        transaction: updatedTransactions[0] ?? null,
+        transactions: updatedTransactions,
+        receiptNumber: updatedTransactions[0]?.receiptNumber ?? null,
+        receiptNumbers: updatedTransactions.map(transaction => transaction.receiptNumber).filter(Boolean),
+        allocations: result.allocationData.map((a, index) => ({
           repaymentNumber: a.repaymentNumber,
           amount: a.amount,
           lateFeeAllocated: a.lateFeeAllocated,
           interestAllocated: a.interestAllocated,
           principalAllocated: a.principalAllocated,
+          transactionId: updatedTransactions[index]?.id ?? null,
+          receiptNumber: updatedTransactions[index]?.receiptNumber ?? null,
         })),
         totalLateFeesPaid: result.totalLateFeesPaid,
         defaultCleared,

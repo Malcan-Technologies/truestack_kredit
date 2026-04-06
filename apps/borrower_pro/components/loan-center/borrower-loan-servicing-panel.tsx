@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -26,7 +26,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { CopyField } from "../ui/copy-field";
@@ -45,7 +44,6 @@ import {
   getBorrowerLoanMetrics,
   listBorrowerManualPaymentRequests,
   getBorrowerEarlySettlementQuote,
-  createBorrowerEarlySettlementRequest,
   listBorrowerEarlySettlementRequests,
   borrowerDisbursementProofUrl,
   borrowerStampCertificateUrl,
@@ -372,12 +370,6 @@ export function BorrowerLoanServicingPanel({
       paymentTransaction?: { id: string; receiptNumber?: string | null } | null;
     }>
   >([]);
-  const [earlySettlementNote, setEarlySettlementNote] = useState("");
-  const [earlySettlementRef, setEarlySettlementRef] = useState("");
-  const [earlySubmitting, setEarlySubmitting] = useState(false);
-
-  const earlySettlementSectionRef = useRef<HTMLDivElement | null>(null);
-
   const canPay =
     loan.status === "ACTIVE" || loan.status === "IN_ARREARS" || loan.status === "DEFAULTED";
 
@@ -464,25 +456,6 @@ export function BorrowerLoanServicingPanel({
     await load();
   };
 
-  const submitEarlySettlementRequest = async () => {
-    setEarlySubmitting(true);
-    try {
-      await createBorrowerEarlySettlementRequest(loanId, {
-        borrowerNote: earlySettlementNote.trim() || undefined,
-        reference: earlySettlementRef.trim() || undefined,
-      });
-      toast.success("Early settlement request sent. Your lender will review it.");
-      setEarlySettlementNote("");
-      setEarlySettlementRef("");
-      await load();
-      onRefresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not submit request");
-    } finally {
-      setEarlySubmitting(false);
-    }
-  };
-
   const showEarlySettlementCard =
     product?.earlySettlementEnabled &&
     (loan.status === "ACTIVE" || loan.status === "IN_ARREARS");
@@ -493,10 +466,6 @@ export function BorrowerLoanServicingPanel({
   const earlySettlementHeaderDisabledReason = !product?.earlySettlementEnabled
     ? "Early settlement is not enabled for this product."
     : null;
-
-  const scrollToEarlySettlement = () => {
-    earlySettlementSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -560,22 +529,25 @@ export function BorrowerLoanServicingPanel({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span tabIndex={0} className="inline-flex">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (earlySettlementHeaderDisabledReason) return;
-                        scrollToEarlySettlement();
-                      }}
-                      disabled={Boolean(earlySettlementHeaderDisabledReason)}
-                      className={
-                        earlySettlementHeaderDisabledReason ? "pointer-events-none opacity-50" : ""
-                      }
-                    >
-                      <Banknote className="h-4 w-4 mr-2" />
-                      Early settlement
-                    </Button>
+                    {earlySettlementHeaderDisabledReason ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="pointer-events-none opacity-50"
+                      >
+                        <Banknote className="h-4 w-4 mr-2" />
+                        Early settlement
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={`/loans/${loanId}/early-settlement`}>
+                          <Banknote className="h-4 w-4 mr-2" />
+                          Early settlement
+                        </Link>
+                      </Button>
+                    )}
                   </span>
                 </TooltipTrigger>
                 {earlySettlementHeaderDisabledReason ? (
@@ -696,20 +668,15 @@ export function BorrowerLoanServicingPanel({
           </Card>
 
           {showEarlySettlementCard ? (
-            <div
-              ref={earlySettlementSectionRef}
-              id="borrower-early-settlement"
-              className="scroll-mt-24"
-            >
-              <Card>
+            <Card id="borrower-early-settlement">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Percent className="h-5 w-5 text-muted-foreground" />
                   Early settlement
                 </CardTitle>
                 <CardDescription>
-                  Request to settle your loan in full. Your lender will confirm the amount and complete the settlement after
-                  approval (same rules as the admin portal).
+                  Settle your loan in full using your product&apos;s discounted early settlement amount — same steps as
+                  making a payment (bank transfer + request for lender approval).
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -721,7 +688,7 @@ export function BorrowerLoanServicingPanel({
                     <p className="text-muted-foreground mt-1">{earlyQuote.reason ?? "See product terms."}</p>
                   </div>
                 ) : earlyQuote?.eligible ? (
-                  <>
+                  <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                       <div className="rounded-md border border-border p-3">
                         <p className="text-muted-foreground text-xs">Estimated settlement</p>
@@ -730,71 +697,38 @@ export function BorrowerLoanServicingPanel({
                         </p>
                         {earlyQuote.totalSavings != null && earlyQuote.totalSavings > 0 ? (
                           <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
-                            Includes discount: {formatRm(earlyQuote.totalSavings)}
+                            Includes interest discount: {formatRm(earlyQuote.totalSavings)}
                           </p>
                         ) : null}
                       </div>
                       <div className="rounded-md border border-border p-3 space-y-1 text-xs text-muted-foreground">
                         <p>
-                          <span className="font-medium text-foreground">Remaining principal:</span>{" "}
+                          <span className="font-medium text-foreground">Principal:</span>{" "}
                           {formatRm(earlyQuote.remainingPrincipal ?? 0)}
                         </p>
                         <p>
-                          <span className="font-medium text-foreground">Late fees (in quote):</span>{" "}
+                          <span className="font-medium text-foreground">Late fees:</span>{" "}
                           {formatRm(earlyQuote.outstandingLateFees ?? 0)}
                         </p>
                         <p>
-                          <span className="font-medium text-foreground">Unpaid installments:</span>{" "}
+                          <span className="font-medium text-foreground">Unpaid instalments:</span>{" "}
                           {earlyQuote.unpaidInstallments ?? "—"}
                         </p>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Figures are indicative until your lender approves. Final amount may change if your schedule or payments
-                      change.
-                    </p>
                     {pendingEarlySettlement > 0 ? (
                       <p className="text-sm text-amber-700 dark:text-amber-300">
                         You already have a pending request. Please wait for your lender to respond.
                       </p>
                     ) : (
-                      <div className="space-y-3 border-t pt-4">
-                        <div className="space-y-2">
-                          <label className="text-xs font-medium text-muted-foreground">Reference (optional)</label>
-                          <Input
-                            value={earlySettlementRef}
-                            onChange={(e) => setEarlySettlementRef(e.target.value)}
-                            placeholder="e.g. bank transfer ref you plan to use"
-                            maxLength={200}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-medium text-muted-foreground">Note to lender (optional)</label>
-                          <textarea
-                            className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                            value={earlySettlementNote}
-                            onChange={(e) => setEarlySettlementNote(e.target.value)}
-                            placeholder="Any context for your lender…"
-                            maxLength={1000}
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          onClick={() => void submitEarlySettlementRequest()}
-                          disabled={earlySubmitting}
-                        >
-                          {earlySubmitting ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Submitting…
-                            </>
-                          ) : (
-                            "Request early settlement"
-                          )}
-                        </Button>
-                      </div>
+                      <Button className="w-full sm:w-auto" asChild>
+                        <Link href={`/loans/${loanId}/early-settlement`}>
+                          <Banknote className="h-4 w-4 mr-2" />
+                          Continue to early settlement
+                        </Link>
+                      </Button>
                     )}
-                  </>
+                  </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">Unable to load settlement quote.</p>
                 )}
@@ -828,7 +762,6 @@ export function BorrowerLoanServicingPanel({
                 ) : null}
               </CardContent>
             </Card>
-            </div>
           ) : null}
 
           {/* Borrower + Loan details — admin_pro dashboard/loans/[loanId] */}

@@ -1,4 +1,4 @@
-import { BorrowerMakePaymentPage } from "@borrower_pro/components/loan-center/borrower-make-payment-page";
+import { BorrowerMakePaymentPage } from "@borrower_pro/components/loan-center";
 
 export default async function LoanPaymentRoute({
   params,

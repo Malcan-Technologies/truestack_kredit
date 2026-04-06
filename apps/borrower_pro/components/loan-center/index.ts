@@ -1,3 +1,8 @@
 export { LoanCenterPage } from "./loan-center-page";
 export { LoanPendingAgreementPage } from "./loan-pending-agreement-page";
+export { LoanChannelPill } from "./loan-channel-pill";
 export { BorrowerLoanServicingPanel } from "./borrower-loan-servicing-panel";
+export { BorrowerMakePaymentPage } from "./borrower-make-payment-page";
+export { BorrowerEarlySettlementPage } from "./borrower-early-settlement-page";
+export { AttestationScheduleMeetingPanel } from "./attestation-schedule-meeting-panel";
+export { AttestationWatchVideoPanel } from "./attestation-watch-video-panel";

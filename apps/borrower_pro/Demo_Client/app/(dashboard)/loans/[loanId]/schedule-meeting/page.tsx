@@ -1,4 +1,4 @@
-import { AttestationScheduleMeetingPanel } from "@borrower_pro/components/loan-center/attestation-schedule-meeting-panel";
+import { AttestationScheduleMeetingPanel } from "@borrower_pro/components/loan-center";
 
 export default function ScheduleMeetingPage() {
   return <AttestationScheduleMeetingPanel />;

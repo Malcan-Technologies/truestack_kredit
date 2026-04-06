@@ -23,7 +23,7 @@ import {
 import { Button } from "@borrower_pro/components/ui/button";
 import { Input } from "@borrower_pro/components/ui/input";
 import { Badge } from "@borrower_pro/components/ui/badge";
-import { LoanChannelPill } from "@borrower_pro/components/loan-center/loan-channel-pill";
+import { LoanChannelPill } from "@borrower_pro/components/loan-center";
 import {
   Table,
   TableBody,

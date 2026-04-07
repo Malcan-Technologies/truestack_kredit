@@ -1076,7 +1076,7 @@ export function LoanPendingAgreementPage() {
 
           {mayStageSignedPdf && journeyUiStep === "sign" && (
             <Card className="border-border/80 shadow-sm overflow-hidden">
-              <CardHeader className="border-b border-border/60 bg-muted/30">
+              <CardHeader className="border-b border-border/60 bg-muted/12">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Download className="h-5 w-5 text-primary" />
                   Download &amp; sign
@@ -1124,7 +1124,7 @@ export function LoanPendingAgreementPage() {
                       if (f) onSignedPdfSelected(f);
                     }}
                     className={cn(
-                      "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/15 px-6 py-8 text-center cursor-pointer transition-colors",
+                      "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/10 px-6 py-8 text-center cursor-pointer transition-colors",
                       "hover:border-primary/40 hover:bg-primary/5"
                     )}
                   >
@@ -1171,7 +1171,7 @@ export function LoanPendingAgreementPage() {
                     ) : null}
                   </div>
                   {pendingSignedFile ? (
-                    <div className="rounded-lg border border-border bg-muted/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="rounded-lg border border-border bg-muted/10 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-xs text-muted-foreground">Selected for next step</p>
                         <p className="text-sm font-medium break-all">{pendingSignedFile.name}</p>

@@ -996,7 +996,7 @@ export function BorrowerLoanServicingPanel({
                 {loading && !earlyQuote ? (
                   <p className="text-sm text-muted-foreground">Loading quote…</p>
                 ) : earlyQuote && !earlyQuote.eligible ? (
-                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                  <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm">
                     <p className="font-medium">Not available right now</p>
                     <p className="text-muted-foreground mt-1">{earlyQuote.reason ?? "See product terms."}</p>
                   </div>

@@ -27,27 +27,29 @@ export async function createBorrowerCompanyOrgAndLink(params: {
   displayName: string;
 }) {
   const slug = `co-${params.borrowerId}`;
-  const org = await prisma.organization.create({
-    data: {
-      name: params.displayName,
-      slug,
-      metadata: JSON.stringify({ borrowerId: params.borrowerId }),
-      members: {
-        create: {
-          userId: params.ownerUserId,
-          role: 'owner',
+  return prisma.$transaction(async (tx) => {
+    const org = await tx.organization.create({
+      data: {
+        name: params.displayName,
+        slug,
+        metadata: JSON.stringify({ borrowerId: params.borrowerId }),
+        members: {
+          create: {
+            userId: params.ownerUserId,
+            role: 'owner',
+          },
         },
       },
-    },
+    });
+    await tx.borrowerOrganizationLink.create({
+      data: {
+        borrowerId: params.borrowerId,
+        organizationId: org.id,
+        tenantId: params.tenantId,
+      },
+    });
+    return org;
   });
-  await prisma.borrowerOrganizationLink.create({
-    data: {
-      borrowerId: params.borrowerId,
-      organizationId: org.id,
-      tenantId: params.tenantId,
-    },
-  });
-  return org;
 }
 
 export async function resolveOrgIdForBorrower(borrowerId: string): Promise<string | null> {

@@ -1311,10 +1311,16 @@ router.post('/company-members/leave', async (req, res, next) => {
 
     if (Object.keys(sessionPatch).length > 0) {
       if (sessionToken) {
-        await prisma.session.updateMany({
+        const updated = await prisma.session.updateMany({
           where: { userId, token: sessionToken },
           data: sessionPatch,
         });
+        if (updated.count === 0 && sessionId) {
+          await prisma.session.update({
+            where: { id: sessionId },
+            data: sessionPatch,
+          });
+        }
       } else if (sessionId) {
         await prisma.session.update({
           where: { id: sessionId },

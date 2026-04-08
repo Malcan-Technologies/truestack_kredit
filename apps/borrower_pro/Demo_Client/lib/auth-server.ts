@@ -215,19 +215,13 @@ export const auth = betterAuth({
             },
             update: {},
           });
-          const latest = await prisma.session.findFirst({
+          await prisma.session.updateMany({
             where: { userId: user.id, expiresAt: { gt: new Date() } },
-            orderBy: { updatedAt: "desc" },
+            data: {
+              activeBorrowerId: bol.borrowerId,
+              activeOrganizationId: organization.id,
+            },
           });
-          if (latest) {
-            await prisma.session.update({
-              where: { id: latest.id },
-              data: {
-                activeBorrowerId: bol.borrowerId,
-                activeOrganizationId: organization.id,
-              },
-            });
-          }
         },
         afterRemoveMember: async ({ user, organization }) => {
           const bol = await prisma.borrowerOrganizationLink.findUnique({

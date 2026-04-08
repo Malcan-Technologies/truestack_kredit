@@ -1217,8 +1217,14 @@ router.post('/company-members/bind-open-invitation', async (req, res, next) => {
     if (!invitation || invitation.expiresAt < new Date()) {
       throw new BadRequestError('Invitation not found or expired');
     }
-    if (invitation.inviteKind !== 'open_link' || !isOpenInviteEmail(invitation.email)) {
+    if (invitation.inviteKind !== 'open_link') {
       throw new BadRequestError('This invitation cannot be bound');
+    }
+    if (!isOpenInviteEmail(invitation.email)) {
+      if (invitation.email === email) {
+        return res.json({ success: true, data: { invitationId: invitation.id } });
+      }
+      throw new BadRequestError('This invitation has already been bound to another email');
     }
 
     const existingSameEmail = await prisma.invitation.findFirst({

@@ -237,6 +237,23 @@ export const auth = betterAuth({
           await prisma.borrowerProfileLink.deleteMany({
             where: { userId: user.id, borrowerId: bol.borrowerId },
           });
+          const nextLink = await prisma.borrowerProfileLink.findFirst({
+            where: { userId: user.id, tenantId: bol.tenantId },
+            orderBy: { createdAt: "asc" },
+          });
+          await prisma.session.updateMany({
+            where: {
+              userId: user.id,
+              OR: [
+                { activeBorrowerId: bol.borrowerId },
+                { activeOrganizationId: organization.id },
+              ],
+            },
+            data: {
+              activeBorrowerId: nextLink?.borrowerId ?? null,
+              activeOrganizationId: null,
+            },
+          });
         },
       },
     }),

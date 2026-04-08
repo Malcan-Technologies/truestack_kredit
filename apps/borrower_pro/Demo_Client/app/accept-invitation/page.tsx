@@ -95,6 +95,7 @@ function AcceptInvitationInner() {
         router.refresh();
       } catch (e) {
         if (cancelled) return;
+        clearPendingAcceptInvitationPath();
         ranAccept.current = false;
         setPhase("idle");
         toast.error(e instanceof Error ? e.message : "Could not accept invitation");

@@ -10,6 +10,7 @@ const PUBLIC_PATHS = [
   "/forgot-password",
   "/reset-password",
   "/verify-email",
+  "/accept-invitation",
 ];
 const AUTH_API_PREFIX = "/api/auth";
 const APP_API_PROXY_PREFIX = "/api/proxy";

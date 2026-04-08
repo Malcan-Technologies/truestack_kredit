@@ -59,6 +59,7 @@ function isOnboardingExemptPath(pathname: string): boolean {
     pathname === "/about" ||
     pathname === "/onboarding" ||
     pathname === "/security-setup" ||
+    pathname === "/accept-invitation" ||
     pathname.startsWith("/help")
   );
 }

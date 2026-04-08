@@ -1,11 +1,18 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ShieldAlert } from "lucide-react";
+import { normalizeAuthReturnTo } from "@borrower_pro/lib/finish-login";
 import { Button } from "@borrower_pro/components/ui/button";
 import { AccountSecurityCard } from "@borrower_pro/components/account-security-card";
 
-export default function SecuritySetupPage() {
+function SecuritySetupInner() {
+  const searchParams = useSearchParams();
+  const rawReturn = searchParams.get("returnTo")?.trim() || null;
+  const returnTo = normalizeAuthReturnTo(rawReturn) || "/dashboard";
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -22,9 +29,17 @@ export default function SecuritySetupPage() {
 
       <div className="flex justify-end">
         <Button asChild>
-          <Link href="/dashboard">Continue to dashboard</Link>
+          <Link href={returnTo}>Continue</Link>
         </Button>
       </div>
     </div>
+  );
+}
+
+export default function SecuritySetupPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading…</div>}>
+      <SecuritySetupInner />
+    </Suspense>
   );
 }

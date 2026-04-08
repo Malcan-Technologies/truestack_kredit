@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { twoFactor } from "better-auth/plugins/two-factor";
+import { organization } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import {
   AUTH_COOKIE_PREFIXES,
@@ -37,6 +38,8 @@ const passkeyOrigins = collectOrigins(
   splitOrigins(process.env.BETTER_AUTH_PASSKEY_ORIGINS)
 );
 const passkeyRpId = process.env.BETTER_AUTH_PASSKEY_RP_ID || getPasskeyRpId(appUrl);
+
+const BORROWER_ORG_INVITE_EXPIRES_SEC = 60 * 60 * 24 * 7;
 
 function sendAuthEmail(params: {
   to: string;
@@ -125,6 +128,7 @@ export const auth = betterAuth({
     cookieCache: { enabled: true, maxAge: 60 * 5 },
     additionalFields: {
       activeBorrowerId: { type: "string", required: false },
+      activeOrganizationId: { type: "string", required: false },
     },
   },
 
@@ -155,6 +159,86 @@ export const auth = betterAuth({
     passkey({
       rpID: passkeyRpId,
       origin: passkeyOrigins,
+    }),
+    organization({
+      allowUserToCreateOrganization: false,
+      invitationExpiresIn: BORROWER_ORG_INVITE_EXPIRES_SEC,
+      requireEmailVerificationOnInvitation: true,
+      sendInvitationEmail: async (data) => {
+        const inviteUrl = buildAbsoluteUrl(
+          appUrl,
+          `/accept-invitation?invitationId=${encodeURIComponent(data.id)}`
+        );
+        const inviterLabel =
+          data.inviter.user?.name?.trim() ||
+          data.inviter.user?.email ||
+          "A teammate";
+        sendAuthEmail({
+          to: data.email,
+          subject: `Invitation to join ${data.organization.name} on ${APP_NAME}`,
+          text: `You have been invited to join ${data.organization.name}.\n\nAccept: ${inviteUrl}\n\nIf you did not expect this, you can ignore this email.`,
+          html: `
+            <p>Hi,</p>
+            <p><strong>${inviterLabel}</strong> invited you to join <strong>${data.organization.name}</strong> on ${APP_NAME}.</p>
+            <p><a href="${inviteUrl}">Accept invitation</a></p>
+            <p>If you did not expect this, you can ignore this email.</p>
+          `,
+        });
+      },
+      schema: {
+        invitation: {
+          additionalFields: {
+            inviteKind: {
+              type: "string",
+              required: false,
+              defaultValue: "email",
+              input: false,
+            },
+          },
+        },
+      },
+      organizationHooks: {
+        afterAcceptInvitation: async ({ user, organization }) => {
+          const bol = await prisma.borrowerOrganizationLink.findUnique({
+            where: { organizationId: organization.id },
+          });
+          if (!bol) return;
+          await prisma.borrowerProfileLink.upsert({
+            where: {
+              userId_borrowerId: { userId: user.id, borrowerId: bol.borrowerId },
+            },
+            create: {
+              userId: user.id,
+              borrowerId: bol.borrowerId,
+              tenantId: bol.tenantId,
+              borrowerType: "CORPORATE",
+            },
+            update: {},
+          });
+          const latest = await prisma.session.findFirst({
+            where: { userId: user.id, expiresAt: { gt: new Date() } },
+            orderBy: { updatedAt: "desc" },
+          });
+          if (latest) {
+            await prisma.session.update({
+              where: { id: latest.id },
+              data: {
+                activeBorrowerId: bol.borrowerId,
+                activeOrganizationId: organization.id,
+              },
+            });
+          }
+        },
+        afterRemoveMember: async ({ user, organization }) => {
+          const bol = await prisma.borrowerOrganizationLink.findUnique({
+            where: { organizationId: organization.id },
+          });
+          if (!bol) return;
+          await prisma.borrowerProfileLink.deleteMany({
+            where: { userId: user.id, borrowerId: bol.borrowerId },
+          });
+        },
+      },
     }),
   ],
 

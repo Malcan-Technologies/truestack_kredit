@@ -16,9 +16,11 @@ import { Badge } from "@borrower_pro/components/ui/badge";
 import { Skeleton } from "@borrower_pro/components/ui/skeleton";
 import {
   fetchBorrowerMe,
+  peekPendingAcceptInvitationPath,
   switchBorrowerProfile,
   BORROWER_PROFILE_SWITCHED_EVENT,
 } from "@borrower_pro/lib/borrower-auth-client";
+import { CompanyMembersCard } from "@borrower_pro/components/company-members-card";
 import {
   fetchBorrower,
   type BorrowerDetail,
@@ -125,6 +127,11 @@ export default function YourProfilePage() {
       if (!cancelled && meRes.success) {
         const { activeBorrowerId, profileCount, profiles } = meRes.data;
         if (profileCount === 0) {
+          const pending = peekPendingAcceptInvitationPath();
+          if (pending) {
+            router.replace(pending);
+            return;
+          }
           router.replace("/onboarding");
           return;
         }
@@ -275,6 +282,7 @@ export default function YourProfilePage() {
         </div>
         {/* Right column - TrueIdentity & Documents */}
         <div className="space-y-6">
+          {borrowerType === "CORPORATE" ? <CompanyMembersCard /> : null}
           <TruestackKycCard
             onStatusLoaded={bumpDataRefresh}
             refreshKey={dataRefreshKey}

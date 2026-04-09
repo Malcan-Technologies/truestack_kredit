@@ -114,10 +114,17 @@ export async function requestEmailOTP(
 export interface OrganisationInfo {
   orgName?: string;
   orgUserDesignation?: string;
+  orgUserRegistrationNo?: string;
+  orgUserRegistrationType?: string;
+  orgAddress?: string;
+  orgAddressCity?: string;
+  orgAddressState?: string;
+  orgAddressPostcode?: string;
+  orgAddressCountry?: string;
   orgRegistationNo?: string;
   orgRegistationType?: string;
-  orgAddress?: string;
   orgPhoneNo?: string;
+  orgFaxNo?: string;
 }
 
 export interface VerificationData {

@@ -202,9 +202,25 @@ export async function requestEnrollmentOtp(): Promise<{
   return parseJson(res);
 }
 
+export interface EnrollOrgInfo {
+  orgName: string;
+  orgUserDesignation?: string;
+  orgUserRegistrationNo: string;
+  orgUserRegistrationType: "IDC" | "PAS";
+  orgAddress: string;
+  orgAddressCity: string;
+  orgAddressState: string;
+  orgAddressPostcode: string;
+  orgAddressCountry: string;
+  orgRegistationNo?: string;
+  orgRegistationType: string;
+  orgPhoneNo: string;
+}
+
 export async function enrollCert(
   pin: string,
   otp: string,
+  organisationInfo: EnrollOrgInfo,
 ): Promise<{
   success: boolean;
   statusCode: string;
@@ -218,7 +234,7 @@ export async function enrollCert(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pin, otp }),
+    body: JSON.stringify({ pin, otp, organisationInfo }),
   });
   return parseJson(res);
 }

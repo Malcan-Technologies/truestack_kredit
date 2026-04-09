@@ -24,6 +24,12 @@ import type { SignatureFieldMeta } from '../../lib/pdfService.js';
 const router = Router();
 router.use(authenticateToken);
 
+/** MTSA requires `yyyy-MM-dd HH:mm:ss` — NOT ISO 8601 */
+function fmtMtsaDatetime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 // ============================================
 // Profile endpoints
 // ============================================
@@ -355,9 +361,26 @@ router.post('/confirm-email-change', async (req, res, next) => {
   }
 });
 
+const orgRegistrationTypes = ['NTRMY', 'IRB', 'RMC', 'CIDB', 'BAM', 'GOV', 'GOVSUB', 'INT', 'LEI'] as const;
+const orgUserRegistrationTypes = ['IDC', 'PAS'] as const;
+
 const enrollSchema = z.object({
   pin: z.string().min(4).max(8),
   otp: z.string().min(1),
+  organisationInfo: z.object({
+    orgName: z.string().min(1, 'Organisation name is required'),
+    orgUserDesignation: z.string().optional(),
+    orgUserRegistrationNo: z.string().min(1, 'User registration number is required'),
+    orgUserRegistrationType: z.enum(orgUserRegistrationTypes),
+    orgAddress: z.string().min(1, 'Organisation address is required'),
+    orgAddressCity: z.string().min(1, 'City is required'),
+    orgAddressState: z.string().min(1, 'State is required'),
+    orgAddressPostcode: z.string().min(1, 'Postcode is required'),
+    orgAddressCountry: z.string().min(1).default('MY'),
+    orgRegistationNo: z.string().optional(),
+    orgRegistationType: z.enum(orgRegistrationTypes).default('NTRMY'),
+    orgPhoneNo: z.string().min(1, 'Organisation phone number is required'),
+  }),
 });
 
 router.post('/request-otp', async (req, res, next) => {
@@ -399,30 +422,21 @@ router.post('/enroll', async (req, res, next) => {
       throw new BadRequestError('KYC must be completed before enrollment');
     }
 
-    const tenant = await prisma.tenant.findUniqueOrThrow({
-      where: { id: tenantId },
-      select: { name: true, registrationNumber: true, businessAddress: true, contactNumber: true },
-    });
-
-    const icFront = profile.documents.find(d => d.category === 'IC_FRONT');
-    const icBack = profile.documents.find(d => d.category === 'IC_BACK');
-    const selfie = profile.documents.find(d => d.category === 'SELFIE_LIVENESS');
-
-    let nricFrontB64: string | undefined;
-    let nricBackB64: string | undefined;
-    let selfieB64: string | undefined;
-
-    if (icFront) {
-      const buf = await getFile(icFront.path);
-      if (buf) nricFrontB64 = buf.toString('base64');
+    const isPassport = profile.documentType === 'PASSPORT';
+    const docMap: Record<string, string | undefined> = {};
+    for (const doc of profile.documents) {
+      const buf = await getFile(doc.path);
+      if (buf) docMap[doc.category] = buf.toString('base64');
     }
-    if (icBack) {
-      const buf = await getFile(icBack.path);
-      if (buf) nricBackB64 = buf.toString('base64');
+
+    if (!isPassport && (!docMap['IC_FRONT'] || !docMap['IC_BACK'])) {
+      throw new BadRequestError('MyKad front and back images are required for enrollment');
     }
-    if (selfie) {
-      const buf = await getFile(selfie.path);
-      if (buf) selfieB64 = buf.toString('base64');
+    if (isPassport && !docMap['IC_FRONT']) {
+      throw new BadRequestError('Passport image is required for enrollment');
+    }
+    if (!docMap['SELFIE_LIVENESS']) {
+      throw new BadRequestError('Selfie image is required for enrollment');
     }
 
     const latestKyc = await prisma.staffKycSession.findFirst({
@@ -434,25 +448,31 @@ router.post('/enroll', async (req, res, next) => {
       UserID: profile.icNumber,
       FullName: profile.fullName,
       EmailAddress: profile.email,
-      MobileNo: profile.phone || '',
+      MobileNo: profile.phone || profile.email,
       Nationality: profile.nationality,
       UserType: '2',
-      IDType: profile.documentType === 'PASSPORT' ? 'P' : 'N',
-      AuthFactor: body.otp,
-      NRICFront: nricFrontB64,
-      NRICBack: nricBackB64,
-      SelfieImage: selfieB64,
+      IDType: isPassport ? 'P' : 'N',
+      AuthFactor: body.pin,
+      ...(!isPassport ? { NRICFront: docMap['IC_FRONT'], NRICBack: docMap['IC_BACK'] } : {}),
+      ...(isPassport ? { PassportImage: docMap['IC_FRONT'] } : {}),
+      SelfieImage: docMap['SELFIE_LIVENESS'],
       OrganisationInfo: {
-        orgName: tenant.name,
-        orgRegistationNo: tenant.registrationNumber || undefined,
-        orgRegistationType: 'SSM',
-        orgAddress: tenant.businessAddress || undefined,
-        orgPhoneNo: tenant.contactNumber || undefined,
-        orgUserDesignation: profile.designation || 'Authorised Signatory',
+        orgName: body.organisationInfo.orgName,
+        orgUserDesignation: body.organisationInfo.orgUserDesignation || profile.designation || 'Authorised Signatory',
+        orgUserRegistrationNo: body.organisationInfo.orgUserRegistrationNo,
+        orgUserRegistrationType: body.organisationInfo.orgUserRegistrationType,
+        orgAddress: body.organisationInfo.orgAddress,
+        orgAddressCity: body.organisationInfo.orgAddressCity,
+        orgAddressState: body.organisationInfo.orgAddressState,
+        orgAddressPostcode: body.organisationInfo.orgAddressPostcode,
+        orgAddressCountry: body.organisationInfo.orgAddressCountry,
+        orgRegistationNo: body.organisationInfo.orgRegistationNo || undefined,
+        orgRegistationType: body.organisationInfo.orgRegistationType || 'NTRMY',
+        orgPhoneNo: body.organisationInfo.orgPhoneNo,
       },
       VerificationData: latestKyc
-        ? { verifyDatetime: latestKyc.updatedAt.toISOString(), verifyMethod: 'TrueStack eKYC', verifyStatus: 'approved', verifyVerifier: 'TrueStack' }
-        : { verifyDatetime: new Date().toISOString(), verifyMethod: 'Manual', verifyStatus: 'approved', verifyVerifier: 'TrueStack' },
+        ? { verifyDatetime: fmtMtsaDatetime(latestKyc.updatedAt), verifyMethod: 'e-KYC (face recognition with liveness detection)', verifyStatus: 'approved', verifyVerifier: 'TrueStack' }
+        : { verifyDatetime: fmtMtsaDatetime(new Date()), verifyMethod: 'Manual face-to-face verification', verifyStatus: 'approved', verifyVerifier: 'TrueStack' },
     });
 
     if (enrollResult.success) {
@@ -532,19 +552,18 @@ router.post('/revoke', async (req, res, next) => {
       throw new BadRequestError('Signing profile not found');
     }
 
-    const icFront = profile.documents.find(d => d.category === 'IC_FRONT');
-    const icBack = profile.documents.find(d => d.category === 'IC_BACK');
-
-    let nricFrontB64: string | undefined;
-    let nricBackB64: string | undefined;
-
-    if (icFront) {
-      const buf = await getFile(icFront.path);
-      if (buf) nricFrontB64 = buf.toString('base64');
+    const isPassport = profile.documentType === 'PASSPORT';
+    const docMap: Record<string, string | undefined> = {};
+    for (const doc of profile.documents) {
+      const buf = await getFile(doc.path);
+      if (buf) docMap[doc.category] = buf.toString('base64');
     }
-    if (icBack) {
-      const buf = await getFile(icBack.path);
-      if (buf) nricBackB64 = buf.toString('base64');
+
+    if (!isPassport && (!docMap['IC_FRONT'] || !docMap['IC_BACK'])) {
+      throw new BadRequestError('MyKad front and back images are required for revocation');
+    }
+    if (isPassport && !docMap['IC_FRONT']) {
+      throw new BadRequestError('Passport image is required for revocation');
     }
 
     const latestKyc = await prisma.staffKycSession.findFirst({
@@ -558,12 +577,12 @@ router.post('/revoke', async (req, res, next) => {
       RevokeReason: body.reason,
       RevokeBy: 'Self',
       AuthFactor: body.pin,
-      IDType: profile.documentType === 'PASSPORT' ? 'P' : 'N',
-      NRICFront: nricFrontB64,
-      NRICBack: nricBackB64,
+      IDType: isPassport ? 'P' : 'N',
+      ...(!isPassport ? { NRICFront: docMap['IC_FRONT'], NRICBack: docMap['IC_BACK'] } : {}),
+      ...(isPassport ? { PassportImage: docMap['IC_FRONT'] } : {}),
       VerificationData: latestKyc
-        ? { verifyDatetime: latestKyc.updatedAt.toISOString(), verifyMethod: 'TrueStack eKYC', verifyStatus: 'approved', verifyVerifier: 'TrueStack' }
-        : { verifyDatetime: new Date().toISOString(), verifyMethod: 'Manual', verifyStatus: 'approved', verifyVerifier: 'TrueStack' },
+        ? { verifyDatetime: fmtMtsaDatetime(latestKyc.updatedAt), verifyMethod: 'e-KYC (face recognition with liveness detection)', verifyStatus: 'approved', verifyVerifier: 'TrueStack' }
+        : { verifyDatetime: fmtMtsaDatetime(new Date()), verifyMethod: 'Manual face-to-face verification', verifyStatus: 'approved', verifyVerifier: 'TrueStack' },
     });
 
     if (result.success) {

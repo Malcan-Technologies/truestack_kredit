@@ -75,6 +75,7 @@ import {
   type StaffSigningProfile,
   type CertInfo,
   type TenantSigner,
+  type EnrollOrgInfo,
 } from "@/lib/admin-signing-client";
 import {
   CERT_PIN_REGEX,
@@ -139,6 +140,25 @@ export default function SigningCertificatesPage() {
   const [sendingOtp, setSendingOtp] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [startingKyc, setStartingKyc] = useState(false);
+
+  const defaultOrgInfo = useCallback(
+    (): EnrollOrgInfo => ({
+      orgName: "",
+      orgUserDesignation: profile?.designation || "",
+      orgUserRegistrationNo: profile?.icNumber || "",
+      orgUserRegistrationType: profile?.documentType === "PASSPORT" ? "PAS" : "IDC",
+      orgAddress: "",
+      orgAddressCity: "",
+      orgAddressState: "",
+      orgAddressPostcode: "",
+      orgAddressCountry: "MY",
+      orgRegistationNo: "",
+      orgRegistationType: "NTRMY",
+      orgPhoneNo: "",
+    }),
+    [profile],
+  );
+  const [enrollOrgInfo, setEnrollOrgInfo] = useState<EnrollOrgInfo>(defaultOrgInfo);
 
   // Revoke modal state
   const [revokeReason, setRevokeReason] = useState("keyCompromise");
@@ -423,9 +443,29 @@ export default function SigningCertificatesPage() {
       toast.error("Please enter the OTP from your email");
       return;
     }
+    if (!enrollOrgInfo.orgName.trim()) {
+      toast.error("Organisation name is required");
+      return;
+    }
+    if (!enrollOrgInfo.orgPhoneNo.trim()) {
+      toast.error("Organisation phone number is required");
+      return;
+    }
+    if (!enrollOrgInfo.orgUserRegistrationNo.trim()) {
+      toast.error("User registration number is required");
+      return;
+    }
+    if (!enrollOrgInfo.orgAddress.trim()) {
+      toast.error("Organisation address is required");
+      return;
+    }
+    if (!enrollOrgInfo.orgAddressCity.trim() || !enrollOrgInfo.orgAddressState.trim() || !enrollOrgInfo.orgAddressPostcode.trim()) {
+      toast.error("City, state, and postcode are required");
+      return;
+    }
     setEnrolling(true);
     try {
-      const res = await enrollCert(enrollPin, enrollOtp);
+      const res = await enrollCert(enrollPin, enrollOtp, enrollOrgInfo);
       if (res.success) {
         toast.success("Certificate enrolled successfully!");
         resetEnrollForm();
@@ -576,6 +616,7 @@ export default function SigningCertificatesPage() {
     setEnrollPin("");
     setEnrollPinConfirm("");
     setEnrollOtp("");
+    setEnrollOrgInfo(defaultOrgInfo());
     setOtpSent(false);
   };
 
@@ -1047,16 +1088,16 @@ export default function SigningCertificatesPage() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Enroll certificate</DialogTitle>
             <DialogDescription>
-              Complete identity verification and set a PIN to receive your
+              Complete identity verification, fill in organisation details, and set a PIN to receive your
               digital signing certificate.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5 py-2">
+          <div className="space-y-5 py-2 overflow-y-auto flex-1 pr-1">
             {/* Step 1: KYC */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
@@ -1150,7 +1191,7 @@ export default function SigningCertificatesPage() {
               )}
             </div>
 
-            {/* Step 2: PIN & OTP */}
+            {/* Step 2: Organisation Details */}
             <div
               className={`space-y-3 ${!kycComplete ? "opacity-50 pointer-events-none" : ""}`}
             >
@@ -1158,13 +1199,189 @@ export default function SigningCertificatesPage() {
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
                   2
                 </span>
+                <h4 className="font-medium">Organisation Details</h4>
+              </div>
+
+              <div className="space-y-4 pl-8">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Organisation Name <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={enrollOrgInfo.orgName}
+                      onChange={(e) =>
+                        setEnrollOrgInfo((prev) => ({ ...prev, orgName: e.target.value }))
+                      }
+                      placeholder="e.g. ABC Law Firm Sdn Bhd"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Organisation Phone <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={enrollOrgInfo.orgPhoneNo}
+                      onChange={(e) =>
+                        setEnrollOrgInfo((prev) => ({ ...prev, orgPhoneNo: e.target.value }))
+                      }
+                      placeholder="e.g. +60312345678"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Organisation Registration No.</Label>
+                    <Input
+                      value={enrollOrgInfo.orgRegistationNo || ""}
+                      onChange={(e) =>
+                        setEnrollOrgInfo((prev) => ({ ...prev, orgRegistationNo: e.target.value }))
+                      }
+                      placeholder="e.g. 202001012345"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Registration Type</Label>
+                    <Select
+                      value={enrollOrgInfo.orgRegistationType}
+                      onValueChange={(v) =>
+                        setEnrollOrgInfo((prev) => ({ ...prev, orgRegistationType: v }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NTRMY">NTRMY — National Registration</SelectItem>
+                        <SelectItem value="IRB">IRB — Inland Revenue Board</SelectItem>
+                        <SelectItem value="RMC">RMC — Registrar of Companies</SelectItem>
+                        <SelectItem value="CIDB">CIDB — Construction Board</SelectItem>
+                        <SelectItem value="BAM">BAM — Bank Negara Malaysia</SelectItem>
+                        <SelectItem value="GOV">GOV — Government</SelectItem>
+                        <SelectItem value="GOVSUB">GOVSUB — Government Subsidiary</SelectItem>
+                        <SelectItem value="INT">INT — International</SelectItem>
+                        <SelectItem value="LEI">LEI — Legal Entity Identifier</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Organisation Address <span className="text-destructive">*</span></Label>
+                  <Input
+                    value={enrollOrgInfo.orgAddress}
+                    onChange={(e) =>
+                      setEnrollOrgInfo((prev) => ({ ...prev, orgAddress: e.target.value }))
+                    }
+                    placeholder="Street address"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>City <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={enrollOrgInfo.orgAddressCity}
+                      onChange={(e) =>
+                        setEnrollOrgInfo((prev) => ({ ...prev, orgAddressCity: e.target.value }))
+                      }
+                      placeholder="City"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>State <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={enrollOrgInfo.orgAddressState}
+                      onChange={(e) =>
+                        setEnrollOrgInfo((prev) => ({ ...prev, orgAddressState: e.target.value }))
+                      }
+                      placeholder="State"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Postcode <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={enrollOrgInfo.orgAddressPostcode}
+                      onChange={(e) =>
+                        setEnrollOrgInfo((prev) => ({ ...prev, orgAddressPostcode: e.target.value }))
+                      }
+                      placeholder="Postcode"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Country <span className="text-destructive">*</span></Label>
+                    <Input
+                      value={enrollOrgInfo.orgAddressCountry}
+                      onChange={(e) =>
+                        setEnrollOrgInfo((prev) => ({ ...prev, orgAddressCountry: e.target.value }))
+                      }
+                      placeholder="MY"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t pt-4 mt-2">
+                  <p className="text-sm text-muted-foreground mb-3">Your details within this organisation</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Your Registration No. <span className="text-destructive">*</span></Label>
+                      <Input
+                        value={enrollOrgInfo.orgUserRegistrationNo}
+                        onChange={(e) =>
+                          setEnrollOrgInfo((prev) => ({ ...prev, orgUserRegistrationNo: e.target.value }))
+                        }
+                        placeholder="IC / Passport number"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>ID Type <span className="text-destructive">*</span></Label>
+                      <Select
+                        value={enrollOrgInfo.orgUserRegistrationType}
+                        onValueChange={(v) =>
+                          setEnrollOrgInfo((prev) => ({
+                            ...prev,
+                            orgUserRegistrationType: v as "IDC" | "PAS",
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="IDC">IDC — MyKad</SelectItem>
+                          <SelectItem value="PAS">PAS — Passport</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="space-y-2">
+                      <Label>Designation / Role</Label>
+                      <Input
+                        value={enrollOrgInfo.orgUserDesignation || ""}
+                        onChange={(e) =>
+                          setEnrollOrgInfo((prev) => ({ ...prev, orgUserDesignation: e.target.value }))
+                        }
+                        placeholder="e.g. Director, Authorised Signatory"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 3: PIN & OTP */}
+            <div
+              className={`space-y-3 ${!kycComplete ? "opacity-50 pointer-events-none" : ""}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                  3
+                </span>
                 <h4 className="font-medium">Set PIN &amp; Verify Email</h4>
               </div>
 
               <div className="space-y-4 pl-8">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Choose PIN (8 digits, numbers only)</Label>
+                    <Label>Choose PIN</Label>
                     <Input
                       type="password"
                       inputMode="numeric"
@@ -1237,7 +1454,14 @@ export default function SigningCertificatesPage() {
                 !CERT_PIN_REGEX.test(enrollPin) ||
                 enrollPin !== enrollPinConfirm ||
                 !enrollOtp ||
-                !kycComplete
+                !kycComplete ||
+                !enrollOrgInfo.orgName.trim() ||
+                !enrollOrgInfo.orgPhoneNo.trim() ||
+                !enrollOrgInfo.orgUserRegistrationNo.trim() ||
+                !enrollOrgInfo.orgAddress.trim() ||
+                !enrollOrgInfo.orgAddressCity.trim() ||
+                !enrollOrgInfo.orgAddressState.trim() ||
+                !enrollOrgInfo.orgAddressPostcode.trim()
               }
             >
               {enrolling && (

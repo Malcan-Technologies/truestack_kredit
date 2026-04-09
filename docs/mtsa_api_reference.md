@@ -103,11 +103,11 @@ Enrolls a user for a roaming digital certificate via the Certificate Authority.
 | `orgUserDesignation` | string | | User's role/title or regulated professional designation |
 | `orgUserRegistrationNo` | string | | User's staff/employee ID, registration number, or ID number |
 | `orgUserRegistrationType` | string | Required if `orgUserRegistrationNo` specified | `PAS` = passport-based, `IDC` = MyKad-based |
-| `orgAddress` | string | | Street address |
-| `orgAddressCity` | string | | City |
-| `orgAddressState` | string | | State |
-| `orgAddressPostcode` | string | | Postcode |
-| `orgAddressCountry` | string | | Two-letter country code (default `MY`) |
+| `orgAddress` | string | M (UserType 2) | Street address |
+| `orgAddressCity` | string | M (UserType 2) | City |
+| `orgAddressState` | string | M (UserType 2) | State |
+| `orgAddressPostcode` | string | M (UserType 2) | Postcode |
+| `orgAddressCountry` | string | M (UserType 2) | Two-letter country code (default `MY`) |
 | `orgRegistationNo` | string | | Organisation registration number |
 | `orgRegistationType` | string | | Registration type: `NTRMY`, `IRB`, `RMC`, `CIDB`, `BAM`, `GOV`, `GOVSUB`, `INT`, `LEI` |
 | `orgPhoneNo` | string | M | Organisation telephone |
@@ -117,10 +117,12 @@ Enrolls a user for a roaming digital certificate via the Certificate Authority.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `verifyStatus` | string(100) | Outcome of the identity verification (establishes linkage between claimed identity and real-life existence per DSA 1997) |
-| `verifyDatetime` | string | Date/time of verification. Format: `yyyy-MM-dd HH:mm:ss`. Example: `2024-05-19 11:01:12` |
-| `verifyVerifier` | string(100) | Individual, entity, or machine that conducted verification |
-| `verifyMethod` | string(100) | Method used: (a) Manual face-to-face, (b) Manual with biometric, (c) Secure automated self-service with biometric, (d) e-KYC per BNM guidelines |
+| `verifyStatus` | string(100) | Outcome of the identity verification. Typical value: `approved` |
+| `verifyDatetime` | string | Date/time of verification. **Must be `yyyy-MM-dd HH:mm:ss`** (NOT ISO 8601). Example: `2024-05-19 11:01:12` |
+| `verifyVerifier` | string(100) | Entity that conducted verification. Example: `TrueStack` |
+| `verifyMethod` | string(100) | Accepted values from ICD Section 5.0: `Manual face-to-face verification`, `Manual face-to-face verification with biometric method (face recognition)`, `Secure automated self-service with biometric method (face recognition with liveness detection)`, `e-KYC (face recognition with liveness detection)` |
+
+> **Important:** All four `VerificationData` fields are mandatory for UserType 2 (internal). Omitting any field (e.g. `verifyStatus` or `verifyVerifier`) causes MTSA to return `AP101 Missing required parameter`.
 
 #### Response
 
@@ -181,6 +183,23 @@ Enrolls a user for a roaming digital certificate via the Certificate Authority.
   </soapenv:Body>
 </soapenv:Envelope>
 ```
+
+#### UserType 2 (Internal) Implementation Notes
+
+These constraints are not obvious from the ICD parameter table but cause `AP101 Missing required parameter` if violated:
+
+| Constraint | Detail |
+|------------|--------|
+| **AuthFactor** | Must be the user's chosen PIN (up to 8 chars), **not** the email OTP. OTP is requested via `RequestEmailOTP` beforehand but is not passed as `AuthFactor`. |
+| **verifyDatetime format** | Must be `yyyy-MM-dd HH:mm:ss`. Sending ISO 8601 (e.g. `2024-05-19T03:01:12.000Z`) is rejected. |
+| **orgRegistationType** | Valid values: `NTRMY`, `IRB`, `RMC`, `CIDB`, `BAM`, `GOV`, `GOVSUB`, `INT`, `LEI`. Values like `SSM` are invalid. |
+| **MobileNo** | Mandatory — must not be empty. If the user has no phone number, provide a fallback. |
+| **orgPhoneNo** | Mandatory — must not be empty. Provide a fallback if unavailable. |
+| **SelfieImage** | Mandatory for all enrollments, not just UserType 1. |
+| **PassportImage** | Mandatory when `IDType=P`. Must be sent **instead of** `NRICFront`/`NRICBack`, not alongside them. |
+| **NRICFront + NRICBack** | Both mandatory when `IDType=N`. Must not be `undefined` or empty. |
+| **VerificationData** | All 4 sub-fields (`verifyStatus`, `verifyDatetime`, `verifyVerifier`, `verifyMethod`) are mandatory. Omitting any one causes a missing-parameter error. |
+| **OrganisationInfo** | Mandatory for UserType 2. Must include `orgName`, `orgPhoneNo`, `orgAddress`, `orgAddressCity`, `orgAddressState`, `orgAddressPostcode`, `orgAddressCountry`, `orgUserRegistrationNo`, and `orgUserRegistrationType`. ICD lists address fields as optional but MTSA enforces them for UserType 2. |
 
 ---
 

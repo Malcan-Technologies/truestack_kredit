@@ -60,6 +60,14 @@ function headers(): Record<string, string> {
   return h;
 }
 
+function previewResponseBody(text: string, maxLength = 300): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength)}...`;
+}
+
 async function gatewayFetch<T>(
   method: string,
   path: string,
@@ -70,14 +78,63 @@ async function gatewayFetch<T>(
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const res = await fetch(url, {
-      method,
-      headers: headers(),
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-    const json = (await res.json()) as T;
-    return json;
+    let res: Response;
+
+    try {
+      res = await fetch(url, {
+        method,
+        headers: headers(),
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      console.error('[SigningGatewayClient] Request failed', {
+        method,
+        path,
+        url,
+        timeoutMs: TIMEOUT_MS,
+        signingEnabled: config.signing.enabled,
+        hasCfAccessClientId: Boolean(config.signing.cfAccessClientId),
+        hasCfAccessClientSecret: Boolean(config.signing.cfAccessClientSecret),
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+
+    const contentType = res.headers.get('content-type') || 'unknown';
+    const responseText = await res.text();
+
+    if (!res.ok) {
+      console.error('[SigningGatewayClient] Non-OK response', {
+        method,
+        path,
+        url,
+        status: res.status,
+        statusText: res.statusText,
+        contentType,
+        responseLength: responseText.length,
+        bodyPreview: previewResponseBody(responseText),
+      });
+    }
+
+    try {
+      return JSON.parse(responseText) as T;
+    } catch (error) {
+      console.error('[SigningGatewayClient] Invalid JSON response', {
+        method,
+        path,
+        url,
+        status: res.status,
+        statusText: res.statusText,
+        contentType,
+        responseLength: responseText.length,
+        bodyPreview: previewResponseBody(responseText),
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -92,7 +149,15 @@ export async function checkHealth(): Promise<{ online: boolean; mtsaConnected: b
         online: r.status === 'healthy' || r.status === 'degraded',
         mtsaConnected: r.services?.mtsa === 'connected',
       };
-    } catch {
+    } catch (error) {
+      console.error('[SigningGatewayClient] Health check attempt failed', {
+        attempt: attempt + 1,
+        maxAttempts: MAX_RETRIES + 1,
+        gatewayUrl: config.signing.gatewayUrl,
+        willRetry: attempt < MAX_RETRIES,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       if (attempt < MAX_RETRIES) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;

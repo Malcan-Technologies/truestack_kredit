@@ -49,10 +49,15 @@ export interface EnrollResponse {
 }
 
 function headers(): Record<string, string> {
-  return {
+  const h: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-API-Key': config.signing.apiKey,
   };
+  if (config.signing.cfAccessClientId) {
+    h['CF-Access-Client-Id'] = config.signing.cfAccessClientId;
+    h['CF-Access-Client-Secret'] = config.signing.cfAccessClientSecret;
+  }
+  return h;
 }
 
 async function gatewayFetch<T>(
@@ -67,7 +72,7 @@ async function gatewayFetch<T>(
   try {
     const res = await fetch(url, {
       method,
-      headers: method === 'GET' ? { 'X-API-Key': config.signing.apiKey } : headers(),
+      headers: headers(),
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });

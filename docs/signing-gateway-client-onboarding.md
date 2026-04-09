@@ -362,7 +362,7 @@ curl -s -X POST \
 
 ### 4.4 Create Service Token
 
-The service token authenticates GitHub Actions when SSH-ing through the tunnel. The Client Secret is **only shown once** at creation time.
+The service token authenticates both GitHub Actions (SSH deployments) and `backend_pro` (signing API calls) through Cloudflare Access. The same token is used for both. The Client Secret is **only shown once** at creation time.
 
 **Dashboard**: Zero Trust > Access > Service Auth > Service Tokens > Create
 
@@ -372,13 +372,20 @@ The service token authenticates GitHub Actions when SSH-ing through the tunnel. 
 
 **CLI** (service tokens must be created via dashboard — the API does not expose the client secret after creation).
 
-Save the values:
-- **Client ID** → GitHub secret: `CF_ACCESS_CLIENT_ID`
-- **Client Secret** → GitHub secret: `CF_ACCESS_CLIENT_SECRET`
+Save the values — they go to **two places**:
 
-### 4.5 Create Access Application (SSH protection)
+| Value | GitHub Secret | AWS Secrets Manager Key |
+|-------|--------------|------------------------|
+| Client ID | `CF_ACCESS_CLIENT_ID` | `CF_ACCESS_CLIENT_ID` |
+| Client Secret | `CF_ACCESS_CLIENT_SECRET` | `CF_ACCESS_CLIENT_SECRET` |
 
-This restricts SSH access to authorized service tokens only. **Requires the zone to be active** (nameservers pointed to Cloudflare).
+GitHub secrets are used by the CI/CD SSH deployment. AWS Secrets Manager values are used by `backend_pro` at runtime to call the signing API.
+
+### 4.5 Create Access Applications
+
+Two Access applications are needed — one for SSH (CI/CD) and one for the signing API (runtime). Both use the same service token. **Requires the zone to be active** (nameservers pointed to Cloudflare).
+
+#### 4.5a SSH Access Application
 
 **Dashboard**:
 
@@ -388,16 +395,12 @@ This restricts SSH access to authorized service tokens only. **Requires the zone
 4. Create a policy:
    - Name: `Service Token Only`
    - Action: **Service Auth**
-   - Rule: Include > **Service Token** > select `<client-id>-onprem-deploy`
+   - Rule: Include > **Any valid service token**
 5. Save
 
 **CLI**:
 
-First, get the service token ID (the Client ID value without the `.access` suffix):
-
 ```bash
-SERVICE_TOKEN_ID="<client-id-value>"  # e.g., "12bb5980ca4a092cf4bafc6f439e89d9.access"
-
 curl -s -X POST \
   -H "Authorization: Bearer $CF_API_TOKEN" \
   -H "Content-Type: application/json" \
@@ -411,19 +414,63 @@ curl -s -X POST \
       {
         \"name\": \"Service Token Only\",
         \"decision\": \"non_identity\",
-        \"include\": [
-          {
-            \"service_token\": {
-              \"token_id\": \"${SERVICE_TOKEN_ID}\"
-            }
-          }
-        ]
+        \"include\": [{\"any_valid_service_token\": {}}]
       }
     ]
   }"
 ```
 
-> **Troubleshooting**: If this returns `"domain does not belong to zone"`, the zone is still in pending status. Wait for nameserver propagation and try again.
+#### 4.5b Signing API Access Application
+
+This blocks all public access to the signing gateway API. Only `backend_pro` (with the service token headers) can reach it.
+
+**Dashboard**:
+
+1. Zero Trust > Access > Applications > Add an application > Self-hosted
+2. Application domain: `<client-id>-sign.truestack.my`
+3. Session duration: 24 hours
+4. Create a policy:
+   - Name: `Service Token Only`
+   - Action: **Service Auth**
+   - Rule: Include > **Any valid service token**
+5. Save
+
+**CLI**:
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $CF_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps" \
+  -d "{
+    \"name\": \"${CLIENT_ID} Signing Gateway API\",
+    \"domain\": \"${CLIENT_ID}-sign.truestack.my\",
+    \"type\": \"self_hosted\",
+    \"session_duration\": \"24h\",
+    \"policies\": [
+      {
+        \"name\": \"Service Token Only\",
+        \"decision\": \"non_identity\",
+        \"include\": [{\"any_valid_service_token\": {}}]
+      }
+    ]
+  }"
+```
+
+#### Verification
+
+```bash
+# Should return 403 (blocked)
+curl -s -o /dev/null -w "HTTP %{http_code}" https://<client-id>-sign.truestack.my/health
+
+# Should return 200 (allowed with service token)
+curl -s -o /dev/null -w "HTTP %{http_code}" \
+  -H "CF-Access-Client-Id: <client-id-value>" \
+  -H "CF-Access-Client-Secret: <client-secret-value>" \
+  https://<client-id>-sign.truestack.my/health
+```
+
+> **Troubleshooting**: If Access app creation returns `"domain does not belong to zone"`, the zone is still in pending status. Wait for nameserver propagation and try again.
 
 ---
 
@@ -503,15 +550,25 @@ Expected output — all 9 secrets:
 
 ## 6. AWS Secrets Manager
 
-Add signing-related keys to the client's existing app secret in AWS Secrets Manager. The `signing_api_key` **must match** `ONPREM_SIGNING_API_KEY` from Step 5.2.
+Add signing-related keys to the client's existing app secret in AWS Secrets Manager. These are read by `backend_pro` at runtime via the ECS task definition.
 
 The secret ARN is in the client YAML at `secrets.app_secrets_arn`.
+
+| Key | Value | Purpose |
+|-----|-------|---------|
+| `signing_gateway_url` | `https://<client-id>-sign.truestack.my` | Signing gateway endpoint |
+| `signing_api_key` | Same value as `ONPREM_SIGNING_API_KEY` | Must match on-prem gateway |
+| `signing_enabled` | `true` | Enables signing features in backend |
+| `CF_ACCESS_CLIENT_ID` | Service token Client ID (from Step 4.4) | Cloudflare Access auth for signing API |
+| `CF_ACCESS_CLIENT_SECRET` | Service token Client Secret (from Step 4.4) | Cloudflare Access auth for signing API |
 
 ```bash
 CLIENT_SECRET_ARN="<from client yaml: secrets.app_secrets_arn>"
 AWS_PROFILE="<client-aws-profile>"
 AWS_REGION="<client-aws-region>"
 SIGNING_API_KEY="<same value as ONPREM_SIGNING_API_KEY>"
+CF_CLIENT_ID="<service token client id>"
+CF_CLIENT_SECRET="<service token client secret>"
 
 aws secretsmanager get-secret-value \
   --secret-id "$CLIENT_SECRET_ARN" \
@@ -520,9 +577,14 @@ aws secretsmanager get-secret-value \
   --query SecretString --output text | \
   jq --arg url "https://${CLIENT_ID}-sign.truestack.my" \
      --arg key "$SIGNING_API_KEY" \
+     --arg cfid "$CF_CLIENT_ID" \
+     --arg cfsec "$CF_CLIENT_SECRET" \
      '. + {
        "signing_gateway_url": $url,
-       "signing_api_key": $key
+       "signing_api_key": $key,
+       "signing_enabled": "true",
+       "CF_ACCESS_CLIENT_ID": $cfid,
+       "CF_ACCESS_CLIENT_SECRET": $cfsec
      }' | \
   aws secretsmanager put-secret-value \
     --secret-id "$CLIENT_SECRET_ARN" \
@@ -530,6 +592,8 @@ aws secretsmanager get-secret-value \
     --profile "$AWS_PROFILE" \
     --region "$AWS_REGION"
 ```
+
+The ECS task definition in `terraform/pro/modules/client_stack/main.tf` maps these keys to environment variables (`SIGNING_GATEWAY_URL`, `SIGNING_API_KEY`, `SIGNING_ENABLED`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) on the `backend_pro` container. After updating Secrets Manager, force a new ECS deployment or wait for the next CI/CD push to pick up the new values.
 
 ---
 
@@ -643,7 +707,7 @@ cd /opt/signing-stack && docker compose ps
 | MTSA SOAP credentials | Receive new credentials from Trustgate, update GitHub secrets `ONPREM_MTSA_USERNAME` + `ONPREM_MTSA_PASSWORD`, redeploy |
 | Signing API key | Generate new key (`openssl rand -base64 32 \| tr -d '=' \| tr '+/' '-_'`), update **both** GitHub secret `ONPREM_SIGNING_API_KEY` **and** AWS Secrets Manager `signing_api_key` (must match), redeploy |
 | Cloudflare Tunnel token | Rotate in Cloudflare dashboard, update GitHub secret `ONPREM_CF_TUNNEL_TOKEN`, restart cloudflared on server |
-| Cloudflare Access service token | Create new token in dashboard (old one can be revoked), update GitHub secrets `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` |
+| Cloudflare Access service token | Create new token in dashboard (old one can be revoked), update **both** GitHub secrets (`CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`) **and** AWS Secrets Manager (`CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`), redeploy signing-gateway + force new ECS deployment for backend_pro |
 
 "Redeploy" means triggering the workflow with `action: deploy-only`:
 
@@ -684,6 +748,8 @@ External clients are never auto-deployed. After initial setup, all deployments g
 | signing-gateway can't reach mtsa | MTSA container unhealthy or not started | Check `docker logs mtsa`, verify WSDL path matches mtsa_env (pilot vs prod) |
 | ECR login fails in CI/CD | AWS OIDC role misconfigured or ECR repo doesn't exist | Verify `AWS_ROLE_ARN` and that the ECR repo exists in the client's account |
 | `.env` not updated after deploy | deploy.sh doesn't write .env (CI/CD does) | The workflow SSH step writes `.env` before running `deploy.sh` |
+| Signing health check shows offline in admin_pro | `SIGNING_GATEWAY_URL` not set in ECS task | Verify signing env vars are in Terraform ECS `secrets` block and AWS Secrets Manager |
+| Signing API returns 403 | Cloudflare Access blocking the request | Ensure `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` are in AWS Secrets Manager and ECS task definition |
 
 ---
 
@@ -711,6 +777,8 @@ Use this checklist when onboarding a new client:
 - [ ] Create DNS CNAME records (or verify auto-created by dashboard)
 - [ ] Create service token: `<client-id>-onprem-deploy` (save Client ID + Secret immediately)
 - [ ] Create Access application for SSH hostname with service token policy
+- [ ] Create Access application for signing API hostname with service token policy
+- [ ] Verify signing API returns 403 without token and 200 with token
 
 ### GitHub Secrets
 - [ ] Create GitHub environment: `pro-<client-id>`
@@ -726,13 +794,15 @@ Use this checklist when onboarding a new client:
 - [ ] Verify all 9 secrets present: `gh secret list --env pro-<client-id>`
 
 ### AWS Secrets Manager
-- [ ] Add `signing_gateway_url` and `signing_api_key` to client's app secret
+- [ ] Add `signing_gateway_url`, `signing_api_key`, `signing_enabled`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` to client's app secret
 
 ### First Deployment
 - [ ] Start cloudflared + MTSA on server with minimal `.env` (use real tunnel token)
 - [ ] Verify tunnel shows "Healthy" in Cloudflare dashboard
 - [ ] Trigger first CI/CD deployment: `workflow_dispatch`, action: `full`
-- [ ] Verify health endpoint: `curl https://<client-id>-sign.truestack.my/health`
+- [ ] Verify health endpoint with service token: `curl -H "CF-Access-Client-Id: ..." -H "CF-Access-Client-Secret: ..." https://<client-id>-sign.truestack.my/health`
+- [ ] Force new ECS deployment for backend_pro to pick up signing secrets
+- [ ] Verify signing health check shows "connected" in admin_pro dashboard
 
 ### Cleanup
 - [ ] Delete private key from on-prem server

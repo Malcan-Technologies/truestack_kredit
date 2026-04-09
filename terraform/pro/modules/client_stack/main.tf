@@ -377,6 +377,12 @@ resource "aws_secretsmanager_secret_version" "app" {
     # TrueStack KYC (Bearer + webhook HMAC)
     truestack_kyc_api_key        = ""
     truestack_kyc_webhook_secret = ""
+    # On-prem Signing Gateway
+    signing_gateway_url     = ""
+    signing_api_key         = ""
+    signing_enabled         = "false"
+    CF_ACCESS_CLIENT_ID     = ""
+    CF_ACCESS_CLIENT_SECRET = ""
   })
 
   # Secret values are managed in AWS Secrets Manager after bootstrap.
@@ -673,7 +679,12 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "GOOGLE_CALENDAR_ID", valueFrom = "${aws_secretsmanager_secret.app.arn}:google_calendar_id::" },
         { name = "GOOGLE_CALENDAR_IMPERSONATE_USER", valueFrom = "${aws_secretsmanager_secret.app.arn}:google_calendar_impersonate_user::" },
         { name = "TRUESTACK_KYC_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:truestack_kyc_api_key::" },
-        { name = "TRUESTACK_KYC_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:truestack_kyc_webhook_secret::" }
+        { name = "TRUESTACK_KYC_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:truestack_kyc_webhook_secret::" },
+        { name = "SIGNING_GATEWAY_URL", valueFrom = "${aws_secretsmanager_secret.app.arn}:signing_gateway_url::" },
+        { name = "SIGNING_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:signing_api_key::" },
+        { name = "SIGNING_ENABLED", valueFrom = "${aws_secretsmanager_secret.app.arn}:signing_enabled::" },
+        { name = "CF_ACCESS_CLIENT_ID", valueFrom = "${aws_secretsmanager_secret.app.arn}:CF_ACCESS_CLIENT_ID::" },
+        { name = "CF_ACCESS_CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:CF_ACCESS_CLIENT_SECRET::" }
       ]
       logConfiguration = {
         logDriver = "awslogs"

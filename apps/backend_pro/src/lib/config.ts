@@ -64,6 +64,8 @@ export const config = {
     gatewayUrl: (process.env.SIGNING_GATEWAY_URL || 'http://localhost:3100').replace(/\/$/, ''),
     apiKey: process.env.SIGNING_API_KEY || 'dev-signing-key',
     enabled: process.env.SIGNING_ENABLED === 'true',
+    cfAccessClientId: process.env.CF_ACCESS_CLIENT_ID || '',
+    cfAccessClientSecret: process.env.CF_ACCESS_CLIENT_SECRET || '',
   },
 
   // Internal domain event webhook signing

@@ -129,6 +129,7 @@ export const auth = betterAuth({
     additionalFields: {
       activeBorrowerId: { type: "string", required: false },
       activeOrganizationId: { type: "string", required: false },
+      activeTeamId: { type: "string", required: false },
     },
   },
 

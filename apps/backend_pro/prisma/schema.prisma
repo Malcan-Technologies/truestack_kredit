@@ -336,6 +336,8 @@ model Session {
   activeBorrowerId String?
   // Better Auth organization plugin: active company (borrower) org
   activeOrganizationId String?
+  /// Better Auth organization plugin: team/workspace session field (may mirror org in single-team setups)
+  activeTeamId String?
 
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   activeTenant  Tenant?   @relation(fields: [activeTenantId], references: [id], onDelete: SetNull)
@@ -346,6 +348,7 @@ model Session {
   @@index([activeTenantId])
   @@index([activeBorrowerId])
   @@index([activeOrganizationId])
+  @@index([activeTeamId])
 }
 
 // Account model (Better Auth - for OAuth providers)

@@ -14,7 +14,7 @@ Individual (`INDIVIDUAL`) borrowers **never** get an organization.
 | Membership / roles | `Member` (`role` includes comma-separated values; **`owner`**, **`admin`**, **`member`**) |
 | Invitations | `Invitation` (`inviteKind`: `email` \| `open_link`) |
 
-Session fields (Better Auth `Session` in DB): `activeBorrowerId`, `activeOrganizationId` — updated when switching corporate profile, accepting invite, onboarding corporate borrower, or leaving org.
+Session fields (Better Auth `Session` in DB): `activeBorrowerId`, `activeOrganizationId`, and `activeTeamId` (organization plugin session shape) — borrower flows update borrower/org fields when switching profile, accepting invite, onboarding corporate borrower, or leaving org.
 
 ## Ownership & permissions
 
@@ -111,4 +111,4 @@ npm run db:backfill:borrower-orgs -w @kredit/backend_pro
 
 ## Related migration
 
-Prisma migration (example name): `20260409120000_borrower_company_organization` — adds `BorrowerOrganizationLink`, org tables, `Invitation.inviteKind`, session `activeOrganizationId`, etc.
+Prisma migrations: `20260409120000_borrower_company_organization` (org tables, `activeOrganizationId`, …); `20260410120000_session_active_team_id` (`Session.activeTeamId` for the organization plugin).

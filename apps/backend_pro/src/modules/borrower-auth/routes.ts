@@ -1073,13 +1073,19 @@ const COMPANY_INVITE_EXPIRES_SEC = 60 * 60 * 24 * 7;
 /** GET /api/borrower-auth/company-members/invitation-preview?invitationId= — kind + expiry for signed-in invitee */
 router.get('/company-members/invitation-preview', async (req, res, next) => {
   try {
+    const userEmail = req.borrowerUser!.email.trim().toLowerCase();
     const raw = req.query.invitationId;
     const invitationId = z.string().min(1).parse(Array.isArray(raw) ? raw[0] : raw);
     const invitation = await prisma.invitation.findFirst({
       where: { id: invitationId, status: 'pending' },
-      select: { inviteKind: true, expiresAt: true },
+      select: { inviteKind: true, expiresAt: true, email: true },
     });
     if (!invitation || invitation.expiresAt < new Date()) {
+      throw new BadRequestError('Invitation not found or expired');
+    }
+    const canPreview =
+      invitation.inviteKind === 'open_link' || invitation.email.trim().toLowerCase() === userEmail;
+    if (!canPreview) {
       throw new BadRequestError('Invitation not found or expired');
     }
     res.json({
@@ -1297,6 +1303,9 @@ router.post('/company-members/leave', async (req, res, next) => {
       where: { userId, tenantId: bol.tenantId },
       orderBy: { createdAt: 'asc' },
     });
+    const nextOrgId = nextLink?.borrowerType === 'CORPORATE'
+      ? await resolveOrgIdForBorrower(nextLink.borrowerId)
+      : null;
 
     await prisma.session.updateMany({
       where: {
@@ -1309,7 +1318,7 @@ router.post('/company-members/leave', async (req, res, next) => {
       },
       data: {
         activeBorrowerId: nextLink?.borrowerId ?? null,
-        activeOrganizationId: null,
+        activeOrganizationId: nextOrgId,
       },
     });
 

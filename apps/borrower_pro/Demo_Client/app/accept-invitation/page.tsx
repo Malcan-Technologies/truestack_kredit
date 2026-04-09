@@ -32,8 +32,7 @@ function AcceptInvitationInner() {
     [searchParams]
   );
   const { data: session, isPending: sessionPending } = useSession();
-  const ranAccept = useRef(false);
-  const acceptCompleted = useRef(false);
+  const activeAttemptRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<
     "idle" | "redirect-signin" | "redirect-security" | "accepting" | "done"
   >("idle");
@@ -55,8 +54,8 @@ function AcceptInvitationInner() {
       return;
     }
 
-    if (ranAccept.current) return;
-    ranAccept.current = true;
+    if (activeAttemptRef.current === invitationId) return;
+    activeAttemptRef.current = invitationId;
 
     let cancelled = false;
 
@@ -87,26 +86,25 @@ function AcceptInvitationInner() {
           throw new Error(err.error.message || "Could not accept invitation");
         }
 
-        clearPendingAcceptInvitationPath();
-        acceptCompleted.current = true;
         setPhase("done");
+        clearPendingAcceptInvitationPath();
         toast.success("You're now a member of this company profile.");
         router.replace("/profile");
         router.refresh();
       } catch (e) {
         if (cancelled) return;
-        clearPendingAcceptInvitationPath();
-        ranAccept.current = false;
+        activeAttemptRef.current = null;
         setPhase("idle");
-        toast.error(e instanceof Error ? e.message : "Could not accept invitation");
+        const message = e instanceof Error ? e.message : "Could not accept invitation";
+        if (/not found|expired|claimed by another user|already been bound/i.test(message)) {
+          clearPendingAcceptInvitationPath();
+        }
+        toast.error(message);
       }
     })();
 
     return () => {
       cancelled = true;
-      if (!acceptCompleted.current) {
-        ranAccept.current = false;
-      }
     };
   }, [invitationId, session, sessionPending, router]);
 

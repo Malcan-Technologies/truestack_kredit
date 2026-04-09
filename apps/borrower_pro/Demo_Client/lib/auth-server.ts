@@ -236,6 +236,15 @@ export const auth = betterAuth({
             where: { userId: user.id, tenantId: bol.tenantId },
             orderBy: { createdAt: "asc" },
           });
+          const nextOrgId =
+            nextLink?.borrowerType === "CORPORATE"
+              ? (
+                  await prisma.borrowerOrganizationLink.findUnique({
+                    where: { borrowerId: nextLink.borrowerId },
+                    select: { organizationId: true },
+                  })
+                )?.organizationId ?? null
+              : null;
           await prisma.session.updateMany({
             where: {
               userId: user.id,
@@ -246,7 +255,7 @@ export const auth = betterAuth({
             },
             data: {
               activeBorrowerId: nextLink?.borrowerId ?? null,
-              activeOrganizationId: null,
+              activeOrganizationId: nextOrgId,
             },
           });
         },

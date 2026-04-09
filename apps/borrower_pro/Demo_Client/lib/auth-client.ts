@@ -158,11 +158,11 @@ export function orgAcceptInvitation(args: { invitationId: string }) {
 }
 
 export function orgListMembers(args?: { organizationId?: string }) {
-  return authClientUnsafe.organization.listMembers(args);
+  return authClientUnsafe.organization.listMembers(args ? { query: args } : undefined);
 }
 
 export function orgListInvitations(args?: { organizationId?: string }) {
-  return authClientUnsafe.organization.listInvitations(args);
+  return authClientUnsafe.organization.listInvitations(args ? { query: args } : undefined);
 }
 
 export function orgRemoveMember(args: {

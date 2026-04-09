@@ -1238,6 +1238,7 @@ router.post('/company-members/bind-open-invitation', async (req, res, next) => {
         organizationId: invitation.organizationId,
         email,
         status: 'pending',
+        expiresAt: { gt: new Date() },
         NOT: { id: invitation.id },
       },
     });

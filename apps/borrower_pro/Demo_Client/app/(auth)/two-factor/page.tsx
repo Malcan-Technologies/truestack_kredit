@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { verifyBackupCode, verifyTotp } from "@/lib/auth-client";
 import { getBorrowerPostLoginDestination } from "@borrower_pro/lib/finish-login";
@@ -19,15 +19,18 @@ import {
 } from "@borrower_pro/components/ui/card";
 import { Separator } from "@borrower_pro/components/ui/separator";
 
-export default function TwoFactorPage() {
+function TwoFactorForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("returnTo")?.trim() || null;
+
   const [totpCode, setTotpCode] = useState("");
   const [backupCode, setBackupCode] = useState("");
   const [trustDevice, setTrustDevice] = useState(true);
   const [loadingMode, setLoadingMode] = useState<"totp" | "backup" | null>(null);
 
   const finishLogin = async () => {
-    const destination = await getBorrowerPostLoginDestination();
+    const destination = await getBorrowerPostLoginDestination(returnTo);
     toast.success("Two-factor verification complete.");
     router.replace(destination);
     router.refresh();
@@ -134,11 +137,36 @@ export default function TwoFactorPage() {
           </form>
         </CardContent>
         <CardFooter className="justify-center">
-          <Button variant="ghost" onClick={() => router.push("/sign-in")}>
+          <Button
+            variant="ghost"
+            onClick={() =>
+              router.push(
+                `/sign-in${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`
+              )
+            }
+          >
             Back to sign in
           </Button>
         </CardFooter>
       </Card>
     </div>
+  );
+}
+
+export default function TwoFactorPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardContent className="pt-6">
+              <p className="text-center text-sm text-muted-foreground">Loading…</p>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <TwoFactorForm />
+    </Suspense>
   );
 }

@@ -191,6 +191,7 @@ model Tenant {
   trueIdentityWebhookEvents TrueIdentityWebhookEvent[]
   trueIdentityUsageDaily TrueIdentityUsageDaily[]
   borrowerProfileLinks       BorrowerProfileLink[]
+  borrowerOrganizationLinks  BorrowerOrganizationLink[]
   truestackKycSessions       TruestackKycSession[]
   borrowerManualPaymentRequests BorrowerManualPaymentRequest[]
   borrowerEarlySettlementRequests BorrowerEarlySettlementRequest[]
@@ -238,6 +239,10 @@ model User {
   accounts Account[]
   twoFactors TwoFactor[]
   passkeys Passkey[]
+
+  // Better Auth organization plugin (borrower company members)
+  members Member[]
+  sentInvitations Invitation[] @relation("InvitationInviter")
 
   // Borrower profile links (self-service: user can act as linked borrowers)
   borrowerProfileLinks BorrowerProfileLink[]
@@ -337,6 +342,10 @@ model Session {
   activeTenantId String?
   // Active borrower profile for borrower_pro self-service
   activeBorrowerId String?
+  // Better Auth organization plugin: active company (borrower) org
+  activeOrganizationId String?
+  /// Better Auth organization plugin: team/workspace session field (may mirror org in single-team setups)
+  activeTeamId String?
 
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   activeTenant  Tenant?   @relation(fields: [activeTenantId], references: [id], onDelete: SetNull)
@@ -346,6 +355,8 @@ model Session {
   @@index([token])
   @@index([activeTenantId])
   @@index([activeBorrowerId])
+  @@index([activeOrganizationId])
+  @@index([activeTeamId])
 }
 
 // Account model (Better Auth - for OAuth providers)
@@ -387,6 +398,74 @@ model BorrowerProfileLink {
   @@index([userId])
   @@index([tenantId])
   @@index([borrowerId])
+}
+
+// Better Auth organization plugin (borrower company; 1 org per corporate Borrower)
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  metadata  String?
+
+  members      Member[]
+  invitations  Invitation[]
+  borrowerLink BorrowerOrganizationLink?
+
+  @@map("organization")
+}
+
+model Member {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("member")
+}
+
+model Invitation {
+  id             String   @id @default(cuid())
+  organizationId String
+  email          String
+  role           String?
+  status         String   @default("pending")
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  inviterId      String
+  /// "email" | "open_link" — open_link uses synthetic email until bind-open-invitation runs
+  inviteKind     String   @default("email")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inviter      User         @relation("InvitationInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitation")
+}
+
+/// 1:1 corporate Borrower ↔ Better Auth organization (pro tenant)
+model BorrowerOrganizationLink {
+  id             String   @id @default(cuid())
+  borrowerId     String   @unique
+  organizationId String   @unique
+  tenantId       String
+  createdAt      DateTime @default(now())
+
+  borrower     Borrower     @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }
 
 // Verification model (Better Auth - for email verification, password reset)
@@ -540,6 +619,7 @@ model Borrower {
   // Relations
   tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   borrowerProfileLinks BorrowerProfileLink[]
+  borrowerOrganizationLink BorrowerOrganizationLink?
   sessionsAsActive     Session[]   // Sessions with this borrower as active
   applications LoanApplication[]
   applicationGuarantors ApplicationGuarantor[]

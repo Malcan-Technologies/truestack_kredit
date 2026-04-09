@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signUp } from "@/lib/auth-client";
 import {
   setPendingVerificationEmail,
@@ -22,8 +22,13 @@ import { toast } from "sonner";
 
 const ONBOARDING_NAMESPACE = "borrower";
 
-export default function SignUpPage() {
+function SignUpForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("returnTo")?.trim() || null;
+  const signInHref = returnTo
+    ? `/sign-in?returnTo=${encodeURIComponent(returnTo)}`
+    : "/sign-in";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -102,7 +107,7 @@ export default function SignUpPage() {
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Already have an account?{" "}
-              <Link href="/sign-in" className="text-primary underline underline-offset-4">
+              <Link href={signInHref} className="text-primary underline underline-offset-4">
                 Sign in
               </Link>
             </p>
@@ -110,5 +115,23 @@ export default function SignUpPage() {
         </form>
       </Card>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardContent className="pt-6">
+              <p className="text-center text-sm text-muted-foreground">Loading…</p>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <SignUpForm />
+    </Suspense>
   );
 }

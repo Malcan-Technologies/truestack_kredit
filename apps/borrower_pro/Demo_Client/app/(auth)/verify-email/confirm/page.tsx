@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@borrower_pro/components/ui/card";
 import { Button } from "@borrower_pro/components/ui/button";
+import { peekPendingAcceptInvitationPath } from "@borrower_pro/lib/borrower-auth-client";
 
 type VerifyState = "loading" | "success" | "error";
 
@@ -20,6 +21,14 @@ function VerifyEmailConfirmContent() {
   const token = useMemo(() => searchParams.get("token")?.trim() ?? "", [searchParams]);
   const [state, setState] = useState<VerifyState>(token ? "loading" : "error");
   const [message, setMessage] = useState("Verifying your email...");
+  const [signInHref, setSignInHref] = useState("/sign-in");
+
+  useEffect(() => {
+    const pending = peekPendingAcceptInvitationPath();
+    if (pending) {
+      setSignInHref(`/sign-in?returnTo=${encodeURIComponent(pending)}`);
+    }
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -72,7 +81,7 @@ function VerifyEmailConfirmContent() {
         <CardFooter className="flex flex-col gap-3">
           {state === "success" ? (
             <Button asChild className="w-full">
-              <Link href="/sign-in">Go to sign in</Link>
+              <Link href={signInHref}>Go to sign in</Link>
             </Button>
           ) : null}
           {state === "error" ? (

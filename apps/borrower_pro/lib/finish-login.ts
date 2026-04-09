@@ -1,6 +1,25 @@
-import { fetchBorrowerMe } from "@borrower_pro/lib/borrower-auth-client";
+import {
+  fetchBorrowerMe,
+  peekPendingAcceptInvitationPath,
+} from "@borrower_pro/lib/borrower-auth-client";
 
-export async function getBorrowerPostLoginDestination(): Promise<string> {
+/** Same-origin safe path only (for open redirects after sign-in). */
+export function normalizeAuthReturnTo(value: string | null | undefined): string | null {
+  if (!value || typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  return trimmed;
+}
+
+export async function getBorrowerPostLoginDestination(
+  returnTo?: string | null
+): Promise<string> {
+  const fromQuery = normalizeAuthReturnTo(returnTo);
+  if (fromQuery) return fromQuery;
+
+  const pendingInvite = peekPendingAcceptInvitationPath();
+  if (pendingInvite) return pendingInvite;
+
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
 

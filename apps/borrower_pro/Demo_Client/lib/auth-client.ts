@@ -1,5 +1,5 @@
 import { createAuthClient } from "better-auth/react";
-import { twoFactorClient } from "better-auth/client/plugins";
+import { twoFactorClient, organizationClient } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { resolveAuthBaseUrl } from "@kredit/shared";
 
@@ -14,10 +14,22 @@ export const authClient = createAuthClient({
   plugins: [
     twoFactorClient({
       onTwoFactorRedirect() {
-        window.location.href = "/two-factor";
+        const params = new URLSearchParams(window.location.search);
+        const returnTo = params.get("returnTo");
+        const q = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : "";
+        window.location.href = `/two-factor${q}`;
       },
     }),
     passkeyClient(),
+    organizationClient({
+      schema: {
+        invitation: {
+          additionalFields: {
+            inviteKind: { type: "string" },
+          },
+        },
+      },
+    }),
   ] as const,
 });
 
@@ -132,6 +144,53 @@ export function deletePasskey(args: { id: string }) {
     method: "POST",
     body: JSON.stringify(args),
   });
+}
+
+/** Better Auth organization (borrower company members) */
+export function orgInviteMember(args: {
+  email: string;
+  role: "admin" | "member" | "owner";
+  organizationId?: string;
+  resend?: boolean;
+}) {
+  return authClientUnsafe.organization.inviteMember(args);
+}
+
+export function orgAcceptInvitation(args: { invitationId: string }) {
+  return authClientUnsafe.organization.acceptInvitation(args);
+}
+
+export function orgListMembers(args?: { organizationId?: string }) {
+  return authClientUnsafe.organization.listMembers(args ? { query: args } : undefined);
+}
+
+export function orgListInvitations(args?: { organizationId?: string }) {
+  return authClientUnsafe.organization.listInvitations(args ? { query: args } : undefined);
+}
+
+export function orgRemoveMember(args: {
+  memberIdOrEmail: string;
+  organizationId?: string;
+}) {
+  return authClientUnsafe.organization.removeMember(args);
+}
+
+export function orgUpdateMemberRole(args: {
+  memberId: string;
+  role: string;
+  organizationId?: string;
+}) {
+  return authClientUnsafe.organization.updateMemberRole(args);
+}
+
+export function orgCancelInvitation(args: { invitationId: string }) {
+  return authClientUnsafe.organization.cancelInvitation(args);
+}
+
+export function orgSetActiveOrganization(args: {
+  organizationId: string | null;
+}) {
+  return authClientUnsafe.organization.setActiveOrganization(args);
 }
 
 const skipSecuritySetupRedirect =

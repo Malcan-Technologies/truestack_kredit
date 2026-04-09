@@ -1,10 +1,11 @@
 import path from 'path';
+import { randomBytes } from 'crypto';
 import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { requireBorrowerSession } from '../../middleware/authenticateBorrower.js';
-import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.js';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
 import { runCrossTenantLookup } from '../../lib/crossTenantLookupService.js';
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
 import { assertIdentityDocumentMutationAllowed } from '../../lib/identityLock.js';
@@ -13,6 +14,16 @@ import { createKycSession, refreshKycSession } from '../truestack-kyc/publicApiC
 import { ingestTruestackKycDocuments } from '../truestack-kyc/ingestKycDocuments.js';
 import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
 import { resolveProTenant, requireActiveBorrower } from './borrowerContext.js';
+import {
+  canManageCompanyProfile,
+  canManageCompanyMembers,
+  createBorrowerCompanyOrgAndLink,
+  getOrgRoleForBorrower,
+  isOpenInviteEmail,
+  orgDisplayNameFromBorrower,
+  resolveOrgIdForBorrower,
+  syntheticOpenInviteEmail,
+} from './borrowerCompanyOrg.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -278,22 +289,36 @@ router.post('/switch-profile', async (req, res, next) => {
     const sessionToken = req.borrowerUser!.sessionToken;
     const sessionId = req.borrowerUser!.sessionId;
 
+    const borrowerRow = await prisma.borrower.findFirst({
+      where: { id: borrowerId },
+      select: { borrowerType: true },
+    });
+    const orgId =
+      borrowerRow?.borrowerType === 'CORPORATE'
+        ? await resolveOrgIdForBorrower(borrowerId)
+        : null;
+
+    const sessionPatch = {
+      activeBorrowerId: borrowerId,
+      activeOrganizationId: orgId,
+    };
+
     if (sessionToken) {
       const updated = await prisma.session.updateMany({
         where: { userId, token: sessionToken },
-        data: { activeBorrowerId: borrowerId },
+        data: sessionPatch,
       });
       // Fallback when token lookup misses (e.g. encoded token mismatch).
       if (updated.count === 0 && sessionId) {
         await prisma.session.update({
           where: { id: sessionId },
-          data: { activeBorrowerId: borrowerId },
+          data: sessionPatch,
         });
       }
     } else if (sessionId) {
       await prisma.session.update({
         where: { id: sessionId },
-        data: { activeBorrowerId: borrowerId },
+        data: sessionPatch,
       });
     } else {
       throw new BadRequestError('Session token not found');
@@ -301,7 +326,7 @@ router.post('/switch-profile', async (req, res, next) => {
 
     res.json({
       success: true,
-      data: { activeBorrowerId: borrowerId },
+      data: { activeBorrowerId: borrowerId, activeOrganizationId: orgId },
     });
   } catch (e) {
     next(e);
@@ -437,32 +462,52 @@ router.post('/onboarding', async (req, res, next) => {
       createData.xTwitter = optionalText(data.xTwitter);
     }
 
-    const borrower = await prisma.borrower.create({
-      data: createData as Parameters<typeof prisma.borrower.create>[0]['data'],
-      include: { directors: { orderBy: { order: 'asc' } } },
-    });
+    const { borrower, activeOrganizationId } = await prisma.$transaction(async (tx) => {
+      const createdBorrower = await tx.borrower.create({
+        data: createData as Parameters<typeof tx.borrower.create>[0]['data'],
+        include: { directors: { orderBy: { order: 'asc' } } },
+      });
 
-    await prisma.borrowerProfileLink.create({
-      data: {
-        userId,
-        borrowerId: borrower.id,
-        tenantId: tenant.id,
-        borrowerType: borrower.borrowerType,
-      },
+      await tx.borrowerProfileLink.create({
+        data: {
+          userId,
+          borrowerId: createdBorrower.id,
+          tenantId: tenant.id,
+          borrowerType: createdBorrower.borrowerType,
+        },
+      });
+
+      let createdOrganizationId: string | null = null;
+      if (isCorporate) {
+        const org = await createBorrowerCompanyOrgAndLink({
+          borrowerId: createdBorrower.id,
+          ownerUserId: userId,
+          tenantId: tenant.id,
+          displayName: orgDisplayNameFromBorrower(createdBorrower),
+          prismaClient: tx,
+        });
+        createdOrganizationId = org.id;
+      }
+
+      return { borrower: createdBorrower, activeOrganizationId: createdOrganizationId };
     });
 
     // Update session activeBorrowerId (so /me and /borrower work immediately)
     const sessionToken = req.borrowerUser!.sessionToken;
     const sessionId = req.borrowerUser!.sessionId;
+    const sessionData = {
+      activeBorrowerId: borrower.id,
+      ...(activeOrganizationId ? { activeOrganizationId } : { activeOrganizationId: null }),
+    };
     if (sessionToken) {
       await prisma.session.updateMany({
         where: { userId, token: sessionToken },
-        data: { activeBorrowerId: borrower.id },
+        data: sessionData,
       });
     } else if (sessionId) {
       await prisma.session.update({
         where: { id: sessionId },
-        data: { activeBorrowerId: borrower.id },
+        data: sessionData,
       });
     }
 
@@ -560,9 +605,39 @@ router.get('/borrower', async (req, res, next) => {
 router.patch('/borrower', async (req, res, next) => {
   try {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const userId = req.borrowerUser!.userId;
+
+    const existingBorrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId, tenantId: tenant.id },
+      select: { borrowerType: true },
+    });
+    if (!existingBorrower) {
+      throw new NotFoundError('Borrower');
+    }
+    if (existingBorrower.borrowerType === 'CORPORATE') {
+      const role = await getOrgRoleForBorrower(userId, borrowerId);
+      if (!canManageCompanyProfile(role)) {
+        throw new ForbiddenError('You do not have permission to edit this company profile');
+      }
+    }
+
     const data = updateBorrowerSchema.parse(req.body);
 
     const borrower = await performBorrowerUpdate(prisma, borrowerId, tenant.id, data);
+
+    if (borrower.borrowerType === 'CORPORATE') {
+      const bol = await prisma.borrowerOrganizationLink.findUnique({
+        where: { borrowerId },
+        select: { organizationId: true },
+      });
+      if (bol) {
+        const nextName = orgDisplayNameFromBorrower(borrower);
+        await prisma.organization.update({
+          where: { id: bol.organizationId },
+          data: { name: nextName },
+        });
+      }
+    }
 
     res.json({
       success: true,
@@ -993,6 +1068,267 @@ router.post('/kyc/refresh', async (req, res, next) => {
         raw: refreshed,
       },
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const COMPANY_INVITE_EXPIRES_SEC = 60 * 60 * 24 * 7;
+
+/** GET /api/borrower-auth/company-members/invitation-preview?invitationId= — kind + expiry for signed-in invitee */
+router.get('/company-members/invitation-preview', async (req, res, next) => {
+  try {
+    const userEmail = req.borrowerUser!.email.trim().toLowerCase();
+    const raw = req.query.invitationId;
+    const invitationId = z.string().min(1).parse(Array.isArray(raw) ? raw[0] : raw);
+    const invitation = await prisma.invitation.findFirst({
+      where: { id: invitationId, status: 'pending' },
+      select: { inviteKind: true, expiresAt: true, email: true },
+    });
+    if (!invitation || invitation.expiresAt < new Date()) {
+      throw new BadRequestError('Invitation not found or expired');
+    }
+    const canPreview =
+      invitation.inviteKind === 'open_link' || invitation.email.trim().toLowerCase() === userEmail;
+    if (!canPreview) {
+      throw new BadRequestError('Invitation not found or expired');
+    }
+    res.json({
+      success: true,
+      data: {
+        inviteKind: invitation.inviteKind === 'open_link' ? 'open_link' : 'email',
+        expiresAt: invitation.expiresAt.toISOString(),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** GET /api/borrower-auth/company-members/context — org + role for active corporate borrower */
+router.get('/company-members/context', async (req, res, next) => {
+  try {
+    const { borrowerId } = await requireActiveBorrower(req);
+    const borrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId },
+      select: { id: true, borrowerType: true, companyName: true, name: true },
+    });
+    if (!borrower || borrower.borrowerType !== 'CORPORATE') {
+      return res.json({
+        success: true,
+        data: {
+          isCorporate: false,
+          organizationId: null,
+          role: null,
+          canManageMembers: false,
+          canEditCompanyProfile: false,
+        },
+      });
+    }
+    const bol = await prisma.borrowerOrganizationLink.findUnique({
+      where: { borrowerId },
+      select: { organizationId: true },
+    });
+    if (!bol) {
+      return res.json({
+        success: true,
+        data: {
+          isCorporate: true,
+          organizationId: null,
+          role: null,
+          canManageMembers: false,
+          canEditCompanyProfile: false,
+          needsOrgBackfill: true,
+        },
+      });
+    }
+    const role = await getOrgRoleForBorrower(req.borrowerUser!.userId, borrowerId);
+    return res.json({
+      success: true,
+      data: {
+        isCorporate: true,
+        organizationId: bol.organizationId,
+        role,
+        canManageMembers: canManageCompanyMembers(role),
+        canEditCompanyProfile: canManageCompanyProfile(role),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/borrower-auth/company-members/open-invitation
+ * Create a shareable invite (open_link). Invitee binds email via bind-open-invitation, then uses Better Auth accept.
+ */
+router.post('/company-members/open-invitation', async (req, res, next) => {
+  try {
+    const userId = req.borrowerUser!.userId;
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const body = z
+      .object({
+        role: z.enum(['member', 'admin']).default('member'),
+      })
+      .parse(req.body ?? {});
+
+    const borrower = await prisma.borrower.findFirst({
+      where: { id: borrowerId, tenantId: tenant.id },
+    });
+    if (!borrower || borrower.borrowerType !== 'CORPORATE') {
+      throw new BadRequestError('Company invitations apply to corporate profiles only');
+    }
+    const role = await getOrgRoleForBorrower(userId, borrowerId);
+    if (!canManageCompanyMembers(role)) {
+      throw new ForbiddenError('You do not have permission to invite members');
+    }
+    const bol = await prisma.borrowerOrganizationLink.findUnique({ where: { borrowerId } });
+    if (!bol) {
+      throw new BadRequestError('This company is not set up for member invitations yet');
+    }
+
+    const token = randomBytes(24).toString('hex');
+    const email = syntheticOpenInviteEmail(token);
+    const expiresAt = new Date(Date.now() + COMPANY_INVITE_EXPIRES_SEC * 1000);
+
+    const invitation = await prisma.invitation.create({
+      data: {
+        organizationId: bol.organizationId,
+        email,
+        role: body.role,
+        status: 'pending',
+        expiresAt,
+        inviterId: userId,
+        inviteKind: 'open_link',
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        invitationId: invitation.id,
+        expiresAt: invitation.expiresAt.toISOString(),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** POST /api/borrower-auth/company-members/bind-open-invitation — set invitation email to signed-in user (open_link only) */
+router.post('/company-members/bind-open-invitation', async (req, res, next) => {
+  try {
+    const userId = req.borrowerUser!.userId;
+    const email = req.borrowerUser!.email.trim().toLowerCase();
+    const { invitationId } = z.object({ invitationId: z.string().min(1) }).parse(req.body ?? {});
+
+    const invitation = await prisma.invitation.findFirst({
+      where: { id: invitationId, status: 'pending' },
+    });
+    if (!invitation || invitation.expiresAt < new Date()) {
+      throw new BadRequestError('Invitation not found or expired');
+    }
+    if (invitation.inviteKind !== 'open_link') {
+      throw new BadRequestError('This invitation cannot be bound');
+    }
+    if (!isOpenInviteEmail(invitation.email)) {
+      if (invitation.email === email) {
+        return res.json({ success: true, data: { invitationId: invitation.id } });
+      }
+      throw new BadRequestError('This invitation has already been bound to another email');
+    }
+
+    const existingSameEmail = await prisma.invitation.findFirst({
+      where: {
+        organizationId: invitation.organizationId,
+        email,
+        status: 'pending',
+        expiresAt: { gt: new Date() },
+        NOT: { id: invitation.id },
+      },
+    });
+    if (existingSameEmail) {
+      throw new ConflictError('You already have a pending invitation for this organization');
+    }
+
+    const bound = await prisma.invitation.updateMany({
+      where: {
+        id: invitation.id,
+        email: invitation.email,
+      },
+      data: { email },
+    });
+    if (bound.count === 0) {
+      throw new ConflictError('This invitation was claimed by another user');
+    }
+
+    res.json({ success: true, data: { invitationId: invitation.id } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** POST /api/borrower-auth/company-members/leave — leave company org and remove borrower profile link */
+router.post('/company-members/leave', async (req, res, next) => {
+  try {
+    const userId = req.borrowerUser!.userId;
+    const { organizationId } = z.object({ organizationId: z.string().min(1) }).parse(req.body ?? {});
+
+    const member = await prisma.member.findFirst({
+      where: { organizationId, userId },
+    });
+    if (!member) {
+      throw new BadRequestError('You are not a member of this organization');
+    }
+
+    const creatorRole = 'owner';
+    const roleParts = member.role.split(',').map((r) => r.trim());
+    if (roleParts.includes(creatorRole)) {
+      const allMembers = await prisma.member.findMany({ where: { organizationId } });
+      const ownerCount = allMembers.filter((m) =>
+        m.role.split(',').map((r) => r.trim()).includes(creatorRole)
+      ).length;
+      if (ownerCount <= 1) {
+        throw new BadRequestError('The sole owner cannot leave the organization');
+      }
+    }
+
+    const bol = await prisma.borrowerOrganizationLink.findUnique({
+      where: { organizationId },
+    });
+    if (!bol) {
+      throw new BadRequestError('Organization is not linked to a borrower company');
+    }
+
+    await prisma.member.delete({ where: { id: member.id } });
+    await prisma.borrowerProfileLink.deleteMany({
+      where: { userId, borrowerId: bol.borrowerId },
+    });
+
+    const nextLink = await prisma.borrowerProfileLink.findFirst({
+      where: { userId, tenantId: bol.tenantId },
+      orderBy: { createdAt: 'asc' },
+    });
+    const nextOrgId = nextLink?.borrowerType === 'CORPORATE'
+      ? await resolveOrgIdForBorrower(nextLink.borrowerId)
+      : null;
+
+    await prisma.session.updateMany({
+      where: {
+        userId,
+        expiresAt: { gt: new Date() },
+        OR: [
+          { activeBorrowerId: bol.borrowerId },
+          { activeOrganizationId: organizationId },
+        ],
+      },
+      data: {
+        activeBorrowerId: nextLink?.borrowerId ?? null,
+        activeOrganizationId: nextOrgId,
+      },
+    });
+
+    res.json({ success: true });
   } catch (e) {
     next(e);
   }

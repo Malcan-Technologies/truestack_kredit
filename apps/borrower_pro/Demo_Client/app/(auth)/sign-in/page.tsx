@@ -1,13 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { KeyRound } from "lucide-react";
 import { signIn, signInWithPasskey } from "@/lib/auth-client";
-import {
-  setPendingVerificationEmail,
-} from "@kredit/shared";
+import { setPendingVerificationEmail } from "@kredit/shared";
 import { getBorrowerPostLoginDestination } from "@borrower_pro/lib/finish-login";
 import { Button } from "@borrower_pro/components/ui/button";
 import { Input } from "@borrower_pro/components/ui/input";
@@ -24,11 +22,18 @@ import { toast } from "sonner";
 
 const ONBOARDING_NAMESPACE = "borrower";
 
-export default function SignInPage() {
+function SignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("returnTo")?.trim() || null;
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState<"credentials" | "passkey" | null>(null);
+
+  const signUpHref = returnTo
+    ? `/sign-up?returnTo=${encodeURIComponent(returnTo)}`
+    : "/sign-up";
 
   async function handlePasskeySignIn() {
     setLoading("passkey");
@@ -38,7 +43,7 @@ export default function SignInPage() {
         throw new Error(result.error.message ?? "Passkey sign in failed");
       }
 
-      const destination = await getBorrowerPostLoginDestination();
+      const destination = await getBorrowerPostLoginDestination(returnTo);
       toast.success("Signed in successfully");
       router.replace(destination);
       router.refresh();
@@ -62,11 +67,12 @@ export default function SignInPage() {
         (result.data as { twoFactorRedirect?: boolean } | null | undefined)?.twoFactorRedirect
       );
       if (requiresTwoFactor) {
-        router.replace("/two-factor");
+        const q = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : "";
+        router.replace(`/two-factor${q}`);
         return;
       }
 
-      const destination = await getBorrowerPostLoginDestination();
+      const destination = await getBorrowerPostLoginDestination(returnTo);
       toast.success("Signed in successfully");
       router.replace(destination);
       router.refresh();
@@ -128,7 +134,11 @@ export default function SignInPage() {
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
                 <Link
-                  href={email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim())}` : "/forgot-password"}
+                  href={
+                    email.trim()
+                      ? `/forgot-password?email=${encodeURIComponent(email.trim())}`
+                      : "/forgot-password"
+                  }
                   className="text-sm text-muted-foreground hover:text-foreground"
                 >
                   Forgot password?
@@ -151,7 +161,7 @@ export default function SignInPage() {
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Don&apos;t have an account?{" "}
-              <Link href="/sign-up" className="text-primary underline underline-offset-4">
+              <Link href={signUpHref} className="text-primary underline underline-offset-4">
                 Sign up
               </Link>
             </p>
@@ -159,5 +169,23 @@ export default function SignInPage() {
         </form>
       </Card>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardContent className="pt-6">
+              <p className="text-center text-sm text-muted-foreground">Loading…</p>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <SignInForm />
+    </Suspense>
   );
 }

@@ -4,6 +4,27 @@
 
 const BASE = "/api/proxy/borrower-auth";
 
+const PENDING_ACCEPT_INVITATION_KEY = "borrower_pending_accept_invitation";
+
+/** Remember invite URL path across sign-up / verify-email so post-login routing can resume acceptance. */
+export function setPendingAcceptInvitationPath(pathWithQuery: string): void {
+  if (typeof window === "undefined") return;
+  if (!pathWithQuery.startsWith("/accept-invitation")) return;
+  sessionStorage.setItem(PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
+}
+
+export function peekPendingAcceptInvitationPath(): string | null {
+  if (typeof window === "undefined") return null;
+  const p = sessionStorage.getItem(PENDING_ACCEPT_INVITATION_KEY);
+  if (p?.startsWith("/accept-invitation")) return p;
+  return null;
+}
+
+export function clearPendingAcceptInvitationPath(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(PENDING_ACCEPT_INVITATION_KEY);
+}
+
 /** Dispatched when user switches borrower profile. Listen to re-fetch borrower data. */
 export const BORROWER_PROFILE_SWITCHED_EVENT = "borrower-profile-switched";
 
@@ -210,6 +231,88 @@ export interface OnboardingPayload {
   numberOfEmployees?: number | null;
   bumiStatus?: string;
   directors?: Array<{ name: string; icNumber: string; position?: string }>;
+}
+
+/** Company org context for the active corporate borrower (Better Auth organization + roles). */
+export interface CompanyMembersContext {
+  isCorporate: boolean;
+  organizationId: string | null;
+  role: string | null;
+  canManageMembers: boolean;
+  canEditCompanyProfile: boolean;
+  needsOrgBackfill?: boolean;
+}
+
+export async function fetchCompanyMembersContext(): Promise<{
+  success: boolean;
+  data: CompanyMembersContext;
+}> {
+  const res = await fetch(BASE + "/company-members/context", { credentials: "include" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || "Failed to load company members context");
+  }
+  return res.json();
+}
+
+export async function fetchBorrowerInvitationPreview(invitationId: string): Promise<{
+  success: boolean;
+  data: { inviteKind: "email" | "open_link"; expiresAt: string };
+}> {
+  const q = new URLSearchParams({ invitationId });
+  const res = await fetch(`${BASE}/company-members/invitation-preview?${q}`, {
+    credentials: "include",
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json?.error || "Invalid or expired invitation");
+  }
+  return json;
+}
+
+export async function bindOpenCompanyInvitation(invitationId: string): Promise<void> {
+  const res = await fetch(BASE + "/company-members/bind-open-invitation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ invitationId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || "Could not link invitation to your account");
+  }
+}
+
+export async function createOpenCompanyInvitation(
+  role: "member" | "admin" = "member"
+): Promise<{
+  invitationId: string;
+  expiresAt: string;
+}> {
+  const res = await fetch(BASE + "/company-members/open-invitation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ role }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json?.error || "Failed to create shareable invite");
+  }
+  return json.data;
+}
+
+export async function leaveCompanyOrganization(organizationId: string): Promise<void> {
+  const res = await fetch(BASE + "/company-members/leave", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ organizationId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || "Failed to leave company");
+  }
 }
 
 export async function submitOnboarding(

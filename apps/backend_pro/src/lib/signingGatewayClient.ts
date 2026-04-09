@@ -4,6 +4,7 @@
  */
 
 import { lookup as systemLookup } from 'node:dns';
+import type { LookupAddress, LookupAllOptions, LookupOneOptions } from 'node:dns';
 import { Resolver } from 'node:dns/promises';
 import type { IncomingHttpHeaders } from 'node:http';
 import http from 'node:http';
@@ -118,6 +119,35 @@ async function gatewayRequest(
     requestHeaders.Host = url.host;
   }
 
+  const lookupOverride = resolvedAddress
+    ? (
+        hostname: string,
+        options: LookupOneOptions | LookupAllOptions,
+        callback: (
+          err: NodeJS.ErrnoException | null,
+          address: string | LookupAddress[],
+          family?: number
+        ) => void
+      ) => {
+        if (hostname !== url.hostname) {
+          systemLookup(hostname, options as never, callback as never);
+          return;
+        }
+
+        if ('all' in options && options.all) {
+          callback(null, [
+            {
+              address: resolvedAddress.address,
+              family: resolvedAddress.family,
+            },
+          ]);
+          return;
+        }
+
+        callback(null, resolvedAddress.address, resolvedAddress.family);
+      }
+    : undefined;
+
   const requestOptions: HttpsRequestOptions = {
     protocol: url.protocol,
     hostname: url.hostname,
@@ -125,15 +155,7 @@ async function gatewayRequest(
     path: `${url.pathname}${url.search}`,
     method,
     headers: requestHeaders,
-    lookup: resolvedAddress
-      ? ((hostname, _options, callback) => {
-          if (hostname === url.hostname) {
-            callback(null, resolvedAddress.address, resolvedAddress.family);
-            return;
-          }
-          systemLookup(hostname, { family: 0 }, callback);
-        })
-      : undefined,
+    lookup: lookupOverride,
   };
 
   if (url.protocol === 'https:') {

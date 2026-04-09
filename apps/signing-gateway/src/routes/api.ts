@@ -24,6 +24,27 @@ import type {
 
 const router = Router();
 
+/** Safe one-line summary for logs: no PIN, no base64 image data (lengths only). */
+function summarizeEnrollRequestForLog(body: RequestCertificateRequest): Record<string, unknown> {
+  const b64Chars = (v?: string) => (typeof v === 'string' ? v.length : 0);
+  return {
+    UserID: body.UserID,
+    FullName: body.FullName,
+    EmailAddress: body.EmailAddress,
+    MobileNo: body.MobileNo,
+    Nationality: body.Nationality,
+    UserType: body.UserType,
+    IDType: body.IDType,
+    AuthFactor: body.AuthFactor ? '[redacted]' : undefined,
+    NRICFrontBase64Chars: b64Chars(body.NRICFront),
+    NRICBackBase64Chars: b64Chars(body.NRICBack),
+    PassportImageBase64Chars: b64Chars(body.PassportImage),
+    SelfieImageBase64Chars: b64Chars(body.SelfieImage),
+    OrganisationInfo: body.OrganisationInfo,
+    VerificationData: body.VerificationData,
+  };
+}
+
 // ---- Certificate Operations ----
 
 router.post('/cert/info', async (req, res) => {
@@ -50,6 +71,7 @@ router.post('/cert/enroll', async (req, res) => {
         .json({ success: false, error: 'UserID, FullName, and EmailAddress are required' });
       return;
     }
+    console.log('[API] /cert/enroll request:', JSON.stringify(summarizeEnrollRequestForLog(body)));
     const result = await mtsa.requestCertificate(body);
     res.json(enrichResponse(result));
   } catch (err: any) {

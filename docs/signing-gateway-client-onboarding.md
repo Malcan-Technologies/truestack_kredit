@@ -772,6 +772,7 @@ External clients are never auto-deployed. After initial setup, all deployments g
 | `.env` not updated after deploy | deploy.sh doesn't write .env (CI/CD does) | The workflow SSH step writes `.env` before running `deploy.sh` |
 | Signing health check shows offline in admin_pro | `SIGNING_GATEWAY_URL` not set in ECS task | Verify signing env vars are in Terraform ECS `secrets` block and AWS Secrets Manager |
 | Signing health check shows offline intermittently | Cloudflare Tunnel QUIC connection dropping due to undersized UDP buffers | Increase UDP buffers on on-prem server (see below) |
+| Signing health check shows offline consistently after DNS/provider cutover | ECS resolver path is still reaching an old provider response even though public DNS now points to Cloudflare Tunnel | Compare direct `curl` with runtime credentials vs `backend_pro` `/api/admin/signing/health`; if ECS still sees stale DNS, use the targeted public-DNS workaround in `signingGatewayClient.ts` (see below) |
 | cloudflared logs: `failed to sufficiently increase receive buffer size` | Linux UDP receive/send buffer max too low (default 208 KiB, needs 7168 KiB) | Run `sudo sysctl -w net.core.rmem_max=7340032 net.core.wmem_max=7340032` and persist in `/etc/sysctl.conf`, then restart cloudflared |
 | Signing health returns 401 | Auth session expired or cookie not forwarded through proxy | Re-login to admin_pro dashboard; check proxy route forwards cookies correctly |
 | Signing API returns 403 | Cloudflare Access blocking the request | Ensure `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` are in AWS Secrets Manager and ECS task definition |
@@ -806,6 +807,77 @@ docker logs cloudflared --tail 15
 ```
 
 **Note:** This should be done during initial server setup for every new client. Add it to the on-prem server provisioning steps.
+
+### 11.2 ECS DNS Staleness After DNS Provider Cutover
+
+This issue appeared in production after moving `truestack.my` DNS authority from Vercel to Cloudflare on the same day. Public DNS was already correct, the Cloudflare Tunnel and Access app were healthy, and direct `curl` requests using the real AWS runtime secrets returned `200` from the signing gateway. However, `backend_pro` running in ECS still resolved the signing hostname to a stale route and received:
+
+- `404 Not Found`
+- body preview similar to: `The deployment could not be found on Vercel. DEPLOYMENT_NOT_FOUND ...`
+
+In that state, the admin UI correctly shows the gateway as offline because `GET /api/admin/signing/health` is only reporting what `backend_pro` sees.
+
+**When this workaround is justified**
+
+Only implement the targeted public-DNS lookup in `apps/backend_pro/src/lib/signingGatewayClient.ts` when all of the following are true:
+
+- The signing hostname was recently created or changed during a DNS/provider cutover.
+- Public DNS (`dig`, `curl`, browser) already resolves to Cloudflare and works from an external machine.
+- The on-prem server and `cloudflared` tunnel are healthy.
+- Cloudflare Access service token credentials are correct in AWS Secrets Manager.
+- ECS runtime calls to `SIGNING_GATEWAY_URL` still fail and logs show an old provider response or other clearly stale DNS result.
+
+**When this workaround is not needed**
+
+Do not add or keep this workaround just because the health check is offline. First rule out:
+
+- missing `SIGNING_GATEWAY_URL`
+- missing `SIGNING_API_KEY`
+- missing `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`
+- Cloudflare Access `403`
+- tunnel instability / UDP buffer issues
+- actual on-prem `signing-gateway` or `mtsa` outage
+
+**Workaround**
+
+`backend_pro` can bypass the ECS/VPC recursive resolver for signing-gateway calls only by resolving `*.truestack.my` through public DNS resolvers (for example `1.1.1.1` and `8.8.8.8`) before opening the HTTPS request. Keep the request hostname, SNI, and `Host` header unchanged so Cloudflare Access and the tunnel routing still work normally.
+
+This is intentionally narrow:
+
+- apply it only to signing-gateway requests, not all outbound traffic
+- keep the normal hostname in `SIGNING_GATEWAY_URL`
+- preserve TLS `servername` and `Host` header
+- leave the rest of the application on normal system DNS
+
+**How to confirm root cause before enabling**
+
+1. Confirm on-prem health locally:
+
+```bash
+curl http://localhost:3100/health
+```
+
+2. Confirm the public hostname works with the real runtime secrets:
+
+```bash
+curl \
+  -H "X-API-Key: $SIGNING_API_KEY" \
+  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+  "https://<client-id>-sign.truestack.my/health"
+```
+
+3. Compare with what `backend_pro` sees:
+
+```bash
+curl "https://<client-api-domain>/api/admin/signing/health"
+```
+
+4. If direct public access succeeds but ECS still logs stale-provider responses (for example Vercel `DEPLOYMENT_NOT_FOUND`), the resolver path inside ECS is the problem and the targeted public-DNS workaround is appropriate.
+
+**Operational note**
+
+Treat this as a defensive workaround for DNS cutovers, not the default architecture. If the resolver path settles after propagation and the workaround is no longer needed, reassess whether to keep or simplify it.
 
 ---
 

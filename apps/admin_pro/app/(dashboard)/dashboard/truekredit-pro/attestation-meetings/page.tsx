@@ -16,10 +16,11 @@ import {
   startOfWeek,
   subMonths,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Loader2, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 type QueueLoan = {
@@ -250,8 +251,42 @@ export default function AttestationMeetingsQueuePage() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="space-y-6">
+          <div className="rounded-md border overflow-hidden">
+            <div className="grid grid-cols-7 gap-px bg-border text-xs">
+              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                <div key={d} className="bg-muted/50 px-2 py-2 font-medium text-center">
+                  {d}
+                </div>
+              ))}
+              {Array.from({ length: 35 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="bg-background min-h-[100px] p-1.5 text-left align-top"
+                >
+                  <Skeleton className="mb-2 h-3 w-4" />
+                  <div className="space-y-1">
+                    <Skeleton className="h-4 w-full rounded-sm" />
+                    <Skeleton className="h-4 w-3/4 rounded-sm" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Skeleton className="h-4 w-36 mb-3" />
+            <div className="rounded-md border divide-y">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between gap-4 p-3">
+                  <div className="space-y-2 flex-1 min-w-0">
+                    <Skeleton className="h-4 w-40 max-w-[60%]" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                  <Skeleton className="h-6 w-20 rounded-full shrink-0" />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       ) : error ? (
         <p className="text-sm text-destructive">{error}</p>

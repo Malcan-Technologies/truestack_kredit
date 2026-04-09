@@ -1,5 +1,6 @@
 export { LoanCenterPage } from "./loan-center-page";
 export { LoanPendingAgreementPage } from "./loan-pending-agreement-page";
+export { DigitalCertificateStep } from "./digital-certificate-step";
 export { LoanChannelPill } from "./loan-channel-pill";
 export { BorrowerLoanServicingPanel } from "./borrower-loan-servicing-panel";
 export { BorrowerMakePaymentPage } from "./borrower-make-payment-page";

@@ -45,3 +45,11 @@ enabled_modules:
   - repayments
   - attestation
   - signing
+
+signing:
+  gateway_hostname: demo-sign.truestack.my
+  ssh_host: ssh-sign-demo.truestack.my
+  tunnel_name: demo-onprem
+  mtsa_env: pilot
+  backup_bucket_prefix: demo-client
+  ecr_repository: truekredit-pro-signing-gateway

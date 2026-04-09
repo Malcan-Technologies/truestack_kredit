@@ -1,0 +1,51 @@
+services:
+  signing-gateway:
+    image: ${ECR_REGISTRY}/truekredit-pro-signing-gateway:${GATEWAY_TAG:-latest}
+    container_name: signing-gateway
+    ports:
+      - "${GATEWAY_PORT:-3100}:3100"
+    environment:
+      PORT: "3100"
+      NODE_ENV: production
+      MTSA_URL: http://mtsa:8080
+      MTSA_WSDL_PATH: ${MTSA_WSDL_PATH}
+      MTSA_SOAP_USERNAME: ${MTSA_SOAP_USERNAME}
+      MTSA_SOAP_PASSWORD: ${MTSA_SOAP_PASSWORD}
+      SIGNING_API_KEY: ${SIGNING_API_KEY}
+      STORAGE_PATH: /data/documents
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+    volumes:
+      - /opt/signing-stack/data/documents:/data/documents
+      - /opt/signing-stack/data/db:/data/db
+    depends_on:
+      mtsa:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mtsa:
+    image: ${MTSA_IMAGE:-mtsa-pilot:latest}
+    container_name: mtsa
+    environment:
+      TZ: Asia/Kuala_Lumpur
+      JAVA_OPTS: -Dsun.net.inetaddr.ttl=60 -Dsun.net.inetaddr.negative.ttl=10
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080${MTSA_WSDL_PATH}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

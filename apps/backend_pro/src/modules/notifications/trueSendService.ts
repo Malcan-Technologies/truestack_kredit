@@ -575,7 +575,8 @@ export class TrueSendService {
   }
 
   /**
-   * Disbursement Notification — confirms loan disbursement (no PDF attachments)
+   * Disbursement Notification — confirms loan disbursement.
+   * For online-originated loans, attaches the fully-signed agreement PDF.
    */
   static async sendDisbursementNotification(
     tenantId: string,
@@ -591,6 +592,9 @@ export class TrueSendService {
     const principal = toSafeNumber(loan.principalAmount);
     const rate = toSafeNumber(loan.interestRate);
 
+    const isOnline = loan.loanChannel === 'ONLINE';
+    const hasSignedAgreement = isOnline && loan.agreementPath;
+
     const content = `
       <h2>Loan Disbursement Confirmation</h2>
       <p>Dear ${loan.borrower.name},</p>
@@ -604,6 +608,7 @@ export class TrueSendService {
           ${loan.disbursementReference ? `<tr><td>Reference</td><td>${loan.disbursementReference}</td></tr>` : ''}
         </table>
       </div>
+      ${hasSignedAgreement ? '<p>Attached to this email is your <strong>fully signed loan agreement</strong> for your records.</p>' : ''}
       <p>Your repayment schedule will begin as per the agreed terms. Please ensure timely payments to maintain a good repayment record.</p>
       <p>If you have any questions, please contact ${tenantName} directly.</p>
       <p>Thank you for your trust.</p>
@@ -618,6 +623,10 @@ export class TrueSendService {
       recipientName: loan.borrower.name,
       subject: `Loan Disbursement Confirmation — ${formatCurrency(principal)}`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
+      ...(hasSignedAgreement ? {
+        attachmentPath: loan.agreementPath!,
+        attachmentFilename: loan.agreementOriginalName || 'signed-loan-agreement.pdf',
+      } : {}),
     });
   }
 
@@ -717,6 +726,52 @@ export class TrueSendService {
       htmlBody: await buildEmailWrapper(loan.tenant, content),
       attachmentPath: receiptPath,
       attachmentFilename: receiptFilename,
+      requireAllAttachments: true,
+    });
+  }
+
+  /**
+   * Signed Agreement — sends the digitally signed loan agreement PDF to the borrower
+   */
+  static async sendSignedAgreement(
+    tenantId: string,
+    loanId: string,
+    agreementPath: string,
+    agreementFilename: string,
+  ): Promise<boolean> {
+    const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
+    if (!isActive) return false;
+
+    const loan = await this.getLoanContext(tenantId, loanId);
+    if (!loan || !loan.borrower.email) return false;
+
+    const content = `
+      <h2>Signed Loan Agreement</h2>
+      <p>Dear ${loan.borrower.name},</p>
+      <p>Your loan agreement has been <strong>digitally signed</strong> and is attached to this email for your records.</p>
+      <div class="highlight">
+        <table class="details">
+          <tr><td>Loan Amount</td><td>${formatCurrency(safeRound(toSafeNumber(loan.principalAmount), 2))}</td></tr>
+          <tr><td>Term</td><td>${loan.term} months</td></tr>
+          ${loan.agreementDate ? `<tr><td>Agreement Date</td><td>${formatDate(loan.agreementDate)}</td></tr>` : ''}
+        </table>
+      </div>
+      <p>Please keep this document safely. It serves as proof of the loan agreement between you and ${loan.tenant.name}.</p>
+      <p>If you have any questions, please contact ${loan.tenant.name} directly.</p>
+      <p>Thank you.</p>
+    `;
+
+    return await this.sendEmail({
+      tenantId,
+      loanId,
+      borrowerId: loan.borrowerId,
+      emailType: 'SIGNED_AGREEMENT',
+      recipientEmail: loan.borrower.email,
+      recipientName: loan.borrower.name,
+      subject: `Your Signed Loan Agreement`,
+      htmlBody: await buildEmailWrapper(loan.tenant, content),
+      attachmentPath: agreementPath,
+      attachmentFilename: agreementFilename,
       requireAllAttachments: true,
     });
   }

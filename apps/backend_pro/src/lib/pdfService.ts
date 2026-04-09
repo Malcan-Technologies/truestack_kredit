@@ -111,6 +111,30 @@ interface JadualRow {
   butir: string;
 }
 
+// Metadata describing where a borrower signature block was placed in the PDF.
+// Coordinates are in MTSA convention (bottom-left origin).
+export interface SignatureFieldMeta {
+  index: number;
+  role: 'borrower' | 'company_rep' | 'witness';
+  pageNo: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  signatoryName: string;
+  signatoryIc: string;
+}
+
+export interface LoanAgreementResult {
+  buffer: Buffer;
+  signatureFields: SignatureFieldMeta[];
+}
+
+interface SigBlockContext {
+  getPage: () => number;
+  fields: SignatureFieldMeta[];
+}
+
 // ============================================
 // Layout Constants
 // ============================================
@@ -156,7 +180,10 @@ const BRACKET_COL = ML + 310;
 // Helpers
 // ============================================
 
-function createPdfBuffer(renderer: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
+function createPdfBuffer(
+  renderer: (doc: PDFKit.PDFDocument) => void,
+  options?: { footerText?: string },
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: 'A4',
@@ -170,6 +197,29 @@ function createPdfBuffer(renderer: (doc: PDFKit.PDFDocument) => void): Promise<B
     doc.on('error', reject);
 
     renderer(doc);
+
+    if (options?.footerText) {
+      const footerY = PAGE_HEIGHT - 28;
+      const range = doc.bufferedPageRange();
+      const lastPage = range.start + range.count - 1;
+
+      for (let i = range.start; i <= lastPage; i++) {
+        doc.switchToPage(i);
+        const textW = doc.font(FI).fontSize(7).widthOfString(options.footerText);
+        const textX = ML + (CW - textW) / 2;
+        doc.save()
+          .fillColor('#888888')
+          .fontSize(7)
+          .font(FI);
+        (doc as any).y = footerY;
+        (doc as any).x = textX;
+        (doc as any)._fragment(options.footerText, textX, footerY, {});
+        doc.restore();
+      }
+
+      doc.switchToPage(lastPage);
+    }
+
     doc.end();
   });
 }
@@ -457,7 +507,13 @@ function getBorrowerSignatories(loan: LoanForAgreement, borrowerName: string): S
 // The ) brackets are vertically aligned at a fixed column.
 // For auto-filled names/ICs, we print the value with dotted underline.
 
-function drawBorrowerSigBlock(doc: PDFKit.PDFDocument, sig: Signatory, y: number): number {
+function drawBorrowerSigBlock(
+  doc: PDFKit.PDFDocument,
+  sig: Signatory,
+  y: number,
+  sigIndex: number,
+  ctx?: SigBlockContext,
+): number {
   const lineH = 22; // line height between each row in block (matches ~2.0 spacing)
   const startY = y;  // remember start for right-side director info
   doc.font(FR).fontSize(FS_BODY);
@@ -499,11 +555,31 @@ function drawBorrowerSigBlock(doc: PDFKit.PDFDocument, sig: Signatory, y: number
     doc.font(FR).fontSize(FS_BODY); // restore
   }
 
+  // Record signature position metadata (PDFKit top-left → MTSA bottom-left)
+  if (ctx) {
+    const mtsaX1 = BRACKET_COL + 8;
+    const mtsaX2 = 570;
+    const mtsaY2 = PAGE_HEIGHT - startY;
+    const mtsaY1 = mtsaY2 - 110;
+    ctx.fields.push({
+      index: sigIndex,
+      role: 'borrower',
+      pageNo: ctx.getPage(),
+      x1: Math.round(mtsaX1),
+      y1: Math.round(mtsaY1),
+      x2: Math.round(mtsaX2),
+      y2: Math.round(mtsaY2),
+      signatoryName: sig.directorName || sig.name,
+      signatoryIc: sig.directorIc || sig.icNumber,
+    });
+  }
+
   return y;
 }
 
-function drawLenderSigBlock(doc: PDFKit.PDFDocument, loan: LoanForAgreement, y: number): number {
+function drawLenderSigBlock(doc: PDFKit.PDFDocument, loan: LoanForAgreement, y: number, sigIndex: number, ctx?: SigBlockContext): number {
   const lineH = 22;
+  const startY = y;
   doc.font(FR).fontSize(FS_BODY);
 
   doc.text('DITANDATANGANI oleh', ML, y);
@@ -524,6 +600,25 @@ function drawLenderSigBlock(doc: PDFKit.PDFDocument, loan: LoanForAgreement, y: 
   doc.text(idText, ML, y);
   doc.text(')', BRACKET_COL, y);
   y += lineH;
+
+  // Record lender (company rep) signature position (same method as borrower)
+  if (ctx) {
+    const mtsaX1 = BRACKET_COL + 8;
+    const mtsaX2 = 570;
+    const mtsaY2 = PAGE_HEIGHT - startY;
+    const mtsaY1 = mtsaY2 - 110;
+    ctx.fields.push({
+      index: sigIndex,
+      role: 'company_rep',
+      pageNo: ctx.getPage(),
+      x1: Math.round(mtsaX1),
+      y1: Math.round(mtsaY1),
+      x2: Math.round(mtsaX2),
+      y2: Math.round(mtsaY2),
+      signatoryName: loan.tenant.name,
+      signatoryIc: loan.tenant.registrationNumber || '',
+    });
+  }
 
   return y;
 }
@@ -551,7 +646,7 @@ const SEC_GAP = 14;
 /** Paragraph gap (between clauses). */
 const PARA_GAP = 6;
 
-function drawJadualJContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: AgreementComputedValues, signatories: Signatory[]): void {
+function drawJadualJContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: AgreementComputedValues, signatories: Signatory[], sigCtx?: SigBlockContext): void {
   let y = MT;
 
   // ==== HEADER BLOCK ====
@@ -908,7 +1003,7 @@ function drawJadualJContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: 
   // ================================================================
   for (let i = 0; i < signatories.length; i++) {
     y = ensureSpace(doc, y, 90);
-    y = drawBorrowerSigBlock(doc, signatories[i], y);
+    y = drawBorrowerSigBlock(doc, signatories[i], y, i, sigCtx);
     y += 10;
   }
 
@@ -917,7 +1012,8 @@ function drawJadualJContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: 
   // ================================================================
   doc.addPage();
   y = MT;
-  y = drawLenderSigBlock(doc, loan, y);
+  const lenderSigIdx = signatories.length; // next index after all borrowers
+  y = drawLenderSigBlock(doc, loan, y, lenderSigIdx, sigCtx);
   y += 40;
 
   // ================================================================
@@ -928,7 +1024,25 @@ function drawJadualJContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: 
     'Saya, dengan sesungguhnya dan sebenarnya mengakui bahawa saya telah menerangkan terma-terma Perjanjian ini kepada Peminjam dan saya mendapati bahawa Peminjam telah memahami sifat dan akibat Perjanjian ini.',
     ML, y, CW
   );
+  const witnessStartY = y; // top of the witness signing space
   y += 90; // extra space for witness signature
+
+  // Record witness signature area (above dotted line, same dynamic method)
+  if (sigCtx) {
+    const lineWidth = 260;
+    const lineX = ML + (CW - lineWidth) / 2;
+    sigCtx.fields.push({
+      index: lenderSigIdx + 1,
+      role: 'witness',
+      pageNo: sigCtx.getPage(),
+      x1: Math.round(lineX),
+      y1: Math.round(PAGE_HEIGHT - y),            // bottom in MTSA coords (at dotted line)
+      x2: Math.round(lineX + lineWidth),
+      y2: Math.round(PAGE_HEIGHT - witnessStartY), // top in MTSA coords
+      signatoryName: '',
+      signatoryIc: '',
+    });
+  }
 
   // Signature line (centered dots)
   const lineWidth = 260;
@@ -1070,7 +1184,7 @@ function drawJadualPertamaPage(doc: PDFKit.PDFDocument, rows: JadualRow[]): void
 // Jadual K — Continuous flow renderer (exact KPKT template)
 // ============================================
 
-function drawJadualKContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: AgreementComputedValues, signatories: Signatory[]): void {
+function drawJadualKContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: AgreementComputedValues, signatories: Signatory[], sigCtx?: SigBlockContext): void {
   let y = MT;
 
   // ==== HEADER BLOCK ====
@@ -1577,7 +1691,7 @@ function drawJadualKContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: 
   // ================================================================
   for (let i = 0; i < signatories.length; i++) {
     y = ensureSpace(doc, y, 90);
-    y = drawBorrowerSigBlock(doc, signatories[i], y);
+    y = drawBorrowerSigBlock(doc, signatories[i], y, i, sigCtx);
     y += 10;
   }
 
@@ -1586,7 +1700,8 @@ function drawJadualKContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: 
   // ================================================================
   doc.addPage();
   y = MT;
-  y = drawLenderSigBlock(doc, loan, y);
+  const lenderSigIdxK = signatories.length;
+  y = drawLenderSigBlock(doc, loan, y, lenderSigIdxK, sigCtx);
   y += 40;
 
   // ================================================================
@@ -1597,7 +1712,25 @@ function drawJadualKContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: 
     'Saya, dengan sesungguhnya dan sebenarnya mengakui bahawa saya telah menerangkan terma-terma Perjanjian ini kepada Peminjam dan saya mendapati bahawa Peminjam telah memahami sifat dan akibat Perjanjian ini.',
     ML, y, CW
   );
+  const witnessStartYK = y;
   y += 90; // extra space for witness signature
+
+  // Record witness signature area (above dotted line, same dynamic method)
+  if (sigCtx) {
+    const lineWidthK = 260;
+    const lineXK = ML + (CW - lineWidthK) / 2;
+    sigCtx.fields.push({
+      index: lenderSigIdxK + 1,
+      role: 'witness',
+      pageNo: sigCtx.getPage(),
+      x1: Math.round(lineXK),
+      y1: Math.round(PAGE_HEIGHT - y),
+      x2: Math.round(lineXK + lineWidthK),
+      y2: Math.round(PAGE_HEIGHT - witnessStartYK),
+      signatoryName: '',
+      signatoryIc: '',
+    });
+  }
 
   // Signature line (centered dots)
   const lineWidthK = 260;
@@ -1620,36 +1753,51 @@ function drawJadualKContent(doc: PDFKit.PDFDocument, loan: LoanForAgreement, v: 
 // Main PDF generation
 // ============================================
 
-export async function generateLoanAgreement(loan: LoanForAgreement): Promise<Buffer> {
+export async function generateLoanAgreement(
+  loan: LoanForAgreement,
+  options?: { footerText?: string },
+): Promise<LoanAgreementResult> {
   const isJadualK = loan.product.loanScheduleType === 'JADUAL_K';
   const values = calculateValues(loan);
   const signatories = getBorrowerSignatories(loan, values.borrowerName);
+  const pdfOpts = options?.footerText ? { footerText: options.footerText } : undefined;
+  const signatureFields: SignatureFieldMeta[] = [];
 
   if (!isJadualK) {
     // ======== JADUAL J — exact KPKT template ========
     const jadualRows = buildJadualJRows(values);
 
-    return createPdfBuffer((doc) => {
-      // All legal content flows continuously with automatic page breaks
-      drawJadualJContent(doc, loan, values, signatories);
+    const buffer = await createPdfBuffer((doc) => {
+      let currentPage = 1;
+      doc.on('pageAdded', () => { currentPage++; });
+      const sigCtx: SigBlockContext = { getPage: () => currentPage, fields: signatureFields };
+
+      drawJadualJContent(doc, loan, values, signatories, sigCtx);
 
       // JADUAL PERTAMA — always on its own page
       doc.addPage();
       drawJadualPertamaPage(doc, jadualRows);
-    });
+    }, pdfOpts);
+
+    return { buffer, signatureFields };
   }
 
   // ======== JADUAL K — exact KPKT template ========
   const jadualRows = buildJadualKRows(loan, values);
 
-  return createPdfBuffer((doc) => {
-    // All legal content flows continuously with automatic page breaks
-    drawJadualKContent(doc, loan, values, signatories);
+  const buffer = await createPdfBuffer((doc) => {
+    let currentPage = 1;
+    doc.on('pageAdded', () => { currentPage++; });
+    const sigCtx: SigBlockContext = { getPage: () => currentPage, fields: signatureFields };
+
+    drawJadualKContent(doc, loan, values, signatories, sigCtx);
 
     // JADUAL PERTAMA — always on its own page
     doc.addPage();
     drawJadualPertamaPage(doc, jadualRows);
-  });
+  }, pdfOpts);
+
+  return { buffer, signatureFields };
 }
 
 function formatEnglishDate(date: Date): string {
@@ -2122,5 +2270,6 @@ export async function generateTestAgreement(template: 'jadual-j' | 'jadual-k' = 
       : {}),
   };
 
-  return generateLoanAgreement(testLoan);
+  const { buffer } = await generateLoanAgreement(testLoan);
+  return buffer;
 }

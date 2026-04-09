@@ -32,7 +32,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -50,8 +49,6 @@ import {
 } from "@/components/ui/chart";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate, safePercentage, safeSubtract } from "@/lib/utils";
-import { PromotionsCarousel } from "@/components/promotions-carousel";
-import { KPKT_PROMOTIONS } from "@/lib/promotions";
 import { useTenantContext } from "@/components/tenant-context";
 
 // ============================================
@@ -535,17 +532,7 @@ export default function DashboardPage() {
         )}
 
         {/* ============================================ */}
-        {/* Row 3: Promotions (Pro has no in-app subscription billing) */}
-        {/* ============================================ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <PromotionsCarousel className="lg:col-span-1" />
-          <PromotionsCarousel promotions={KPKT_PROMOTIONS} className="lg:col-span-1" />
-        </div>
-
-        <Separator className="my-2" />
-
-        {/* ============================================ */}
-        {/* Row 4: KPI Cards */}
+        {/* Row 3: KPI Cards */}
         {/* ============================================ */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <KPICard
@@ -613,7 +600,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ============================================ */}
-        {/* Row 5: Primary Charts */}
+        {/* Row 4: Primary Charts */}
         {/* ============================================ */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Disbursement Trend */}
@@ -1445,46 +1432,6 @@ function DashboardSkeleton() {
         </div>
       </div>
 
-      {/* Billing Status + Promotions */}
-      <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
-        <Card className="lg:col-span-2">
-          <CardContent className="py-4">
-            <div className="flex items-center gap-4">
-              <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
-              <div className="flex-1 min-w-0 space-y-2">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-3 w-48" />
-              </div>
-              <Skeleton className="h-9 w-24 rounded-md shrink-0" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="lg:col-span-2">
-          <CardContent className="py-4">
-            <div className="flex items-center gap-3">
-              <Skeleton className="h-14 w-14 rounded-lg shrink-0" />
-              <div className="flex-1 min-w-0 space-y-2">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-3 w-full" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="lg:col-span-2">
-          <CardContent className="py-4">
-            <div className="flex items-center gap-3">
-              <Skeleton className="h-14 w-14 rounded-lg shrink-0" />
-              <div className="flex-1 min-w-0 space-y-2">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-3 w-full" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Separator className="my-2" />
-
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -1505,7 +1452,7 @@ function DashboardSkeleton() {
         ))}
       </div>
 
-      {/* Row 5: Primary Charts - Disbursement + Loan Portfolio */}
+      {/* Row 4: Primary Charts - Disbursement + Loan Portfolio */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">

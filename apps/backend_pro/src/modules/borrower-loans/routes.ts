@@ -1800,6 +1800,48 @@ router.get('/loans/:loanId/agreement', async (req, res, next) => {
 });
 
 /**
+ * GET /api/borrower-auth/loans/:loanId/borrower-signed-agreement
+ * Borrower-only signed PDF (before internal signatures)
+ */
+router.get('/loans/:loanId/borrower-signed-agreement', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (!loan.borrowerSignedAgreementPath) {
+      throw new NotFoundError('Borrower-signed agreement');
+    }
+
+    const localPath = getLocalPath(loan.borrowerSignedAgreementPath);
+    const filename = `borrower-signed-${loan.agreementOriginalName || 'agreement.pdf'}`;
+
+    if (localPath && fs.existsSync(localPath)) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      fs.createReadStream(localPath).pipe(res);
+      return;
+    }
+
+    const fileBuffer = await getAgreementFile(loan.borrowerSignedAgreementPath);
+    if (!fileBuffer) {
+      throw new NotFoundError('Borrower-signed agreement file');
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * GET /api/borrower-auth/loans/:loanId/disbursement-proof
  */
 router.get('/loans/:loanId/disbursement-proof', async (req, res, next) => {

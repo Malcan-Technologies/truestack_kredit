@@ -24,6 +24,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { RefreshCw, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { toast } from "sonner";
@@ -200,7 +201,28 @@ export default function PaymentApprovalsPage() {
           </div>
 
           {loading && items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <TableSkeleton
+              headers={[
+                "Date",
+                "Borrower",
+                "Loan",
+                "Amount",
+                "Reference",
+                "Status",
+                "Slip",
+                "Actions",
+              ]}
+              columns={[
+                { width: "w-28" },
+                { width: "w-32", subLine: true },
+                { width: "w-20" },
+                { width: "w-20" },
+                { width: "w-24" },
+                { badge: true, width: "w-16" },
+                { width: "w-16" },
+                { width: "w-24" },
+              ]}
+            />
           ) : items.length === 0 ? (
             <p className="text-sm text-muted-foreground">{emptyListMessage(statusFilter)}</p>
           ) : (

@@ -59,6 +59,13 @@ export const config = {
     },
   },
 
+  // On-prem Signing Gateway (PKI digital signing via MTSA)
+  signing: {
+    gatewayUrl: (process.env.SIGNING_GATEWAY_URL || 'http://localhost:3100').replace(/\/$/, ''),
+    apiKey: process.env.SIGNING_API_KEY || 'dev-signing-key',
+    enabled: process.env.SIGNING_ENABLED === 'true',
+  },
+
   // Internal domain event webhook signing
   webhook: {
     secret: process.env.WEBHOOK_SECRET || 'dev-webhook-secret',

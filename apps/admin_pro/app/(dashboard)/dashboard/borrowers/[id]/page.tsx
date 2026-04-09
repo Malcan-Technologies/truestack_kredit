@@ -875,6 +875,8 @@ function TimelineItem({
         return { icon: Upload, label: "Document Uploaded" };
       case "DOCUMENT_DELETE":
         return { icon: Trash2, label: "Document Deleted" };
+      case "BORROWER_MTSA_EMAIL_UPDATED":
+        return { icon: Mail, label: "Signing Email Updated" };
       case "TRUEIDENTITY_VERIFICATION_STARTED":
       case "TRUEIDENTITY_VERIFICATION_PROCESSING":
       case "TRUEIDENTITY_VERIFICATION_COMPLETED":
@@ -1027,6 +1029,25 @@ function TimelineItem({
               {Boolean(event.previousData.category) && (
                 <span className="text-muted-foreground"> ({String(event.previousData.category)})</span>
               )}
+            </p>
+          </div>
+        )}
+        {event.action === "BORROWER_MTSA_EMAIL_UPDATED" && event.previousData && event.newData && (
+          <div className="bg-secondary border border-border rounded-lg p-3 min-w-0">
+            <p className="text-xs text-muted-foreground break-words">
+              Signing certificate email changed
+            </p>
+            <div className="flex flex-wrap items-start gap-2 pl-2 mt-1 min-w-0">
+              <span className="inline-block max-w-full px-1.5 py-0.5 rounded bg-foreground/5 text-muted-foreground line-through break-words text-xs">
+                {String((event.previousData as Record<string, unknown>).email || "—")}
+              </span>
+              <span className="text-muted-foreground self-center shrink-0 text-xs">→</span>
+              <span className="inline-block max-w-full px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium break-words text-xs">
+                {String((event.newData as Record<string, unknown>).email || "—")}
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1.5">
+              This is the email linked to the digital signing certificate, not the login email.
             </p>
           </div>
         )}

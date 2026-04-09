@@ -4578,6 +4578,48 @@ router.get('/:loanId/agreement', async (req, res, next) => {
 });
 
 /**
+ * View/download borrower-only signed agreement (before internal signatures)
+ * GET /api/loans/:loanId/borrower-signed-agreement
+ */
+router.get('/:loanId/borrower-signed-agreement', async (req, res, next) => {
+  try {
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: req.tenantId },
+    });
+
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+
+    if (!loan.borrowerSignedAgreementPath) {
+      throw new NotFoundError('Borrower-signed agreement');
+    }
+
+    const localPath = getLocalPath(loan.borrowerSignedAgreementPath);
+    const filename = `borrower-signed-${loan.agreementOriginalName || 'agreement.pdf'}`;
+
+    if (localPath && fs.existsSync(localPath)) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      fs.createReadStream(localPath).pipe(res);
+    } else {
+      const fileBuffer = await getAgreementFile(loan.borrowerSignedAgreementPath);
+      if (!fileBuffer) {
+        throw new NotFoundError('Borrower-signed agreement file');
+      }
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Content-Length', fileBuffer.length);
+      res.send(fileBuffer);
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Generate pre-filled guarantor agreement PDF
  * GET /api/loans/:loanId/guarantors/:guarantorId/generate-agreement
  */

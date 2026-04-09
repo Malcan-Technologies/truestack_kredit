@@ -105,6 +105,9 @@ import {
 import { TrueSendEmailLog } from "@/components/truesend-email-log";
 import { TrueSendBadge } from "@/components/truesend-badge";
 import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
+import InternalSigningCard from "@/components/internal-signing-card";
+import { getLoanSignatures, type InternalSignature } from "@/lib/admin-signing-client";
+import { useSession } from "@/lib/auth-client";
 
 // ============================================
 // Types
@@ -185,6 +188,7 @@ interface Loan {
   agreementOriginalName: string | null;
   agreementVersion: number;
   agreementUploadedAt: string | null;
+  borrowerSignedAgreementPath?: string | null;
   signedAgreementReviewStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
   signedAgreementReviewedAt?: string | null;
   signedAgreementReviewNotes?: string | null;
@@ -560,6 +564,16 @@ function TimelineItem({
         return { icon: Calendar, label: "Attestation Slot Accepted" };
       case "BORROWER_ATTESTATION_COMPLETE":
         return { icon: CheckCircle, label: "Attestation Completed" };
+      case "BORROWER_DIGITAL_SIGN_AGREEMENT":
+        return { icon: ShieldCheck, label: "Borrower Digitally Signed" };
+      case "SIGNED_AGREEMENT_EMAILED":
+        return { icon: Mail, label: "Signed Agreement Emailed" };
+      case "SIGNED_AGREEMENT_EMAIL_FAILED":
+        return { icon: Mail, label: "Agreement Email Failed" };
+      case "INTERNAL_SIGN_COMPANY_REP":
+        return { icon: ShieldCheck, label: "Company Rep Signed" };
+      case "INTERNAL_SIGN_WITNESS":
+        return { icon: ShieldCheck, label: "Witness Signed" };
       default:
         return { icon: Clock, label: action };
     }
@@ -786,6 +800,67 @@ function TimelineItem({
             </div>
           );
         })()}
+        {event.newData && event.action === "BORROWER_DIGITAL_SIGN_AGREEMENT" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Signer: <span className="font-medium text-foreground">{(data.signerName as string) || "-"}</span>
+                {data.signerIc && (
+                  <span className="ml-1.5 text-muted-foreground">({data.signerIc as string})</span>
+                )}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Version <span className="font-medium text-foreground">v{data.version as number}</span>
+                {data.agreementDate && (
+                  <>
+                    <span className="mx-1.5">|</span>
+                    Date: <span className="font-medium text-foreground">{formatDate(data.agreementDate as string)}</span>
+                  </>
+                )}
+              </p>
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "SIGNED_AGREEMENT_EMAILED" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3">
+              <p className="text-xs text-muted-foreground truncate">
+                Sent to <span className="font-medium text-foreground">{(data.recipientName as string) || (data.recipientEmail as string) || "-"}</span>
+              </p>
+            </div>
+          );
+        })()}
+        {event.newData && event.action === "SIGNED_AGREEMENT_EMAIL_FAILED" && (() => {
+          const data = event.newData as Record<string, unknown>;
+          return (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+              <p className="text-xs text-destructive truncate">
+                Failed to email to {(data.recipientEmail as string) || "-"}
+              </p>
+            </div>
+          );
+        })()}
+        {event.newData && (event.action === "INTERNAL_SIGN_COMPANY_REP" || event.action === "INTERNAL_SIGN_WITNESS") && (() => {
+          const data = event.newData as Record<string, unknown>;
+          const roleLabel = (data.role as string) === "COMPANY_REP" ? "Company Rep" : "Witness";
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
+              <p className="text-xs text-muted-foreground">
+                {roleLabel}: <span className="font-medium text-foreground">{(data.signerName as string) || "-"}</span>
+                {data.signerIc && (
+                  <span className="ml-1.5 text-muted-foreground">({data.signerIc as string})</span>
+                )}
+              </p>
+              {typeof data.agreementVersion === "number" && (
+                <p className="text-xs text-muted-foreground">
+                  Version <span className="font-medium text-foreground">v{data.agreementVersion as number}</span>
+                </p>
+              )}
+            </div>
+          );
+        })()}
         <p className="text-xs text-muted-foreground mt-2">
           {formatDate(event.createdAt)}
         </p>
@@ -905,6 +980,11 @@ export default function LoanDetailPage() {
   const [rejectSignedAgreementNotes, setRejectSignedAgreementNotes] = useState("");
   const [approvingSignedAgreement, setApprovingSignedAgreement] = useState(false);
 
+  // Internal signing state
+  const { data: authSession } = useSession();
+  const currentUserId = authSession?.user?.id || "";
+  const [internalSignatures, setInternalSignatures] = useState<InternalSignature[]>([]);
+
   // Guarantor agreement dialog state
   const [showUploadGuarantorAgreementDialog, setShowUploadGuarantorAgreementDialog] = useState(false);
   const [selectedGuarantorId, setSelectedGuarantorId] = useState<string | null>(null);
@@ -945,13 +1025,27 @@ export default function LoanDetailPage() {
     setScheduleView("standard");
   }, [canViewInternalSchedule, loanId]);
 
+  const fetchInternalSignatures = useCallback(async () => {
+    try {
+      const res = await getLoanSignatures(loanId);
+      if (res.success) {
+        setInternalSignatures(res.signatures);
+      }
+    } catch {
+      // Non-critical, ignore
+    }
+  }, [loanId]);
+
   const fetchLoan = useCallback(async () => {
     const res = await api.get<Loan>(`/api/loans/${loanId}`);
     if (res.success && res.data) {
       setLoan(res.data);
+      if (res.data.loanChannel === "ONLINE" && res.data.agreementPath) {
+        fetchInternalSignatures();
+      }
     }
     await fetchInternalSchedule();
-  }, [fetchInternalSchedule, loanId]);
+  }, [fetchInternalSchedule, fetchInternalSignatures, loanId]);
 
   const fetchMetrics = useCallback(async () => {
     const res = await api.get<LoanMetrics>(`/api/loans/${loanId}/metrics`);
@@ -1832,7 +1926,7 @@ export default function LoanDetailPage() {
         ? "Generate all guarantor agreement PDFs before disbursement"
         : !hasSignedAgreementFile
           ? isOnlineLoan
-            ? "Borrower must upload the signed loan agreement in the borrower portal"
+            ? "Borrower must digitally sign the loan agreement in the borrower portal"
             : "Upload the signed loan agreement PDF"
           : !signedAgreementApproved
             ? isOnlineLoan
@@ -2276,11 +2370,13 @@ export default function LoanDetailPage() {
                               <div>
                                 <p className="text-sm font-medium">Signed Loan Agreement</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {loan.agreementPath ? "Uploaded" : "Not uploaded"}
+                                  {loan.agreementPath
+                                    ? isOnlineLoan ? "Digitally signed" : "Uploaded"
+                                    : isOnlineLoan ? "Awaiting digital signature" : "Not uploaded"}
                                 </p>
                               </div>
                               <div className="flex flex-wrap gap-2">
-                                {loan.agreementDate && (
+                                {!isOnlineLoan && loan.agreementDate && (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -2308,17 +2404,19 @@ export default function LoanDetailPage() {
                                       <Eye className="h-3 w-3 mr-1" />
                                       View
                                     </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="text-xs h-7"
-                                      onClick={() => setShowUploadAgreementDialog(true)}
-                                    >
-                                      <Upload className="h-3 w-3 mr-1" />
-                                      Replace
-                                    </Button>
+                                    {!isOnlineLoan && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-xs h-7"
+                                        onClick={() => setShowUploadAgreementDialog(true)}
+                                      >
+                                        <Upload className="h-3 w-3 mr-1" />
+                                        Replace
+                                      </Button>
+                                    )}
                                   </>
-                                ) : (
+                                ) : !isOnlineLoan ? (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -2328,7 +2426,7 @@ export default function LoanDetailPage() {
                                     <Upload className="h-3 w-3 mr-1" />
                                     Upload
                                   </Button>
-                                )}
+                                ) : null}
                               </div>
                             </div>
                           </div>
@@ -2518,11 +2616,11 @@ export default function LoanDetailPage() {
                       {loan.agreementPath ? (
                         <Badge variant="verified" className="text-xs">
                           <CheckCircle className="h-3 w-3 mr-1" />
-                          Received (v{loan.agreementVersion})
+                          Digitally signed (v{loan.agreementVersion})
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-xs">
-                          Awaiting borrower upload
+                          Awaiting borrower signature
                         </Badge>
                       )}
                       {(loan.signedAgreementReviewStatus ?? "NONE") === "PENDING" && (
@@ -2542,9 +2640,9 @@ export default function LoanDetailPage() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Generate, sign, and stamp flows run in the borrower portal. Use view or download once the borrower has uploaded the signed PDF.
+                      The borrower digitally signs the agreement in the borrower portal using PKI. View or download the signed PDF once available.
                       {loan.agreementPath
-                        ? ` Last received: ${formatDate(loan.agreementUploadedAt || "")}.`
+                        ? ` Signed on: ${formatDate(loan.agreementUploadedAt || "")}.`
                         : ""}
                     </p>
                     {(loan.signedAgreementReviewStatus ?? "NONE") === "REJECTED" && loan.signedAgreementReviewNotes && (
@@ -2559,7 +2657,7 @@ export default function LoanDetailPage() {
                             onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
                           >
                             <Eye className="h-4 w-4 mr-2" />
-                            View
+                            View latest
                           </Button>
                           <Button variant="outline" size="sm" asChild>
                             <a
@@ -2567,34 +2665,54 @@ export default function LoanDetailPage() {
                               download={loan.agreementOriginalName || "signed-loan-agreement.pdf"}
                             >
                               <Download className="h-4 w-4 mr-2" />
-                              Download
+                              Download latest
                             </a>
                           </Button>
-                          {(loan.signedAgreementReviewStatus ?? "NONE") === "PENDING" && (
-                            <>
-                              <Button
-                                size="sm"
-                                onClick={() => void handleApproveSignedAgreement()}
-                                disabled={approvingSignedAgreement}
+                          {loan.borrowerSignedAgreementPath && (
+                            <Button variant="ghost" size="sm" asChild>
+                              <a
+                                href={`/api/proxy/loans/${loan.id}/borrower-signed-agreement`}
+                                download={`borrower-signed-${loan.agreementOriginalName || "agreement.pdf"}`}
                               >
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Approve signed agreement
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => setShowRejectSignedAgreementDialog(true)}
-                                disabled={approvingSignedAgreement}
-                              >
-                                Reject
-                              </Button>
-                            </>
+                                <Download className="h-4 w-4 mr-2" />
+                                Borrower-only
+                              </a>
+                            </Button>
                           )}
                         </>
                       ) : (
-                        <p className="text-sm text-muted-foreground">No file yet — waiting for borrower upload.</p>
+                        <p className="text-sm text-muted-foreground">Awaiting digital signature from borrower.</p>
                       )}
                     </div>
+
+                    {/* Internal signing cards — shown when borrower has signed */}
+                    {loan.agreementPath && (loan.signedAgreementReviewStatus ?? "NONE") !== "APPROVED" && (
+                      <div className="mt-4 space-y-3">
+                        <h4 className="text-sm font-medium text-muted-foreground">Internal signatures required</h4>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <InternalSigningCard
+                            loanId={loan.id}
+                            role="COMPANY_REP"
+                            existingSignature={internalSignatures.find(s => s.role === "COMPANY_REP") || null}
+                            currentUserId={currentUserId}
+                            onSignComplete={async () => {
+                              await fetchLoan();
+                              await fetchInternalSignatures();
+                            }}
+                          />
+                          <InternalSigningCard
+                            loanId={loan.id}
+                            role="WITNESS"
+                            existingSignature={internalSignatures.find(s => s.role === "WITNESS") || null}
+                            currentUserId={currentUserId}
+                            onSignComplete={async () => {
+                              await fetchLoan();
+                              await fetchInternalSignatures();
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>

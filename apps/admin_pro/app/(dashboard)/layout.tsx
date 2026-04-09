@@ -21,18 +21,17 @@ import {
   Shield,
   UserCircle,
   ChevronDown,
-  Megaphone,
   Lock,
   ChevronsLeft,
   ChevronsRight,
   Phone,
-  Store,
-  Blocks,
   Send,
-  Fingerprint,
   Sparkles,
   Banknote,
   Percent,
+  ShieldCheck,
+  FileText,
+  FileSearch,
 } from "lucide-react";
 import { fetchSecurityStatus, useSession, signOut } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -99,39 +98,12 @@ const navigationSections: NavSection[] = [
         href: "/dashboard/applications",
         icon: ClipboardList,
       },
-      { name: "Loans", href: "/dashboard/loans", icon: CircleDollarSign },
-    ],
-  },
-  {
-    title: "Business",
-    items: [
-      { name: "Products", href: "/dashboard/products", icon: Package },
-      { name: "Compliance", href: "/dashboard/compliance", icon: Shield },
-      { name: "Debt Marketplace", href: "/dashboard/debt-marketplace", icon: Store },
-      {
-        name: "Modules",
-        href: "/dashboard/modules",
-        icon: Blocks,
-        children: [
-          { name: "TrueSend™", href: "/dashboard/modules/truesend", icon: Send },
-          { name: "TrueIdentity™", href: "/dashboard/modules/trueidentity", icon: Fingerprint },
-        ],
-      },
-    ],
-  },
-  {
-    title: "TrueKredit Pro",
-    items: [
       {
         name: "Attestation meetings",
         href: "/dashboard/truekredit-pro/attestation-meetings",
         icon: Sparkles,
       },
-      {
-        name: "Availability settings",
-        href: "/dashboard/truekredit-pro/availability",
-        icon: Calendar,
-      },
+      { name: "Loans", href: "/dashboard/loans", icon: CircleDollarSign },
       {
         name: "Payment approvals",
         href: "/dashboard/truekredit-pro/payment-approvals",
@@ -145,9 +117,33 @@ const navigationSections: NavSection[] = [
     ],
   },
   {
+    title: "Business",
+    items: [
+      { name: "Products", href: "/dashboard/products", icon: Package },
+      { name: "Compliance", href: "/dashboard/compliance", icon: Shield },
+      {
+        name: "Availability settings",
+        href: "/dashboard/truekredit-pro/availability",
+        icon: Calendar,
+      },
+      {
+        name: "Signing certificates",
+        href: "/dashboard/truekredit-pro/signing-certificates",
+        icon: ShieldCheck,
+      },
+      {
+        name: "Agreements",
+        href: "/dashboard/truekredit-pro/agreements",
+        icon: FileText,
+      },
+      { name: "TrueSend™", href: "/dashboard/modules/truesend", icon: Send },
+    ],
+  },
+  {
     title: "Tools",
     items: [
       { name: "Calculator", href: "/dashboard/calculator", icon: Calculator },
+      { name: "Verify signatures", href: "/dashboard/verify-signatures", icon: FileSearch },
       { name: "Help", href: "/dashboard/help", icon: HelpCircle },
       { name: "Contact", href: "/dashboard/contact", icon: Phone },
     ],
@@ -155,7 +151,6 @@ const navigationSections: NavSection[] = [
   {
     title: "Administration",
     items: [
-      { name: "Promotions", href: "/dashboard/promotions", icon: Megaphone },
       { name: "Admin Logs", href: "/dashboard/admin-logs", icon: ScrollText },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
     ],
@@ -202,9 +197,7 @@ export default function DashboardLayout({
   const [securityStatus, setSecurityStatus] = useState<"loading" | "complete" | "incomplete" | "error">("loading");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [expandedNavGroups, setExpandedNavGroups] = useState<Record<string, boolean>>({
-    "/dashboard/modules": false,
-  });
+  const [expandedNavGroups, setExpandedNavGroups] = useState<Record<string, boolean>>({});
   const [applicationsPendingCount, setApplicationsPendingCount] = useState(0);
   const [loansPendingDisbursementCount, setLoansPendingDisbursementCount] = useState(0);
   const [loansPendingAttestationCount, setLoansPendingAttestationCount] = useState(0);
@@ -227,12 +220,6 @@ export default function DashboardLayout({
     setSidebarCollapsed(next);
     localStorage.setItem("sidebar-collapsed", String(next));
   };
-
-  useEffect(() => {
-    if (pathname.startsWith("/dashboard/modules")) {
-      setExpandedNavGroups((prev) => ({ ...prev, "/dashboard/modules": true }));
-    }
-  }, [pathname]);
 
   const fetchApplicationsPendingCount = useCallback(async () => {
     if (!hasTenants) {

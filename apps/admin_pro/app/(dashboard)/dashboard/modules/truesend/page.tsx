@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { formatNumber } from "@/lib/utils";
 
@@ -100,6 +101,98 @@ function parseAndValidateDays(
 
   const sorted = [...parsed].sort((a, b) => (sortDirection === "asc" ? a - b : b - a));
   return { parsed: sorted };
+}
+
+function TrueSendModuleSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-56" />
+          <Skeleton className="h-4 w-full max-w-md" />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Skeleton className="h-6 w-20 rounded-full" />
+          <Skeleton className="h-9 w-44 rounded-md" />
+          <Skeleton className="h-9 w-16 rounded-md" />
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-64 mt-2" />
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg border border-border p-4 space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-7 w-36" />
+            </div>
+            <div className="rounded-lg border border-border p-4 space-y-2">
+              <Skeleton className="h-3 w-36" />
+              <Skeleton className="h-7 w-28" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-full max-w-lg mt-2" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="h-10 w-28 shrink-0" />
+              <Skeleton className="h-4 flex-1 max-w-[200px]" />
+              <Skeleton className="h-9 w-9 shrink-0 rounded-md" />
+            </div>
+          ))}
+          <Skeleton className="h-9 w-40 rounded-md" />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-52" />
+          <Skeleton className="h-4 w-full max-w-lg mt-2" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="h-10 w-28 shrink-0" />
+              <Skeleton className="h-4 flex-1 max-w-[200px]" />
+              <Skeleton className="h-9 w-9 shrink-0 rounded-md" />
+            </div>
+          ))}
+          <Skeleton className="h-4 w-72 max-w-full" />
+          <Skeleton className="h-9 w-44 rounded-md" />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-64" />
+          <Skeleton className="h-4 w-full max-w-2xl mt-2" />
+          <Skeleton className="h-4 w-full max-w-xl mt-1" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-lg border border-border p-4 space-y-2">
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full max-w-xl" />
+          </div>
+          <div className="rounded-lg border border-border p-4 space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full max-w-lg" />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 export default function TrueSendModulePage() {
@@ -271,16 +364,11 @@ export default function TrueSendModulePage() {
     setIsEditing(false);
   };
 
-  if (loading) {
-    return (
-      <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
-        <div className="min-h-[50vh] flex items-center justify-center text-muted">Loading module settings...</div>
-      </RoleGate>
-    );
-  }
-
   return (
     <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
+      {loading ? (
+        <TrueSendModuleSkeleton />
+      ) : (
       <div className="space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -497,6 +585,7 @@ export default function TrueSendModulePage() {
         </Card>
 
       </div>
+      )}
     </RoleGate>
   );
 }

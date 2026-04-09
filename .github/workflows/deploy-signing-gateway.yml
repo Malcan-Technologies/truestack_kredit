@@ -1,0 +1,252 @@
+name: Deploy Signing Gateway
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/signing-gateway/**"
+      - "config/clients/demo-client.yaml"
+      - ".github/workflows/deploy-signing-gateway.yml"
+  workflow_dispatch:
+    inputs:
+      client_id:
+        description: "Client to deploy"
+        required: true
+        default: "demo-client"
+        type: string
+      action:
+        description: "What to do"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - build-only
+          - deploy-only
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  load-config:
+    name: Load Client Config
+    runs-on: ubuntu-latest
+
+    outputs:
+      github_environment: ${{ steps.config.outputs.github_environment }}
+      aws_region: ${{ steps.config.outputs.aws_region }}
+      ecr_signing_gateway: ${{ steps.config.outputs.ecr_signing_gateway }}
+      signing_ssh_host: ${{ steps.config.outputs.signing_ssh_host }}
+      signing_mtsa_env: ${{ steps.config.outputs.signing_mtsa_env }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Determine client config path
+        id: client
+        run: |
+          CLIENT_ID="${{ github.event.inputs.client_id || 'demo-client' }}"
+          echo "client_id=$CLIENT_ID" >> "$GITHUB_OUTPUT"
+          echo "config_path=config/clients/$CLIENT_ID.yaml" >> "$GITHUB_OUTPUT"
+
+      - name: Parse client config
+        id: config
+        env:
+          CLIENT_CONFIG_PATH: ${{ steps.client.outputs.config_path }}
+        run: |
+          ruby -ryaml -e '
+            cfg = YAML.load_file(ENV.fetch("CLIENT_CONFIG_PATH"))
+            outputs = {
+              "github_environment" => cfg.dig("aws", "github_environment"),
+              "aws_region" => cfg.dig("aws", "region"),
+              "ecr_signing_gateway" => cfg.dig("signing", "ecr_repository"),
+              "signing_ssh_host" => cfg.dig("signing", "ssh_host"),
+              "signing_mtsa_env" => cfg.dig("signing", "mtsa_env"),
+            }
+
+            File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |f|
+              outputs.each do |key, value|
+                raise "Missing config value for #{key}" if value.nil? || value.to_s.empty?
+                f.puts("#{key}=#{value}")
+              end
+            end
+          '
+
+  build-and-push:
+    name: Build and Push Signing Gateway
+    runs-on: ubuntu-latest
+    needs: load-config
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    if: github.event.inputs.action != 'deploy-only'
+
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      ECR_REPOSITORY: ${{ needs.load-config.outputs.ecr_signing_gateway }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push signing gateway image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f apps/signing-gateway/Dockerfile \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+  deploy-to-onprem:
+    name: Deploy to On-Prem Server
+    runs-on: ubuntu-latest
+    needs: [load-config, build-and-push]
+    environment: ${{ needs.load-config.outputs.github_environment }}
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      (needs.build-and-push.result == 'success' || github.event.inputs.action == 'deploy-only') &&
+      github.event.inputs.action != 'build-only'
+
+    env:
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
+      ECR_REPOSITORY: ${{ needs.load-config.outputs.ecr_signing_gateway }}
+      SSH_HOST: ${{ needs.load-config.outputs.signing_ssh_host }}
+      SIGNING_MTSA_ENV: ${{ needs.load-config.outputs.signing_mtsa_env }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get ECR login password
+        id: ecr-password
+        run: |
+          ECR_PASSWORD=$(aws ecr get-login-password --region "$AWS_REGION")
+          echo "::add-mask::$ECR_PASSWORD"
+          echo "password=$ECR_PASSWORD" >> "$GITHUB_OUTPUT"
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ "${{ github.event.inputs.action }}" = "deploy-only" ]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ needs.build-and-push.outputs.image_tag || github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Derive MTSA WSDL path
+        id: mtsa
+        run: |
+          if [ "$SIGNING_MTSA_ENV" = "prod" ]; then
+            echo "wsdl_path=/MTSA/MyTrustSignerAgentWSAPv2?wsdl" >> "$GITHUB_OUTPUT"
+          else
+            echo "wsdl_path=/MTSAPilot/MyTrustSignerAgentWSAPv2?wsdl" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build on-prem .env file
+        id: envfile
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+          MTSA_WSDL_PATH: ${{ steps.mtsa.outputs.wsdl_path }}
+        run: |
+          ENV_CONTENT=$(cat <<'HEREDOC_END'
+          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          GATEWAY_TAG=${{ steps.tag.outputs.tag }}
+          MTSA_SOAP_USERNAME=${{ secrets.ONPREM_MTSA_USERNAME }}
+          MTSA_SOAP_PASSWORD=${{ secrets.ONPREM_MTSA_PASSWORD }}
+          MTSA_WSDL_PATH=${{ steps.mtsa.outputs.wsdl_path }}
+          MTSA_IMAGE=${{ secrets.ONPREM_MTSA_IMAGE || 'mtsa-pilot:latest' }}
+          SIGNING_API_KEY=${{ secrets.ONPREM_SIGNING_API_KEY }}
+          GATEWAY_PORT=3100
+          BACKUP_ENABLED=true
+          CF_TUNNEL_TOKEN=${{ secrets.ONPREM_CF_TUNNEL_TOKEN }}
+          HEREDOC_END
+          )
+
+          echo "::add-mask::${{ secrets.ONPREM_MTSA_USERNAME }}"
+          echo "::add-mask::${{ secrets.ONPREM_MTSA_PASSWORD }}"
+          echo "::add-mask::${{ secrets.ONPREM_SIGNING_API_KEY }}"
+          echo "::add-mask::${{ secrets.ONPREM_CF_TUNNEL_TOKEN }}"
+
+          ENV_B64=$(echo "$ENV_CONTENT" | base64 -w 0)
+          echo "b64=$ENV_B64" >> "$GITHUB_OUTPUT"
+
+      - name: Install cloudflared
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+
+      - name: Deploy via SSH through Cloudflare Tunnel
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_PASSWORD: ${{ steps.ecr-password.outputs.password }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+          ENV_B64: ${{ steps.envfile.outputs.b64 }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ONPREM_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          cat >> ~/.ssh/config <<EOF
+          Host onprem-signing
+            HostName $SSH_HOST
+            User deploy
+            IdentityFile ~/.ssh/deploy_key
+            ProxyCommand cloudflared access ssh --hostname %h --id $CF_ACCESS_CLIENT_ID --secret $CF_ACCESS_CLIENT_SECRET
+            StrictHostKeyChecking no
+          EOF
+
+          ssh onprem-signing "echo '$ENV_B64' | base64 -d > /opt/signing-stack/.env && ECR_REGISTRY='$ECR_REGISTRY' ECR_REPOSITORY='$ECR_REPOSITORY' ECR_PASSWORD='$ECR_PASSWORD' /opt/signing-stack/deploy.sh '$IMAGE_TAG'"
+
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [load-config, build-and-push, deploy-to-onprem]
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Client: ${{ github.event.inputs.client_id || 'demo-client' }}"
+          echo "Action: ${{ github.event.inputs.action || 'auto (full)' }}"
+          echo "Build: ${{ needs.build-and-push.result }}"
+          echo "Deploy: ${{ needs.deploy-to-onprem.result }}"

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 type OfficeHours = {
@@ -96,22 +97,24 @@ export default function AvailabilitySettingsPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   return (
     <div className="mx-auto w-full min-w-0 max-w-3xl xl:max-w-4xl space-y-6 p-4 sm:p-6 text-center">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Availability settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Used when Google Calendar free/busy is unavailable. Slots use a 30-minute grid and 60-minute
-          bookings (Malaysia time).
-        </p>
+        {loading ? (
+          <>
+            <Skeleton className="mx-auto h-8 w-64 max-w-full" />
+            <Skeleton className="mx-auto mt-2 h-4 w-full max-w-xl" />
+            <Skeleton className="mx-auto mt-1.5 h-4 w-4/5 max-w-lg" />
+          </>
+        ) : (
+          <>
+            <h1 className="text-2xl font-semibold tracking-tight">Availability settings</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Used when Google Calendar free/busy is unavailable. Slots use a 30-minute grid and 60-minute
+              bookings (Malaysia time).
+            </p>
+          </>
+        )}
       </div>
 
       <Card className="text-left">
@@ -120,27 +123,35 @@ export default function AvailabilitySettingsPage() {
           <CardDescription>Select which weekdays borrowers can book.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap justify-center gap-2">
-            {DAY_LABELS.map((d) => {
-              const on = weekdays.includes(d.n);
-              return (
-                <button
-                  key={d.n}
-                  type="button"
-                  onClick={() => toggleDay(d.n)}
-                  className={cn(
-                    "rounded-full border px-3 py-1.5 text-sm transition-colors",
-                    on
-                      ? "border-primary bg-primary/10 text-primary font-medium"
-                      : "border-border bg-background text-muted-foreground hover:bg-muted/50"
-                  )}
-                  title={d.label}
-                >
-                  {d.short}
-                </button>
-              );
-            })}
-          </div>
+          {loading ? (
+            <div className="flex flex-wrap justify-center gap-2">
+              {DAY_LABELS.map((d) => (
+                <Skeleton key={d.n} className="h-9 w-14 rounded-full" />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap justify-center gap-2">
+              {DAY_LABELS.map((d) => {
+                const on = weekdays.includes(d.n);
+                return (
+                  <button
+                    key={d.n}
+                    type="button"
+                    onClick={() => toggleDay(d.n)}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                      on
+                        ? "border-primary bg-primary/10 text-primary font-medium"
+                        : "border-border bg-background text-muted-foreground hover:bg-muted/50"
+                    )}
+                    title={d.label}
+                  >
+                    {d.short}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -150,26 +161,41 @@ export default function AvailabilitySettingsPage() {
           <CardDescription>Start and end time for each selected weekday.</CardDescription>
         </CardHeader>
         <CardContent className="grid sm:grid-cols-2 gap-6">
-          <div className="space-y-1">
-            <Label htmlFor="st">Start</Label>
-            <input
-              id="st"
-              type="time"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="en">End</Label>
-            <input
-              id="en"
-              type="time"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
+          {loading ? (
+            <>
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-12" />
+                <Skeleton className="h-10 w-full rounded-md" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-10" />
+                <Skeleton className="h-10 w-full rounded-md" />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <Label htmlFor="st">Start</Label>
+                <input
+                  id="st"
+                  type="time"
+                  value={start}
+                  onChange={(e) => setStart(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="en">End</Label>
+                <input
+                  id="en"
+                  type="time"
+                  value={end}
+                  onChange={(e) => setEnd(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -181,31 +207,44 @@ export default function AvailabilitySettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:justify-center">
-            <div className="space-y-1 flex-1 max-w-xs mx-auto sm:mx-0">
-              <Label htmlFor="horizon-days">Days ahead</Label>
-              <Input
-                id="horizon-days"
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                placeholder="e.g. 7"
-                value={horizonDaysInput}
-                onChange={(e) => setHorizonDaysInput(e.target.value)}
-              />
+          {loading ? (
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:justify-center">
+              <div className="space-y-2 flex-1 max-w-xs mx-auto sm:mx-0 w-full">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-10 w-full rounded-md" />
+              </div>
             </div>
-          </div>
-          <p className="text-xs text-muted-foreground text-center">
-            Borrowers only see slots within this many days from today (whole numbers 1–7).
-          </p>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:justify-center">
+              <div className="space-y-1 flex-1 max-w-xs mx-auto sm:mx-0">
+                <Label htmlFor="horizon-days">Days ahead</Label>
+                <Input
+                  id="horizon-days"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="e.g. 7"
+                  value={horizonDaysInput}
+                  onChange={(e) => setHorizonDaysInput(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          {!loading ? (
+            <p className="text-xs text-muted-foreground text-center">
+              Borrowers only see slots within this many days from today (whole numbers 1–7).
+            </p>
+          ) : (
+            <Skeleton className="mx-auto h-3 w-72 max-w-full" />
+          )}
         </CardContent>
       </Card>
 
       <div className="flex justify-center">
-      <Button onClick={() => void onSave()} disabled={saving}>
-        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        Save
-      </Button>
+        <Button onClick={() => void onSave()} disabled={saving || loading}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          Save
+        </Button>
       </div>
     </div>
   );

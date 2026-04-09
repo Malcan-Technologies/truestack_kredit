@@ -63,17 +63,23 @@ export function ContactCard({
               <p className="text-xs text-error mt-1">{errors.phone}</p>
             )}
           </div>
-          <Field
-            label="Email"
-            value={data.email}
-            onChange={(val) => {
-              onChange({ email: val });
-              if (errors.email) onErrorClear("email");
-            }}
-            type="email"
-            error={errors.email}
-            placeholder="email@example.com"
-          />
+          <div>
+            <Field
+              label="Email"
+              value={data.email}
+              onChange={(val) => {
+                onChange({ email: val });
+                if (errors.email) onErrorClear("email");
+              }}
+              type="email"
+              error={errors.email}
+              placeholder="email@example.com"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              If you have a signing certificate, changing your email will require
+              OTP verification to the new address.
+            </p>
+          </div>
           {includeAddress && (
             <>
               <Field

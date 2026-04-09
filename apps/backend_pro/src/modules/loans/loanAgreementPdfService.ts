@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { addMonthsClamped } from '../../lib/math.js';
-import { generateLoanAgreement, type LoanForAgreement } from '../../lib/pdfService.js';
+import { generateLoanAgreement, type LoanForAgreement, type SignatureFieldMeta } from '../../lib/pdfService.js';
 
 /**
  * Build loan agreement PDF buffer for download. Optionally applies agreementDate query (YYYY-MM-DD)
@@ -11,8 +11,9 @@ export async function buildLoanAgreementPdfBuffer(params: {
   tenantId: string;
   loanId: string;
   agreementDateParam: string | undefined;
-}): Promise<{ buffer: Buffer; filename: string }> {
-  const { tenantId, loanId, agreementDateParam } = params;
+  footerText?: string;
+}): Promise<{ buffer: Buffer; filename: string; signatureFields: SignatureFieldMeta[] }> {
+  const { tenantId, loanId, agreementDateParam, footerText } = params;
 
   const loan = await prisma.loan.findFirst({
     where: {
@@ -141,7 +142,10 @@ export async function buildLoanAgreementPdfBuffer(params: {
     collateralValue: loan.collateralValue ? Number(loan.collateralValue) : null,
   };
 
-  const pdfBuffer = await generateLoanAgreement(loanData);
+  const { buffer: pdfBuffer, signatureFields } = await generateLoanAgreement(
+    loanData,
+    footerText ? { footerText } : undefined,
+  );
 
   const scheduleLabel = loan.product.loanScheduleType === 'JADUAL_K' ? 'Jadual_K' : 'Jadual_J';
   const borrowerName =
@@ -151,5 +155,5 @@ export async function buildLoanAgreementPdfBuffer(params: {
   const sanitizedName = borrowerName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
   const filename = `${scheduleLabel}_Agreement_${sanitizedName}_${loanId.substring(0, 8)}.pdf`;
 
-  return { buffer: pdfBuffer, filename };
+  return { buffer: pdfBuffer, filename, signatureFields };
 }

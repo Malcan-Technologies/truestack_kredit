@@ -87,6 +87,29 @@ import { formatDate } from "@/lib/utils";
 /** Certificate lookup by Malaysian IC (MyKad): exactly 12 numeric digits */
 const CERT_LOOKUP_IC_REGEX = /^\d{12}$/;
 
+const TRUSTGATE_PROCESS_STEPS = [
+  {
+    title: "Manually submit signer details to Trustgate",
+    description:
+      "Start by contacting Trustgate directly and giving them the list of internal signers. This manual submission should include each internal signer's full name, IC number, company number, and company registration number.",
+  },
+  {
+    title: "Add the signing profile",
+    description:
+      "Use the Add my profile button in the Internal signers section to create the signer's profile in this system.",
+  },
+  {
+    title: "Run enrollment and complete KYC",
+    description:
+      "Use the Enroll button on the signer's row to complete KYC and submit the enrollment to Trustgate. Make sure the details exactly match what was submitted in step 1.",
+  },
+  {
+    title: "Follow the Trustgate email",
+    description:
+      "Check the signer's email inbox and follow the instructions sent by Trustgate to finish the certificate setup.",
+  },
+] as const;
+
 function filterCertLookupIcInput(value: string): string {
   return value.replace(/\D/g, "").slice(0, 12);
 }
@@ -120,6 +143,7 @@ export default function SigningCertificatesPage() {
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
+  const [trustgateInfoDialogOpen, setTrustgateInfoDialogOpen] = useState(false);
 
   // Profile form (inside modal)
   const [profileForm, setProfileForm] = useState({
@@ -724,19 +748,30 @@ export default function SigningCertificatesPage() {
       {/* Internal Signers Table */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle>Internal signers</CardTitle>
               <CardDescription>
-                Staff members with signing profiles in your organisation
+                For internal signers only, including company representatives and
+                witnesses or lawyers. Follow the Trustgate submission, profile
+                setup, KYC enrollment, and email activation steps.
               </CardDescription>
             </div>
-            {!loading && !hasProfile && (
-              <Button size="sm" onClick={() => openProfileDialog(false)}>
-                <Plus className="h-4 w-4 mr-1" />
-                Add my profile
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setTrustgateInfoDialogOpen(true)}
+              >
+                Learn more
               </Button>
-            )}
+              {!loading && !hasProfile && (
+                <Button size="sm" onClick={() => openProfileDialog(false)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add my profile
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -991,6 +1026,66 @@ export default function SigningCertificatesPage() {
       </Card>
 
       {/* ---- MODALS ---- */}
+
+      {/* Trustgate Process Modal */}
+      <Dialog
+        open={trustgateInfoDialogOpen}
+        onOpenChange={setTrustgateInfoDialogOpen}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>How the Trustgate process works</DialogTitle>
+            <DialogDescription>
+              This flow is for internal signers only, including company
+              representatives and witnesses or lawyers. Follow these steps in
+              order so the signer details in this page stay aligned with what
+              Trustgate expects.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {TRUSTGATE_PROCESS_STEPS.map((step, index) => (
+              <div
+                key={step.title}
+                className="flex items-start gap-3 rounded-lg border p-4"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+                  {index + 1}
+                </span>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">{step.title}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {step.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Important</p>
+                  <p className="text-sm text-muted-foreground">
+                    The full name, IC number, company number, and company
+                    registration number used during enrollment must exactly
+                    match what was submitted to Trustgate in step 1.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTrustgateInfoDialogOpen(false)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add / Edit Profile Modal */}
       <Dialog

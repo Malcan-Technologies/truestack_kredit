@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+
+# MTSA WAR files are proprietary and large (~40MB) — do not commit.
+# Developers must copy the WAR from the Trustgate package during setup.
+mtsa-pilot/webapps/*.war

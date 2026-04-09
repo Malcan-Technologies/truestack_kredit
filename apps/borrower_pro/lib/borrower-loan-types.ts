@@ -118,6 +118,7 @@ export interface BorrowerLoanDetail {
   agreementOriginalName: string | null;
   agreementUploadedAt: string | null;
   agreementVersion: number;
+  borrowerSignedAgreementPath?: string | null;
   signedAgreementReviewStatus?: SignedAgreementReviewStatus;
   signedAgreementReviewedAt: string | null;
   signedAgreementReviewNotes: string | null;

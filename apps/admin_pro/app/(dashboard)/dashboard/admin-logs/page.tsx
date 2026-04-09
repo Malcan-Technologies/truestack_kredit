@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Shield, User, UserCheck, UserMinus, UserPlus, UserX, ChevronLeft, ChevronRight, Building2, ImageIcon, Crown } from "lucide-react";
+import { Shield, User, UserCheck, UserMinus, UserPlus, UserX, ChevronLeft, ChevronRight, Building2, ImageIcon, Crown, ShieldCheck, Ban, Mail } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/ui/table-skeleton";
 import {
   Table,
   TableBody,
@@ -54,6 +56,14 @@ interface AuditLogDetails {
   // Ownership transfer details
   previousOwner?: { id: string; email: string; name?: string };
   newOwner?: { id: string; email: string; name?: string };
+  // Staff signing details
+  fullName?: string;
+  icNumber?: string;
+  signingEmail?: string;
+  certSerialNo?: string;
+  reason?: string;
+  previousEmail?: string;
+  newEmail?: string;
 }
 
 interface AuditLog {
@@ -87,7 +97,45 @@ const ACTION_CONFIG: Record<string, { label: string; icon: React.ElementType; va
   TENANT_LOGO_UPDATED: { label: "Logo Uploaded", icon: ImageIcon, variant: "default" },
   TENANT_LOGO_DELETED: { label: "Logo Deleted", icon: ImageIcon, variant: "destructive" },
   OWNERSHIP_TRANSFERRED: { label: "Ownership Transferred", icon: Crown, variant: "default" },
+  // Staff signing actions
+  STAFF_CERT_ENROLLED: { label: "Certificate Enrolled", icon: ShieldCheck, variant: "default" },
+  STAFF_CERT_REVOKED: { label: "Certificate Revoked", icon: Ban, variant: "destructive" },
+  STAFF_MTSA_EMAIL_UPDATED: { label: "Signing Email Updated", icon: Mail, variant: "secondary" },
 };
+
+function AdminLogsPageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="space-y-2 min-w-0">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-4 w-full max-w-xl" />
+        </div>
+        <Skeleton className="h-6 w-28 rounded-full shrink-0" />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-36" />
+          <Skeleton className="h-4 w-full max-w-lg mt-2" />
+        </CardHeader>
+        <CardContent>
+          <TableSkeleton
+            headers={["Action", "Performed By", "Details", "IP Address", "Date"]}
+            columns={[
+              { badge: true, width: "w-28" },
+              { subLine: true, width: "w-32" },
+              { subLine: true, width: "w-44" },
+              { width: "w-24" },
+              { subLine: true, width: "w-28" },
+            ]}
+            rows={10}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export default function AdminLogsPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -176,6 +224,34 @@ export default function AdminLogsPage() {
       };
     }
 
+    // Handle staff signing actions
+    if (log.action === "STAFF_CERT_ENROLLED") {
+      return {
+        main: log.details.fullName || "Unknown",
+        secondary: `Signing email: ${log.details.signingEmail || "—"}`,
+      };
+    }
+
+    if (log.action === "STAFF_CERT_REVOKED") {
+      const reasonLabels: Record<string, string> = {
+        keyCompromise: "Key Compromise",
+        affiliationChanged: "Affiliation Changed",
+        superseded: "Superseded",
+        cessationOfOperation: "Cessation of Operation",
+      };
+      return {
+        main: log.details.fullName || "Unknown",
+        secondary: `Reason: ${reasonLabels[log.details.reason || ""] || log.details.reason || "—"}`,
+      };
+    }
+
+    if (log.action === "STAFF_MTSA_EMAIL_UPDATED") {
+      return {
+        main: `${log.details.previousEmail || "—"} → ${log.details.newEmail || "—"}`,
+        secondary: `${log.details.fullName || "Unknown"} — signing certificate email`,
+      };
+    }
+
     // Handle user management actions (existing logic)
     const main = log.details.email || "";
     let secondary: string | undefined;
@@ -189,16 +265,11 @@ export default function AdminLogsPage() {
     return main ? { main, secondary } : null;
   };
 
-  if (loading && logs.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground">Loading...</div>
-      </div>
-    );
-  }
-
   return (
     <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
+    {loading && logs.length === 0 ? (
+      <AdminLogsPageSkeleton />
+    ) : (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -223,8 +294,8 @@ export default function AdminLogsPage() {
         <CardContent>
           {logs.length === 0 ? (
             <div className="text-center py-8 text-base text-muted-foreground">
-              No admin logs yet. User management, company settings updates,
-              logo changes, and ownership transfers will appear here.
+              No admin logs yet. User management, company settings,
+              signing certificate events, and ownership transfers will appear here.
             </div>
           ) : (
             <>
@@ -320,6 +391,7 @@ export default function AdminLogsPage() {
         </CardContent>
       </Card>
     </div>
+    )}
     </RoleGate>
   );
 }

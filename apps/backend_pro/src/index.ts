@@ -33,6 +33,9 @@ import internalAdminRoutes from './modules/internalAdmin/routes.js';
 import borrowerAuthRoutes from './modules/borrower-auth/routes.js';
 import borrowerApplicationRoutes from './modules/borrower-applications/routes.js';
 import borrowerLoanRoutes from './modules/borrower-loans/routes.js';
+import borrowerSigningRoutes from './modules/borrower-signing/routes.js';
+import adminSigningRoutes from './modules/admin-signing/routes.js';
+import agreementsRoutes from './modules/agreements/routes.js';
 
 validateConfig();
 
@@ -56,7 +59,7 @@ app.use('/api/webhooks/trueidentity/payment', express.raw({ type: 'application/j
 app.use('/api/webhooks/trueidentity', express.raw({ type: 'application/json' }), trueIdentityWebhookRoutes);
 app.use('/api/webhooks/truestack-kyc', express.raw({ type: 'application/json' }), truestackKycWebhookRoutes);
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(requestLogger);
 
 // Serve uploaded files (in dev; in prod, use S3/CDN)
@@ -118,6 +121,9 @@ app.use('/api/internal/kredit/admin', internalAdminRoutes);
 app.use('/api/borrower-auth', borrowerAuthRoutes);
 app.use('/api/borrower-auth', borrowerApplicationRoutes);
 app.use('/api/borrower-auth', borrowerLoanRoutes);
+app.use('/api/borrower-auth/signing', borrowerSigningRoutes);
+app.use('/api/admin/signing', adminSigningRoutes);
+app.use('/api/admin/agreements', agreementsRoutes);
 
 // Error handling
 app.use(errorHandler);

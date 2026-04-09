@@ -1,0 +1,51 @@
+services:
+  mtsa:
+    build:
+      context: ./mtsa-pilot
+      dockerfile: Dockerfile
+    container_name: mtsa-pilot
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Kuala_Lumpur
+      JAVA_OPTS: -Dsun.net.inetaddr.ttl=60 -Dsun.net.inetaddr.negative.ttl=10
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/MTSAPilot/MyTrustSignerAgentWSAPv2?wsdl"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  signing-gateway:
+    build:
+      context: ../..
+      dockerfile: apps/signing-gateway/Dockerfile
+    container_name: signing-gateway
+    ports:
+      - "3100:3100"
+    environment:
+      PORT: "3100"
+      NODE_ENV: development
+      MTSA_URL: http://mtsa:8080
+      MTSA_WSDL_PATH: /MTSAPilot/MyTrustSignerAgentWSAPv2?wsdl
+      MTSA_SOAP_USERNAME: ${MTSA_SOAP_USERNAME}
+      MTSA_SOAP_PASSWORD: ${MTSA_SOAP_PASSWORD}
+      SIGNING_API_KEY: ${SIGNING_API_KEY:-dev-signing-key}
+      STORAGE_PATH: /data/documents
+      BACKUP_ENABLED: "false"
+    volumes:
+      - signing-data:/data/documents
+      - signing-db:/data/db
+    depends_on:
+      mtsa:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  signing-data:
+  signing-db:

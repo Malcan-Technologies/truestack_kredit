@@ -87,6 +87,10 @@ export function borrowerLoanViewSignedAgreementUrl(loanId: string): string {
   return `${BASE}/loans/${encodeURIComponent(loanId)}/agreement`;
 }
 
+export function borrowerLoanViewBorrowerSignedAgreementUrl(loanId: string): string {
+  return `${BASE}/loans/${encodeURIComponent(loanId)}/borrower-signed-agreement`;
+}
+
 export async function postAttestationVideoComplete(
   loanId: string,
   body: { watchedPercent: number }

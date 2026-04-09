@@ -45,3 +45,10 @@ enabled_modules:
   - repayments
   - attestation
   - signing
+
+signing:
+  gateway_hostname: demo-signing.truekredit.com
+  ssh_host: ssh-signing-demo.truekredit.com
+  tunnel_name: demo-onprem
+  mtsa_env: pilot
+  backup_bucket_prefix: demo-client

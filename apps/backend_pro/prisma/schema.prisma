@@ -197,6 +197,10 @@ model Tenant {
   borrowerNotes                  BorrowerNote[]
   applicationNotes               ApplicationNote[]
   loanNotes                      LoanNote[]
+  staffSigningProfiles           StaffSigningProfile[]
+  staffDocuments                 StaffDocument[]
+  staffKycSessions               StaffKycSession[]
+  loanInternalSignatures         LoanInternalSignature[]
 }
 
 // ============================================
@@ -252,6 +256,10 @@ model User {
   // Referral relations (profile-level, not tenant-level)
   referralsGiven   Referral[] @relation("Referrer")
   referralReceived Referral?  @relation("Referred")
+
+  // PKI signing profile and internal signatures
+  staffSigningProfiles  StaffSigningProfile[]
+  loanInternalSignatures LoanInternalSignature[]
 
   @@index([email])
   @@index([referralCode])
@@ -830,13 +838,14 @@ model Loan {
 
   // Agreement document (signed, uploaded by admin before disbursement)
   agreementDate         DateTime? // The agreed disbursement date in the signed agreement (used for schedule calculation)
-  agreementPath         String?   // Path to signed agreement file (local or S3)
+  agreementPath         String?   // Path to signed agreement file (local or S3) — always the latest version (fully signed for online loans)
   agreementFilename     String?   // Stored filename
   agreementOriginalName String?   // Original uploaded filename
   agreementMimeType     String?   // MIME type (application/pdf)
   agreementSize         Int?      // File size in bytes
   agreementUploadedAt   DateTime? // When agreement was uploaded
   agreementVersion      Int       @default(0) // Version counter for audit trail
+  borrowerSignedAgreementPath String? // Online loans only: borrower-only signed PDF (before internal signatures)
 
   signedAgreementReviewStatus     SignedAgreementReviewStatus @default(NONE)
   signedAgreementReviewedAt       DateTime?
@@ -867,6 +876,9 @@ model Loan {
   attestationCancellationReason      AttestationCancellationReason?
   attestationCancelledAt             DateTime?
   attestationCancelledByUserId       String? // User.id (borrower account)
+
+  // Signature field metadata (JSON array of SignatureFieldMeta) from PDF generation
+  agreementSignatureFields Json?
 
   // Stamp certificate (uploaded by admin before disbursement)
   stampCertPath         String?   // Path to stamp certificate file (local or S3)
@@ -913,6 +925,7 @@ model Loan {
   emailLogs        EmailLog[] // TrueSend email delivery logs
   attestationAssignedMember TenantMember? @relation("AttestationAssignedMember", fields: [attestationAssignedMemberId], references: [id], onDelete: SetNull)
   staffNotes                LoanNote[]
+  internalSignatures        LoanInternalSignature[]
 
   @@index([tenantId])
   @@index([status])
@@ -1476,4 +1489,103 @@ model LateFeeProcessingLog {
   @@index([processedAt])
   @@index([trigger])
   @@index([tenantId, processedAt])
+}
+
+// ============================================
+// PKI Signing — Staff / Internal Signer Models
+// ============================================
+
+model StaffSigningProfile {
+  id            String   @id @default(cuid())
+  tenantId      String
+  userId        String
+  icNumber      String
+  fullName      String
+  email         String
+  phone         String?
+  nationality   String   @default("MY")
+  documentType  String   @default("MYKAD") // MYKAD, PASSPORT
+  designation   String?  // e.g. "Director", "Authorised Signatory"
+  certSerialNo  String?
+  certStatus    String?  // Valid, Expired, Revoked, null
+  certValidFrom DateTime?
+  certValidTo   DateTime?
+  kycComplete   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents StaffDocument[]
+  kycSessions StaffKycSession[]
+
+  @@unique([tenantId, userId])
+  @@unique([tenantId, icNumber])
+  @@index([tenantId])
+}
+
+model StaffDocument {
+  id           String   @id @default(cuid())
+  tenantId     String
+  profileId    String
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  path         String
+  category     String   // IC_FRONT, IC_BACK, PASSPORT, SELFIE_LIVENESS
+  uploadedAt   DateTime @default(now())
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profile StaffSigningProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@index([tenantId])
+}
+
+model StaffKycSession {
+  id                String   @id @default(cuid())
+  tenantId          String
+  profileId         String
+  externalSessionId String   @unique
+  onboardingUrl     String
+  expiresAt         DateTime?
+  status            String   @default("pending") // pending, processing, completed, expired, failed
+  result            String?  // approved, rejected when status=completed
+  rejectMessage     String?
+  lastWebhookAt     DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profile StaffSigningProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([profileId])
+}
+
+model LoanInternalSignature {
+  id               String   @id @default(cuid())
+  loanId           String
+  tenantId         String
+  role             String   // COMPANY_REP, WITNESS
+  userId           String
+  signerName       String
+  signerIc         String
+  signedAt         DateTime @default(now())
+  signaturePath    String?
+  agreementVersion Int
+  pageNo           Int
+  x1               Float
+  y1               Float
+  x2               Float
+  y2               Float
+
+  loan   Loan   @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([loanId, role])
+  @@index([loanId])
+  @@index([tenantId])
 }

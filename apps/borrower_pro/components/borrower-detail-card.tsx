@@ -21,10 +21,22 @@ import {
   Share2,
   Briefcase,
   Copy,
+  Loader2,
+  Mail,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import {
   IndividualPersonalInformationEdit,
   AddressCard,
@@ -42,6 +54,10 @@ import {
   updateBorrower,
   type BorrowerDetail,
 } from "../lib/borrower-api-client";
+import {
+  checkEmailChange,
+  confirmEmailChange,
+} from "../lib/borrower-signing-client";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "../lib/borrower-auth-client";
 import {
   borrowerToIndividualForm,
@@ -153,6 +169,12 @@ export const BorrowerDetailCard = forwardRef<
   const [individualForm, setIndividualForm] = useState<IndividualFormData | null>(null);
   const [corporateForm, setCorporateForm] = useState<CorporateFormData | null>(null);
 
+  const [emailOtpDialog, setEmailOtpDialog] = useState(false);
+  const [emailOtpValue, setEmailOtpValue] = useState("");
+  const [emailOtpBusy, setEmailOtpBusy] = useState(false);
+  const [emailOtpError, setEmailOtpError] = useState<string | null>(null);
+  const pendingNewEmailRef = useRef<string | null>(null);
+
   const isIndividual = borrower?.borrowerType === "INDIVIDUAL";
   const identityLocked =
     Boolean(borrower && isIndividual && isIndividualIdentityLocked(borrower));
@@ -230,18 +252,14 @@ export const BorrowerDetailCard = forwardRef<
     });
   };
 
-  const handleSave = async () => {
+  const getFormEmail = (): string | null => {
+    if (isIndividual && individualForm) return individualForm.email?.trim() || null;
+    if (!isIndividual && corporateForm) return corporateForm.email?.trim() || null;
+    return null;
+  };
+
+  const finishSave = async () => {
     if (!borrower) return;
-    const validationErrors = isIndividual && individualForm
-      ? validateIndividualForm(individualForm, noMonthlyIncome)
-      : !isIndividual && corporateForm
-      ? validateCorporateForm(corporateForm)
-      : {};
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
-      toast.error("Please fix the errors before saving");
-      return;
-    }
     setSaving(true);
     try {
       const payload = isIndividual && individualForm
@@ -261,6 +279,96 @@ export const BorrowerDetailCard = forwardRef<
       toast.error(err instanceof Error ? err.message : "Failed to update");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!borrower) return;
+    const validationErrors = isIndividual && individualForm
+      ? validateIndividualForm(individualForm, noMonthlyIncome)
+      : !isIndividual && corporateForm
+      ? validateCorporateForm(corporateForm)
+      : {};
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      toast.error("Please fix the errors before saving");
+      return;
+    }
+
+    const newEmail = getFormEmail();
+    const oldEmail = borrower.email?.trim() || null;
+    const emailChanged = newEmail && newEmail !== oldEmail;
+
+    if (emailChanged) {
+      setSaving(true);
+      try {
+        const check = await checkEmailChange(newEmail);
+        if (check.requiresOtp) {
+          if (!check.success) {
+            toast.error(check.error || "Failed to initiate email change verification");
+            setSaving(false);
+            return;
+          }
+          pendingNewEmailRef.current = newEmail;
+          setEmailOtpValue("");
+          setEmailOtpError(null);
+          setEmailOtpDialog(true);
+          setSaving(false);
+          return;
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to check email");
+        setSaving(false);
+        return;
+      }
+    }
+
+    await finishSave();
+  };
+
+  const handleConfirmEmailOtp = async () => {
+    const newEmail = pendingNewEmailRef.current;
+    if (!newEmail || !emailOtpValue.trim()) return;
+    setEmailOtpBusy(true);
+    setEmailOtpError(null);
+    try {
+      const result = await confirmEmailChange(newEmail, emailOtpValue.trim());
+      if (!result.success) {
+        setEmailOtpError(
+          result.errorDescription || result.statusMsg || "Invalid OTP. Please try again."
+        );
+        setEmailOtpValue("");
+        setEmailOtpBusy(false);
+        return;
+      }
+      setEmailOtpDialog(false);
+      pendingNewEmailRef.current = null;
+      toast.success("Email updated in certificate system");
+      await finishSave();
+    } catch (err) {
+      setEmailOtpError(err instanceof Error ? err.message : "Failed to confirm email change");
+      setEmailOtpValue("");
+    } finally {
+      setEmailOtpBusy(false);
+    }
+  };
+
+  const handleResendEmailOtp = async () => {
+    const newEmail = pendingNewEmailRef.current;
+    if (!newEmail) return;
+    setEmailOtpBusy(true);
+    setEmailOtpError(null);
+    try {
+      const check = await checkEmailChange(newEmail);
+      if (check.success && check.otpSent) {
+        toast.success("OTP resent to " + newEmail);
+      } else {
+        setEmailOtpError(check.error || "Failed to resend OTP");
+      }
+    } catch (err) {
+      setEmailOtpError(err instanceof Error ? err.message : "Failed to resend OTP");
+    } finally {
+      setEmailOtpBusy(false);
     }
   };
 
@@ -414,6 +522,74 @@ export const BorrowerDetailCard = forwardRef<
             </>
           ) : null}
         </div>
+
+        <Dialog open={emailOtpDialog} onOpenChange={(open) => {
+          if (!open && !emailOtpBusy) {
+            setEmailOtpDialog(false);
+            pendingNewEmailRef.current = null;
+          }
+        }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Mail className="h-5 w-5" />
+                Verify new email
+              </DialogTitle>
+              <DialogDescription>
+                Your email is linked to your digital signing certificate. An OTP
+                has been sent to{" "}
+                <span className="font-medium text-foreground break-all">
+                  {pendingNewEmailRef.current}
+                </span>{" "}
+                to verify the change.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {emailOtpError && (
+                <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+                  {emailOtpError}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="email-change-otp">Email OTP</Label>
+                <Input
+                  id="email-change-otp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="Enter 6-digit code"
+                  maxLength={8}
+                  value={emailOtpValue}
+                  onChange={(e) =>
+                    setEmailOtpValue(e.target.value.replace(/\D/g, ""))
+                  }
+                  disabled={emailOtpBusy}
+                />
+              </div>
+            </div>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void handleResendEmailOtp()}
+                disabled={emailOtpBusy}
+              >
+                Resend OTP
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleConfirmEmailOtp()}
+                disabled={emailOtpBusy || !emailOtpValue.trim()}
+              >
+                {emailOtpBusy ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                Confirm email change
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

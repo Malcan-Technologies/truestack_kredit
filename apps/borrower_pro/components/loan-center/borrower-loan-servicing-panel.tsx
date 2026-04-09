@@ -49,6 +49,7 @@ import {
   getBorrowerEarlySettlementQuote,
   listBorrowerEarlySettlementRequests,
   borrowerLoanViewSignedAgreementUrl,
+  borrowerLoanViewBorrowerSignedAgreementUrl,
   borrowerDisbursementProofUrl,
   borrowerStampCertificateUrl,
   borrowerTransactionReceiptUrl,
@@ -265,6 +266,16 @@ function borrowerTimelineActionInfo(action: string): {
       return { icon: CheckCircle, label: "Loan completed" };
     case "MARK_DEFAULT":
       return { icon: XCircle, label: "Loan marked default" };
+    case "BORROWER_DIGITAL_SIGN_AGREEMENT":
+      return { icon: ShieldCheck, label: "Agreement digitally signed" };
+    case "SIGNED_AGREEMENT_EMAILED":
+      return { icon: FileCheck, label: "Signed agreement emailed" };
+    case "SIGNED_AGREEMENT_EMAIL_FAILED":
+      return { icon: FileCheck, label: "Agreement email failed" };
+    case "INTERNAL_SIGN_COMPANY_REP":
+      return { icon: ShieldCheck, label: "Company rep signed" };
+    case "INTERNAL_SIGN_WITNESS":
+      return { icon: ShieldCheck, label: "Witness signed" };
     default:
       return { icon: Clock, label: humanizeWords(action) };
   }
@@ -288,7 +299,11 @@ function borrowerTimelineActorLabel(event: BorrowerLoanTimelineEvent): string | 
     event.action === "UPLOAD_AGREEMENT" ||
     event.action === "EXPORT" ||
     event.action === "COMPLETE" ||
-    event.action === "MARK_DEFAULT"
+    event.action === "MARK_DEFAULT" ||
+    event.action === "INTERNAL_SIGN_COMPANY_REP" ||
+    event.action === "INTERNAL_SIGN_WITNESS" ||
+    event.action === "SIGNED_AGREEMENT_EMAILED" ||
+    event.action === "SIGNED_AGREEMENT_EMAIL_FAILED"
   ) {
     return "Admin";
   }
@@ -481,6 +496,58 @@ function BorrowerTimelineItem({ event }: { event: BorrowerLoanTimelineEvent }) {
               <span className="font-medium text-foreground">{formatAuditValue(nd.borrowerName, "borrowerName")}</span>
             </p>
           ) : null}
+        </div>
+      );
+    }
+
+    if (event.action === "BORROWER_DIGITAL_SIGN_AGREEMENT" && nd) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground">
+            Version <span className="font-medium text-foreground">v{nd.version as number}</span>
+            {nd.agreementDate && (
+              <>
+                <span className="mx-1.5">|</span>
+                Date: <span className="font-medium text-foreground">{formatAuditValue(nd.agreementDate, "agreementDate")}</span>
+              </>
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (event.action === "SIGNED_AGREEMENT_EMAILED" && nd) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground truncate">
+            Sent to <span className="font-medium text-foreground">{(nd.recipientName as string) || (nd.recipientEmail as string) || "-"}</span>
+          </p>
+        </div>
+      );
+    }
+
+    if (event.action === "SIGNED_AGREEMENT_EMAIL_FAILED" && nd) {
+      return (
+        <div className="space-y-1 rounded-lg border border-destructive/20 bg-destructive/10 p-3">
+          <p className="text-xs text-destructive truncate">
+            Failed to email signed agreement
+          </p>
+        </div>
+      );
+    }
+
+    if ((event.action === "INTERNAL_SIGN_COMPANY_REP" || event.action === "INTERNAL_SIGN_WITNESS") && nd) {
+      const roleLabel = (nd.role as string) === "COMPANY_REP" ? "Company Rep" : "Witness";
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground">
+            {roleLabel}: <span className="font-medium text-foreground">{(nd.signerName as string) || "-"}</span>
+          </p>
+          {typeof nd.agreementVersion === "number" && (
+            <p className="text-xs text-muted-foreground">
+              Version <span className="font-medium text-foreground">v{nd.agreementVersion as number}</span>
+            </p>
+          )}
         </div>
       );
     }
@@ -1208,11 +1275,20 @@ export function BorrowerLoanServicingPanel({
                         {loan.agreementOriginalName ?? "Agreement on file"}
                       </p>
                     </div>
-                    <Button variant="outline" size="sm" asChild>
-                      <a href={borrowerLoanViewSignedAgreementUrl(loanId)} target="_blank" rel="noopener noreferrer">
-                        View / download
-                      </a>
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" asChild>
+                        <a href={borrowerLoanViewSignedAgreementUrl(loanId)} target="_blank" rel="noopener noreferrer">
+                          View / download
+                        </a>
+                      </Button>
+                      {loan.borrowerSignedAgreementPath && loan.loanChannel === "ONLINE" && (
+                        <Button variant="ghost" size="sm" asChild>
+                          <a href={borrowerLoanViewBorrowerSignedAgreementUrl(loanId)} target="_blank" rel="noopener noreferrer">
+                            Borrower-only copy
+                          </a>
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ) : null}
                 {loan.disbursementProofPath ? (

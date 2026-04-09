@@ -1,0 +1,989 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { prisma } from '../../lib/prisma.js';
+import { config } from '../../lib/config.js';
+import { BadRequestError, NotFoundError } from '../../lib/errors.js';
+import { authenticateToken } from '../../middleware/authenticate.js';
+import {
+  checkHealth,
+  getCertInfo,
+  requestEmailOTP,
+  enrollCertificate,
+  signAndStorePdf,
+  verifyCertPin,
+  revokeCertificate,
+  resetCertPin,
+  verifyPdfSignature,
+  updateMtsaEmail,
+} from '../../lib/signingGatewayClient.js';
+import { createKycSession } from '../truestack-kyc/publicApiClient.js';
+import { AuditService } from '../compliance/auditService.js';
+import { getFile, saveAgreementFile, saveFile } from '../../lib/storage.js';
+import type { SignatureFieldMeta } from '../../lib/pdfService.js';
+
+const router = Router();
+router.use(authenticateToken);
+
+// ============================================
+// Profile endpoints
+// ============================================
+
+const profileSchema = z.object({
+  icNumber: z.string().min(1),
+  fullName: z.string().min(1),
+  email: z.string().email(),
+  phone: z.string().optional(),
+  nationality: z.string().default('MY'),
+  documentType: z.string().default('MYKAD'),
+  designation: z.string().optional(),
+});
+
+router.get('/profile', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+      include: { documents: true, kycSessions: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+
+    res.json({ success: true, profile });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/profile', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+    const body = profileSchema.parse(req.body);
+
+    const profile = await prisma.staffSigningProfile.upsert({
+      where: { tenantId_userId: { tenantId, userId } },
+      create: { tenantId, userId, ...body },
+      update: body,
+    });
+
+    res.json({ success: true, profile });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================
+// KYC endpoints
+// ============================================
+
+router.post('/kyc/start', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+    });
+    if (!profile) {
+      throw new BadRequestError('Please set up your signing profile first');
+    }
+
+    const base = config.truestackKyc.publicWebhookBaseUrl;
+    const key = config.truestackKyc.apiKey;
+    if (!key || !base) {
+      res.status(503).json({
+        success: false,
+        error: 'TrueStack KYC is not configured. Set TRUESTACK_KYC_API_KEY and TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL.',
+      });
+      return;
+    }
+
+    const webhookUrl = new URL('/api/webhooks/truestack-kyc', base).href;
+    const documentType = profile.documentType === 'PASSPORT' ? '2' : '1';
+
+    const ts = await createKycSession({
+      document_name: profile.fullName,
+      document_number: profile.icNumber,
+      webhook_url: webhookUrl,
+      document_type: documentType,
+      platform: 'Web',
+      redirect_url: config.truestackKyc.redirectUrl,
+      metadata: {
+        type: 'staff',
+        profileId: profile.id,
+        tenantId,
+        userId,
+      },
+    });
+
+    const expiresAt = ts.expires_at ? new Date(ts.expires_at) : null;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.staffKycSession.updateMany({
+        where: {
+          tenantId,
+          profileId: profile.id,
+          NOT: { AND: [{ status: 'completed' }, { result: 'approved' }] },
+        },
+        data: { status: 'expired', result: null },
+      });
+
+      await tx.staffKycSession.create({
+        data: {
+          tenantId,
+          profileId: profile.id,
+          externalSessionId: ts.id,
+          onboardingUrl: ts.onboarding_url,
+          expiresAt,
+          status: ts.status || 'pending',
+        },
+      });
+    });
+
+    res.json({
+      success: true,
+      sessionId: ts.id,
+      onboardingUrl: ts.onboarding_url,
+      expiresAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/kyc/status', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+      include: {
+        documents: true,
+        kycSessions: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+
+    if (!profile) {
+      res.json({ success: true, kycComplete: false, hasProfile: false });
+      return;
+    }
+
+    const latestSession = profile.kycSessions[0];
+    const hasDocuments = profile.documents.length > 0;
+
+    res.json({
+      success: true,
+      kycComplete: profile.kycComplete,
+      hasProfile: true,
+      hasDocuments,
+      latestSession: latestSession
+        ? {
+            status: latestSession.status,
+            result: latestSession.result,
+            rejectMessage: latestSession.rejectMessage,
+            onboardingUrl: latestSession.onboardingUrl,
+            expiresAt: latestSession.expiresAt,
+          }
+        : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================
+// Certificate endpoints
+// ============================================
+
+router.get('/health', async (_req, res, next) => {
+  try {
+    const health = await checkHealth();
+    res.json({ success: true, ...health });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/cert-status', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+    });
+    if (!profile) {
+      throw new BadRequestError('Signing profile not found');
+    }
+
+    const certInfo = await getCertInfo(profile.icNumber);
+
+    if (certInfo.success && certInfo.certStatus) {
+      await prisma.staffSigningProfile.update({
+        where: { id: profile.id },
+        data: {
+          certStatus: certInfo.certStatus,
+          certSerialNo: certInfo.certSerialNo || profile.certSerialNo,
+          certValidFrom: certInfo.certValidFrom ? new Date(certInfo.certValidFrom) : profile.certValidFrom,
+          certValidTo: certInfo.certValidTo ? new Date(certInfo.certValidTo) : profile.certValidTo,
+        },
+      });
+    }
+
+    res.json({ success: true, certInfo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/cert-check', async (req, res, next) => {
+  try {
+    const { icNumber } = z.object({ icNumber: z.string().min(1) }).parse(req.body);
+    const certInfo = await getCertInfo(icNumber);
+    res.json({ success: true, certInfo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================
+// Email change (MTSA sync) endpoints
+// ============================================
+
+router.post('/check-email-change', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+    const { newEmail } = z.object({ newEmail: z.string().email() }).parse(req.body);
+
+    if (!config.signing.enabled) {
+      res.json({ requiresOtp: false });
+      return;
+    }
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+    });
+    if (!profile) {
+      res.json({ requiresOtp: false });
+      return;
+    }
+
+    const certInfo = await getCertInfo(profile.icNumber);
+    if (!certInfo.success || certInfo.certStatus !== 'Valid') {
+      res.json({ requiresOtp: false });
+      return;
+    }
+
+    const otpResult = await requestEmailOTP(profile.icNumber, 'NU', newEmail);
+    if (!otpResult.success) {
+      res.status(400).json({
+        requiresOtp: true,
+        otpSent: false,
+        error: otpResult.errorDescription || otpResult.statusMsg || 'Failed to send OTP',
+      });
+      return;
+    }
+
+    res.json({ requiresOtp: true, otpSent: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/confirm-email-change', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+    const { newEmail, otp } = z.object({
+      newEmail: z.string().email(),
+      otp: z.string().min(1),
+    }).parse(req.body);
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+    });
+    if (!profile) {
+      throw new BadRequestError('Signing profile not found');
+    }
+
+    const result = await updateMtsaEmail(profile.icNumber, newEmail, otp);
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        error: result.errorDescription || result.statusMsg || 'Email update failed',
+      });
+      return;
+    }
+
+    const previousEmail = profile.email;
+    await prisma.staffSigningProfile.update({
+      where: { id: profile.id },
+      data: { email: newEmail },
+    });
+
+    await AuditService.log({
+      tenantId,
+      action: 'STAFF_MTSA_EMAIL_UPDATED',
+      entityType: 'StaffSigningProfile',
+      entityId: profile.id,
+      newData: { previousEmail, newEmail, userId },
+      ipAddress: req.ip,
+    });
+
+    await prisma.adminAuditLog.create({
+      data: {
+        userId,
+        tenantId,
+        action: 'STAFF_MTSA_EMAIL_UPDATED',
+        targetId: profile.id,
+        targetType: 'StaffSigningProfile',
+        details: JSON.stringify({
+          fullName: profile.fullName,
+          previousEmail,
+          newEmail,
+        }),
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const enrollSchema = z.object({
+  pin: z.string().min(4).max(8),
+  otp: z.string().min(1),
+});
+
+router.post('/request-otp', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+    });
+    if (!profile) {
+      throw new BadRequestError('Signing profile not found');
+    }
+    if (!profile.kycComplete) {
+      throw new BadRequestError('KYC verification must be completed before certificate enrollment');
+    }
+
+    const result = await requestEmailOTP(profile.icNumber, 'NU', profile.email);
+    res.json({ success: result.success, statusCode: result.statusCode, statusMsg: result.statusMsg });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/enroll', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+    const body = enrollSchema.parse(req.body);
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+      include: { documents: true },
+    });
+    if (!profile) {
+      throw new BadRequestError('Signing profile not found');
+    }
+    if (!profile.kycComplete) {
+      throw new BadRequestError('KYC must be completed before enrollment');
+    }
+
+    const tenant = await prisma.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { name: true, registrationNumber: true, businessAddress: true, contactNumber: true },
+    });
+
+    const icFront = profile.documents.find(d => d.category === 'IC_FRONT');
+    const icBack = profile.documents.find(d => d.category === 'IC_BACK');
+    const selfie = profile.documents.find(d => d.category === 'SELFIE_LIVENESS');
+
+    let nricFrontB64: string | undefined;
+    let nricBackB64: string | undefined;
+    let selfieB64: string | undefined;
+
+    if (icFront) {
+      const buf = await getFile(icFront.path);
+      nricFrontB64 = buf.toString('base64');
+    }
+    if (icBack) {
+      const buf = await getFile(icBack.path);
+      nricBackB64 = buf.toString('base64');
+    }
+    if (selfie) {
+      const buf = await getFile(selfie.path);
+      selfieB64 = buf.toString('base64');
+    }
+
+    const latestKyc = await prisma.staffKycSession.findFirst({
+      where: { profileId: profile.id, status: 'completed', result: 'approved' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const enrollResult = await enrollCertificate({
+      UserID: profile.icNumber,
+      FullName: profile.fullName,
+      EmailAddress: profile.email,
+      MobileNo: profile.phone || '',
+      Nationality: profile.nationality,
+      UserType: '2',
+      IDType: profile.documentType === 'PASSPORT' ? 'P' : 'N',
+      AuthFactor: body.otp,
+      NRICFront: nricFrontB64,
+      NRICBack: nricBackB64,
+      SelfieImage: selfieB64,
+      OrganisationInfo: {
+        orgName: tenant.name,
+        orgRegistationNo: tenant.registrationNumber || undefined,
+        orgRegistationType: 'SSM',
+        orgAddress: tenant.businessAddress || undefined,
+        orgPhoneNo: tenant.contactNumber || undefined,
+        orgUserDesignation: profile.designation || 'Authorised Signatory',
+      },
+      VerificationData: latestKyc
+        ? { verifyDatetime: latestKyc.updatedAt.toISOString(), verifyMethod: 'TrueStack eKYC' }
+        : { verifyDatetime: new Date().toISOString(), verifyMethod: 'Manual' },
+    });
+
+    if (enrollResult.success) {
+      await prisma.staffSigningProfile.update({
+        where: { id: profile.id },
+        data: {
+          certSerialNo: enrollResult.certSerialNo,
+          certStatus: 'Valid',
+          certValidFrom: enrollResult.certValidFrom ? new Date(enrollResult.certValidFrom) : undefined,
+          certValidTo: enrollResult.certValidTo ? new Date(enrollResult.certValidTo) : undefined,
+        },
+      });
+
+      await AuditService.log({
+        tenantId,
+        action: 'STAFF_CERT_ENROLLED',
+        entityType: 'StaffSigningProfile',
+        entityId: profile.id,
+        newData: {
+          userId,
+          icNumber: profile.icNumber,
+          certSerialNo: enrollResult.certSerialNo,
+        },
+        ipAddress: req.ip,
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId,
+          tenantId,
+          action: 'STAFF_CERT_ENROLLED',
+          targetId: profile.id,
+          targetType: 'StaffSigningProfile',
+          details: JSON.stringify({
+            fullName: profile.fullName,
+            icNumber: profile.icNumber,
+            signingEmail: profile.email,
+            certSerialNo: enrollResult.certSerialNo,
+          }),
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        },
+      });
+    }
+
+    res.json({
+      success: enrollResult.success,
+      statusCode: enrollResult.statusCode,
+      statusMsg: enrollResult.statusMsg,
+      errorDescription: enrollResult.errorDescription,
+      certSerialNo: enrollResult.certSerialNo,
+      certValidFrom: enrollResult.certValidFrom,
+      certValidTo: enrollResult.certValidTo,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const revokeSchema = z.object({
+  certSerialNo: z.string().min(1),
+  reason: z.enum(['keyCompromise', 'CACompromise', 'affiliationChanged', 'superseded', 'cessationOfOperation']),
+  pin: z.string().min(1),
+});
+
+router.post('/revoke', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+    const body = revokeSchema.parse(req.body);
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+      include: { documents: true },
+    });
+    if (!profile) {
+      throw new BadRequestError('Signing profile not found');
+    }
+
+    const icFront = profile.documents.find(d => d.category === 'IC_FRONT');
+    const icBack = profile.documents.find(d => d.category === 'IC_BACK');
+
+    let nricFrontB64: string | undefined;
+    let nricBackB64: string | undefined;
+
+    if (icFront) {
+      const buf = await getFile(icFront.path);
+      nricFrontB64 = buf.toString('base64');
+    }
+    if (icBack) {
+      const buf = await getFile(icBack.path);
+      nricBackB64 = buf.toString('base64');
+    }
+
+    const latestKyc = await prisma.staffKycSession.findFirst({
+      where: { profileId: profile.id, status: 'completed', result: 'approved' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const result = await revokeCertificate({
+      UserID: profile.icNumber,
+      CertSerialNo: body.certSerialNo,
+      RevokeReason: body.reason,
+      RevokeBy: 'Self',
+      AuthFactor: body.pin,
+      IDType: profile.documentType === 'PASSPORT' ? 'P' : 'N',
+      NRICFront: nricFrontB64,
+      NRICBack: nricBackB64,
+      VerificationData: latestKyc
+        ? { verifyDatetime: latestKyc.updatedAt.toISOString(), verifyMethod: 'TrueStack eKYC' }
+        : { verifyDatetime: new Date().toISOString(), verifyMethod: 'Manual' },
+    });
+
+    if (result.success) {
+      await prisma.staffSigningProfile.update({
+        where: { id: profile.id },
+        data: { certStatus: 'Revoked' },
+      });
+
+      await AuditService.log({
+        tenantId,
+        action: 'STAFF_CERT_REVOKED',
+        entityType: 'StaffSigningProfile',
+        entityId: profile.id,
+        newData: {
+          userId,
+          icNumber: profile.icNumber,
+          certSerialNo: body.certSerialNo,
+          reason: body.reason,
+        },
+        ipAddress: req.ip,
+      });
+
+      await prisma.adminAuditLog.create({
+        data: {
+          userId,
+          tenantId,
+          action: 'STAFF_CERT_REVOKED',
+          targetId: profile.id,
+          targetType: 'StaffSigningProfile',
+          details: JSON.stringify({
+            fullName: profile.fullName,
+            icNumber: profile.icNumber,
+            certSerialNo: body.certSerialNo,
+            reason: body.reason,
+          }),
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        },
+      });
+    }
+
+    res.json({
+      success: result.success,
+      statusCode: result.statusCode,
+      statusMsg: result.statusMsg,
+      errorDescription: result.errorDescription,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================
+// Loan signing endpoints
+// ============================================
+
+const signAgreementSchema = z.object({
+  loanId: z.string().min(1),
+  pin: z.string().min(1),
+  signatureImage: z.string().min(1),
+  role: z.enum(['COMPANY_REP', 'WITNESS']),
+});
+
+router.post('/sign-agreement', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+    const body = signAgreementSchema.parse(req.body);
+
+    const profile = await prisma.staffSigningProfile.findUnique({
+      where: { tenantId_userId: { tenantId, userId } },
+    });
+    if (!profile || !profile.certSerialNo) {
+      throw new BadRequestError('You need a valid signing certificate. Go to Signing Certificates to set up.');
+    }
+    if (profile.certStatus !== 'Valid') {
+      throw new BadRequestError(`Your certificate status is "${profile.certStatus}". A valid certificate is required.`);
+    }
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: body.loanId, tenantId },
+      include: {
+        tenant: { select: { name: true, registrationNumber: true } },
+        internalSignatures: true,
+      },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan not found');
+    }
+    if (loan.loanChannel !== 'ONLINE') {
+      throw new BadRequestError('Internal signing is only available for online-originated loans');
+    }
+    if (!loan.agreementPath) {
+      throw new BadRequestError('No signed agreement found. Borrower must sign first.');
+    }
+
+    const existingSig = loan.internalSignatures.find(s => s.role === body.role);
+    if (existingSig) {
+      throw new BadRequestError(`This loan has already been signed for role "${body.role}"`);
+    }
+
+    const pinResult = await verifyCertPin(profile.icNumber, profile.certSerialNo, body.pin);
+    if (!pinResult.success || pinResult.certPinStatus !== 'Valid') {
+      res.json({
+        success: false,
+        statusCode: pinResult.statusCode,
+        statusMsg: pinResult.statusMsg || 'PIN verification failed',
+        errorDescription: pinResult.errorDescription || `PIN status: ${pinResult.certPinStatus || 'Invalid'}`,
+      });
+      return;
+    }
+
+    const sigFields = (loan.agreementSignatureFields as SignatureFieldMeta[] | null) || [];
+    if (sigFields.length === 0) {
+      throw new BadRequestError(
+        'Signature field coordinates are missing. The borrower must re-sign the agreement with the latest version.'
+      );
+    }
+    const roleKey = body.role === 'COMPANY_REP' ? 'company_rep' : 'witness';
+    const sigField = sigFields.find(f => f.role === roleKey);
+    if (!sigField) {
+      throw new BadRequestError(`No signature field found for role "${body.role}" in the agreement. Available: ${sigFields.map(f => f.role).join(', ')}`);
+    }
+
+    const currentPdf = await getFile(loan.agreementPath);
+    const pdfBase64 = currentPdf.toString('base64');
+
+    let sigImage = body.signatureImage;
+    if (sigImage.includes(',')) {
+      sigImage = sigImage.split(',')[1];
+    }
+
+    const signResult = await signAndStorePdf({
+      UserID: profile.icNumber,
+      FullName: profile.fullName,
+      AuthFactor: body.pin,
+      loanId: body.loanId,
+      SignatureInfo: {
+        pdfInBase64: pdfBase64,
+        visibility: true,
+        pageNo: sigField.pageNo,
+        x1: sigField.x1,
+        y1: sigField.y1,
+        x2: sigField.x2,
+        y2: sigField.y2,
+        sigImageInBase64: sigImage,
+      },
+    });
+
+    if (!signResult.success || !signResult.signedPdfInBase64) {
+      res.json({
+        success: false,
+        statusCode: signResult.statusCode,
+        statusMsg: signResult.statusMsg,
+        errorDescription: signResult.errorDescription || 'Signing failed',
+      });
+      return;
+    }
+
+    const signedPdfBuffer = Buffer.from(signResult.signedPdfInBase64, 'base64');
+    const signedFilename = loan.agreementFilename || `signed-agreement-${body.loanId}.pdf`;
+
+    const { path: agreementPath, filename: storedFilename } = await saveAgreementFile(
+      signedPdfBuffer,
+      body.loanId,
+      signedFilename,
+    );
+
+    // Save signature image
+    const sigImageBuffer = Buffer.from(sigImage, 'base64');
+    const { path: signaturePath } = await saveFile(
+      sigImageBuffer,
+      'internal-signatures',
+      body.loanId,
+      `${body.role.toLowerCase()}-signature-${body.loanId.substring(0, 8)}.png`,
+    );
+
+    const newVersion = loan.agreementVersion + 1;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.loan.update({
+        where: { id: body.loanId },
+        data: {
+          agreementPath,
+          agreementFilename: storedFilename,
+          agreementSize: signedPdfBuffer.length,
+          agreementUploadedAt: new Date(),
+          agreementVersion: newVersion,
+        },
+      });
+
+      await tx.loanInternalSignature.create({
+        data: {
+          loanId: body.loanId,
+          tenantId,
+          role: body.role,
+          userId,
+          signerName: profile.fullName,
+          signerIc: profile.icNumber,
+          signaturePath,
+          agreementVersion: newVersion,
+          pageNo: sigField.pageNo,
+          x1: sigField.x1,
+          y1: sigField.y1,
+          x2: sigField.x2,
+          y2: sigField.y2,
+        },
+      });
+
+      // Check if both signatures are now present
+      const allSigs = await tx.loanInternalSignature.findMany({
+        where: { loanId: body.loanId },
+      });
+      const hasCompanyRep = allSigs.some(s => s.role === 'COMPANY_REP');
+      const hasWitness = allSigs.some(s => s.role === 'WITNESS');
+
+      if (hasCompanyRep && hasWitness) {
+        await tx.loan.update({
+          where: { id: body.loanId },
+          data: {
+            signedAgreementReviewStatus: 'APPROVED',
+            signedAgreementReviewedAt: new Date(),
+            signedAgreementReviewerMemberId: req.memberId,
+            signedAgreementReviewNotes: 'Auto-approved after both internal signatures applied',
+          },
+        });
+      }
+    });
+
+    await AuditService.log({
+      tenantId,
+      action: `INTERNAL_SIGN_${body.role}`,
+      entityType: 'Loan',
+      entityId: body.loanId,
+      newData: {
+        role: body.role,
+        signerName: profile.fullName,
+        signerIc: profile.icNumber,
+        agreementVersion: newVersion,
+        signaturePath,
+      },
+      ipAddress: req.ip,
+    });
+
+    // Reload to check status
+    const updatedLoan = await prisma.loan.findUnique({
+      where: { id: body.loanId },
+      select: { signedAgreementReviewStatus: true },
+    });
+
+    if (updatedLoan?.signedAgreementReviewStatus === 'APPROVED') {
+      await AuditService.log({
+        tenantId,
+        action: 'LOAN_AUTO_APPROVED',
+        entityType: 'Loan',
+        entityId: body.loanId,
+        newData: {
+          reason: 'All internal signatures (company rep + witness) applied',
+          agreementVersion: newVersion,
+        },
+        ipAddress: req.ip,
+      });
+    }
+
+    res.json({
+      success: true,
+      role: body.role,
+      agreementVersion: newVersion,
+      signedAgreementReviewStatus: updatedLoan?.signedAgreementReviewStatus,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// List all staff signing profiles for the tenant
+router.get('/signers', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+
+    const profiles = await prisma.staffSigningProfile.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        userId: true,
+        fullName: true,
+        icNumber: true,
+        email: true,
+        designation: true,
+        certStatus: true,
+        certSerialNo: true,
+        certValidFrom: true,
+        certValidTo: true,
+        kycComplete: true,
+        user: { select: { name: true, email: true } },
+      },
+      orderBy: { fullName: 'asc' },
+    });
+
+    res.json({ success: true, signers: profiles });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get internal signatures for a loan
+router.get('/loan-signatures/:loanId', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const { loanId } = req.params;
+
+    const signatures = await prisma.loanInternalSignature.findMany({
+      where: { loanId, tenantId },
+      select: {
+        id: true,
+        role: true,
+        signerName: true,
+        signerIc: true,
+        signedAt: true,
+        agreementVersion: true,
+        userId: true,
+      },
+    });
+
+    res.json({ success: true, signatures });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================
+// PIN Management
+// ============================================
+
+router.post('/verify-pin', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.userId!;
+
+    const profile = await prisma.staffSigningProfile.findFirst({
+      where: { tenantId, userId },
+    });
+
+    if (!profile) {
+      throw new NotFoundError('Signing profile not found');
+    }
+    if (!profile.certSerialNo) {
+      throw new BadRequestError('No certificate serial number on record');
+    }
+
+    const { pin } = req.body;
+    if (!pin) {
+      throw new BadRequestError('PIN is required');
+    }
+
+    const result = await verifyCertPin(profile.icNumber, profile.certSerialNo, pin);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/reset-pin', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.userId!;
+
+    const profile = await prisma.staffSigningProfile.findFirst({
+      where: { tenantId, userId },
+    });
+
+    if (!profile) {
+      throw new NotFoundError('Signing profile not found');
+    }
+    if (!profile.certSerialNo) {
+      throw new BadRequestError('No certificate serial number on record');
+    }
+
+    const { currentPin, newPin } = req.body;
+    if (!currentPin || !newPin) {
+      throw new BadRequestError('Current PIN and new PIN are required');
+    }
+    if (newPin.length < 4 || newPin.length > 8) {
+      throw new BadRequestError('New PIN must be 4–8 characters');
+    }
+
+    const pinCheck = await verifyCertPin(profile.icNumber, profile.certSerialNo, currentPin);
+    if (!pinCheck.success || pinCheck.certPinStatus !== 'Valid') {
+      res.json({
+        success: false,
+        statusCode: pinCheck.statusCode,
+        statusMsg: 'Current PIN is incorrect',
+        errorDescription: pinCheck.errorDescription || 'PIN verification failed',
+      });
+      return;
+    }
+
+    const result = await resetCertPin(profile.icNumber, profile.certSerialNo, newPin);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================
+// PDF Signature Verification
+// ============================================
+
+router.post('/verify-pdf', async (req, res, next) => {
+  try {
+    const { pdfBase64 } = req.body;
+    if (!pdfBase64) {
+      throw new BadRequestError('pdfBase64 is required');
+    }
+
+    const result = await verifyPdfSignature(pdfBase64);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;

@@ -103,6 +103,7 @@ export function LoanPendingAgreementPage() {
   const [attestBusy, setAttestBusy] = useState(false);
   const [journeyUiStep, setJourneyUiStep] = useState<"attestation" | "ekyc" | "certificate" | "sign" | "lender_review">("attestation");
   const [showMeetingConfirm, setShowMeetingConfirm] = useState(false);
+  const [showVideoWithdrawConfirm, setShowVideoWithdrawConfirm] = useState(false);
   const [preDisbursementTab, setPreDisbursementTab] = useState<"loan" | "agreement">("agreement");
   const attestationDoneSeenRef = useRef(false);
   const [kycDone, setKycDone] = useState(false);
@@ -743,7 +744,7 @@ export function LoanPendingAgreementPage() {
                     variant="ghost"
                     size="sm"
                     className="text-destructive"
-                    onClick={() => void onCancelLoan("WITHDRAWN")}
+                    onClick={() => setShowVideoWithdrawConfirm(true)}
                     disabled={attestBusy}
                   >
                     Withdraw / cancel loan
@@ -868,6 +869,45 @@ export function LoanPendingAgreementPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog
+        open={showVideoWithdrawConfirm}
+        onOpenChange={(open) => {
+          setShowVideoWithdrawConfirm(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Withdraw and cancel this loan?</DialogTitle>
+            <DialogDescription>
+              You finished the attestation video but have not accepted the terms yet. If you withdraw now, this
+              application will be cancelled and you will need to start a new application with your lender if you
+              change your mind.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowVideoWithdrawConfirm(false)}
+              disabled={attestBusy}
+            >
+              Stay on this loan
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setShowVideoWithdrawConfirm(false);
+                void onCancelLoan("WITHDRAWN");
+              }}
+              disabled={attestBusy}
+            >
+              Yes, withdraw and cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showMeetingConfirm} onOpenChange={setShowMeetingConfirm}>
         <DialogContent>

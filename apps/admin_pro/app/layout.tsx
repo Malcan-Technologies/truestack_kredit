@@ -17,32 +17,37 @@ const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://kredit.truestack.my";
 
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
-  title: "TrueKredit",
-  description: "Multi-tenant loan management platform for lenders",
+  title: "TrueKredit Pro",
+  description:
+    "TrueKredit Pro — operations for licensed money lenders in Malaysia: KPKT-aligned lending, origination, e-KYC, notifications, and compliance exports.",
   keywords: [
     "loan management",
-    "lending platform",
-    "multi-tenant",
+    "money lending Malaysia",
+    "KPKT",
+    "TrueKredit Pro",
     "Malaysia",
     "compliance",
-    "Schedule A",
     "loan origination",
+    "e-KYC",
+    "licensed money lender",
   ],
   icons: {
     icon: "/favicon.png",
     apple: "/favicon.png",
   },
   openGraph: {
-    title: "TrueKredit",
-    description: "Multi-tenant loan management platform for lenders",
+    title: "TrueKredit Pro",
+    description:
+      "Lending operations for Malaysian money lenders — physical & digital programmes, origination, and admin controls.",
     url: "/",
     siteName: "TrueKredit",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "TrueKredit",
-    description: "Multi-tenant loan management platform for lenders",
+    title: "TrueKredit Pro",
+    description:
+      "Operations platform for licensed money lenders in Malaysia.",
   },
 };
 

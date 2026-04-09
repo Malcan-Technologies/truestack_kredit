@@ -414,15 +414,15 @@ router.post('/enroll', async (req, res, next) => {
 
     if (icFront) {
       const buf = await getFile(icFront.path);
-      nricFrontB64 = buf.toString('base64');
+      if (buf) nricFrontB64 = buf.toString('base64');
     }
     if (icBack) {
       const buf = await getFile(icBack.path);
-      nricBackB64 = buf.toString('base64');
+      if (buf) nricBackB64 = buf.toString('base64');
     }
     if (selfie) {
       const buf = await getFile(selfie.path);
-      selfieB64 = buf.toString('base64');
+      if (buf) selfieB64 = buf.toString('base64');
     }
 
     const latestKyc = await prisma.staffKycSession.findFirst({
@@ -540,11 +540,11 @@ router.post('/revoke', async (req, res, next) => {
 
     if (icFront) {
       const buf = await getFile(icFront.path);
-      nricFrontB64 = buf.toString('base64');
+      if (buf) nricFrontB64 = buf.toString('base64');
     }
     if (icBack) {
       const buf = await getFile(icBack.path);
-      nricBackB64 = buf.toString('base64');
+      if (buf) nricBackB64 = buf.toString('base64');
     }
 
     const latestKyc = await prisma.staffKycSession.findFirst({

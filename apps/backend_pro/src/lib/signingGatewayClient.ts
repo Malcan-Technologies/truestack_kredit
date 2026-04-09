@@ -123,6 +123,8 @@ export interface OrganisationInfo {
 export interface VerificationData {
   verifyDatetime: string;
   verifyMethod: string;
+  verifyStatus: string;
+  verifyVerifier: string;
 }
 
 export interface EnrollCertificateBody {

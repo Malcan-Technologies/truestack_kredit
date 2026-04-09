@@ -451,8 +451,8 @@ router.post('/enroll', async (req, res, next) => {
         orgUserDesignation: profile.designation || 'Authorised Signatory',
       },
       VerificationData: latestKyc
-        ? { verifyDatetime: latestKyc.updatedAt.toISOString(), verifyMethod: 'TrueStack eKYC' }
-        : { verifyDatetime: new Date().toISOString(), verifyMethod: 'Manual' },
+        ? { verifyDatetime: latestKyc.updatedAt.toISOString(), verifyMethod: 'TrueStack eKYC', verifyStatus: 'approved', verifyVerifier: 'TrueStack' }
+        : { verifyDatetime: new Date().toISOString(), verifyMethod: 'Manual', verifyStatus: 'approved', verifyVerifier: 'TrueStack' },
     });
 
     if (enrollResult.success) {
@@ -562,8 +562,8 @@ router.post('/revoke', async (req, res, next) => {
       NRICFront: nricFrontB64,
       NRICBack: nricBackB64,
       VerificationData: latestKyc
-        ? { verifyDatetime: latestKyc.updatedAt.toISOString(), verifyMethod: 'TrueStack eKYC' }
-        : { verifyDatetime: new Date().toISOString(), verifyMethod: 'Manual' },
+        ? { verifyDatetime: latestKyc.updatedAt.toISOString(), verifyMethod: 'TrueStack eKYC', verifyStatus: 'approved', verifyVerifier: 'TrueStack' }
+        : { verifyDatetime: new Date().toISOString(), verifyMethod: 'Manual', verifyStatus: 'approved', verifyVerifier: 'TrueStack' },
     });
 
     if (result.success) {

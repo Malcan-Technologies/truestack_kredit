@@ -128,7 +128,29 @@ sudo usermod -aG docker $USER
 
 Enabling Docker and containerd ensures the daemon starts automatically on server reboot. The containers use `restart: unless-stopped` in the compose file, so they'll come back up with Docker.
 
-### 3.2 Generate SSH Deploy Key Pair
+### 3.2 Increase UDP Buffer Sizes (Cloudflare Tunnel Stability)
+
+Cloudflare Tunnel uses the QUIC protocol which requires larger UDP buffers than the Linux default (208 KiB). Without this, `cloudflared` logs will show `failed to sufficiently increase receive buffer size` and the tunnel will experience periodic QUIC timeouts causing brief disconnections.
+
+```bash
+# Apply immediately
+sudo sysctl -w net.core.rmem_max=7340032 net.core.wmem_max=7340032
+
+# Persist across reboots
+echo 'net.core.rmem_max=7340032' | sudo tee -a /etc/sysctl.conf
+echo 'net.core.wmem_max=7340032' | sudo tee -a /etc/sysctl.conf
+```
+
+Verify:
+
+```bash
+sysctl net.core.rmem_max net.core.wmem_max
+# Should show 7340032 for both
+```
+
+> **Important**: Do this before starting `cloudflared`. If cloudflared is already running, restart it after applying: `docker compose restart cloudflared`
+
+### 3.3 Generate SSH Deploy Key Pair
 
 Generate a dedicated key pair for CI/CD deployment:
 
@@ -151,7 +173,7 @@ cat deploy_key
 
 Copy this output. You can also set it directly via CLI from your local machine if you have SSH access (see Step 5.2).
 
-### 3.3 Create Deploy User
+### 3.4 Create Deploy User
 
 ```bash
 sudo useradd -m -s /bin/bash deploy
@@ -165,7 +187,7 @@ sudo chmod 700 /home/deploy/.ssh
 sudo chmod 600 /home/deploy/.ssh/authorized_keys
 ```
 
-### 3.4 Create Directory Structure
+### 3.5 Create Directory Structure
 
 ```bash
 sudo mkdir -p /opt/signing-stack/data/documents
@@ -173,7 +195,7 @@ sudo mkdir -p /opt/signing-stack/data/db
 sudo chown -R deploy:deploy /opt/signing-stack
 ```
 
-### 3.5 Copy Deployment Files
+### 3.6 Copy Deployment Files
 
 Copy the production compose file and deploy script from the monorepo. These must be owned by the `deploy` user.
 
@@ -207,7 +229,7 @@ EOF
 sudo chmod +x /opt/signing-stack/deploy.sh
 ```
 
-### 3.6 Load MTSA Docker Image
+### 3.7 Load MTSA Docker Image
 
 **Option A — From Trustgate tarball**:
 
@@ -235,7 +257,7 @@ docker images | grep mtsa-pilot
 
 Note the image name and tag (e.g., `mtsa-pilot:latest`). This becomes the `ONPREM_MTSA_IMAGE` GitHub secret.
 
-### 3.7 Clean Up Key Material
+### 3.8 Clean Up Key Material
 
 After the private key is saved to GitHub Secrets (Step 5):
 
@@ -749,7 +771,41 @@ External clients are never auto-deployed. After initial setup, all deployments g
 | ECR login fails in CI/CD | AWS OIDC role misconfigured or ECR repo doesn't exist | Verify `AWS_ROLE_ARN` and that the ECR repo exists in the client's account |
 | `.env` not updated after deploy | deploy.sh doesn't write .env (CI/CD does) | The workflow SSH step writes `.env` before running `deploy.sh` |
 | Signing health check shows offline in admin_pro | `SIGNING_GATEWAY_URL` not set in ECS task | Verify signing env vars are in Terraform ECS `secrets` block and AWS Secrets Manager |
+| Signing health check shows offline intermittently | Cloudflare Tunnel QUIC connection dropping due to undersized UDP buffers | Increase UDP buffers on on-prem server (see below) |
+| cloudflared logs: `failed to sufficiently increase receive buffer size` | Linux UDP receive/send buffer max too low (default 208 KiB, needs 7168 KiB) | Run `sudo sysctl -w net.core.rmem_max=7340032 net.core.wmem_max=7340032` and persist in `/etc/sysctl.conf`, then restart cloudflared |
+| Signing health returns 401 | Auth session expired or cookie not forwarded through proxy | Re-login to admin_pro dashboard; check proxy route forwards cookies correctly |
 | Signing API returns 403 | Cloudflare Access blocking the request | Ensure `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` are in AWS Secrets Manager and ECS task definition |
+
+### 11.1 Cloudflare Tunnel Stability (UDP Buffer Tuning)
+
+The Cloudflare Tunnel (`cloudflared`) uses QUIC protocol which requires large UDP buffers. The Linux default (208 KiB) is far too low — `cloudflared` wants 7168 KiB. This causes periodic `"timeout: no recent network activity"` errors and brief tunnel disconnections.
+
+**Symptoms:**
+- `docker logs cloudflared` shows: `failed to sufficiently increase receive buffer size (was: 208 kiB, wanted: 7168 kiB, got: 416 kiB)`
+- `ERR failed to accept QUIC stream: timeout: no recent network activity`
+- Signing health check intermittently shows "Offline" in admin_pro
+
+**Fix (run on on-prem server):**
+
+```bash
+# Check current values
+sysctl net.core.rmem_max net.core.wmem_max
+
+# Apply immediately
+sudo sysctl -w net.core.rmem_max=7340032 net.core.wmem_max=7340032
+
+# Make permanent across reboots
+echo 'net.core.rmem_max=7340032' | sudo tee -a /etc/sysctl.conf
+echo 'net.core.wmem_max=7340032' | sudo tee -a /etc/sysctl.conf
+
+# Restart cloudflared to pick up new buffer sizes
+cd /opt/signing-stack && docker compose restart cloudflared
+
+# Verify — logs should no longer show the buffer warning
+docker logs cloudflared --tail 15
+```
+
+**Note:** This should be done during initial server setup for every new client. Add it to the on-prem server provisioning steps.
 
 ---
 
@@ -763,6 +819,7 @@ Use this checklist when onboarding a new client:
 
 ### On-Prem Server (one-time, requires SSH access)
 - [ ] Install Docker and enable on boot (`systemctl enable docker containerd`)
+- [ ] Increase UDP buffer sizes for Cloudflare Tunnel QUIC stability (see below)
 - [ ] Generate SSH key pair (`ssh-keygen -t ed25519 -f deploy_key -N ""`)
 - [ ] Create `deploy` user with Docker group membership
 - [ ] Install public key to `/home/deploy/.ssh/authorized_keys`

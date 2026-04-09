@@ -84,15 +84,23 @@ async function gatewayFetch<T>(
 }
 
 export async function checkHealth(): Promise<{ online: boolean; mtsaConnected: boolean }> {
-  try {
-    const r = await gatewayFetch<GatewayHealthResponse>('GET', '/health');
-    return {
-      online: r.status === 'healthy' || r.status === 'degraded',
-      mtsaConnected: r.services?.mtsa === 'connected',
-    };
-  } catch {
-    return { online: false, mtsaConnected: false };
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const r = await gatewayFetch<GatewayHealthResponse>('GET', '/health');
+      return {
+        online: r.status === 'healthy' || r.status === 'degraded',
+        mtsaConnected: r.services?.mtsa === 'connected',
+      };
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
+      return { online: false, mtsaConnected: false };
+    }
   }
+  return { online: false, mtsaConnected: false };
 }
 
 export async function getCertInfo(userId: string): Promise<CertInfoResponse> {

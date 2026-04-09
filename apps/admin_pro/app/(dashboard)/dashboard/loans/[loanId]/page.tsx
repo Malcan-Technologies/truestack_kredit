@@ -806,18 +806,18 @@ function TimelineItem({
             <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
               <p className="text-xs text-muted-foreground">
                 Signer: <span className="font-medium text-foreground">{(data.signerName as string) || "-"}</span>
-                {data.signerIc && (
+                {data.signerIc ? (
                   <span className="ml-1.5 text-muted-foreground">({data.signerIc as string})</span>
-                )}
+                ) : null}
               </p>
               <p className="text-xs text-muted-foreground">
                 Version <span className="font-medium text-foreground">v{data.version as number}</span>
-                {data.agreementDate && (
+                {data.agreementDate ? (
                   <>
                     <span className="mx-1.5">|</span>
                     Date: <span className="font-medium text-foreground">{formatDate(data.agreementDate as string)}</span>
                   </>
-                )}
+                ) : null}
               </p>
             </div>
           );
@@ -849,9 +849,9 @@ function TimelineItem({
             <div className="bg-secondary border border-border rounded-lg p-3 space-y-1">
               <p className="text-xs text-muted-foreground">
                 {roleLabel}: <span className="font-medium text-foreground">{(data.signerName as string) || "-"}</span>
-                {data.signerIc && (
+                {data.signerIc ? (
                   <span className="ml-1.5 text-muted-foreground">({data.signerIc as string})</span>
-                )}
+                ) : null}
               </p>
               {typeof data.agreementVersion === "number" && (
                 <p className="text-xs text-muted-foreground">

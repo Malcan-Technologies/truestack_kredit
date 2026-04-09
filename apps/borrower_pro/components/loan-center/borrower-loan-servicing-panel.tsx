@@ -505,12 +505,12 @@ function BorrowerTimelineItem({ event }: { event: BorrowerLoanTimelineEvent }) {
         <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
           <p className="text-xs text-muted-foreground">
             Version <span className="font-medium text-foreground">v{nd.version as number}</span>
-            {nd.agreementDate && (
+            {nd.agreementDate ? (
               <>
                 <span className="mx-1.5">|</span>
                 Date: <span className="font-medium text-foreground">{formatAuditValue(nd.agreementDate, "agreementDate")}</span>
               </>
-            )}
+            ) : null}
           </p>
         </div>
       );

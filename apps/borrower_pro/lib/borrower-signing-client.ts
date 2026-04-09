@@ -141,16 +141,19 @@ export interface SignAgreementResult {
   signedAgreementReviewStatus?: string;
 }
 
+export type SigningAuthMethod = "emailOtp" | "pin";
+
 export async function signAgreement(
   loanId: string,
-  otp: string,
-  signatureImage: string
+  authFactor: string,
+  signatureImage: string,
+  authMethod: SigningAuthMethod = "emailOtp",
 ): Promise<SignAgreementResult> {
   const res = await fetch(`${BASE}/sign-agreement`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ loanId, otp, signatureImage }),
+    body: JSON.stringify({ loanId, authFactor, authMethod, signatureImage }),
   });
   const json = await parseJson<SignAgreementResult>(res);
   if (!res.ok) {

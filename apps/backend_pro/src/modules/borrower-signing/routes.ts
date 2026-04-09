@@ -351,8 +351,18 @@ router.post('/agreement-preview', async (req, res, next) => {
 
 const signAgreementSchema = z.object({
   loanId: z.string().min(1),
-  otp: z.string().min(4).max(8),
+  authFactor: z.string().min(4).max(8).optional(),
+  otp: z.string().min(4).max(8).optional(),
+  authMethod: z.enum(['emailOtp', 'pin']).default('emailOtp'),
   signatureImage: z.string().min(1, 'Signature image is required'),
+}).superRefine((data, ctx) => {
+  if (!data.authFactor && !data.otp) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['authFactor'],
+      message: 'Auth factor is required',
+    });
+  }
 });
 
 router.post('/sign-agreement', async (req, res, next) => {
@@ -361,6 +371,7 @@ router.post('/sign-agreement', async (req, res, next) => {
       throw new BadRequestError('Signing is not enabled');
     }
     const body = signAgreementSchema.parse(req.body);
+    const authFactor = body.authFactor ?? body.otp!;
     const { borrowerId, tenant } = await requireActiveBorrower(req);
 
     const loan = await prisma.loan.findFirst({
@@ -402,10 +413,13 @@ router.post('/sign-agreement', async (req, res, next) => {
       sigImage = sigImage.split(',')[1];
     }
 
+    // MTSA SignPDF does not take a UserType field. Per the ICD, the effective
+    // mode is determined by the signer identity plus whether AuthFactor is an
+    // email OTP (external) or certificate PIN (internal).
     const signResult = await signAndStorePdf({
       UserID: borrower.icNumber,
       FullName: borrower.name,
-      AuthFactor: body.otp,
+      AuthFactor: authFactor,
       loanId: body.loanId,
       SignatureInfo: {
         pdfInBase64: pdfBase64,
@@ -479,6 +493,7 @@ router.post('/sign-agreement', async (req, res, next) => {
         path: agreementPath,
         filename: signedFilename,
         agreementDate,
+        authMethod: body.authMethod,
         signedAgreementReviewStatus: 'PENDING',
         signerIcNumber: borrower.icNumber,
         signerName: borrower.name,

@@ -27,10 +27,14 @@ import type { BorrowerLoanDetail } from "../../lib/borrower-loan-types";
 type Phase =
   | "loading"
   | "review"
-  | "otp_requesting"
-  | "otp_sent"
+  | "auth_requesting"
+  | "auth_ready"
   | "signing"
   | "signed";
+
+type SigningAuthMethod = "emailOtp" | "pin";
+
+const EMAIL_OTP_EXPIRY_MS = 5 * 60 * 1000;
 
 function signingOtpKey(loanId: string) {
   return `signing_otp_sent_${loanId}`;
@@ -54,7 +58,8 @@ export function AgreementSigningView({
   const [phase, setPhase] = useState<Phase>("loading");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
-  const [otpValue, setOtpValue] = useState("");
+  const [authFactorValue, setAuthFactorValue] = useState("");
+  const [authMethod, setAuthMethod] = useState<SigningAuthMethod>("emailOtp");
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(5);
@@ -82,7 +87,7 @@ export function AgreementSigningView({
   }, [loanId]);
 
   useEffect(() => {
-    if (phase !== "review" || signatureDataUrl) return;
+    if (phase === "loading" || phase === "signed" || signatureDataUrl) return;
     const canvas = sigCanvasRef.current;
     if (!canvas) return;
 
@@ -133,21 +138,23 @@ export function AgreementSigningView({
   }, []);
 
   const handleRequestOtp = async () => {
+    setAuthMethod("emailOtp");
+    setAuthFactorValue("");
     setBusy(true);
     setErrorMsg(null);
-    setPhase("otp_requesting");
+    setPhase("auth_requesting");
     try {
       const result = await requestSigningOTP();
       if (result.success) {
-        setPhase("otp_sent");
+        setPhase("auth_ready");
         if (result.email) setOtpEmail(result.email);
         try {
           sessionStorage.setItem(signingOtpKey(loanId), String(Date.now()));
         } catch {}
         toast.success(
           result.email
-            ? `Signing OTP sent to ${result.email}`
-            : "Signing OTP sent to your registered email address."
+            ? `Email OTP sent to ${result.email}`
+            : "Email OTP sent to your registered email address."
         );
       } else {
         setPhase("review");
@@ -163,9 +170,21 @@ export function AgreementSigningView({
     }
   };
 
+  const handleUsePin = useCallback(() => {
+    setAuthMethod("pin");
+    setAuthFactorValue("");
+    setOtpEmail(null);
+    setErrorMsg(null);
+    setPhase("auth_ready");
+  }, []);
+
   const handleSign = async () => {
-    if (!otpValue.trim()) {
-      toast.error("Enter the OTP from your email.");
+    if (!authFactorValue.trim()) {
+      toast.error(
+        authMethod === "pin"
+          ? "Enter your certificate PIN."
+          : "Enter the OTP from your email."
+      );
       return;
     }
     if (!signatureDataUrl) {
@@ -178,8 +197,9 @@ export function AgreementSigningView({
     try {
       const result = await signAgreement(
         loanId,
-        otpValue.trim(),
-        signatureDataUrl
+        authFactorValue.trim(),
+        signatureDataUrl,
+        authMethod,
       );
       if (result.success) {
         setPhase("signed");
@@ -191,17 +211,20 @@ export function AgreementSigningView({
           "Agreement signed successfully! Submitted for lender review."
         );
       } else {
-        setPhase("otp_sent");
-        setOtpValue("");
+        setPhase("auth_ready");
+        setAuthFactorValue("");
         const desc = result.errorDescription || "";
         const msg = result.statusMsg || "";
         const code = result.statusCode || "";
-        const isOtpError =
+        const isAuthFactorError =
           /otp|authfactor|auth.factor/i.test(desc + msg) ||
           ["DS112", "DS113", "DS114", "AP112", "AP113", "AP114"].includes(code);
-        if (isOtpError) {
+        if (isAuthFactorError) {
           setErrorMsg(
-            desc || "Invalid or expired OTP. Please request a new code and try again."
+            desc ||
+              (authMethod === "pin"
+                ? "Invalid PIN. Please check and try again."
+                : "Invalid or expired OTP. Please request a new code and try again.")
           );
         } else {
           setErrorMsg(
@@ -210,8 +233,8 @@ export function AgreementSigningView({
         }
       }
     } catch (e) {
-      setPhase("otp_sent");
-      setOtpValue("");
+      setPhase("auth_ready");
+      setAuthFactorValue("");
       setErrorMsg(
         e instanceof Error
           ? e.message
@@ -222,17 +245,25 @@ export function AgreementSigningView({
     }
   };
 
-  const canProceedToOtp = !!signatureDataUrl;
+  const canProceedToAuth = !!signatureDataUrl;
 
   const hasPersistedOtp = (() => {
     try {
       const stored = sessionStorage.getItem(signingOtpKey(loanId));
       if (stored) {
-        return Date.now() - parseInt(stored, 10) < 10 * 60 * 1000;
+        return Date.now() - parseInt(stored, 10) < EMAIL_OTP_EXPIRY_MS;
       }
     } catch {}
     return false;
   })();
+
+  const showEmailOtpEntry =
+    authMethod === "emailOtp" &&
+    (phase === "auth_ready" ||
+      phase === "signing" ||
+      (phase === "review" && hasPersistedOtp));
+  const showPinEntry =
+    authMethod === "pin" && (phase === "auth_ready" || phase === "signing");
 
   if (phase === "loading") {
     return (
@@ -305,7 +336,8 @@ export function AgreementSigningView({
         </CardTitle>
         <CardDescription>
           Review your loan agreement, draw your signature, then authorize with
-          OTP.
+          email OTP. PIN signing is available for internal-user testing and edge
+          cases.
         </CardDescription>
       </CardHeader>
 
@@ -477,18 +509,19 @@ export function AgreementSigningView({
               )}
             </div>
 
-            {/* OTP + Sign section (only after signature is confirmed) */}
-            {canProceedToOtp &&
+            {/* Auth + Sign section (only after signature is confirmed) */}
+            {canProceedToAuth &&
               (phase === "review" ||
-                phase === "otp_requesting" ||
-                phase === "otp_sent" ||
+                phase === "auth_requesting" ||
+                phase === "auth_ready" ||
                 phase === "signing") && (
                 <div className="space-y-4 border-t border-border/60 pt-4">
                   {phase === "review" && !hasPersistedOtp && (
                     <div className="space-y-3">
                       <div className="rounded-lg border border-primary/15 bg-primary/5 p-4 text-sm text-muted-foreground">
-                        Your signature has been captured. Click below to receive
-                        an OTP to authorize the digital signing.
+                        Your signature has been captured. The recommended method
+                        is to send a signing OTP to your registered email
+                        address.
                         {loan.borrower?.email && (
                           <span className="block mt-1">
                             The OTP will be sent to{" "}
@@ -499,31 +532,43 @@ export function AgreementSigningView({
                           </span>
                         )}
                       </div>
-                      <Button
-                        type="button"
-                        onClick={() => void handleRequestOtp()}
-                        disabled={busy}
-                      >
-                        {busy ? (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        ) : (
-                          <Mail className="h-4 w-4 mr-2" />
-                        )}
-                        Send signing OTP
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          onClick={() => void handleRequestOtp()}
+                          disabled={busy}
+                        >
+                          {busy ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Mail className="h-4 w-4 mr-2" />
+                          )}
+                          Send email OTP
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleUsePin}
+                          disabled={busy}
+                        >
+                          Sign with PIN
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        PIN signing is intended only for internal-users. Use Email OTP if you don't know what this is.
+                      
+                      </p>
                     </div>
                   )}
 
-                  {phase === "otp_requesting" && (
+                  {phase === "auth_requesting" && (
                     <div className="flex items-center gap-3 text-sm text-muted-foreground py-4">
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      Sending OTP to your registered email...
+                      Sending email OTP to your registered email...
                     </div>
                   )}
 
-                  {(phase === "otp_sent" ||
-                    phase === "signing" ||
-                    (phase === "review" && hasPersistedOtp)) && (
+                  {showEmailOtpEntry && (
                     <div className="space-y-4">
                       <div className="rounded-lg border border-primary/15 bg-primary/5 p-4 text-sm space-y-1">
                         <p className="font-medium text-foreground flex items-center gap-2">
@@ -537,10 +582,10 @@ export function AgreementSigningView({
                               <span className="font-medium text-foreground break-all">
                                 {otpEmail || loan.borrower?.email}
                               </span>
-                              . The code will expire in a few minutes.
+                              . The code will expire in 5 minutes.
                             </>
                           ) : (
-                            "Check your inbox for the 6-digit code. The code will expire in a few minutes."
+                            "Check your inbox for the 6-digit code. The code will expire in 5 minutes."
                           )}
                         </p>
                       </div>
@@ -554,9 +599,9 @@ export function AgreementSigningView({
                           autoComplete="one-time-code"
                           placeholder="Enter 6-digit code"
                           maxLength={8}
-                          value={otpValue}
+                          value={authFactorValue}
                           onChange={(e) =>
-                            setOtpValue(e.target.value.replace(/\D/g, ""))
+                            setAuthFactorValue(e.target.value.replace(/\D/g, ""))
                           }
                           disabled={phase === "signing"}
                         />
@@ -566,7 +611,7 @@ export function AgreementSigningView({
                         <Button
                           type="button"
                           onClick={() => void handleSign()}
-                          disabled={busy || !otpValue.trim()}
+                          disabled={busy || !authFactorValue.trim()}
                         >
                           {phase === "signing" ? (
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -577,12 +622,72 @@ export function AgreementSigningView({
                         </Button>
                         <Button
                           type="button"
+                          variant="outline"
+                          onClick={handleUsePin}
+                          disabled={busy}
+                        >
+                          Use PIN instead
+                        </Button>
+                        <Button
+                          type="button"
                           variant="ghost"
                           size="sm"
                           onClick={() => void handleRequestOtp()}
                           disabled={busy}
                         >
                           Resend OTP
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {showPinEntry && (
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-border/60 bg-muted/20 p-4 text-sm space-y-1">
+                        <p className="font-medium text-foreground">
+                          Sign with certificate PIN
+                        </p>
+                        <p className="text-muted-foreground">
+                          For internal users only. No email OTP will be requested.
+                          
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="signing-pin">Certificate PIN</Label>
+                        <Input
+                          id="signing-pin"
+                          type="password"
+                          autoComplete="current-password"
+                          placeholder="Enter certificate PIN"
+                          maxLength={8}
+                          value={authFactorValue}
+                          onChange={(e) => setAuthFactorValue(e.target.value)}
+                          disabled={phase === "signing"}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          onClick={() => void handleSign()}
+                          disabled={busy || !authFactorValue.trim()}
+                        >
+                          {phase === "signing" ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <ShieldCheck className="h-4 w-4 mr-2" />
+                          )}
+                          Sign with PIN
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void handleRequestOtp()}
+                          disabled={busy}
+                        >
+                          <Mail className="h-4 w-4 mr-2" />
+                          Use email OTP instead
                         </Button>
                       </div>
                     </div>

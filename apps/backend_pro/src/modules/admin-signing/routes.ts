@@ -689,6 +689,9 @@ router.post('/sign-agreement', async (req, res, next) => {
     }
 
     const currentPdf = await getFile(loan.agreementPath);
+    if (!currentPdf) {
+      throw new NotFoundError('Agreement PDF not found');
+    }
     const pdfBase64 = currentPdf.toString('base64');
 
     let sigImage = body.signatureImage;
@@ -901,7 +904,7 @@ router.get('/loan-signatures/:loanId', async (req, res, next) => {
 router.post('/verify-pin', async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const userId = req.userId!;
+    const userId = req.user!.userId;
 
     const profile = await prisma.staffSigningProfile.findFirst({
       where: { tenantId, userId },
@@ -929,7 +932,7 @@ router.post('/verify-pin', async (req, res, next) => {
 router.post('/reset-pin', async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const userId = req.userId!;
+    const userId = req.user!.userId;
 
     const profile = await prisma.staffSigningProfile.findFirst({
       where: { tenantId, userId },

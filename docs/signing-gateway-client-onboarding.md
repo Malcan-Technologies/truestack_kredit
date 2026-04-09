@@ -120,9 +120,13 @@ SSH into the client's on-prem server. All commands in this section run on the se
 
 ```bash
 curl -fsSL https://get.docker.com | sh
+sudo systemctl enable docker
+sudo systemctl enable containerd
 sudo usermod -aG docker $USER
 # Log out and back in for group change to take effect
 ```
+
+Enabling Docker and containerd ensures the daemon starts automatically on server reboot. The containers use `restart: unless-stopped` in the compose file, so they'll come back up with Docker.
 
 ### 3.2 Generate SSH Deploy Key Pair
 
@@ -617,6 +621,18 @@ This is required because `cloudflared` runs inside a Docker container but needs 
 - `cloudflared` routes external traffic to `signing-gateway` via Docker service name (`http://signing-gateway:3100`)
 - `cloudflared` routes SSH traffic to the host machine via `host.docker.internal:22`
 
+### Restart behaviour on server reboot
+
+All three services use `restart: unless-stopped` in the compose file. Combined with Docker being enabled as a systemd service (`systemctl enable docker`), containers will automatically restart when the server reboots — no manual intervention needed.
+
+The only case where a container won't restart is if it was explicitly stopped with `docker stop` before the reboot. In that case, start it again with `docker compose up -d`.
+
+To verify after a reboot:
+
+```bash
+cd /opt/signing-stack && docker compose ps
+```
+
 ---
 
 ## 9. Secret Rotation
@@ -680,7 +696,7 @@ Use this checklist when onboarding a new client:
 - [ ] Create ECR repo in client's AWS account (`truekredit-pro-signing-gateway`)
 
 ### On-Prem Server (one-time, requires SSH access)
-- [ ] Install Docker
+- [ ] Install Docker and enable on boot (`systemctl enable docker containerd`)
 - [ ] Generate SSH key pair (`ssh-keygen -t ed25519 -f deploy_key -N ""`)
 - [ ] Create `deploy` user with Docker group membership
 - [ ] Install public key to `/home/deploy/.ssh/authorized_keys`

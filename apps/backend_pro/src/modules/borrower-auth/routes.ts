@@ -1239,10 +1239,16 @@ router.post('/company-members/bind-open-invitation', async (req, res, next) => {
       throw new ConflictError('You already have a pending invitation for this organization');
     }
 
-    await prisma.invitation.update({
-      where: { id: invitation.id },
+    const bound = await prisma.invitation.updateMany({
+      where: {
+        id: invitation.id,
+        email: invitation.email,
+      },
       data: { email },
     });
+    if (bound.count === 0) {
+      throw new ConflictError('This invitation was claimed by another user');
+    }
 
     res.json({ success: true, data: { invitationId: invitation.id } });
   } catch (e) {
@@ -1287,47 +1293,25 @@ router.post('/company-members/leave', async (req, res, next) => {
       where: { userId, borrowerId: bol.borrowerId },
     });
 
-    const sessionToken = req.borrowerUser!.sessionToken;
-    const sessionId = req.borrowerUser!.sessionId;
-    const dbSession = sessionToken
-      ? await prisma.session.findFirst({
-          where: { userId, token: sessionToken },
-        })
-      : sessionId
-        ? await prisma.session.findFirst({ where: { id: sessionId } })
-        : null;
+    const nextLink = await prisma.borrowerProfileLink.findFirst({
+      where: { userId, tenantId: bol.tenantId },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    const sessionPatch: { activeBorrowerId?: string | null; activeOrganizationId?: string | null } = {};
-    if (dbSession?.activeOrganizationId === organizationId) {
-      sessionPatch.activeOrganizationId = null;
-    }
-    if (req.borrowerUser!.activeBorrowerId === bol.borrowerId) {
-      const nextLink = await prisma.borrowerProfileLink.findFirst({
-        where: { userId, tenantId: bol.tenantId },
-        orderBy: { createdAt: 'asc' },
-      });
-      sessionPatch.activeBorrowerId = nextLink?.borrowerId ?? null;
-    }
-
-    if (Object.keys(sessionPatch).length > 0) {
-      if (sessionToken) {
-        const updated = await prisma.session.updateMany({
-          where: { userId, token: sessionToken },
-          data: sessionPatch,
-        });
-        if (updated.count === 0 && sessionId) {
-          await prisma.session.update({
-            where: { id: sessionId },
-            data: sessionPatch,
-          });
-        }
-      } else if (sessionId) {
-        await prisma.session.update({
-          where: { id: sessionId },
-          data: sessionPatch,
-        });
-      }
-    }
+    await prisma.session.updateMany({
+      where: {
+        userId,
+        expiresAt: { gt: new Date() },
+        OR: [
+          { activeBorrowerId: bol.borrowerId },
+          { activeOrganizationId: organizationId },
+        ],
+      },
+      data: {
+        activeBorrowerId: nextLink?.borrowerId ?? null,
+        activeOrganizationId: null,
+      },
+    });
 
     res.json({ success: true });
   } catch (e) {

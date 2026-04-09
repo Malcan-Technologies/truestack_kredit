@@ -462,30 +462,35 @@ router.post('/onboarding', async (req, res, next) => {
       createData.xTwitter = optionalText(data.xTwitter);
     }
 
-    const borrower = await prisma.borrower.create({
-      data: createData as Parameters<typeof prisma.borrower.create>[0]['data'],
-      include: { directors: { orderBy: { order: 'asc' } } },
-    });
-
-    await prisma.borrowerProfileLink.create({
-      data: {
-        userId,
-        borrowerId: borrower.id,
-        tenantId: tenant.id,
-        borrowerType: borrower.borrowerType,
-      },
-    });
-
-    let activeOrganizationId: string | null = null;
-    if (isCorporate) {
-      const org = await createBorrowerCompanyOrgAndLink({
-        borrowerId: borrower.id,
-        ownerUserId: userId,
-        tenantId: tenant.id,
-        displayName: orgDisplayNameFromBorrower(borrower),
+    const { borrower, activeOrganizationId } = await prisma.$transaction(async (tx) => {
+      const createdBorrower = await tx.borrower.create({
+        data: createData as Parameters<typeof tx.borrower.create>[0]['data'],
+        include: { directors: { orderBy: { order: 'asc' } } },
       });
-      activeOrganizationId = org.id;
-    }
+
+      await tx.borrowerProfileLink.create({
+        data: {
+          userId,
+          borrowerId: createdBorrower.id,
+          tenantId: tenant.id,
+          borrowerType: createdBorrower.borrowerType,
+        },
+      });
+
+      let createdOrganizationId: string | null = null;
+      if (isCorporate) {
+        const org = await createBorrowerCompanyOrgAndLink({
+          borrowerId: createdBorrower.id,
+          ownerUserId: userId,
+          tenantId: tenant.id,
+          displayName: orgDisplayNameFromBorrower(createdBorrower),
+          prismaClient: tx,
+        });
+        createdOrganizationId = org.id;
+      }
+
+      return { borrower: createdBorrower, activeOrganizationId: createdOrganizationId };
+    });
 
     // Update session activeBorrowerId (so /me and /borrower work immediately)
     const sessionToken = req.borrowerUser!.sessionToken;

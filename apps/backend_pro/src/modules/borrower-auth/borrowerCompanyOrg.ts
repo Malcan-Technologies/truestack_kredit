@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import type { Prisma } from '@prisma/client';
 
 export const OPEN_INVITE_EMAIL_DOMAIN = 'borrower-invite.invalid';
 export const OPEN_INVITE_PREFIX = 'open-link-';
@@ -20,36 +21,53 @@ export function orgDisplayNameFromBorrower(borrower: {
   return (borrower.companyName?.trim() || borrower.name?.trim() || 'Company').slice(0, 200);
 }
 
+async function createBorrowerCompanyOrgAndLinkWithClient(
+  prismaClient: Prisma.TransactionClient,
+  params: {
+    borrowerId: string;
+    ownerUserId: string;
+    tenantId: string;
+    displayName: string;
+  }
+) {
+  const slug = `co-${params.borrowerId}`;
+  const org = await prismaClient.organization.create({
+    data: {
+      name: params.displayName,
+      slug,
+      metadata: JSON.stringify({ borrowerId: params.borrowerId }),
+      members: {
+        create: {
+          userId: params.ownerUserId,
+          role: 'owner',
+        },
+      },
+    },
+  });
+  await prismaClient.borrowerOrganizationLink.create({
+    data: {
+      borrowerId: params.borrowerId,
+      organizationId: org.id,
+      tenantId: params.tenantId,
+    },
+  });
+  return org;
+}
+
 export async function createBorrowerCompanyOrgAndLink(params: {
   borrowerId: string;
   ownerUserId: string;
   tenantId: string;
   displayName: string;
+  prismaClient?: Prisma.TransactionClient;
 }) {
-  const slug = `co-${params.borrowerId}`;
-  return prisma.$transaction(async (tx) => {
-    const org = await tx.organization.create({
-      data: {
-        name: params.displayName,
-        slug,
-        metadata: JSON.stringify({ borrowerId: params.borrowerId }),
-        members: {
-          create: {
-            userId: params.ownerUserId,
-            role: 'owner',
-          },
-        },
-      },
-    });
-    await tx.borrowerOrganizationLink.create({
-      data: {
-        borrowerId: params.borrowerId,
-        organizationId: org.id,
-        tenantId: params.tenantId,
-      },
-    });
-    return org;
-  });
+  if (params.prismaClient) {
+    return createBorrowerCompanyOrgAndLinkWithClient(params.prismaClient, params);
+  }
+
+  return prisma.$transaction((tx) =>
+    createBorrowerCompanyOrgAndLinkWithClient(tx, params)
+  );
 }
 
 export async function resolveOrgIdForBorrower(borrowerId: string): Promise<string | null> {

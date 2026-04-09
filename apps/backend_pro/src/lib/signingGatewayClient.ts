@@ -121,7 +121,7 @@ export interface OrganisationInfo {
   orgAddressState?: string;
   orgAddressPostcode?: string;
   orgAddressCountry?: string;
-  orgRegistationNo?: string;
+  orgRegistationNo: string;
   orgRegistationType?: string;
   orgPhoneNo?: string;
   orgFaxNo?: string;

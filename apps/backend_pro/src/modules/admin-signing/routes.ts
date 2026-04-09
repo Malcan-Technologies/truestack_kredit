@@ -366,7 +366,7 @@ const orgUserRegistrationTypes = ['IDC', 'PAS'] as const;
 
 const enrollSchema = z.object({
   pin: z.string().min(4).max(8),
-  otp: z.string().min(1),
+  phone: z.string().min(1, 'Mobile number is required').max(15, 'Mobile number must be 15 characters or fewer'),
   organisationInfo: z.object({
     orgName: z.string().min(1, 'Organisation name is required'),
     orgUserDesignation: z.string().optional(),
@@ -377,7 +377,7 @@ const enrollSchema = z.object({
     orgAddressState: z.string().min(1, 'State is required'),
     orgAddressPostcode: z.string().min(1, 'Postcode is required'),
     orgAddressCountry: z.string().min(1).default('MY'),
-    orgRegistationNo: z.string().optional(),
+    orgRegistationNo: z.string().min(1, 'Organisation registration number is required'),
     orgRegistationType: z.enum(orgRegistrationTypes).default('NTRMY'),
     orgPhoneNo: z.string().min(1, 'Organisation phone number is required'),
   }),
@@ -438,6 +438,12 @@ router.post('/enroll', async (req, res, next) => {
     if (!docMap['SELFIE_LIVENESS']) {
       throw new BadRequestError('Selfie image is required for enrollment');
     }
+    if (body.phone !== profile.phone) {
+      await prisma.staffSigningProfile.update({
+        where: { id: profile.id },
+        data: { phone: body.phone },
+      });
+    }
 
     const latestKyc = await prisma.staffKycSession.findFirst({
       where: { profileId: profile.id, status: 'completed', result: 'approved' },
@@ -448,7 +454,7 @@ router.post('/enroll', async (req, res, next) => {
       UserID: profile.icNumber,
       FullName: profile.fullName,
       EmailAddress: profile.email,
-      MobileNo: profile.phone || profile.email,
+      MobileNo: body.phone,
       Nationality: profile.nationality,
       UserType: '2',
       IDType: isPassport ? 'P' : 'N',
@@ -466,7 +472,7 @@ router.post('/enroll', async (req, res, next) => {
         orgAddressState: body.organisationInfo.orgAddressState,
         orgAddressPostcode: body.organisationInfo.orgAddressPostcode,
         orgAddressCountry: body.organisationInfo.orgAddressCountry,
-        orgRegistationNo: body.organisationInfo.orgRegistationNo || undefined,
+        orgRegistationNo: body.organisationInfo.orgRegistationNo,
         orgRegistationType: body.organisationInfo.orgRegistationType || 'NTRMY',
         orgPhoneNo: body.organisationInfo.orgPhoneNo,
       },
@@ -886,6 +892,60 @@ router.get('/signers', async (req, res, next) => {
     });
 
     res.json({ success: true, signers: profiles });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete a signing profile (DB only — does NOT revoke the certificate).
+// Cascade deletes associated KYC sessions and documents.
+router.delete('/signers/:profileId', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const userId = req.user!.userId;
+    const { profileId } = req.params;
+
+    const profile = await prisma.staffSigningProfile.findFirst({
+      where: { id: profileId, tenantId },
+    });
+    if (!profile) {
+      throw new NotFoundError('Signing profile not found');
+    }
+
+    await prisma.staffSigningProfile.delete({ where: { id: profileId } });
+
+    await AuditService.log({
+      tenantId,
+      action: 'STAFF_PROFILE_DELETED',
+      entityType: 'StaffSigningProfile',
+      entityId: profileId,
+      newData: {
+        deletedBy: userId,
+        fullName: profile.fullName,
+        icNumber: profile.icNumber,
+        certStatus: profile.certStatus,
+      },
+      ipAddress: req.ip,
+    });
+
+    await prisma.adminAuditLog.create({
+      data: {
+        userId,
+        tenantId,
+        action: 'STAFF_PROFILE_DELETED',
+        targetId: profileId,
+        targetType: 'StaffSigningProfile',
+        details: JSON.stringify({
+          fullName: profile.fullName,
+          icNumber: profile.icNumber,
+          certStatus: profile.certStatus,
+        }),
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    });
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

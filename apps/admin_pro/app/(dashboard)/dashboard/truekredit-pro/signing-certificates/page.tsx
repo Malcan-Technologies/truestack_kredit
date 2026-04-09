@@ -18,6 +18,7 @@ import {
   LockKeyhole,
   RotateCcw,
   Mail,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,12 +65,12 @@ import {
   checkSigningHealth,
   getCertStatus,
   checkCertByIc,
-  requestEnrollmentOtp,
   enrollCert,
   revokeCert,
   verifyCertPin,
   resetCertPin,
   getTenantSigners,
+  deleteSigner,
   checkStaffEmailChange,
   confirmStaffEmailChange,
   type StaffSigningProfile,
@@ -133,11 +134,9 @@ export default function SigningCertificatesPage() {
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Enrollment modal state
+  const [enrollPhone, setEnrollPhone] = useState("");
   const [enrollPin, setEnrollPin] = useState("");
   const [enrollPinConfirm, setEnrollPinConfirm] = useState("");
-  const [enrollOtp, setEnrollOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [sendingOtp, setSendingOtp] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [startingKyc, setStartingKyc] = useState(false);
 
@@ -187,6 +186,11 @@ export default function SigningCertificatesPage() {
   const [emailOtpBusy, setEmailOtpBusy] = useState(false);
   const [emailOtpError, setEmailOtpError] = useState<string | null>(null);
   const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
+
+  // Delete signer state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<TenantSigner | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const hasCert = certInfo?.certStatus === "Valid";
   const hasProfile = !!profile;
@@ -413,34 +417,21 @@ export default function SigningCertificatesPage() {
     }
   };
 
-  const handleRequestOtp = async () => {
-    setSendingOtp(true);
-    try {
-      const res = await requestEnrollmentOtp();
-      if (res.success) {
-        setOtpSent(true);
-        toast.success("OTP sent to your email");
-      } else {
-        toast.error(res.statusMsg || "Failed to send OTP");
-      }
-    } catch {
-      toast.error("Failed to request OTP");
-    } finally {
-      setSendingOtp(false);
-    }
-  };
-
   const handleEnroll = async () => {
+    if (!enrollPhone.trim()) {
+      toast.error("Mobile number is required");
+      return;
+    }
+    if (enrollPhone.trim().length > 15) {
+      toast.error("Mobile number must be 15 characters or fewer");
+      return;
+    }
     if (!CERT_PIN_REGEX.test(enrollPin)) {
       toast.error("PIN must be exactly 8 digits (numbers only)");
       return;
     }
     if (enrollPin !== enrollPinConfirm) {
       toast.error("PINs do not match");
-      return;
-    }
-    if (!enrollOtp) {
-      toast.error("Please enter the OTP from your email");
       return;
     }
     if (!enrollOrgInfo.orgName.trim()) {
@@ -455,6 +446,10 @@ export default function SigningCertificatesPage() {
       toast.error("User registration number is required");
       return;
     }
+    if (!enrollOrgInfo.orgRegistationNo.trim()) {
+      toast.error("Organisation registration number is required");
+      return;
+    }
     if (!enrollOrgInfo.orgAddress.trim()) {
       toast.error("Organisation address is required");
       return;
@@ -465,7 +460,7 @@ export default function SigningCertificatesPage() {
     }
     setEnrolling(true);
     try {
-      const res = await enrollCert(enrollPin, enrollOtp, enrollOrgInfo);
+      const res = await enrollCert(enrollPin, enrollPhone.trim(), enrollOrgInfo);
       if (res.success) {
         toast.success("Certificate enrolled successfully!");
         resetEnrollForm();
@@ -527,6 +522,28 @@ export default function SigningCertificatesPage() {
       toast.error("Lookup failed");
     } finally {
       setLookingUp(false);
+    }
+  };
+
+  const handleDeleteSigner = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await deleteSigner(deleteTarget.id);
+      if (res.success) {
+        toast.success(`Deleted signing profile for ${deleteTarget.fullName}`);
+        setDeleteDialogOpen(false);
+        setDeleteTarget(null);
+        if (deleteTarget.userId === currentUserId) {
+          setProfile(null);
+          setCertInfo(null);
+        }
+        await loadData();
+      }
+    } catch {
+      toast.error("Failed to delete signer");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -613,11 +630,10 @@ export default function SigningCertificatesPage() {
   };
 
   const resetEnrollForm = () => {
+    setEnrollPhone(profile?.phone || "");
     setEnrollPin("");
     setEnrollPinConfirm("");
-    setEnrollOtp("");
     setEnrollOrgInfo(defaultOrgInfo());
-    setOtpSent(false);
   };
 
   const certStatusBadge = (status: string | undefined | null) => {
@@ -815,70 +831,83 @@ export default function SigningCertificatesPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {isMe && (
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => openProfileDialog(true)}
-                            >
-                              Edit
-                            </Button>
-                            {isValid ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setVerifyPinValue("");
-                                    setVerifyPinResult(null);
-                                    setVerifyPinDialogOpen(true);
-                                  }}
-                                  disabled={!gatewayOnline}
-                                >
-                                  <LockKeyhole className="h-3 w-3 mr-1" />
-                                  Verify PIN
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setResetCurrentPin("");
-                                    setResetNewPin("");
-                                    setResetNewPinConfirm("");
-                                    setResetPinDialogOpen(true);
-                                  }}
-                                  disabled={!gatewayOnline}
-                                >
-                                  <RotateCcw className="h-3 w-3 mr-1" />
-                                  Reset PIN
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                                  onClick={() => {
-                                    setRevokePin("");
-                                    setRevokeReason("keyCompromise");
-                                    setRevokeDialogOpen(true);
-                                  }}
-                                >
-                                  <Ban className="h-3 w-3 mr-1" />
-                                  Revoke
-                                </Button>
-                              </>
-                            ) : (
+                        <div className="flex items-center justify-end gap-1">
+                          {isMe && (
+                            <>
                               <Button
                                 size="sm"
-                                onClick={() => void openEnrollDialog()}
-                                disabled={!gatewayOnline}
+                                variant="ghost"
+                                onClick={() => openProfileDialog(true)}
                               >
-                                <KeyRound className="h-3 w-3 mr-1" />
-                                Enroll
+                                Edit
                               </Button>
-                            )}
-                          </div>
-                        )}
+                              {isValid ? (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setVerifyPinValue("");
+                                      setVerifyPinResult(null);
+                                      setVerifyPinDialogOpen(true);
+                                    }}
+                                    disabled={!gatewayOnline}
+                                  >
+                                    <LockKeyhole className="h-3 w-3 mr-1" />
+                                    Verify PIN
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setResetCurrentPin("");
+                                      setResetNewPin("");
+                                      setResetNewPinConfirm("");
+                                      setResetPinDialogOpen(true);
+                                    }}
+                                    disabled={!gatewayOnline}
+                                  >
+                                    <RotateCcw className="h-3 w-3 mr-1" />
+                                    Reset PIN
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                                    onClick={() => {
+                                      setRevokePin("");
+                                      setRevokeReason("keyCompromise");
+                                      setRevokeDialogOpen(true);
+                                    }}
+                                  >
+                                    <Ban className="h-3 w-3 mr-1" />
+                                    Revoke
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  onClick={() => void openEnrollDialog()}
+                                  disabled={!gatewayOnline}
+                                >
+                                  <KeyRound className="h-3 w-3 mr-1" />
+                                  Enroll
+                                </Button>
+                              )}
+                            </>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => {
+                              setDeleteTarget(s);
+                              setDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -1228,9 +1257,9 @@ export default function SigningCertificatesPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Organisation Registration No.</Label>
+                    <Label>Organisation Registration No. <span className="text-destructive">*</span></Label>
                     <Input
-                      value={enrollOrgInfo.orgRegistationNo || ""}
+                      value={enrollOrgInfo.orgRegistationNo}
                       onChange={(e) =>
                         setEnrollOrgInfo((prev) => ({ ...prev, orgRegistationNo: e.target.value }))
                       }
@@ -1367,7 +1396,7 @@ export default function SigningCertificatesPage() {
               </div>
             </div>
 
-            {/* Step 3: PIN & OTP */}
+            {/* Step 3: Mobile & PIN */}
             <div
               className={`space-y-3 ${!kycComplete ? "opacity-50 pointer-events-none" : ""}`}
             >
@@ -1375,10 +1404,25 @@ export default function SigningCertificatesPage() {
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
                   3
                 </span>
-                <h4 className="font-medium">Set PIN &amp; Verify Email</h4>
+                <h4 className="font-medium">Mobile Number & Certificate PIN</h4>
               </div>
 
               <div className="space-y-4 pl-8">
+                <div className="space-y-2">
+                  <Label>Mobile Number <span className="text-destructive">*</span></Label>
+                  <Input
+                    value={enrollPhone}
+                    onChange={(e) => setEnrollPhone(e.target.value)}
+                    placeholder="e.g. +60123456789"
+                    maxLength={15}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Your personal mobile number (max 15 characters). This will be updated in your profile.
+                  </p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Choose an 8-digit PIN to protect your signing certificate. You will need this PIN every time you sign a document.
+                </p>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Choose PIN</Label>
@@ -1409,29 +1453,6 @@ export default function SigningCertificatesPage() {
                     />
                   </div>
                 </div>
-
-                <div className="space-y-2">
-                  <Label>Email OTP</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={enrollOtp}
-                      onChange={(e) => setEnrollOtp(e.target.value)}
-                      placeholder="Enter OTP from email"
-                      className="max-w-[200px]"
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRequestOtp}
-                      disabled={sendingOtp || otpSent}
-                    >
-                      {sendingOtp && (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      )}
-                      {otpSent ? "OTP Sent" : "Send OTP"}
-                    </Button>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -1451,13 +1472,14 @@ export default function SigningCertificatesPage() {
               onClick={handleEnroll}
               disabled={
                 enrolling ||
+                !enrollPhone.trim() ||
                 !CERT_PIN_REGEX.test(enrollPin) ||
                 enrollPin !== enrollPinConfirm ||
-                !enrollOtp ||
                 !kycComplete ||
                 !enrollOrgInfo.orgName.trim() ||
                 !enrollOrgInfo.orgPhoneNo.trim() ||
                 !enrollOrgInfo.orgUserRegistrationNo.trim() ||
+                !enrollOrgInfo.orgRegistationNo.trim() ||
                 !enrollOrgInfo.orgAddress.trim() ||
                 !enrollOrgInfo.orgAddressCity.trim() ||
                 !enrollOrgInfo.orgAddressState.trim() ||
@@ -1813,6 +1835,70 @@ export default function SigningCertificatesPage() {
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : null}
               Confirm email change
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Signer Confirmation Modal */}
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !deleting) {
+            setDeleteDialogOpen(false);
+            setDeleteTarget(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete signing profile
+            </DialogTitle>
+            <DialogDescription>
+              This deletes the signing profile, KYC data, and uploaded documents
+              from your database. It does{" "}
+              <strong className="text-foreground">not</strong> revoke the actual
+              certificate with the Certificate Authority. The user can re-create
+              their profile and re-enroll afterwards.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteTarget && (
+            <div className="rounded-lg border p-4 space-y-1 text-sm">
+              <p>
+                <span className="text-muted-foreground">Name:</span>{" "}
+                <span className="font-medium">{deleteTarget.fullName}</span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">IC:</span>{" "}
+                <span className="font-mono">{deleteTarget.icNumber}</span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">Certificate:</span>{" "}
+                {deleteTarget.certStatus || "None"}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setDeleteTarget(null);
+              }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteSigner}
+              disabled={deleting}
+            >
+              {deleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete profile
             </Button>
           </DialogFooter>
         </DialogContent>

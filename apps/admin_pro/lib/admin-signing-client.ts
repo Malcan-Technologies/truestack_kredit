@@ -212,14 +212,14 @@ export interface EnrollOrgInfo {
   orgAddressState: string;
   orgAddressPostcode: string;
   orgAddressCountry: string;
-  orgRegistationNo?: string;
+  orgRegistationNo: string;
   orgRegistationType: string;
   orgPhoneNo: string;
 }
 
 export async function enrollCert(
   pin: string,
-  otp: string,
+  phone: string,
   organisationInfo: EnrollOrgInfo,
 ): Promise<{
   success: boolean;
@@ -234,7 +234,7 @@ export async function enrollCert(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pin, otp, organisationInfo }),
+    body: JSON.stringify({ pin, phone, organisationInfo }),
   });
   return parseJson(res);
 }
@@ -403,6 +403,16 @@ export async function getTenantSigners(): Promise<{
   signers: TenantSigner[];
 }> {
   const res = await fetch(`${BASE}/signers`, {
+    credentials: "include",
+  });
+  return parseJson(res);
+}
+
+export async function deleteSigner(
+  profileId: string,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${BASE}/signers/${profileId}`, {
+    method: "DELETE",
     credentials: "include",
   });
   return parseJson(res);

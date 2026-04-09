@@ -3,9 +3,17 @@
  * All calls include the X-API-Key header for authentication.
  */
 
+import { lookup as systemLookup } from 'node:dns';
+import { Resolver } from 'node:dns/promises';
+import type { IncomingHttpHeaders } from 'node:http';
+import http from 'node:http';
+import https, { type RequestOptions as HttpsRequestOptions } from 'node:https';
 import { config } from './config.js';
 
 const TIMEOUT_MS = 15_000;
+const publicDnsResolver = new Resolver();
+
+publicDnsResolver.setServers(['1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4']);
 
 interface GatewayHealthResponse {
   status: string;
@@ -68,75 +76,157 @@ function previewResponseBody(text: string, maxLength = 300): string {
   return `${normalized.slice(0, maxLength)}...`;
 }
 
-async function gatewayFetch<T>(
+function shouldUsePublicDns(url: URL): boolean {
+  return url.protocol === 'https:' && url.hostname.endsWith('.truestack.my');
+}
+
+async function resolveHostnameViaPublicDns(hostname: string): Promise<{ address: string; family: 4 | 6 }> {
+  try {
+    const addresses = await publicDnsResolver.resolve4(hostname);
+    if (addresses.length > 0) {
+      return { address: addresses[0], family: 4 };
+    }
+  } catch {
+    // Fall through to IPv6 lookup.
+  }
+
+  const addresses = await publicDnsResolver.resolve6(hostname);
+  if (addresses.length > 0) {
+    return { address: addresses[0], family: 6 };
+  }
+
+  throw new Error(`Public DNS returned no records for ${hostname}`);
+}
+
+async function gatewayRequest(
   method: string,
   path: string,
-  body?: unknown
-): Promise<T> {
+  body?: unknown,
+  timeoutMs = TIMEOUT_MS
+): Promise<{ status: number; statusText: string; headers: IncomingHttpHeaders; body: string }> {
+  const url = new URL(path, `${config.signing.gatewayUrl}/`);
+  const requestBody = body ? JSON.stringify(body) : undefined;
+  const requestHeaders = headers();
+
+  if (requestBody) {
+    requestHeaders['Content-Length'] = Buffer.byteLength(requestBody).toString();
+  }
+
+  let resolvedAddress: { address: string; family: 4 | 6 } | undefined;
+  if (shouldUsePublicDns(url)) {
+    resolvedAddress = await resolveHostnameViaPublicDns(url.hostname);
+    requestHeaders.Host = url.host;
+  }
+
+  const requestOptions: HttpsRequestOptions = {
+    protocol: url.protocol,
+    hostname: url.hostname,
+    port: url.port ? Number(url.port) : undefined,
+    path: `${url.pathname}${url.search}`,
+    method,
+    headers: requestHeaders,
+    lookup: resolvedAddress
+      ? ((hostname, _options, callback) => {
+          if (hostname === url.hostname) {
+            callback(null, resolvedAddress.address, resolvedAddress.family);
+            return;
+          }
+          systemLookup(hostname, { family: 0 }, callback);
+        })
+      : undefined,
+  };
+
+  if (url.protocol === 'https:') {
+    requestOptions.servername = url.hostname;
+  }
+
+  const requestClient = url.protocol === 'https:' ? https : http;
+
+  return await new Promise((resolve, reject) => {
+    const req = requestClient.request(requestOptions, (res) => {
+      let responseBody = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        responseBody += chunk;
+      });
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode ?? 0,
+          statusText: res.statusMessage ?? '',
+          headers: res.headers,
+          body: responseBody,
+        });
+      });
+    });
+
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
+
+    if (requestBody) {
+      req.write(requestBody);
+    }
+    req.end();
+  });
+}
+
+async function gatewayFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
   const url = `${config.signing.gatewayUrl}${path}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let response: { status: number; statusText: string; headers: IncomingHttpHeaders; body: string };
 
   try {
-    let res: Response;
+    response = await gatewayRequest(method, path, body);
+  } catch (error) {
+    console.error('[SigningGatewayClient] Request failed', {
+      method,
+      path,
+      url,
+      timeoutMs: TIMEOUT_MS,
+      signingEnabled: config.signing.enabled,
+      hasCfAccessClientId: Boolean(config.signing.cfAccessClientId),
+      hasCfAccessClientSecret: Boolean(config.signing.cfAccessClientSecret),
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
-    try {
-      res = await fetch(url, {
-        method,
-        headers: headers(),
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
-    } catch (error) {
-      console.error('[SigningGatewayClient] Request failed', {
-        method,
-        path,
-        url,
-        timeoutMs: TIMEOUT_MS,
-        signingEnabled: config.signing.enabled,
-        hasCfAccessClientId: Boolean(config.signing.cfAccessClientId),
-        hasCfAccessClientSecret: Boolean(config.signing.cfAccessClientSecret),
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+  const contentTypeHeader = response.headers['content-type'];
+  const contentType = Array.isArray(contentTypeHeader)
+    ? contentTypeHeader.join(', ')
+    : contentTypeHeader || 'unknown';
+  const responseText = response.body;
 
-    const contentType = res.headers.get('content-type') || 'unknown';
-    const responseText = await res.text();
+  if (response.status < 200 || response.status >= 300) {
+    console.error('[SigningGatewayClient] Non-OK response', {
+      method,
+      path,
+      url,
+      status: response.status,
+      statusText: response.statusText,
+      contentType,
+      responseLength: responseText.length,
+      bodyPreview: previewResponseBody(responseText),
+    });
+  }
 
-    if (!res.ok) {
-      console.error('[SigningGatewayClient] Non-OK response', {
-        method,
-        path,
-        url,
-        status: res.status,
-        statusText: res.statusText,
-        contentType,
-        responseLength: responseText.length,
-        bodyPreview: previewResponseBody(responseText),
-      });
-    }
-
-    try {
-      return JSON.parse(responseText) as T;
-    } catch (error) {
-      console.error('[SigningGatewayClient] Invalid JSON response', {
-        method,
-        path,
-        url,
-        status: res.status,
-        statusText: res.statusText,
-        contentType,
-        responseLength: responseText.length,
-        bodyPreview: previewResponseBody(responseText),
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  } finally {
-    clearTimeout(timer);
+  try {
+    return JSON.parse(responseText) as T;
+  } catch (error) {
+    console.error('[SigningGatewayClient] Invalid JSON response', {
+      method,
+      path,
+      url,
+      status: response.status,
+      statusText: response.statusText,
+      contentType,
+      responseLength: responseText.length,
+      bodyPreview: previewResponseBody(responseText),
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
 }
 
@@ -268,21 +358,8 @@ export interface SignAndStoreResponse {
 const SIGN_TIMEOUT_MS = 60_000;
 
 export async function signAndStorePdf(body: SignAndStoreBody): Promise<SignAndStoreResponse> {
-  const url = `${config.signing.gatewayUrl}/api/sign-and-store`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SIGN_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    return (await res.json()) as SignAndStoreResponse;
-  } finally {
-    clearTimeout(timer);
-  }
+  const response = await gatewayRequest('POST', '/api/sign-and-store', body, SIGN_TIMEOUT_MS);
+  return JSON.parse(response.body) as SignAndStoreResponse;
 }
 
 // ---- Email Update ----
@@ -402,21 +479,8 @@ export interface VerifyPdfSignatureResponse {
 export async function verifyPdfSignature(
   signedPdfBase64: string
 ): Promise<VerifyPdfSignatureResponse> {
-  const url = `${config.signing.gatewayUrl}/api/verify`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SIGN_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ SignedPdfInBase64: signedPdfBase64 }),
-      signal: controller.signal,
-    });
-    return (await res.json()) as VerifyPdfSignatureResponse;
-  } finally {
-    clearTimeout(timer);
-  }
+  const response = await gatewayRequest('POST', '/api/verify', { SignedPdfInBase64: signedPdfBase64 }, SIGN_TIMEOUT_MS);
+  return JSON.parse(response.body) as VerifyPdfSignatureResponse;
 }
 
 // ---- Document Management ----
@@ -440,19 +504,11 @@ export async function checkOnPremDocuments(loanIds: string[]): Promise<{ success
 }
 
 export async function restoreOnPremDocument(loanId: string, pdfBase64: string): Promise<{ success: boolean; document?: OnPremDocumentMeta; error?: string }> {
-  const url = `${config.signing.gatewayUrl}/api/documents/${encodeURIComponent(loanId)}/restore`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SIGN_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ pdfBase64 }),
-      signal: controller.signal,
-    });
-    return (await res.json()) as { success: boolean; document?: OnPremDocumentMeta; error?: string };
-  } finally {
-    clearTimeout(timer);
-  }
+  const response = await gatewayRequest(
+    'POST',
+    `/api/documents/${encodeURIComponent(loanId)}/restore`,
+    { pdfBase64 },
+    SIGN_TIMEOUT_MS
+  );
+  return JSON.parse(response.body) as { success: boolean; document?: OnPremDocumentMeta; error?: string };
 }

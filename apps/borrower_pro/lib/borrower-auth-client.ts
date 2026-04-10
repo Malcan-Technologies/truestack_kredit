@@ -6,23 +6,38 @@ const BASE = "/api/proxy/borrower-auth";
 
 const PENDING_ACCEPT_INVITATION_KEY = "borrower_pending_accept_invitation";
 
+function getWebStorage(kind: "local" | "session"): Storage | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    return kind === "local" ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 /** Remember invite URL path across sign-up / verify-email so post-login routing can resume acceptance. */
 export function setPendingAcceptInvitationPath(pathWithQuery: string): void {
   if (typeof window === "undefined") return;
   if (!pathWithQuery.startsWith("/accept-invitation")) return;
-  sessionStorage.setItem(PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
+
+  getWebStorage("session")?.setItem(PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
+  getWebStorage("local")?.setItem(PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
 }
 
 export function peekPendingAcceptInvitationPath(): string | null {
-  if (typeof window === "undefined") return null;
-  const p = sessionStorage.getItem(PENDING_ACCEPT_INVITATION_KEY);
-  if (p?.startsWith("/accept-invitation")) return p;
+  const sessionValue = getWebStorage("session")?.getItem(PENDING_ACCEPT_INVITATION_KEY);
+  if (sessionValue?.startsWith("/accept-invitation")) return sessionValue;
+
+  const localValue = getWebStorage("local")?.getItem(PENDING_ACCEPT_INVITATION_KEY);
+  if (localValue?.startsWith("/accept-invitation")) return localValue;
+
   return null;
 }
 
 export function clearPendingAcceptInvitationPath(): void {
-  if (typeof window === "undefined") return;
-  sessionStorage.removeItem(PENDING_ACCEPT_INVITATION_KEY);
+  getWebStorage("session")?.removeItem(PENDING_ACCEPT_INVITATION_KEY);
+  getWebStorage("local")?.removeItem(PENDING_ACCEPT_INVITATION_KEY);
 }
 
 /** Dispatched when user switches borrower profile. Listen to re-fetch borrower data. */

@@ -1,6 +1,6 @@
 import {
+  consumePendingAcceptInvitationPath,
   fetchBorrowerMe,
-  peekPendingAcceptInvitationPath,
 } from "@borrower_pro/lib/borrower-auth-client";
 
 /** Same-origin safe path only (for open redirects after sign-in). */
@@ -11,13 +11,25 @@ export function normalizeAuthReturnTo(value: string | null | undefined): string 
   return trimmed;
 }
 
+function isInviteRecoveryRequested(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const search = new URLSearchParams(window.location.search);
+    return search.get("inviteRecovery") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export async function getBorrowerPostLoginDestination(
   returnTo?: string | null
 ): Promise<string> {
   const fromQuery = normalizeAuthReturnTo(returnTo);
   if (fromQuery) return fromQuery;
 
-  const pendingInvite = peekPendingAcceptInvitationPath();
+  const pendingInvite = consumePendingAcceptInvitationPath({
+    allowLocalFallback: isInviteRecoveryRequested(),
+  });
   if (pendingInvite) return pendingInvite;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {

@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
+import {
+  consumePendingAcceptInvitationPath,
+  fetchBorrowerMe,
+  BORROWER_PROFILE_SWITCHED_EVENT,
+} from "@borrower_pro/lib/borrower-auth-client";
 import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
 import Link from "next/link";
 import {
@@ -172,6 +176,11 @@ export default function DashboardLayout({
         const nextHasProfiles = res.data.profileCount > 0;
         setHasBorrowerProfiles(nextHasProfiles);
         if (!nextHasProfiles && !dismissed && !isOnboardingExemptPath(pathname)) {
+          const pendingInvite = consumePendingAcceptInvitationPath();
+          if (pendingInvite) {
+            router.replace(pendingInvite);
+            return;
+          }
           router.replace("/onboarding");
         }
       })

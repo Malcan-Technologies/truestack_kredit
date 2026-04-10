@@ -33,7 +33,8 @@ Backend helpers: `borrowerCompanyOrg.ts` (`canManageCompanyProfile`, `canManageC
 | Better Auth `afterAcceptInvitation` | Upserts `BorrowerProfileLink` (CORPORATE); sets session `activeBorrowerId` + `activeOrganizationId`. |
 | Better Auth `afterRemoveMember` | Deletes `BorrowerProfileLink` for that user + borrower. |
 | `POST /company-members/leave` | Deletes `Member`, deletes profile link, patches session if needed. |
-| `POST /switch-profile` | Sets `activeOrganizationId` when active borrower is corporate and link exists. |
+| `POST /switch-profile` | For corporate borrowers, runs **lazy org repair** if `BorrowerOrganizationLink` is missing (same rules as backfill), then sets `activeOrganizationId` when a link exists. |
+| Lazy repair (server) | `lazyEnsureBorrowerCompanyOrganization` in `borrowerCompanyOrg.ts` — on company-members context, open-invitation, or switch-profile, creates org + members + link from existing `BorrowerProfileLink` when missing (no manual backfill required in normal cases). |
 
 Drift is avoided by keeping hooks and HTTP routes as the **only** writers for org membership vs profile links.
 

@@ -20,6 +20,7 @@ import {
   createBorrowerCompanyOrgAndLink,
   getOrgRoleForBorrower,
   isOpenInviteEmail,
+  lazyEnsureBorrowerCompanyOrganization,
   orgDisplayNameFromBorrower,
   resolveOrgIdForBorrower,
   syntheticOpenInviteEmail,
@@ -293,6 +294,9 @@ router.post('/switch-profile', async (req, res, next) => {
       where: { id: borrowerId },
       select: { borrowerType: true },
     });
+    if (borrowerRow?.borrowerType === 'CORPORATE') {
+      await lazyEnsureBorrowerCompanyOrganization(borrowerId);
+    }
     const orgId =
       borrowerRow?.borrowerType === 'CORPORATE'
         ? await resolveOrgIdForBorrower(borrowerId)
@@ -1125,10 +1129,17 @@ router.get('/company-members/context', async (req, res, next) => {
         },
       });
     }
-    const bol = await prisma.borrowerOrganizationLink.findUnique({
+    let bol = await prisma.borrowerOrganizationLink.findUnique({
       where: { borrowerId },
       select: { organizationId: true },
     });
+    if (!bol) {
+      await lazyEnsureBorrowerCompanyOrganization(borrowerId);
+      bol = await prisma.borrowerOrganizationLink.findUnique({
+        where: { borrowerId },
+        select: { organizationId: true },
+      });
+    }
     if (!bol) {
       return res.json({
         success: true,
@@ -1182,7 +1193,11 @@ router.post('/company-members/open-invitation', async (req, res, next) => {
     if (!canManageCompanyMembers(role)) {
       throw new ForbiddenError('You do not have permission to invite members');
     }
-    const bol = await prisma.borrowerOrganizationLink.findUnique({ where: { borrowerId } });
+    let bol = await prisma.borrowerOrganizationLink.findUnique({ where: { borrowerId } });
+    if (!bol) {
+      await lazyEnsureBorrowerCompanyOrganization(borrowerId);
+      bol = await prisma.borrowerOrganizationLink.findUnique({ where: { borrowerId } });
+    }
     if (!bol) {
       throw new BadRequestError('This company is not set up for member invitations yet');
     }

@@ -5,24 +5,138 @@
 const BASE = "/api/proxy/borrower-auth";
 
 const PENDING_ACCEPT_INVITATION_KEY = "borrower_pending_accept_invitation";
+const PENDING_ACCEPT_INVITATION_TTL_MS = 30 * 60 * 1000;
+
+type PendingAcceptInvitationPayload = {
+  path: string;
+  createdAt: number;
+};
+
+function getWebStorage(kind: "local" | "session"): Storage | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    return kind === "local" ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSetItem(kind: "local" | "session", key: string, value: string): void {
+  const storage = getWebStorage(kind);
+  if (!storage) return;
+
+  try {
+    storage.setItem(key, value);
+  } catch {
+    // Ignore storage write errors (disabled storage, quota exceeded, etc.).
+  }
+}
+
+function safeStorageGetItem(kind: "local" | "session", key: string): string | null {
+  const storage = getWebStorage(kind);
+  if (!storage) return null;
+
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageRemoveItem(kind: "local" | "session", key: string): void {
+  const storage = getWebStorage(kind);
+  if (!storage) return;
+
+  try {
+    storage.removeItem(key);
+  } catch {
+    // Ignore storage removal errors.
+  }
+}
+
+function encodePendingAcceptInvitation(pathWithQuery: string): string {
+  return JSON.stringify({
+    path: pathWithQuery,
+    createdAt: Date.now(),
+  } satisfies PendingAcceptInvitationPayload);
+}
+
+function decodePendingAcceptInvitation(raw: string | null): string | null {
+  if (!raw) return null;
+
+  // Backward-compat: accept previous plain-string format.
+  if (raw.startsWith("/accept-invitation")) {
+    return raw;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PendingAcceptInvitationPayload>;
+    if (typeof parsed.path !== "string" || !parsed.path.startsWith("/accept-invitation")) {
+      return null;
+    }
+    if (typeof parsed.createdAt !== "number") {
+      return null;
+    }
+    if (Date.now() - parsed.createdAt > PENDING_ACCEPT_INVITATION_TTL_MS) {
+      return null;
+    }
+    return parsed.path;
+  } catch {
+    return null;
+  }
+}
 
 /** Remember invite URL path across sign-up / verify-email so post-login routing can resume acceptance. */
 export function setPendingAcceptInvitationPath(pathWithQuery: string): void {
   if (typeof window === "undefined") return;
   if (!pathWithQuery.startsWith("/accept-invitation")) return;
-  sessionStorage.setItem(PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
+
+  const payload = encodePendingAcceptInvitation(pathWithQuery);
+  safeStorageSetItem("session", PENDING_ACCEPT_INVITATION_KEY, payload);
+  safeStorageSetItem("local", PENDING_ACCEPT_INVITATION_KEY, payload);
 }
 
 export function peekPendingAcceptInvitationPath(): string | null {
-  if (typeof window === "undefined") return null;
-  const p = sessionStorage.getItem(PENDING_ACCEPT_INVITATION_KEY);
-  if (p?.startsWith("/accept-invitation")) return p;
+  const sessionValue = decodePendingAcceptInvitation(
+    safeStorageGetItem("session", PENDING_ACCEPT_INVITATION_KEY)
+  );
+  if (sessionValue) return sessionValue;
+
+  const localValue = decodePendingAcceptInvitation(
+    safeStorageGetItem("local", PENDING_ACCEPT_INVITATION_KEY)
+  );
+  if (localValue) return localValue;
+
   return null;
 }
 
+export function consumePendingAcceptInvitationPath(options?: {
+  allowLocalFallback?: boolean;
+}): string | null {
+  const sessionValue = decodePendingAcceptInvitation(
+    safeStorageGetItem("session", PENDING_ACCEPT_INVITATION_KEY)
+  );
+  if (sessionValue) {
+    clearPendingAcceptInvitationPath();
+    return sessionValue;
+  }
+
+  if (!options?.allowLocalFallback) {
+    safeStorageRemoveItem("session", PENDING_ACCEPT_INVITATION_KEY);
+    return null;
+  }
+
+  const localValue = decodePendingAcceptInvitation(
+    safeStorageGetItem("local", PENDING_ACCEPT_INVITATION_KEY)
+  );
+  clearPendingAcceptInvitationPath();
+  return localValue;
+}
+
 export function clearPendingAcceptInvitationPath(): void {
-  if (typeof window === "undefined") return;
-  sessionStorage.removeItem(PENDING_ACCEPT_INVITATION_KEY);
+  safeStorageRemoveItem("session", PENDING_ACCEPT_INVITATION_KEY);
+  safeStorageRemoveItem("local", PENDING_ACCEPT_INVITATION_KEY);
 }
 
 /** Dispatched when user switches borrower profile. Listen to re-fetch borrower data. */

@@ -1,5 +1,5 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import type { Prisma } from '@prisma/client';
 
 export const OPEN_INVITE_EMAIL_DOMAIN = 'borrower-invite.invalid';
 export const OPEN_INVITE_PREFIX = 'open-link-';
@@ -68,6 +68,102 @@ export async function createBorrowerCompanyOrgAndLink(params: {
   return prisma.$transaction((tx) =>
     createBorrowerCompanyOrgAndLinkWithClient(tx, params)
   );
+}
+
+/**
+ * If a CORPORATE borrower has profile links but no BorrowerOrganizationLink (pre-feature rows),
+ * create Organization + Member rows + link in one transaction. Idempotent if link already exists.
+ * Matches backfill rules: earliest linked user → owner, others → member.
+ */
+export async function lazyEnsureBorrowerCompanyOrganization(borrowerId: string): Promise<{
+  organizationId: string | null;
+  repaired: boolean;
+}> {
+  const existing = await prisma.borrowerOrganizationLink.findUnique({
+    where: { borrowerId },
+    select: { organizationId: true },
+  });
+  if (existing) {
+    return { organizationId: existing.organizationId, repaired: false };
+  }
+
+  const borrower = await prisma.borrower.findFirst({
+    where: { id: borrowerId, borrowerType: 'CORPORATE' },
+    select: { id: true, tenantId: true, companyName: true, name: true },
+  });
+  if (!borrower) {
+    return { organizationId: null, repaired: false };
+  }
+
+  const rawLinks = await prisma.borrowerProfileLink.findMany({
+    where: { borrowerId },
+    select: { userId: true, createdAt: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const firstByUser = new Map<string, Date>();
+  for (const l of rawLinks) {
+    if (!firstByUser.has(l.userId)) firstByUser.set(l.userId, l.createdAt);
+  }
+  const userIdsOrdered = [...firstByUser.entries()]
+    .sort((a, b) => a[1].getTime() - b[1].getTime())
+    .map(([uid]) => uid);
+
+  if (userIdsOrdered.length === 0) {
+    return { organizationId: null, repaired: false };
+  }
+
+  const displayName = orgDisplayNameFromBorrower(borrower);
+  const slug = `co-${borrower.id}`;
+  const ownerUserId = userIdsOrdered[0];
+  const rest = userIdsOrdered.slice(1);
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const stillMissing = await tx.borrowerOrganizationLink.findUnique({ where: { borrowerId } });
+      if (stillMissing) return;
+
+      const org = await tx.organization.create({
+        data: {
+          name: displayName,
+          slug,
+          metadata: JSON.stringify({ borrowerId: borrower.id }),
+          members: {
+            create: [
+              { userId: ownerUserId, role: 'owner' },
+              ...rest.map((userId) => ({ userId, role: 'member' as const })),
+            ],
+          },
+        },
+      });
+      await tx.borrowerOrganizationLink.create({
+        data: {
+          borrowerId: borrower.id,
+          organizationId: org.id,
+          tenantId: borrower.tenantId,
+        },
+      });
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const afterRace = await prisma.borrowerOrganizationLink.findUnique({
+        where: { borrowerId },
+        select: { organizationId: true },
+      });
+      if (afterRace) {
+        return { organizationId: afterRace.organizationId, repaired: true };
+      }
+    }
+    throw e;
+  }
+
+  const bol = await prisma.borrowerOrganizationLink.findUnique({
+    where: { borrowerId },
+    select: { organizationId: true },
+  });
+  return {
+    organizationId: bol?.organizationId ?? null,
+    repaired: Boolean(bol),
+  };
 }
 
 export async function resolveOrgIdForBorrower(borrowerId: string): Promise<string | null> {

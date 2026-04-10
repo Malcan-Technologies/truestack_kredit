@@ -282,8 +282,10 @@ export function CompanyMembersCard() {
             Company members
           </CardTitle>
           <CardDescription>
-            This company is not linked to Better Auth yet. Run the borrower org backfill script (see docs)
-            or recreate the corporate profile so member invitations work.
+            This corporate profile has no linked users in the system yet, so a company workspace cannot be
+            created. Add at least one borrower profile link, or contact support. If you still see this after
+            users have access, try switching away and back to this company profile, or run the optional org
+            backfill script (see docs).
           </CardDescription>
         </CardHeader>
       </Card>

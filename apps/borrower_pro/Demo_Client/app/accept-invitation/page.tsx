@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -32,42 +32,43 @@ function AcceptInvitationInner() {
     [searchParams]
   );
   const { data: session, isPending: sessionPending } = useSession();
-  const activeAttemptRef = useRef<string | null>(null);
+  const sessionUserId = session?.user?.id ?? null;
+
   const [phase, setPhase] = useState<
-    "idle" | "redirect-signin" | "redirect-security" | "accepting" | "done"
+    "idle" | "redirect-signin" | "redirect-security" | "accepting" | "done" | "error"
   >("idle");
+  const [retryCount, setRetryCount] = useState(0);
+  const handleRetry = useCallback(() => {
+    setPhase("idle");
+    setRetryCount((c) => c + 1);
+  }, []);
 
   useEffect(() => {
-    if (!invitationId) return;
+    if (!invitationId) {
+      clearPendingAcceptInvitationPath();
+      return;
+    }
     setPendingAcceptInvitationPath(
       `/accept-invitation?invitationId=${encodeURIComponent(invitationId)}`
     );
   }, [invitationId]);
 
   useEffect(() => {
-    if (invitationId) return;
-    clearPendingAcceptInvitationPath();
-  }, [invitationId]);
-
-  useEffect(() => {
     if (!invitationId || sessionPending) return;
 
-    if (!session) {
+    if (!sessionUserId) {
       setPhase("redirect-signin");
       const returnTo = `/accept-invitation?invitationId=${encodeURIComponent(invitationId)}`;
       router.replace(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
       return;
     }
 
-    if (activeAttemptRef.current === invitationId) return;
-    activeAttemptRef.current = invitationId;
-
     let cancelled = false;
 
     void (async () => {
       try {
         const security = await fetchSecurityStatus(
-          session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean }
+          session!.user as { emailVerified?: boolean; twoFactorEnabled?: boolean }
         );
         if (cancelled) return;
         if (!security.isSecuritySetupComplete) {
@@ -84,8 +85,10 @@ function AcceptInvitationInner() {
         if (preview.data.inviteKind === "open_link") {
           await bindOpenCompanyInvitation(invitationId);
         }
+        if (cancelled) return;
 
         const acceptRes = await orgAcceptInvitation({ invitationId });
+        if (cancelled) return;
         const err = acceptRes as { error?: { message?: string } | null };
         if (err.error) {
           throw new Error(err.error.message || "Could not accept invitation");
@@ -98,10 +101,11 @@ function AcceptInvitationInner() {
         router.refresh();
       } catch (e) {
         if (cancelled) return;
-        activeAttemptRef.current = null;
-        setPhase("idle");
-        clearPendingAcceptInvitationPath();
+        setPhase("error");
         const message = e instanceof Error ? e.message : "Could not accept invitation";
+        if (/not found|expired|claimed by another|already been bound|already a member/i.test(message)) {
+          clearPendingAcceptInvitationPath();
+        }
         toast.error(message);
       }
     })();
@@ -109,7 +113,8 @@ function AcceptInvitationInner() {
     return () => {
       cancelled = true;
     };
-  }, [invitationId, session, sessionPending, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invitationId, sessionUserId, sessionPending, router, retryCount]);
 
   if (!invitationId) {
     return (
@@ -138,7 +143,11 @@ function AcceptInvitationInner() {
             ? "Redirecting…"
             : phase === "accepting"
               ? "Joining your company workspace…"
-              : "Preparing your invitation…"}
+              : phase === "done"
+                ? "Accepted! Redirecting to your profile…"
+                : phase === "error"
+                  ? "Something went wrong. Please try again."
+                  : "Preparing your invitation…"}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -146,6 +155,11 @@ function AcceptInvitationInner() {
           You may need to verify your email and complete security setup before joining.
         </p>
       </CardContent>
+      {phase === "error" && (
+        <CardFooter>
+          <Button onClick={handleRetry}>Try again</Button>
+        </CardFooter>
+      )}
     </Card>
   );
 }

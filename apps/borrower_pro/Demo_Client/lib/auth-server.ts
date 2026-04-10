@@ -41,6 +41,19 @@ const passkeyRpId = process.env.BETTER_AUTH_PASSKEY_RP_ID || getPasskeyRpId(appU
 
 const BORROWER_ORG_INVITE_EXPIRES_SEC = 60 * 60 * 24 * 7;
 
+/** Dev-only: avoid needing verified email for org invite acceptance (never enable in production). */
+const devSkipInviteEmailVerification =
+  process.env.NODE_ENV === 'development' &&
+  process.env.BORROWER_AUTH_DEV_SKIP_INVITE_EMAIL_VERIFICATION === 'true';
+
+/**
+ * Dev-only: allow sign-in without completing email verification (never enable in production).
+ * Needed to E2E invite flows without clicking verify links; prefer verifying via DB otherwise.
+ */
+const devSkipSignInEmailVerification =
+  process.env.NODE_ENV === 'development' &&
+  process.env.BORROWER_AUTH_DEV_SKIP_SIGNIN_EMAIL_VERIFICATION === 'true';
+
 function sendAuthEmail(params: {
   to: string;
   subject: string;
@@ -85,7 +98,7 @@ export const auth = betterAuth({
     minPasswordLength: 8,
     maxPasswordLength: 128,
     autoSignIn: false,
-    requireEmailVerification: true,
+    requireEmailVerification: devSkipSignInEmailVerification ? false : true,
     revokeSessionsOnPasswordReset: true,
     resetPasswordTokenExpiresIn: AUTH_LINK_TOKEN_MAX_AGE_SECONDS,
     sendResetPassword: async ({ user, token }) => {
@@ -164,7 +177,7 @@ export const auth = betterAuth({
     organization({
       allowUserToCreateOrganization: false,
       invitationExpiresIn: BORROWER_ORG_INVITE_EXPIRES_SEC,
-      requireEmailVerificationOnInvitation: true,
+      requireEmailVerificationOnInvitation: devSkipInviteEmailVerification ? false : true,
       sendInvitationEmail: async (data) => {
         const inviteUrl = buildAbsoluteUrl(
           appUrl,

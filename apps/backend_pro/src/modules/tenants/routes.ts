@@ -668,7 +668,7 @@ router.get('/users', async (req, res, next) => {
 });
 
 // Maximum users per tenant (including owner)
-const MAX_USERS_PER_TENANT = 5;
+const MAX_USERS_PER_TENANT = 10;
 
 /**
  * Invite/add a user to tenant
@@ -677,7 +677,7 @@ const MAX_USERS_PER_TENANT = 5;
  * If user already exists: just create membership
  * If user doesn't exist: create user + account + membership
  * 
- * Limit: Maximum 5 users per tenant (including owner)
+ * Limit: Maximum 10 users per tenant (including owner)
  */
 router.post('/users', requireAdmin, async (req, res, next) => {
   try {

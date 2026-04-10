@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
+import { peekPendingAcceptInvitationPath } from "@borrower_pro/lib/borrower-auth-client";
 import {
   clearPendingVerificationEmail,
   getPendingVerificationEmail,
@@ -29,6 +30,7 @@ function VerifyEmailContent() {
   const emailFromUrl = searchParams.get("email")?.trim() ?? "";
   const source = searchParams.get("source")?.trim() ?? "";
   const [email, setEmail] = useState(emailFromUrl);
+  const [signInHref, setSignInHref] = useState("/sign-in");
   const [statusMessage, setStatusMessage] = useState(
     "Check your inbox for the verification link. If it didn't arrive, resend it below."
   );
@@ -57,6 +59,12 @@ function VerifyEmailContent() {
       "Check your inbox for the verification link. If it didn't arrive, resend it below."
     );
   }, [emailFromUrl, source]);
+
+  useEffect(() => {
+    const pending = peekPendingAcceptInvitationPath();
+    if (!pending) return;
+    setSignInHref("/sign-in?inviteRecovery=1");
+  }, []);
 
   const handleResend = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -116,7 +124,7 @@ function VerifyEmailContent() {
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Verified already?{" "}
-              <Link href="/sign-in" className="text-primary underline underline-offset-4">
+              <Link href={signInHref} className="text-primary underline underline-offset-4">
                 Sign in
               </Link>
             </p>

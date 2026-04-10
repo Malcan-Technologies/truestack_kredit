@@ -111,10 +111,27 @@ export function peekPendingAcceptInvitationPath(): string | null {
   return null;
 }
 
-export function consumePendingAcceptInvitationPath(): string | null {
-  const pending = peekPendingAcceptInvitationPath();
+export function consumePendingAcceptInvitationPath(options?: {
+  allowLocalFallback?: boolean;
+}): string | null {
+  const sessionValue = decodePendingAcceptInvitation(
+    safeStorageGetItem("session", PENDING_ACCEPT_INVITATION_KEY)
+  );
+  if (sessionValue) {
+    clearPendingAcceptInvitationPath();
+    return sessionValue;
+  }
+
+  if (!options?.allowLocalFallback) {
+    safeStorageRemoveItem("session", PENDING_ACCEPT_INVITATION_KEY);
+    return null;
+  }
+
+  const localValue = decodePendingAcceptInvitation(
+    safeStorageGetItem("local", PENDING_ACCEPT_INVITATION_KEY)
+  );
   clearPendingAcceptInvitationPath();
-  return pending;
+  return localValue;
 }
 
 export function clearPendingAcceptInvitationPath(): void {

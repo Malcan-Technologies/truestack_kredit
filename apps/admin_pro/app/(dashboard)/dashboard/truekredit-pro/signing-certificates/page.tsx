@@ -485,6 +485,9 @@ export default function SigningCertificatesPage() {
     setEnrolling(true);
     try {
       const res = await enrollCert(enrollPin, enrollPhone.trim(), enrollOrgInfo);
+      const code = res.statusCode?.trim() ?? "";
+      // Signing gateway sets success only when MTSA statusCode === "000". Duplicate / already-active
+      // cases (e.g. AP121, AP111) still need a clear "check email" style outcome for users.
       if (res.success) {
         toast.success(
           "Enrollment success. Check your email for next steps.",
@@ -492,9 +495,25 @@ export default function SigningCertificatesPage() {
         resetEnrollForm();
         setEnrollDialogOpen(false);
         await loadData();
+      } else if (code === "AP121") {
+        toast.success(
+          "A certificate request is already in progress. Check your email for activation.",
+        );
+        resetEnrollForm();
+        setEnrollDialogOpen(false);
+        await loadData();
+      } else if (code === "AP111") {
+        toast.success("You already have an active certificate on file.");
+        resetEnrollForm();
+        setEnrollDialogOpen(false);
+        await loadData();
       } else {
         toast.error(
-          res.errorDescription || res.statusMsg || "Enrollment failed",
+          res.errorDescription ||
+            res.statusMsg ||
+            res.detail ||
+            res.error ||
+            "Enrollment failed",
         );
       }
     } catch {

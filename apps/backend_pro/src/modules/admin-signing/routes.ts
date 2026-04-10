@@ -532,6 +532,8 @@ router.post('/enroll', async (req, res, next) => {
       certSerialNo: enrollResult.certSerialNo,
       certValidFrom: enrollResult.certValidFrom,
       certValidTo: enrollResult.certValidTo,
+      certRequestID: enrollResult.certRequestID,
+      certRequestStatus: enrollResult.certRequestStatus,
     });
   } catch (err) {
     next(err);

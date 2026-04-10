@@ -223,12 +223,16 @@ export async function enrollCert(
   organisationInfo: EnrollOrgInfo,
 ): Promise<{
   success: boolean;
-  statusCode: string;
+  statusCode?: string;
   statusMsg?: string;
   errorDescription?: string;
+  error?: string;
+  detail?: string;
   certSerialNo?: string;
   certValidFrom?: string;
   certValidTo?: string;
+  certRequestID?: string;
+  certRequestStatus?: string;
 }> {
   const res = await fetch(`${BASE}/enroll`, {
     method: "POST",

@@ -144,7 +144,7 @@ export interface EnrichedFields {
 export function enrichResponse<T extends { statusCode?: string; statusMsg?: string }>(
   raw: T
 ): T & EnrichedFields {
-  const code = String(raw.statusCode ?? 'ERR');
+  const code = String(raw.statusCode ?? 'ERR').trim();
   const success = code === '000';
   const description = STATUS_CODES[code];
 

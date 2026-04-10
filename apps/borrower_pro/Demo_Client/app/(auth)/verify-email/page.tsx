@@ -63,7 +63,7 @@ function VerifyEmailContent() {
   useEffect(() => {
     const pending = peekPendingAcceptInvitationPath();
     if (!pending) return;
-    setSignInHref("/sign-in?inviteRecovery=1");
+    setSignInHref(`/sign-in?returnTo=${encodeURIComponent(pending)}`);
   }, []);
 
   const handleResend = async (event: React.FormEvent) => {

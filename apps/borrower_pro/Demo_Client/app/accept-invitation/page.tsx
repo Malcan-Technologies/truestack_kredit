@@ -65,7 +65,6 @@ function AcceptInvitationInner() {
     let cancelled = false;
 
     void (async () => {
-      let acceptAttempted = false;
       try {
         const security = await fetchSecurityStatus(
           session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean }
@@ -86,7 +85,6 @@ function AcceptInvitationInner() {
           await bindOpenCompanyInvitation(invitationId);
         }
 
-        acceptAttempted = true;
         const acceptRes = await orgAcceptInvitation({ invitationId });
         const err = acceptRes as { error?: { message?: string } | null };
         if (err.error) {
@@ -102,9 +100,7 @@ function AcceptInvitationInner() {
         if (cancelled) return;
         activeAttemptRef.current = null;
         setPhase("idle");
-        if (acceptAttempted) {
-          clearPendingAcceptInvitationPath();
-        }
+        clearPendingAcceptInvitationPath();
         const message = e instanceof Error ? e.message : "Could not accept invitation";
         toast.error(message);
       }

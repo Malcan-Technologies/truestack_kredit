@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
+  consumePendingAcceptInvitationPath,
   fetchBorrowerMe,
-  peekPendingAcceptInvitationPath,
   BORROWER_PROFILE_SWITCHED_EVENT,
 } from "@borrower_pro/lib/borrower-auth-client";
 import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
@@ -176,7 +176,7 @@ export default function DashboardLayout({
         const nextHasProfiles = res.data.profileCount > 0;
         setHasBorrowerProfiles(nextHasProfiles);
         if (!nextHasProfiles && !dismissed && !isOnboardingExemptPath(pathname)) {
-          const pendingInvite = peekPendingAcceptInvitationPath();
+          const pendingInvite = consumePendingAcceptInvitationPath();
           if (pendingInvite) {
             router.replace(pendingInvite);
             return;

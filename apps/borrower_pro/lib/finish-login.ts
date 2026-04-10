@@ -1,6 +1,6 @@
 import {
+  consumePendingAcceptInvitationPath,
   fetchBorrowerMe,
-  peekPendingAcceptInvitationPath,
 } from "@borrower_pro/lib/borrower-auth-client";
 
 /** Same-origin safe path only (for open redirects after sign-in). */
@@ -17,7 +17,7 @@ export async function getBorrowerPostLoginDestination(
   const fromQuery = normalizeAuthReturnTo(returnTo);
   if (fromQuery) return fromQuery;
 
-  const pendingInvite = peekPendingAcceptInvitationPath();
+  const pendingInvite = consumePendingAcceptInvitationPath();
   if (pendingInvite) return pendingInvite;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {

@@ -5,6 +5,12 @@
 const BASE = "/api/proxy/borrower-auth";
 
 const PENDING_ACCEPT_INVITATION_KEY = "borrower_pending_accept_invitation";
+const PENDING_ACCEPT_INVITATION_TTL_MS = 30 * 60 * 1000;
+
+type PendingAcceptInvitationPayload = {
+  path: string;
+  createdAt: number;
+};
 
 function getWebStorage(kind: "local" | "session"): Storage | null {
   if (typeof window === "undefined") return null;
@@ -49,23 +55,66 @@ function safeStorageRemoveItem(kind: "local" | "session", key: string): void {
   }
 }
 
+function encodePendingAcceptInvitation(pathWithQuery: string): string {
+  return JSON.stringify({
+    path: pathWithQuery,
+    createdAt: Date.now(),
+  } satisfies PendingAcceptInvitationPayload);
+}
+
+function decodePendingAcceptInvitation(raw: string | null): string | null {
+  if (!raw) return null;
+
+  // Backward-compat: accept previous plain-string format.
+  if (raw.startsWith("/accept-invitation")) {
+    return raw;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PendingAcceptInvitationPayload>;
+    if (typeof parsed.path !== "string" || !parsed.path.startsWith("/accept-invitation")) {
+      return null;
+    }
+    if (typeof parsed.createdAt !== "number") {
+      return null;
+    }
+    if (Date.now() - parsed.createdAt > PENDING_ACCEPT_INVITATION_TTL_MS) {
+      return null;
+    }
+    return parsed.path;
+  } catch {
+    return null;
+  }
+}
+
 /** Remember invite URL path across sign-up / verify-email so post-login routing can resume acceptance. */
 export function setPendingAcceptInvitationPath(pathWithQuery: string): void {
   if (typeof window === "undefined") return;
   if (!pathWithQuery.startsWith("/accept-invitation")) return;
 
-  safeStorageSetItem("session", PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
-  safeStorageSetItem("local", PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
+  const payload = encodePendingAcceptInvitation(pathWithQuery);
+  safeStorageSetItem("session", PENDING_ACCEPT_INVITATION_KEY, payload);
+  safeStorageSetItem("local", PENDING_ACCEPT_INVITATION_KEY, payload);
 }
 
 export function peekPendingAcceptInvitationPath(): string | null {
-  const sessionValue = safeStorageGetItem("session", PENDING_ACCEPT_INVITATION_KEY);
-  if (sessionValue?.startsWith("/accept-invitation")) return sessionValue;
+  const sessionValue = decodePendingAcceptInvitation(
+    safeStorageGetItem("session", PENDING_ACCEPT_INVITATION_KEY)
+  );
+  if (sessionValue) return sessionValue;
 
-  const localValue = safeStorageGetItem("local", PENDING_ACCEPT_INVITATION_KEY);
-  if (localValue?.startsWith("/accept-invitation")) return localValue;
+  const localValue = decodePendingAcceptInvitation(
+    safeStorageGetItem("local", PENDING_ACCEPT_INVITATION_KEY)
+  );
+  if (localValue) return localValue;
 
   return null;
+}
+
+export function consumePendingAcceptInvitationPath(): string | null {
+  const pending = peekPendingAcceptInvitationPath();
+  clearPendingAcceptInvitationPath();
+  return pending;
 }
 
 export function clearPendingAcceptInvitationPath(): void {

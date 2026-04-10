@@ -16,28 +16,61 @@ function getWebStorage(kind: "local" | "session"): Storage | null {
   }
 }
 
+function safeStorageSetItem(kind: "local" | "session", key: string, value: string): void {
+  const storage = getWebStorage(kind);
+  if (!storage) return;
+
+  try {
+    storage.setItem(key, value);
+  } catch {
+    // Ignore storage write errors (disabled storage, quota exceeded, etc.).
+  }
+}
+
+function safeStorageGetItem(kind: "local" | "session", key: string): string | null {
+  const storage = getWebStorage(kind);
+  if (!storage) return null;
+
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageRemoveItem(kind: "local" | "session", key: string): void {
+  const storage = getWebStorage(kind);
+  if (!storage) return;
+
+  try {
+    storage.removeItem(key);
+  } catch {
+    // Ignore storage removal errors.
+  }
+}
+
 /** Remember invite URL path across sign-up / verify-email so post-login routing can resume acceptance. */
 export function setPendingAcceptInvitationPath(pathWithQuery: string): void {
   if (typeof window === "undefined") return;
   if (!pathWithQuery.startsWith("/accept-invitation")) return;
 
-  getWebStorage("session")?.setItem(PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
-  getWebStorage("local")?.setItem(PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
+  safeStorageSetItem("session", PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
+  safeStorageSetItem("local", PENDING_ACCEPT_INVITATION_KEY, pathWithQuery);
 }
 
 export function peekPendingAcceptInvitationPath(): string | null {
-  const sessionValue = getWebStorage("session")?.getItem(PENDING_ACCEPT_INVITATION_KEY);
+  const sessionValue = safeStorageGetItem("session", PENDING_ACCEPT_INVITATION_KEY);
   if (sessionValue?.startsWith("/accept-invitation")) return sessionValue;
 
-  const localValue = getWebStorage("local")?.getItem(PENDING_ACCEPT_INVITATION_KEY);
+  const localValue = safeStorageGetItem("local", PENDING_ACCEPT_INVITATION_KEY);
   if (localValue?.startsWith("/accept-invitation")) return localValue;
 
   return null;
 }
 
 export function clearPendingAcceptInvitationPath(): void {
-  getWebStorage("session")?.removeItem(PENDING_ACCEPT_INVITATION_KEY);
-  getWebStorage("local")?.removeItem(PENDING_ACCEPT_INVITATION_KEY);
+  safeStorageRemoveItem("session", PENDING_ACCEPT_INVITATION_KEY);
+  safeStorageRemoveItem("local", PENDING_ACCEPT_INVITATION_KEY);
 }
 
 /** Dispatched when user switches borrower profile. Listen to re-fetch borrower data. */

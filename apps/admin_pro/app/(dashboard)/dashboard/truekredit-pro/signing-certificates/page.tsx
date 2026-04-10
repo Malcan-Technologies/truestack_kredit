@@ -486,7 +486,9 @@ export default function SigningCertificatesPage() {
     try {
       const res = await enrollCert(enrollPin, enrollPhone.trim(), enrollOrgInfo);
       if (res.success) {
-        toast.success("Certificate enrolled successfully!");
+        toast.success(
+          "Enrollment success. Check your email for next steps.",
+        );
         resetEnrollForm();
         setEnrollDialogOpen(false);
         await loadData();

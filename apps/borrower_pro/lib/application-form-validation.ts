@@ -1,4 +1,4 @@
-import type { BorrowerProduct } from "./application-form-types";
+import type { BorrowerProduct } from "@kredit/borrower";
 
 export function toAmountNumber(v: unknown): number {
   if (typeof v === "number") return v;

@@ -47,7 +47,7 @@ import type {
   BorrowerLoanDetail,
   SignedAgreementReviewStatus,
   AttestationStatus,
-} from "../../lib/borrower-loan-types";
+} from "@kredit/borrower";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { useSession } from "../../lib/auth-client";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";

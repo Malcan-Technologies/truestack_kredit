@@ -30,7 +30,7 @@ import {
   type EarlySettlementQuoteData,
   type BorrowerLenderInfo,
 } from "@borrower_pro/lib/borrower-loans-client";
-import type { BorrowerLoanDetail } from "@borrower_pro/lib/borrower-loan-types";
+import type { BorrowerLoanDetail } from "@kredit/borrower";
 import { getBankLabel } from "@borrower_pro/lib/bank-options";
 
 function formatRm(n: number): string {

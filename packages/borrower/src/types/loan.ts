@@ -68,7 +68,6 @@ export interface BorrowerLoanListItem {
   };
 }
 
-/** GET /api/borrower-auth/loans/:loanId — full loan row for agreement / detail screens */
 /** Snapshot from GET loan — mirrors admin loan detail borrower block. */
 export interface BorrowerLoanBorrowerSnapshot {
   id: string;
@@ -179,4 +178,12 @@ export interface RecordBorrowerPaymentBody {
   notes?: string;
   applyLateFee?: boolean;
   paymentDate?: string;
+}
+
+export interface LenderBankInfo {
+  name: string;
+  lenderBankCode?: string | null;
+  lenderBankOtherName?: string | null;
+  lenderAccountHolderName?: string | null;
+  lenderAccountNumber?: string | null;
 }

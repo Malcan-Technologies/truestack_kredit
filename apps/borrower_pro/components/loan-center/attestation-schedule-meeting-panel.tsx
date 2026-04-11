@@ -15,7 +15,7 @@ import {
   postAttestationProposeSlot,
   postAttestationRestart,
 } from "../../lib/borrower-loans-client";
-import type { BorrowerLoanDetail } from "../../lib/borrower-loan-types";
+import type { BorrowerLoanDetail } from "@kredit/borrower";
 import { toAmountNumber } from "../../lib/application-form-validation";
 
 const MALAYSIA_TZ = "Asia/Kuala_Lumpur";

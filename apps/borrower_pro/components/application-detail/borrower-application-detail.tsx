@@ -52,7 +52,7 @@ import { CopyField } from "../ui/copy-field";
 import { PhoneDisplay } from "../ui/phone-display";
 import { RefreshButton } from "../ui/refresh-button";
 import { BorrowerApplicationDocumentsAdminStyle } from "./borrower-application-documents-admin-style";
-import type { LoanApplicationDetail, LoanPreviewData } from "../../lib/application-form-types";
+import type { LoanApplicationDetail, LoanPreviewData } from "@kredit/borrower";
 import { allDocumentsOptional } from "../../lib/application-form-validation";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { formatCurrency, formatDate, formatICForDisplay } from "../../lib/borrower-form-display";

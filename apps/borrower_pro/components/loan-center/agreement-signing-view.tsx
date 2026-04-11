@@ -22,7 +22,7 @@ import {
   requestSigningOTP,
   signAgreement,
 } from "../../lib/borrower-signing-client";
-import type { BorrowerLoanDetail } from "../../lib/borrower-loan-types";
+import type { BorrowerLoanDetail } from "@kredit/borrower";
 
 type Phase =
   | "loading"

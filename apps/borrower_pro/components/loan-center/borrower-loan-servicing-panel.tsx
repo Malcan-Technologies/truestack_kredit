@@ -59,7 +59,7 @@ import type {
   BorrowerLoanDetail,
   BorrowerLoanMetrics,
   BorrowerLoanTimelineEvent,
-} from "../../lib/borrower-loan-types";
+} from "@kredit/borrower";
 import type { EarlySettlementQuoteData } from "../../lib/borrower-loans-client";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";

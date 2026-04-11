@@ -2,6 +2,28 @@
  * Borrower-scoped signing API client (proxied to backend_pro /api/borrower-auth/signing).
  */
 
+import type {
+  SigningHealthResult,
+  CertStatusResult,
+  OtpResult,
+  EnrollResult,
+  SignAgreementResult,
+  SigningAuthMethod,
+  CheckEmailChangeResult,
+  ConfirmEmailChangeResult,
+} from "@kredit/borrower";
+
+export type {
+  SigningHealthResult,
+  CertStatusResult,
+  OtpResult,
+  EnrollResult,
+  SignAgreementResult,
+  SigningAuthMethod,
+  CheckEmailChangeResult,
+  ConfirmEmailChangeResult,
+} from "@kredit/borrower";
+
 const BASE = "/api/proxy/borrower-auth/signing";
 
 async function parseJson<T>(res: Response): Promise<T> {
@@ -11,43 +33,6 @@ async function parseJson<T>(res: Response): Promise<T> {
   } catch {
     throw new Error(text || "Invalid response");
   }
-}
-
-export interface SigningHealthResult {
-  success: boolean;
-  online: boolean;
-  mtsaConnected?: boolean;
-  reason?: string;
-}
-
-export interface CertStatusResult {
-  success: boolean;
-  hasCert: boolean;
-  certStatus: string | null;
-  certValidFrom: string | null;
-  certValidTo: string | null;
-  certSerialNo: string | null;
-  statusCode: string;
-  statusMsg?: string;
-  errorDescription?: string;
-}
-
-export interface OtpResult {
-  success: boolean;
-  statusCode: string;
-  statusMsg?: string;
-  errorDescription?: string;
-  email?: string | null;
-}
-
-export interface EnrollResult {
-  success: boolean;
-  statusCode: string;
-  statusMsg?: string;
-  errorDescription?: string;
-  certSerialNo: string | null;
-  certValidFrom: string | null;
-  certValidTo: string | null;
 }
 
 export async function checkSigningGatewayHealth(): Promise<SigningHealthResult> {
@@ -130,19 +115,6 @@ export async function requestSigningOTP(): Promise<OtpResult> {
   return json;
 }
 
-export interface SignAgreementResult {
-  success: boolean;
-  statusCode?: string;
-  statusMsg?: string;
-  errorDescription?: string;
-  agreementDate?: string;
-  filename?: string;
-  sizeBytes?: number;
-  signedAgreementReviewStatus?: string;
-}
-
-export type SigningAuthMethod = "emailOtp" | "pin";
-
 export async function signAgreement(
   loanId: string,
   authFactor: string,
@@ -164,13 +136,6 @@ export async function signAgreement(
 
 // ---- MTSA Email Change ----
 
-export interface CheckEmailChangeResult {
-  success: boolean;
-  requiresOtp: boolean;
-  otpSent?: boolean;
-  error?: string;
-}
-
 export async function checkEmailChange(
   newEmail: string
 ): Promise<CheckEmailChangeResult> {
@@ -185,13 +150,6 @@ export async function checkEmailChange(
     throw new Error((json as any).error || "Failed to check email change");
   }
   return json;
-}
-
-export interface ConfirmEmailChangeResult {
-  success: boolean;
-  statusCode?: string;
-  statusMsg?: string;
-  errorDescription?: string;
 }
 
 export async function confirmEmailChange(

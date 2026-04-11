@@ -6,7 +6,8 @@ This document captures the current authentication architecture and policy across
 
 - `apps/admin` owns Better Auth for the non-pro admin frontend.
 - `apps/admin_pro` owns Better Auth for the pro admin frontend.
-- `apps/borrower_pro/Demo_Client` owns Better Auth for the borrower frontend.
+- `apps/borrower_pro/Demo_Client` owns Better Auth for the borrower frontend (web).
+- `apps/borrower_pro_mobile/Demo_Client` is the Expo mobile app for borrowers. It authenticates directly against `apps/backend_pro` using the official `@better-auth/expo` integration.
 - `apps/backend` and `apps/backend_pro` do not send auth emails. They verify sessions created by the frontend auth owners and share the same database and `BETTER_AUTH_SECRET` for their stack.
 
 ## Stack-Level Rules
@@ -123,6 +124,73 @@ Defaults exist for sender name/address, but `RESEND_API_KEY` must be present or 
   - `BETTER_AUTH_PASSKEY_ORIGINS`
   - `BETTER_AUTH_PASSKEY_RP_ID`
 
+## Mobile (Expo) Auth
+
+The Expo borrower app uses the official `@better-auth/expo` integration. This avoids
+the HMAC signed-cookie mismatch that occurs when mobile stores only the raw session
+token from the response body instead of the full signed cookie value.
+
+### How it works
+
+1. `apps/backend_pro` runs a dedicated Better Auth instance at `basePath: /api/borrower-auth/auth`,
+   mounted via `toNodeHandler(borrowerAuth)` before `express.json()`.
+2. The mobile app creates an auth client with `createAuthClient` + `expoClient` from `@better-auth/expo/client`.
+3. `expoClient` intercepts `Set-Cookie` response headers, extracts the full signed cookie value
+   (e.g. `truestack-borrower.session_token=<token.hmac>`) and stores it in `expo-secure-store`.
+4. `authClient.getCookie()` returns the stored signed cookie string for use in subsequent API requests.
+5. `authClient.useSession()` is a React hook that reads the cached session from SecureStore, reducing
+   loading states on app relaunch.
+
+### Configuration
+
+**Server (`apps/backend_pro/src/lib/borrower-auth.ts`):**
+- `expo()` plugin from `@better-auth/expo` is added to the `plugins` array.
+- `democlient://` and `exp://` are added to `trustedOrigins` for the Expo app scheme.
+- Cookie prefix: `truestack-borrower` (via `AUTH_COOKIE_PREFIXES.borrower`).
+
+**Mobile (`apps/borrower_pro_mobile/Demo_Client/src/lib/auth/auth-client.ts`):**
+```typescript
+createAuthClient({
+  baseURL: process.env.EXPO_PUBLIC_BACKEND_URL,
+  basePath: '/api/borrower-auth/auth',
+  plugins: [
+    expoClient({
+      scheme: 'democlient',
+      storagePrefix: 'truestack-borrower',
+      cookiePrefix: 'truestack-borrower',
+      storage: SecureStore,
+    }),
+  ],
+})
+```
+
+### Differences from web auth
+
+| Aspect | Web (borrower_pro) | Mobile (borrower_pro_mobile) |
+|--------|-------------------|------------------------------|
+| Auth server | Next.js app at port 3006 | backend_pro at `/api/borrower-auth/auth` |
+| Session storage | Browser cookies (automatic) | `expo-secure-store` via `expoClient` |
+| Session transport | Cookie header (browser) | `authClient.getCookie()` set manually |
+| `useSession()` source | Better Auth React hook | Same, backed by SecureStore cache |
+| Passkeys | Supported | Not yet (v1) |
+| 2FA | TOTP supported | Not yet (v1) — shows unsupported message |
+
+### Mobile environment variables
+
+Required in `apps/borrower_pro_mobile/Demo_Client/.env`:
+- `EXPO_PUBLIC_BACKEND_URL` — URL of backend_pro (e.g. `http://192.168.x.x:4001`)
+- `EXPO_PUBLIC_AUTH_BASE_URL` — URL of borrower web app (for email link callbacks)
+
+### Files to check first (mobile)
+
+- `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/auth-client.ts`
+- `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/auth-api.ts`
+- `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/session-context.tsx`
+- `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/session-fetch.ts`
+- `apps/backend_pro/src/lib/borrower-auth.ts`
+
+---
+
 ## Deployment Notes
 
 - Frontend auth email delivery depends on the frontend task/container receiving `RESEND_API_KEY`.
@@ -153,6 +221,9 @@ When changing auth behavior in the future, start with these files:
 - `apps/borrower_pro/components/account-security-card.tsx`
 - `apps/backend/src/lib/auth.ts`
 - `apps/backend_pro/src/lib/auth.ts`
+- `apps/backend_pro/src/lib/borrower-auth.ts`
+- `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/auth-client.ts`
+- `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/auth-api.ts`
 
 ## Passkey rpId Scoping (Pro Stack)
 

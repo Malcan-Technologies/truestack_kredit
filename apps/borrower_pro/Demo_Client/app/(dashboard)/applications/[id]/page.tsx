@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { BorrowerApplicationDetail } from "@borrower_pro/components/application-detail/borrower-application-detail";
 import { getBorrowerApplication } from "@borrower_pro/lib/borrower-applications-client";
-import type { LoanApplicationDetail } from "@borrower_pro/lib/application-form-types";
+import type { LoanApplicationDetail } from "@kredit/borrower";
 
 export default function ApplicationDetailPage() {
   const params = useParams();

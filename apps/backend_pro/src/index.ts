@@ -8,6 +8,8 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { ensureUploadDir, UPLOAD_DIR } from './lib/upload.js';
 import { getFile } from './lib/storage.js';
 import { initCronJobs } from './lib/cronJobs.js';
+import { toNodeHandler } from 'better-auth/node';
+import { borrowerAuth } from './lib/borrower-auth.js';
 
 // Import routes
 import authRoutes from './modules/auth/routes.js';
@@ -49,6 +51,9 @@ app.use(cors({
   origin: config.corsOrigins,
   credentials: true,
 }));
+
+// Borrower auth (Better Auth handler) — must be before express.json() to avoid consuming the body stream
+app.use('/api/borrower-auth/auth', toNodeHandler(borrowerAuth));
 
 // Webhook routes MUST be registered before express.json() to preserve raw body for signature verification
 app.use('/api/webhooks/resend', express.raw({ type: 'application/json' }), resendWebhookRoutes);

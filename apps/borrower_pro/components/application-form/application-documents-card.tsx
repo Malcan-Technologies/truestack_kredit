@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../ui/card";
-import type { ApplicationDocumentRow, RequiredDocumentItem } from "../../lib/application-form-types";
+import type { ApplicationDocumentRow, RequiredDocumentItem } from "@kredit/borrower";
 import {
   uploadApplicationDocument,
   deleteApplicationDocument,

@@ -44,9 +44,7 @@ import {
   listBorrowerLoans,
   withdrawBorrowerApplication,
 } from "../../lib/borrower-loans-client";
-import type { LoanCenterOverview } from "../../lib/borrower-loan-types";
-import type { BorrowerLoanListItem } from "../../lib/borrower-loan-types";
-import type { LoanApplicationDetail } from "../../lib/application-form-types";
+import type { LoanCenterOverview, BorrowerLoanListItem, LoanApplicationDetail } from "@kredit/borrower";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import {
   deriveLoanJourneyPhase,

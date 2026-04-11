@@ -2,6 +2,26 @@
  * Client helpers for borrower-auth API (proxied to backend_pro).
  */
 
+import type {
+  BorrowerProfile,
+  BorrowerMeResponse,
+  LenderInfo,
+  LenderInfoResponse,
+  CrossTenantInsights,
+  OnboardingPayload,
+  CompanyMembersContext,
+} from "@kredit/borrower";
+
+export type {
+  BorrowerProfile,
+  BorrowerMeResponse,
+  LenderInfo,
+  LenderInfoResponse,
+  CrossTenantInsights,
+  OnboardingPayload,
+  CompanyMembersContext,
+} from "@kredit/borrower";
+
 const BASE = "/api/proxy/borrower-auth";
 
 const PENDING_ACCEPT_INVITATION_KEY = "borrower_pending_accept_invitation";
@@ -150,27 +170,6 @@ export function dispatchBorrowerProfileSwitched(borrowerId: string): void {
   }
 }
 
-export interface BorrowerProfile {
-  id: string;
-  name: string;
-  companyName?: string | null;
-  borrowerType: string;
-  icNumber: string | null;
-  phone: string | null;
-  email: string | null;
-}
-
-export interface BorrowerMeResponse {
-  success: boolean;
-  data: {
-    user: { id: string; email: string; name: string | null };
-    profileCount: number;
-    profiles: BorrowerProfile[];
-    activeBorrower: BorrowerProfile | null;
-    activeBorrowerId: string | null;
-  };
-}
-
 export async function fetchBorrowerMe(): Promise<BorrowerMeResponse> {
   const res = await fetch(BASE + "/me", { credentials: "include" });
   if (!res.ok) {
@@ -178,23 +177,6 @@ export async function fetchBorrowerMe(): Promise<BorrowerMeResponse> {
     throw new Error(err?.error || "Failed to fetch borrower context");
   }
   return res.json();
-}
-
-/** Lender (tenant) details for the borrower About page — mirrors admin tenant display fields. */
-export interface LenderInfo {
-  name: string;
-  type: "PPW" | "PPG";
-  licenseNumber: string | null;
-  registrationNumber: string | null;
-  email: string | null;
-  contactNumber: string | null;
-  businessAddress: string | null;
-  logoUrl: string | null;
-}
-
-export interface LenderInfoResponse {
-  success: boolean;
-  data: LenderInfo;
 }
 
 export async function fetchLenderInfo(): Promise<LenderInfoResponse> {
@@ -250,27 +232,6 @@ export async function switchBorrowerProfile(borrowerId: string): Promise<void> {
   }
 }
 
-export interface CrossTenantInsights {
-  hasHistory: boolean;
-  otherLenderCount: number;
-  lenderNames: string[];
-  totalLoans: number;
-  activeLoans: number;
-  completedLoans: number;
-  defaultedLoans: number;
-  latePaymentsCount?: number;
-  totalBorrowedRange: string | null;
-  paymentPerformance: {
-    rating: string;
-    onTimeRateRange: string | null;
-  };
-  lastBorrowedAt: string | null;
-  lastActivityAt: string | null;
-  nameConsistency?: string;
-  phoneConsistency?: string;
-  addressConsistency?: string;
-}
-
 export async function fetchCrossTenantInsights(params: {
   borrowerType: string;
   identifier: string;
@@ -299,62 +260,6 @@ export async function fetchCrossTenantInsights(params: {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) return { success: false };
   return json;
-}
-
-export interface OnboardingPayload {
-  borrowerType: "INDIVIDUAL" | "CORPORATE";
-  name: string;
-  icNumber?: string;
-  documentType?: string;
-  phone?: string;
-  email?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  city?: string;
-  state?: string;
-  postcode?: string;
-  country?: string;
-  dateOfBirth?: string;
-  gender?: string;
-  race?: string;
-  educationLevel?: string;
-  occupation?: string;
-  employmentStatus?: string;
-  bankName?: string;
-  bankNameOther?: string;
-  bankAccountNo?: string;
-  monthlyIncome?: number | null;
-  emergencyContactName?: string;
-  emergencyContactPhone?: string;
-  emergencyContactRelationship?: string;
-  instagram?: string;
-  tiktok?: string;
-  facebook?: string;
-  linkedin?: string;
-  xTwitter?: string;
-  companyName?: string;
-  ssmRegistrationNo?: string;
-  businessAddress?: string;
-  authorizedRepName?: string;
-  authorizedRepIc?: string;
-  companyPhone?: string;
-  companyEmail?: string;
-  natureOfBusiness?: string;
-  dateOfIncorporation?: string;
-  paidUpCapital?: number | null;
-  numberOfEmployees?: number | null;
-  bumiStatus?: string;
-  directors?: Array<{ name: string; icNumber: string; position?: string }>;
-}
-
-/** Company org context for the active corporate borrower (Better Auth organization + roles). */
-export interface CompanyMembersContext {
-  isCorporate: boolean;
-  organizationId: string | null;
-  role: string | null;
-  canManageMembers: boolean;
-  canEditCompanyProfile: boolean;
-  needsOrgBackfill?: boolean;
 }
 
 export async function fetchCompanyMembersContext(): Promise<{

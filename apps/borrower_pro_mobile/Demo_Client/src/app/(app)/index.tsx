@@ -1,135 +1,98 @@
-import * as Device from 'expo-device';
-import { Link } from 'expo-router';
-import { Platform, Pressable, StyleSheet } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useBrand } from '@/hooks/use-brand';
+import { useSession } from '@/lib/auth/session-context';
 import { useTheme } from '@/hooks/use-theme';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
-
 export default function HomeScreen() {
-  const brand = useBrand();
+  const { user, signOut } = useSession();
   const theme = useTheme();
 
   return (
-    <ThemedView style={styles.container}>
+    <ScrollView
+      style={[styles.scroll, { backgroundColor: theme.background }]}
+      contentContainerStyle={styles.content}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            {brand.displayName}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
-            {brand.productTagline}
-          </ThemedText>
-        </ThemedView>
-
-        <Link href="/sign-in" asChild>
-          <Pressable
-            style={({ pressed }) => [
-              styles.primaryCta,
-              { backgroundColor: theme.primary },
-              pressed && styles.pressed,
-            ]}>
-            <ThemedText type="smallBold" style={{ color: theme.background }}>
-              Open sign-in (stub)
+        <View style={styles.header}>
+          <ThemedText type="subtitle">Welcome back</ThemedText>
+          {user?.name ? (
+            <ThemedText type="default" themeColor="textSecondary">
+              {user.name}
             </ThemedText>
-          </Pressable>
-        </Link>
+          ) : null}
+          {user?.email ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              {user.email}
+            </ThemedText>
+          ) : null}
+        </View>
 
-        <ThemedText type="code" style={styles.code}>
-          borrower pro mobile
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="White-label UI"
-            hint={
-              <ThemedText type="small">
-                Brand tokens in <ThemedText type="code">src/brand/clients/</ThemedText>
-              </ThemedText>
-            }
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="API base URL"
-            hint={<ThemedText type="code">EXPO_PUBLIC_BACKEND_URL</ThemedText>}
-          />
+        <ThemedView type="backgroundElement" style={styles.card}>
+          <ThemedText type="smallBold">Dashboard</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.cardHint}>
+            Loan center, applications, and profile screens are coming soon.
+          </ThemedText>
         </ThemedView>
 
-        {Platform.OS === 'web' && <WebBadge />}
+        <Pressable
+          style={[styles.signOutButton, { borderColor: theme.border }]}
+          onPress={signOut}>
+          <ThemedText type="small" style={{ color: theme.error }}>
+            Sign out
+          </ThemedText>
+        </Pressable>
+
+        {Platform.OS === 'web' ? null : (
+          <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
+            borrower pro mobile — auth connected
+          </ThemedText>
+        )}
       </SafeAreaView>
-    </ThemedView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  scroll: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+  },
+  content: {
+    flexGrow: 1,
+    alignItems: 'center',
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
+    width: '100%',
     maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
     paddingHorizontal: Spacing.four,
+    paddingBottom: BottomTabInset + Spacing.four,
+    gap: Spacing.four,
+    alignItems: 'stretch',
+  },
+  header: {
+    paddingTop: Spacing.six,
+    gap: Spacing.one,
+  },
+  card: {
+    borderRadius: Spacing.three,
+    padding: Spacing.four,
     gap: Spacing.two,
   },
-  title: {
+  cardHint: {
+    lineHeight: 20,
+  },
+  signOutButton: {
+    borderWidth: 1,
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two + Spacing.one,
+    alignItems: 'center',
+  },
+  hint: {
     textAlign: 'center',
-  },
-  tagline: {
-    textAlign: 'center',
-  },
-  primaryCta: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    borderRadius: Spacing.three,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+    opacity: 0.5,
+    marginTop: 'auto',
   },
 });

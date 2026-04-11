@@ -27,8 +27,7 @@ import { listBorrowerApplications } from "@borrower_pro/lib/borrower-application
 import { borrowerApplicationDetailPath } from "@borrower_pro/lib/borrower-application-navigation";
 import { isBorrowerKycComplete } from "@borrower_pro/lib/borrower-verification";
 import { ONBOARDING_DRAFT_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
-import type { LoanCenterOverview, BorrowerLoanListItem } from "@borrower_pro/lib/borrower-loan-types";
-import type { LoanApplicationDetail } from "@borrower_pro/lib/application-form-types";
+import type { LoanCenterOverview, BorrowerLoanListItem, LoanApplicationDetail } from "@kredit/borrower";
 import { toAmountNumber } from "@borrower_pro/lib/application-form-validation";
 import { borrowerLoanNeedsContinueAction } from "@borrower_pro/lib/borrower-loan-continue-eligibility";
 import {

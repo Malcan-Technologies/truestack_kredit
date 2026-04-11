@@ -36,7 +36,7 @@ import {
 } from "../ui/select";
 import { cn } from "../../lib/utils";
 import { formatCurrency } from "../../lib/borrower-form-display";
-import type { BorrowerProduct, LoanPreviewData, ApplicationStep } from "../../lib/application-form-types";
+import type { BorrowerProduct, LoanPreviewData, ApplicationStep } from "@kredit/borrower";
 import {
   fetchBorrowerProducts,
   previewBorrowerApplication,

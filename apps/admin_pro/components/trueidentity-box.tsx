@@ -69,13 +69,38 @@ function isApproved(status: string | null | undefined, result: string | null | u
   return status === "completed" && result === "approved";
 }
 
+function hasIndividualKycState(
+  status: Extract<VerifyStatusResponse, { borrowerType: "INDIVIDUAL" }> | null
+): boolean {
+  if (!status) return false;
+  return Boolean(
+    status.status ||
+      status.result ||
+      status.rejectMessage ||
+      status.onboardingUrl ||
+      status.expiresAt ||
+      status.lastWebhookAt
+  );
+}
+
+function hasDirectorKycState(director: DirectorVerifyStatus): boolean {
+  return Boolean(
+    director.status ||
+      director.result ||
+      director.rejectMessage ||
+      director.onboardingUrl ||
+      director.expiresAt ||
+      director.lastWebhookAt
+  );
+}
+
 function applyIndividualVerifiedFallback(
   status: VerifyStatusResponse | null,
   verified: boolean
 ): VerifyStatusResponse | null {
   if (!verified) return status;
   if (status?.borrowerType === "CORPORATE") return status;
-  if (status?.borrowerType === "INDIVIDUAL" && isApproved(status.status, status.result)) return status;
+  if (status?.borrowerType === "INDIVIDUAL" && hasIndividualKycState(status)) return status;
   return {
     borrowerType: "INDIVIDUAL",
     status: "completed",
@@ -94,7 +119,7 @@ function applyDirectorVerifiedFallback(
   if (!sourceDirector || !isApproved(sourceDirector.trueIdentityStatus, sourceDirector.trueIdentityResult)) {
     return director;
   }
-  if (isApproved(director.status, director.result)) return director;
+  if (hasDirectorKycState(director)) return director;
   return {
     ...director,
     status: "completed",

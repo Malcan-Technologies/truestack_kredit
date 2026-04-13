@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3006 --webpack",
-    "prebuild": "npm run db:generate && npm run build -w @kredit/shared",
+    "prebuild": "npm run db:generate && npm run build -w @kredit/shared && npm run build -w @kredit/borrower",
     "build": "next build",
     "start": "next start -p 3006",
     "lint": "tsc --noEmit -p tsconfig.lint.json",

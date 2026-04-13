@@ -18,6 +18,7 @@ COPY apps/admin_pro/package.json ./apps/admin_pro/
 COPY apps/borrower_pro/${BORROWER_APP}/package.json ./apps/borrower_pro/${BORROWER_APP}/
 COPY apps/backend_pro/package.json ./apps/backend_pro/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/borrower/package.json ./packages/borrower/
 
 RUN npm ci
 

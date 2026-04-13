@@ -27,6 +27,10 @@ import {
   type TruestackKycStatusData,
 } from "../lib/borrower-api-client";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "../lib/borrower-auth-client";
+import {
+  reconnectBorrowerTruestackKycSse,
+  subscribeBorrowerTruestackKycSse,
+} from "../lib/truestack-kyc-sse";
 import { getCorporateDirectorsForKyc } from "../lib/borrower-verification";
 
 function formatSmartDateTime(iso: string): string {
@@ -518,7 +522,9 @@ export function TruestackKycCard({
         const kRes = await getTruestackKycStatusWithActiveSessionSync();
         if (kRes.success) {
           setKyc(kRes.data);
-          bumpDocs = kRes.data.sessions.some((s) => s.status === "completed" && s.result === "approved");
+          bumpDocs = kRes.data.sessions.some(
+            (s: TruestackKycSessionRow) => s.status === "completed" && s.result === "approved"
+          );
         }
       } catch (ke) {
         setKyc(null);
@@ -554,6 +560,7 @@ export function TruestackKycCard({
 
   useEffect(() => {
     const onSwitch = () => {
+      reconnectBorrowerTruestackKycSse();
       void load();
     };
     window.addEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
@@ -561,8 +568,16 @@ export function TruestackKycCard({
   }, [load]);
 
   useEffect(() => {
+    return subscribeBorrowerTruestackKycSse(() => {
+      void load();
+    });
+  }, [load]);
+
+  useEffect(() => {
     const sessions = kyc?.sessions ?? [];
-    const hasActiveFlow = sessions.some((s) => s.status === "pending" || s.status === "processing");
+    const hasActiveFlow = sessions.some(
+      (s: TruestackKycSessionRow) => s.status === "pending" || s.status === "processing"
+    );
     if (!hasActiveFlow) return;
     const timer = window.setInterval(() => {
       void load();

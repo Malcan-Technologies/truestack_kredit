@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { formatSmartDateTime } from "@/lib/utils";
+import { subscribeAdminTruestackKycSse } from "@/lib/truestack-kyc-sse";
 
 // ============================================
 // Types
@@ -543,6 +544,16 @@ export function TrueIdentityBox({
       void fetchStatus();
     }
   }, [isActive, fetchStatus, directorsKey, refreshKey]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    return subscribeAdminTruestackKycSse((payload) => {
+      if (payload.kind !== "borrower" || payload.borrowerId !== borrowerId) {
+        return;
+      }
+      void fetchStatus({ quiet: true });
+    });
+  }, [isActive, borrowerId, fetchStatus]);
 
   // While KYC is in progress, poll + refetch on tab focus (matches borrower self-service freshness)
   useEffect(() => {

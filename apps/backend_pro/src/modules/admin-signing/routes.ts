@@ -20,9 +20,45 @@ import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { AuditService } from '../compliance/auditService.js';
 import { getFile, saveAgreementFile, saveFile } from '../../lib/storage.js';
 import type { SignatureFieldMeta } from '../../lib/pdfService.js';
+import { subscribeTenantTruestackKyc } from '../../lib/truestackKycSseHub.js';
 
 const router = Router();
 router.use(authenticateToken);
+
+/** SSE: TrueStack KYC webhook updates for this tenant (staff + borrower sessions). */
+router.get('/kyc/stream', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch {
+        clearInterval(keepAlive);
+      }
+    }, 25_000);
+
+    const unsub = subscribeTenantTruestackKyc(tenantId, (payload) => {
+      try {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      } catch {
+        /* client gone */
+      }
+    });
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      unsub();
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /** MTSA requires `yyyy-MM-dd HH:mm:ss` — NOT ISO 8601 */
 function fmtMtsaDatetime(d: Date): string {

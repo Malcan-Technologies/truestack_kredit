@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import {
   ShieldCheck,
@@ -85,6 +85,7 @@ import {
   filterCertPinManagementInput,
 } from "@/lib/cert-pin-validation";
 import { formatDate } from "@/lib/utils";
+import { subscribeAdminTruestackKycSse } from "@/lib/truestack-kyc-sse";
 
 /** Certificate lookup by Malaysian IC (MyKad): exactly 12 numeric digits */
 const CERT_LOOKUP_IC_REGEX = /^\d{12}$/;
@@ -291,9 +292,20 @@ export default function SigningCertificatesPage() {
     }
   }, [fetchSigners]);
 
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    return subscribeAdminTruestackKycSse((payload) => {
+      if (payload.kind === "staff") {
+        void loadDataRef.current();
+      }
+    });
+  }, []);
 
   // ---- Handlers ----
 

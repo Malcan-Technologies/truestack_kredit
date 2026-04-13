@@ -18,6 +18,7 @@ import {
   ensureDocumentsDir,
   MAX_DOCUMENT_SIZE,
 } from '../../lib/upload.js';
+import { notifyTruestackKycUpdate } from '../../lib/truestackKycSseHub.js';
 
 const router = Router();
 
@@ -238,6 +239,8 @@ async function processStaffKycWebhook(
     },
   });
 
+  notifyTruestackKycUpdate(staffRow.tenantId, { kind: 'staff' });
+
   const shouldRefresh =
     Boolean(config.truestackKyc.apiKey) &&
     (payload.event === 'kyc.session.completed' || status === 'completed');
@@ -281,6 +284,8 @@ async function processStaffKycWebhook(
   } catch (err) {
     console.error('[Webhook/TruestackKyc/Staff] Refresh failed:', err);
   }
+
+  notifyTruestackKycUpdate(staffRow.tenantId, { kind: 'staff' });
 }
 
 async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
@@ -322,6 +327,13 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
       lastWebhookAt: new Date(),
     },
   });
+
+  const ssePayload = {
+    kind: 'borrower' as const,
+    borrowerId: row.borrowerId,
+    directorId: row.directorId,
+  };
+  notifyTruestackKycUpdate(row.tenantId, ssePayload);
 
   if (!shouldRefreshFromTrueStack(payload, status)) {
     return;
@@ -380,6 +392,8 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
   } catch (err) {
     console.error('[Webhook/TruestackKyc] Refresh after webhook failed:', err);
   }
+
+  notifyTruestackKycUpdate(row.tenantId, ssePayload);
 }
 
 router.post('/', async (req, res) => {

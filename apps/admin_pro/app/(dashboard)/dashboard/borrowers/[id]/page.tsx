@@ -476,6 +476,7 @@ const CORPORATE_DOCUMENT_OPTIONS = [
   { value: "FORM_24", label: "Form 24" },
   { value: "FORM_49", label: "Form 49" },
   { value: "COMPANY_PROFILE", label: "Company Profile" },
+  { value: "COMPANY_RESOLUTION", label: "Company Resolution" },
   { value: "DIRECTOR_IC_FRONT", label: "Director IC Front" },
   { value: "DIRECTOR_IC_BACK", label: "Director IC Back" },
   { value: "DIRECTOR_PASSPORT", label: "Director Identification" },

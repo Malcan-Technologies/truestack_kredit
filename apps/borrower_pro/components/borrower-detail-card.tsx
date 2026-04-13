@@ -818,7 +818,10 @@ export const BorrowerDetailCard = forwardRef<
               {form.directors.map((d, i) => (
                 <div key={i} className="rounded-lg border p-3 space-y-2">
                   <p className="text-sm font-medium">
-                    Director {i + 1}{i === 0 ? " (Authorized Representative)" : ""}
+                    Director {i + 1}
+                    {d.isAuthorizedRepresentative ? (
+                      <span className="ml-2 text-xs font-normal text-primary">(Authorized representative)</span>
+                    ) : null}
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <InfoField label="Name" value={d.name} />

@@ -34,6 +34,36 @@ type KycWebhookPayload = {
   timestamp?: string;
 };
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function findBorrowerKycSessionWithRetry(externalId: string): Promise<{
+  id: string;
+  tenantId: string;
+  borrowerId: string;
+  directorId: string | null;
+  result: string | null;
+  rejectMessage: string | null;
+} | null> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const row = await prisma.truestackKycSession.findUnique({
+      where: { externalSessionId: externalId },
+      select: {
+        id: true,
+        tenantId: true,
+        borrowerId: true,
+        directorId: true,
+        result: true,
+        rejectMessage: true,
+      },
+    });
+    if (row) return row;
+    if (attempt < 4) await sleep(150);
+  }
+  return null;
+}
+
 function mapEventToStatus(event: string | undefined, payloadStatus: string | undefined): string {
   if (payloadStatus) return payloadStatus;
   switch (event) {
@@ -45,9 +75,29 @@ function mapEventToStatus(event: string | undefined, payloadStatus: string | und
       return 'completed';
     case 'kyc.session.expired':
       return 'expired';
+    case 'kyc.session.failed':
+      return 'failed';
     default:
       return 'pending';
   }
+}
+
+/** Pull full session detail from TrueStack whenever the webhook signals a meaningful transition. */
+function shouldRefreshFromTrueStack(payload: KycWebhookPayload, mappedStatus: string): boolean {
+  if (!config.truestackKyc.apiKey) return false;
+  const ev = payload.event ?? '';
+  if (
+    ev === 'kyc.session.completed' ||
+    ev === 'kyc.session.expired' ||
+    ev === 'kyc.session.failed' ||
+    ev === 'kyc.session.processing'
+  ) {
+    return true;
+  }
+  if (mappedStatus === 'completed' || mappedStatus === 'expired' || mappedStatus === 'failed') {
+    return true;
+  }
+  return false;
 }
 
 async function applyApprovedVerification(borrowerId: string, directorId: string | null): Promise<void> {
@@ -241,9 +291,7 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
   }
 
   // Check borrower KYC sessions first
-  const row = await prisma.truestackKycSession.findUnique({
-    where: { externalSessionId: externalId },
-  });
+  const row = await findBorrowerKycSessionWithRetry(externalId);
 
   if (!row) {
     // Check staff KYC sessions
@@ -275,11 +323,7 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
     },
   });
 
-  const shouldRefresh =
-    Boolean(config.truestackKyc.apiKey) &&
-    (payload.event === 'kyc.session.completed' || status === 'completed');
-
-  if (!shouldRefresh) {
+  if (!shouldRefreshFromTrueStack(payload, status)) {
     return;
   }
 
@@ -294,7 +338,7 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
       where: { id: row.id },
       data: {
         status: finalStatus,
-        result: finalResult ?? undefined,
+        result: finalStatus === 'completed' ? finalResult ?? undefined : row.result,
         rejectMessage: refreshed.reject_message ?? rejectMessage ?? undefined,
         lastWebhookAt: new Date(),
       },
@@ -321,6 +365,17 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
           console.info('[Webhook/TruestackKyc] Saved KYC images as borrower documents:', ingestRes.created);
         }
       }
+    }
+    if (finalStatus === 'completed' && finalResult === 'rejected' && !row.directorId) {
+      await prisma.borrower.update({
+        where: { id: row.borrowerId },
+        data: {
+          documentVerified: false,
+          verificationStatus: 'UNVERIFIED',
+          verifiedAt: null,
+          verifiedBy: null,
+        },
+      }).catch(() => { /* borrower may be gone in rare race */ });
     }
   } catch (err) {
     console.error('[Webhook/TruestackKyc] Refresh after webhook failed:', err);

@@ -1,4 +1,14 @@
-import type { BorrowerDetail, TruestackKycSessionRow, TruestackKycStatusData } from "./borrower-api-client";
+import type { BorrowerDetail, BorrowerDirector, TruestackKycSessionRow, TruestackKycStatusData } from "./borrower-api-client";
+
+/** Directors who must complete TrueStack KYC for a corporate borrower (authorized rep only when flagged). */
+export function getCorporateDirectorsForKyc(
+  directors: BorrowerDirector[] | undefined | null
+): BorrowerDirector[] {
+  const list = directors ?? [];
+  const marked = list.filter((d) => d.isAuthorizedRepresentative === true);
+  if (marked.length > 0) return marked;
+  return list.length > 0 ? [list[0]] : [];
+}
 
 /**
  * Matches backend `isIndividualIdentityLocked` — fully verified individual
@@ -20,14 +30,17 @@ export function isIndividualIdentityLocked(borrower: {
 }
 
 export function isCorporateIdentityDocumentLocked(
-  borrower: Pick<BorrowerDetail, "borrowerType" | "verificationStatus">,
+  borrower: Pick<BorrowerDetail, "borrowerType" | "verificationStatus" | "directors">,
   sessions: TruestackKycSessionRow[]
 ): boolean {
   if (borrower.borrowerType !== "CORPORATE") return false;
   if (borrower.verificationStatus === "FULLY_VERIFIED") return true;
+  const kycDirectors = getCorporateDirectorsForKyc(borrower.directors);
+  const needIds = new Set(kycDirectors.map((d) => d.id));
   return sessions.some(
     (s) =>
       Boolean(s.directorId) &&
+      needIds.has(s.directorId!) &&
       s.status === "completed" &&
       s.result === "approved"
   );
@@ -53,9 +66,10 @@ export function isBorrowerKycComplete(
   }
 
   if (borrower.verificationStatus === "FULLY_VERIFIED") return true;
-  if ((borrower.directors ?? []).length === 0) return false;
+  const kycDirectors = getCorporateDirectorsForKyc(borrower.directors);
+  if (kycDirectors.length === 0) return false;
 
-  return borrower.directors.every((director) =>
+  return kycDirectors.every((director) =>
     sessions.some(
       (s) =>
         s.directorId === director.id &&

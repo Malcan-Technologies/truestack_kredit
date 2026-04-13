@@ -72,18 +72,29 @@ export function borrowerToIndividualForm(b: BorrowerDetail): IndividualFormData 
 }
 
 export function borrowerToCorporateForm(b: BorrowerDetail): CorporateFormData {
-  const directors: CorporateDirector[] = (b.directors ?? []).map((d) => ({
+  const raw: CorporateDirector[] = (b.directors ?? []).map((d) => ({
     name: d.name,
     icNumber: d.icNumber,
     position: d.position ?? "",
+    isAuthorizedRepresentative: d.isAuthorizedRepresentative === true,
   }));
+  let directors = raw;
   if (directors.length === 0) {
-    directors.push({
-      name: empty(b.authorizedRepName),
-      icNumber: empty(b.authorizedRepIc),
-      position: "",
-    });
+    directors = [
+      {
+        name: empty(b.authorizedRepName),
+        icNumber: empty(b.authorizedRepIc),
+        position: "",
+        isAuthorizedRepresentative: true,
+      },
+    ];
+  } else if (!directors.some((d) => d.isAuthorizedRepresentative)) {
+    directors = directors.map((d, i) => ({
+      ...d,
+      isAuthorizedRepresentative: i === 0,
+    }));
   }
+  const ar = directors.find((d) => d.isAuthorizedRepresentative) ?? directors[0];
   return {
     name: empty(b.name),
     icNumber: empty(b.icNumber),
@@ -98,8 +109,8 @@ export function borrowerToCorporateForm(b: BorrowerDetail): CorporateFormData {
     postcode: empty(b.postcode),
     country: empty(b.country),
     bumiStatus: empty(b.bumiStatus),
-    authorizedRepName: empty(b.authorizedRepName),
-    authorizedRepIc: empty(b.authorizedRepIc),
+    authorizedRepName: ar ? empty(ar.name) : empty(b.authorizedRepName),
+    authorizedRepIc: ar ? empty(ar.icNumber) : empty(b.authorizedRepIc),
     companyPhone: empty(b.companyPhone),
     companyEmail: empty(b.companyEmail),
     natureOfBusiness: empty(b.natureOfBusiness),
@@ -199,6 +210,7 @@ export function corporateFormToPayload(
       name: d.name,
       icNumber: d.icNumber,
       position: d.position || undefined,
+      isAuthorizedRepresentative: d.isAuthorizedRepresentative === true,
     })),
   };
 }

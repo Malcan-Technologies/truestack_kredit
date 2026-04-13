@@ -42,6 +42,7 @@ import {
   TooltipTrigger,
 } from "@borrower_pro/components/ui/tooltip";
 import { cn } from "@borrower_pro/lib/utils";
+import { SecuritySetupBanner } from "@borrower_pro/components/security-setup-banner";
 import { APP_VERSION } from "@/lib/version";
 import { ONBOARDING_DISMISSED_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
 
@@ -54,7 +55,6 @@ const navItems = [
 ];
 
 const PROFILE_REQUIRED_NAV_PATHS = new Set(["/applications", "/loans", "/profile"]);
-const SECURITY_PATHS = new Set(["/account", "/security-setup", "/onboarding"]);
 
 function isOnboardingExemptPath(pathname: string): boolean {
   return (
@@ -146,16 +146,7 @@ export default function DashboardLayout({
     };
   }, [session, isPending]);
 
-  useEffect(() => {
-    if (isPending || !session || securityStatus === "loading") return;
-
-    const isSecurityPath = SECURITY_PATHS.has(pathname);
-    if (isSecurityPath) return;
-
-    if (securityStatus === "incomplete" || securityStatus === "error") {
-      router.replace(`/security-setup?returnTo=${encodeURIComponent(pathname)}`);
-    }
-  }, [session, isPending, pathname, router, securityStatus]);
+  // Passkey / 2FA are optional: no redirect to security-setup (see SecuritySetupBanner).
 
   // Redirect to onboarding when no borrower profiles, unless user previously dismissed
   useEffect(() => {
@@ -223,15 +214,10 @@ export default function DashboardLayout({
     return null;
   }
 
-  if (securityStatus === "loading") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted">Loading...</div>
-      </div>
-    );
-  }
-
   const user = session.user;
+
+  const showSecurityBanner =
+    securityStatus === "incomplete" || securityStatus === "error";
 
   return (
     <div className="min-h-screen bg-background">
@@ -516,6 +502,10 @@ export default function DashboardLayout({
             <ThemeToggle />
           </div>
         </header>
+
+        {pathname !== "/security-setup" ? (
+          <SecuritySetupBanner visible={showSecurityBanner} />
+        ) : null}
 
         <main className="w-full min-w-0 p-4 sm:p-5 md:px-6 md:py-6 lg:px-7 lg:py-8 xl:px-9 xl:py-8 2xl:px-11">
           {children}

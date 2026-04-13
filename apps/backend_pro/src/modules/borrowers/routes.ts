@@ -31,6 +31,7 @@ import { requestVerificationSession } from '../trueidentity/adminWebhookClient.j
 import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
+import { normalizeCorporateDirectorFlags } from '../../lib/borrowerDirectorAuthorizedRep.js';
 
 const router = Router();
 
@@ -67,8 +68,8 @@ const INDIVIDUAL_DOCUMENT_CATEGORIES = [
 
 // Document categories for corporate borrowers
 const CORPORATE_DOCUMENT_CATEGORIES = [
-  'SSM_CERT', 'FORM_9', 'FORM_13', 'FORM_24', 'FORM_49', 
-  'COMPANY_PROFILE', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT', 'SELFIE_LIVENESS', 'OTHER'
+  'SSM_CERT', 'FORM_9', 'FORM_13', 'FORM_24', 'FORM_49',
+  'COMPANY_PROFILE', 'COMPANY_RESOLUTION', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT', 'SELFIE_LIVENESS', 'OTHER'
 ] as const;
 
 // All valid document categories
@@ -288,6 +289,7 @@ const directorSchema = z.object({
     .transform((val) => val.replace(/\D/g, ''))
     .refine((val) => val.length === 12, 'Director IC must be exactly 12 digits'),
   position: z.string().max(100).optional(),
+  isAuthorizedRepresentative: z.boolean().optional(),
 });
 const updateDirectorSchema = directorSchema.extend({
   id: z.string().cuid().optional(),
@@ -1213,14 +1215,17 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
 
       let ts: Awaited<ReturnType<typeof createKycSession>>;
       try {
-        ts = await createKycSession({
+        const createBody = {
           document_name: name,
           document_number: icNumber,
           webhook_url: webhookUrl,
           document_type: documentType,
-          platform: 'Web',
-          redirect_url: config.truestackKyc.redirectUrl,
+          platform: 'Web' as const,
           metadata,
+        } as const;
+        ts = await createKycSession({
+          ...createBody,
+          ...(config.truestackKyc.redirectUrl ? { redirect_url: config.truestackKyc.redirectUrl } : {}),
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'TrueStack KYC create session failed';
@@ -1547,13 +1552,16 @@ router.post('/', async (req, res, next) => {
     }
 
     const isCorporate = data.borrowerType === 'CORPORATE';
-    const normalizedDirectors = (data.directors || []).map((director, index) => ({
-      id: 'id' in director ? director.id : undefined,
-      name: director.name.trim(),
-      icNumber: director.icNumber.trim(),
-      position: director.position?.trim() || null,
-      order: index,
-    }));
+    const normalizedDirectors = normalizeCorporateDirectorFlags(
+      (data.directors || []).map((director, index) => ({
+        id: 'id' in director ? director.id : undefined,
+        name: director.name.trim(),
+        icNumber: director.icNumber.trim(),
+        position: director.position?.trim() || null,
+        order: index,
+        isAuthorizedRepresentative: director.isAuthorizedRepresentative === true,
+      })),
+    );
     const normalizedAddress = resolveCreateAddressFields(data);
 
     // Prepare data for database
@@ -1580,8 +1588,9 @@ router.post('/', async (req, res, next) => {
       createData.companyName = data.companyName || null;
       createData.ssmRegistrationNo = data.ssmRegistrationNo || null;
       createData.businessAddress = normalizedAddress.legacyAddress;
-      createData.authorizedRepName = normalizedDirectors[0]?.name || data.authorizedRepName || null;
-      createData.authorizedRepIc = normalizedDirectors[0]?.icNumber || data.authorizedRepIc || null;
+      const ar = normalizedDirectors.find((d) => d.isAuthorizedRepresentative);
+      createData.authorizedRepName = ar?.name || data.authorizedRepName || null;
+      createData.authorizedRepIc = ar?.icNumber || data.authorizedRepIc || null;
       createData.companyPhone = data.companyPhone || null;
       createData.companyEmail = data.companyEmail || null;
       createData.natureOfBusiness = data.natureOfBusiness || null;
@@ -1723,13 +1732,16 @@ router.patch('/:borrowerId', async (req, res, next) => {
     // Prepare update data
     const updateData: Record<string, unknown> = {};
     const effectiveBorrowerType = data.borrowerType ?? existing.borrowerType;
-    const normalizedDirectors = (data.directors || []).map((director, index) => ({
-      id: 'id' in director ? director.id : undefined,
-      name: director.name.trim(),
-      icNumber: director.icNumber.trim(),
-      position: director.position?.trim() || null,
-      order: index,
-    }));
+    const normalizedDirectors = normalizeCorporateDirectorFlags(
+      (data.directors || []).map((director, index) => ({
+        id: 'id' in director ? director.id : undefined,
+        name: director.name.trim(),
+        icNumber: director.icNumber.trim(),
+        position: director.position?.trim() || null,
+        order: index,
+        isAuthorizedRepresentative: director.isAuthorizedRepresentative === true,
+      })),
+    );
     const hasIndividualNameChange =
       data.name !== undefined && data.name.trim() !== existing.name.trim();
     const hasIndividualIcChange =
@@ -1813,8 +1825,9 @@ router.patch('/:borrowerId', async (req, res, next) => {
     if (data.paidUpCapital !== undefined) updateData.paidUpCapital = data.paidUpCapital ?? null;
     if (data.numberOfEmployees !== undefined) updateData.numberOfEmployees = data.numberOfEmployees ?? null;
     if (data.directors !== undefined && effectiveBorrowerType === 'CORPORATE') {
-      updateData.authorizedRepName = normalizedDirectors[0]?.name || null;
-      updateData.authorizedRepIc = normalizedDirectors[0]?.icNumber || null;
+      const ar = normalizedDirectors.find((d) => d.isAuthorizedRepresentative);
+      updateData.authorizedRepName = ar?.name || null;
+      updateData.authorizedRepIc = ar?.icNumber || null;
     }
     if (shouldInvalidateIndividualKyc) {
       updateData.trueIdentityStatus = null;
@@ -1869,6 +1882,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
                   icNumber: director.icNumber,
                   position: director.position,
                   order: director.order,
+                  isAuthorizedRepresentative: director.isAuthorizedRepresentative,
                   ...(hasDirectorIdentityChange && {
                     trueIdentityStatus: null,
                     trueIdentityResult: null,
@@ -1889,6 +1903,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
                   icNumber: director.icNumber,
                   position: director.position,
                   order: director.order,
+                  isAuthorizedRepresentative: director.isAuthorizedRepresentative,
                 },
                 select: { id: true },
               });
@@ -1920,6 +1935,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
             select: {
               trueIdentityStatus: true,
               trueIdentityResult: true,
+              isAuthorizedRepresentative: true,
             },
           });
           const verificationStatus = getBorrowerVerificationSummary({
@@ -1929,9 +1945,12 @@ router.patch('/:borrowerId', async (req, res, next) => {
             trueIdentityResult: null,
             directors: directorStates,
           });
+          const relevantDirectors = directorStates.some((d) => d.isAuthorizedRepresentative)
+            ? directorStates.filter((d) => d.isAuthorizedRepresentative)
+            : directorStates;
           const allDirectorsVerified =
-            directorStates.length > 0 &&
-            directorStates.every(
+            relevantDirectors.length > 0 &&
+            relevantDirectors.every(
               (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
             );
 

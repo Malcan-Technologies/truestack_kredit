@@ -344,7 +344,12 @@ export interface OnboardingPayload {
   paidUpCapital?: number | null;
   numberOfEmployees?: number | null;
   bumiStatus?: string;
-  directors?: Array<{ name: string; icNumber: string; position?: string }>;
+  directors?: Array<{
+    name: string;
+    icNumber: string;
+    position?: string;
+    isAuthorizedRepresentative?: boolean;
+  }>;
 }
 
 /** Company org context for the active corporate borrower (Better Auth organization + roles). */

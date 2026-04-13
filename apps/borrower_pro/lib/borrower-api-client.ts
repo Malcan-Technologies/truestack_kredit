@@ -42,6 +42,8 @@ export interface BorrowerDirector {
   icNumber: string;
   position: string | null;
   order: number;
+  /** When absent (legacy API), UI treats the first director as the representative. */
+  isAuthorizedRepresentative?: boolean;
 }
 
 export interface BorrowerDetail {
@@ -139,7 +141,13 @@ export interface UpdateBorrowerPayload {
   paidUpCapital?: number | null;
   numberOfEmployees?: number | null;
   bumiStatus?: string;
-  directors?: Array<{ name: string; icNumber: string; position?: string; id?: string }>;
+  directors?: Array<{
+    name: string;
+    icNumber: string;
+    position?: string;
+    id?: string;
+    isAuthorizedRepresentative?: boolean;
+  }>;
 }
 
 export async function fetchBorrower(): Promise<{

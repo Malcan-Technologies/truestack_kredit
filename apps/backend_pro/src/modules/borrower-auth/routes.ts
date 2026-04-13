@@ -14,6 +14,7 @@ import { createKycSession, refreshKycSession } from '../truestack-kyc/publicApiC
 import { ingestTruestackKycDocuments } from '../truestack-kyc/ingestKycDocuments.js';
 import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
 import { resolveProTenant, requireActiveBorrower } from './borrowerContext.js';
+import { normalizeCorporateDirectorFlags } from '../../lib/borrowerDirectorAuthorizedRep.js';
 import {
   canManageCompanyProfile,
   canManageCompanyMembers,
@@ -35,7 +36,7 @@ const INDIVIDUAL_DOCUMENT_CATEGORIES = [
 ] as const;
 const CORPORATE_DOCUMENT_CATEGORIES = [
   'SSM_CERT', 'FORM_9', 'FORM_13', 'FORM_24', 'FORM_49',
-  'COMPANY_PROFILE', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT', 'SELFIE_LIVENESS', 'OTHER',
+  'COMPANY_PROFILE', 'COMPANY_RESOLUTION', 'DIRECTOR_IC_FRONT', 'DIRECTOR_IC_BACK', 'DIRECTOR_PASSPORT', 'SELFIE_LIVENESS', 'OTHER',
 ] as const;
 const MAX_DOCUMENTS_PER_CATEGORY = 3;
 
@@ -125,6 +126,7 @@ const onboardingSchema = z.object({
     name: z.string().min(2).max(200),
     icNumber: z.string().min(6).max(20),
     position: z.string().max(100).optional(),
+    isAuthorizedRepresentative: z.boolean().optional(),
   })).min(0).max(10).optional(),
 }).merge(addressFieldsSchema);
 
@@ -381,12 +383,15 @@ router.post('/onboarding', async (req, res, next) => {
     }
 
     const isCorporate = data.borrowerType === 'CORPORATE';
-    const directors = (data.directors || []).map((d, i) => ({
-      name: d.name.trim(),
-      icNumber: d.icNumber.trim().replace(/\D/g, '') || d.icNumber.trim(),
-      position: d.position?.trim() || null,
-      order: i,
-    }));
+    const directors = normalizeCorporateDirectorFlags(
+      (data.directors || []).map((d, i) => ({
+        name: d.name.trim(),
+        icNumber: d.icNumber.trim().replace(/\D/g, '') || d.icNumber.trim(),
+        position: d.position?.trim() || null,
+        order: i,
+        isAuthorizedRepresentative: d.isAuthorizedRepresentative === true,
+      })),
+    );
 
     const addrLine1 = optionalText(data.addressLine1) ?? optionalText(data.businessAddress);
     const addrLine2 = optionalText(data.addressLine2);
@@ -425,8 +430,9 @@ router.post('/onboarding', async (req, res, next) => {
       createData.companyName = optionalText(data.companyName);
       createData.ssmRegistrationNo = optionalText(data.ssmRegistrationNo);
       createData.businessAddress = legacyAddr;
-      createData.authorizedRepName = directors[0]?.name ?? optionalText(data.authorizedRepName);
-      createData.authorizedRepIc = directors[0]?.icNumber ?? optionalText(data.authorizedRepIc);
+      const ar = directors.find((d) => d.isAuthorizedRepresentative);
+      createData.authorizedRepName = ar?.name ?? optionalText(data.authorizedRepName);
+      createData.authorizedRepIc = ar?.icNumber ?? optionalText(data.authorizedRepIc);
       createData.companyPhone = optionalText(data.companyPhone);
       createData.companyEmail = optionalText(data.companyEmail);
       createData.bumiStatus = data.bumiStatus ?? null;
@@ -856,14 +862,17 @@ router.post('/kyc/sessions', async (req, res, next) => {
 
     let ts: Awaited<ReturnType<typeof createKycSession>>;
     try {
-      ts = await createKycSession({
+      const createBody = {
         document_name: documentName,
         document_number: documentNumber,
         webhook_url: webhookUrl,
         document_type: documentType,
-        platform: 'Web',
-        redirect_url: config.truestackKyc.redirectUrl,
+        platform: 'Web' as const,
         metadata,
+      } as const;
+      ts = await createKycSession({
+        ...createBody,
+        ...(config.truestackKyc.redirectUrl ? { redirect_url: config.truestackKyc.redirectUrl } : {}),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'TrueStack KYC create session failed';

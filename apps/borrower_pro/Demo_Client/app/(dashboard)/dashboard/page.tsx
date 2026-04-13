@@ -316,7 +316,7 @@ export default function DashboardPage() {
       items.push({
         id: `loan-${loan.id}`,
         label: loanJourneyPhaseLabel(phase),
-        statusLabel: phase === "attestation" ? "DUE SOON" : loanJourneyPhaseLabel(phase).toUpperCase(),
+        statusLabel: phase === "attestation" ? "Due soon" : loanJourneyPhaseLabel(phase),
         sublabel: `${loan.product?.name ?? "Loan"} (${formatRm(loan.principalAmount)})`,
         description: phaseDescription(phase),
         href: `/loans/${loan.id}`,
@@ -337,8 +337,8 @@ export default function DashboardPage() {
 
       items.push({
         id: `counter-offer-${app.id}`,
-        label: "Counter Offer",
-        statusLabel: "REVIEW",
+        label: "Counter offer",
+        statusLabel: "Review",
         sublabel: `${app.product?.name ?? "Application"} (${amountLabel})`,
         description: `New offer received: ${amountLabel} over ${termLabel}. Review and respond.`,
         href: borrowerApplicationDetailPath(app),
@@ -519,7 +519,7 @@ export default function DashboardPage() {
                           <p className="text-sm font-heading font-semibold truncate">{action.label}</p>
                           <Badge
                             variant={action.badgeVariant}
-                            className="shrink-0 text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0"
+                            className="shrink-0 text-[10px] font-medium px-1.5 py-0"
                           >
                             {action.statusLabel}
                           </Badge>

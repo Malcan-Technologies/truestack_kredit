@@ -38,6 +38,8 @@ export interface CorporateDirector {
   name: string;
   icNumber: string;
   position: string;
+  /** Exactly one director must be flagged as the authorized representative for KYC and agreements. */
+  isAuthorizedRepresentative: boolean;
 }
 
 export interface CorporateFormData {

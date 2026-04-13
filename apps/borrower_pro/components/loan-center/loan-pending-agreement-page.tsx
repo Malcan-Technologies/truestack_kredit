@@ -42,7 +42,11 @@ import {
   postAttestationDeclineCounter,
   postAttestationCancelLoan,
 } from "../../lib/borrower-loans-client";
-import { fetchBorrower, getTruestackKycStatusWithActiveSessionSync } from "../../lib/borrower-api-client";
+import {
+  fetchBorrower,
+  getTruestackKycStatusWithActiveSessionSync,
+  type BorrowerDetail,
+} from "../../lib/borrower-api-client";
 import type {
   BorrowerLoanDetail,
   SignedAgreementReviewStatus,
@@ -56,6 +60,7 @@ import { TruestackKycCard } from "../truestack-kyc-card";
 import { isBorrowerKycComplete } from "../../lib/borrower-verification";
 import dynamic from "next/dynamic";
 import { DigitalCertificateStep } from "./digital-certificate-step";
+import { LoanEkycProfileSummary } from "./loan-ekyc-profile-summary";
 
 const AgreementSigningView = dynamic(
   () => import("./agreement-signing-view").then((m) => m.AgreementSigningView),
@@ -108,6 +113,8 @@ export function LoanPendingAgreementPage() {
   const attestationDoneSeenRef = useRef(false);
   const [kycDone, setKycDone] = useState(false);
   const [kycLoading, setKycLoading] = useState(true);
+  const [kycBorrowerSnapshot, setKycBorrowerSnapshot] = useState<BorrowerDetail | null>(null);
+  const [ekycCardRefreshKey, setEkycCardRefreshKey] = useState(0);
   const [certDone, setCertDone] = useState(() => {
     try {
       return sessionStorage.getItem(`cert_done_${loanId}`) === "1";
@@ -160,11 +167,14 @@ export function LoanPendingAgreementPage() {
         getTruestackKycStatusWithActiveSessionSync().catch(() => null),
       ]);
       if (borrowerRes.success) {
+        setKycBorrowerSnapshot(borrowerRes.data);
         setKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));
       } else {
+        setKycBorrowerSnapshot(null);
         setKycDone(false);
       }
     } catch {
+      setKycBorrowerSnapshot(null);
       setKycDone(false);
     } finally {
       setKycLoading(false);
@@ -964,24 +974,44 @@ export function LoanPendingAgreementPage() {
               digital certificate for signing.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent>
             {kycLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Checking your e-KYC status...
               </div>
             ) : (
-              <>
-                <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
-                  If you already completed e-KYC, this step will unlock automatically. Otherwise, start or resume your
-                  TrueStack e-KYC below.
+              <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 lg:items-start">
+                {/* Left 70% — profile review (must match ID before TrueStack) */}
+                <div className="lg:col-span-7">
+                  {kycBorrowerSnapshot ? (
+                    <LoanEkycProfileSummary
+                      borrower={kycBorrowerSnapshot}
+                      onProfileSaved={() => {
+                        setEkycCardRefreshKey((k) => k + 1);
+                        void loadKyc();
+                      }}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Could not load your profile. Refresh the page or open{" "}
+                      <Link href="/profile" className="text-primary underline-offset-4 hover:underline">
+                        Your Profile
+                      </Link>{" "}
+                      to check your details, then try again.
+                    </p>
+                  )}
                 </div>
-                <TruestackKycCard
-                  onStatusLoaded={() => {
-                    void loadKyc();
-                  }}
-                />
-              </>
+                {/* Right 30% — KYC action */}
+                <div className="lg:col-span-3">
+                  <TruestackKycCard
+                    refreshKey={ekycCardRefreshKey}
+                    onStatusLoaded={() => {
+                      void loadKyc();
+                    }}
+                  />
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>

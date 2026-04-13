@@ -35,7 +35,7 @@ function AcceptInvitationInner() {
   const sessionUserId = session?.user?.id ?? null;
 
   const [phase, setPhase] = useState<
-    "idle" | "redirect-signin" | "redirect-security" | "accepting" | "done" | "error"
+    "idle" | "redirect-signin" | "accepting" | "done" | "error"
   >("idle");
   const [retryCount, setRetryCount] = useState(0);
   const handleRetry = useCallback(() => {
@@ -67,16 +67,12 @@ function AcceptInvitationInner() {
 
     void (async () => {
       try {
-        const security = await fetchSecurityStatus(
+        // Passkey / 2FA optional — do not block invitation acceptance
+        await fetchSecurityStatus(
           session!.user as { emailVerified?: boolean; twoFactorEnabled?: boolean }
         );
+
         if (cancelled) return;
-        if (!security.isSecuritySetupComplete) {
-          setPhase("redirect-security");
-          const returnTo = `/accept-invitation?invitationId=${encodeURIComponent(invitationId)}`;
-          router.replace(`/security-setup?returnTo=${encodeURIComponent(returnTo)}`);
-          return;
-        }
 
         setPhase("accepting");
         const preview = await fetchBorrowerInvitationPreview(invitationId);
@@ -139,7 +135,7 @@ function AcceptInvitationInner() {
       <CardHeader>
         <CardTitle>Accept invitation</CardTitle>
         <CardDescription>
-          {phase === "redirect-signin" || phase === "redirect-security"
+          {phase === "redirect-signin"
             ? "Redirecting…"
             : phase === "accepting"
               ? "Joining your company workspace…"
@@ -152,7 +148,7 @@ function AcceptInvitationInner() {
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground">
-          You may need to verify your email and complete security setup before joining.
+          You may need to verify your email before joining. Security setup (passkey or 2FA) is optional and can be done later from your account.
         </p>
       </CardContent>
       {phase === "error" && (

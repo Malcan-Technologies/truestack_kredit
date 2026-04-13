@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Building2,
@@ -70,6 +70,14 @@ function formatNumber(n: number, decimals: number): string {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
+}
+
+function formatApplicationStatusLabel(status: string): string {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 function formatRelativeTime(iso: string): string {
@@ -151,6 +159,17 @@ function applicationTimelineLabel(action: string): string {
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+/** Last "Returned for amendments: …" block from application notes (borrower-visible lender message). */
+function extractLastAmendmentMessageFromNotes(fullNotes: string | null | undefined): string | null {
+  const raw = fullNotes?.trim();
+  if (!raw) return null;
+  const marker = "Returned for amendments:";
+  const idx = raw.lastIndexOf(marker);
+  if (idx === -1) return null;
+  const after = raw.slice(idx + marker.length).trim();
+  return after || null;
 }
 
 function applicationActorLabel(event: TimelineEvent): string | null {
@@ -376,9 +395,21 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
               <span className="font-medium text-foreground">{formatTimelineValue(data.status, "status")}</span>
             )}
           </p>
-          {data.reason ? (
+          {data.reason || data.notes ? (
             <p className="text-xs text-muted-foreground">
-              Reason: <span className="text-foreground">{formatTimelineValue(data.reason, "reason")}</span>
+              {data.reason ? (
+                <>
+                  Reason:{" "}
+                  <span className="text-foreground">{formatTimelineValue(data.reason, "reason")}</span>
+                </>
+              ) : null}
+              {data.reason && data.notes ? <span className="block mt-1" /> : null}
+              {data.notes ? (
+                <>
+                  Notes:{" "}
+                  <span className="text-foreground">{formatTimelineValue(data.notes, "notes")}</span>
+                </>
+              ) : null}
             </p>
           ) : null}
         </div>
@@ -648,6 +679,30 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
     borrower &&
     (isCorporate && borrower.companyName ? borrower.companyName : borrower.name || "Borrower");
 
+  const returnedForAmendments = useMemo(() => {
+    if (app.status !== "DRAFT" || isPhysicalDraft) return false;
+    return timeline.some((e) => e.action === "RETURN_TO_DRAFT");
+  }, [app.status, isPhysicalDraft, timeline]);
+
+  const latestAmendmentNote = useMemo(() => {
+    if (app.status !== "DRAFT" || isPhysicalDraft) return null;
+    const sorted = [...timeline].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const amend = sorted.find((e) => e.action === "RETURN_TO_DRAFT");
+    const data =
+      amend?.newData && typeof amend.newData === "object"
+        ? (amend.newData as Record<string, unknown>)
+        : null;
+    const reason =
+      data && typeof data.reason === "string" && data.reason.trim() ? data.reason.trim() : null;
+    const notes =
+      data && typeof data.notes === "string" && data.notes.trim() ? data.notes.trim() : null;
+    const fromApp = extractLastAmendmentMessageFromNotes(app.notes);
+    const combined = [reason, notes].filter(Boolean).join("\n\n") || fromApp;
+    return combined || null;
+  }, [app.status, app.notes, isPhysicalDraft, timeline]);
+
   return (
     <div className="space-y-6">
       {/* Header — matches admin applications/[id] */}
@@ -664,7 +719,7 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
                 {app.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}
               </Badge>
               <Badge variant={statusColors[app.status] ?? "secondary"}>
-                {app.status.replace(/_/g, " ")}
+                {formatApplicationStatusLabel(app.status)}
               </Badge>
             </div>
             <p className="text-muted-foreground mt-1">
@@ -689,6 +744,14 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
               </Link>
             </Button>
           )}
+          {app.status === "DRAFT" && !isPhysicalDraft && (
+            <Button asChild>
+              <Link href={`/applications/apply?applicationId=${app.id}`}>
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit application
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -699,6 +762,27 @@ export function BorrowerApplicationDetail({ app, onDocumentsChange, onRefresh }:
             This draft physical loan application cannot be edited from the borrower portal. Any changes, including
             document uploads, must be handled by your lender.
           </p>
+        </div>
+      )}
+
+      {returnedForAmendments && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <RotateCcw className="h-5 w-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-foreground">Returned for amendments</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {latestAmendmentNote
+                  ? "Your lender left the message below. Review it with your full application details, then use Edit application to update and resubmit."
+                  : "Your lender returned this application so you can make changes. Review your details on this page, then use Edit application to update and resubmit."}
+              </p>
+              {latestAmendmentNote ? (
+                <p className="text-sm text-foreground mt-3 whitespace-pre-wrap rounded-md border bg-background/80 px-3 py-2">
+                  {latestAmendmentNote}
+                </p>
+              ) : null}
+            </div>
+          </div>
         </div>
       )}
 

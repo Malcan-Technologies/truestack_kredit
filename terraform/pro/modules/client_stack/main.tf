@@ -658,7 +658,7 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "UPLOAD_DIR", value = "/tmp/uploads" },
         { name = "TRUESTACK_KYC_API_BASE_URL", value = var.truestack_kyc_api_base_url },
         { name = "TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL", value = "https://${var.api_domain}" },
-        { name = "TRUESTACK_KYC_REDIRECT_URL", value = "https://${var.borrower_domain}/dashboard/profile" },
+        { name = "TRUESTACK_KYC_REDIRECT_URL", value = "" },
         { name = "EMAIL_FROM_NAME", value = var.email_from_name },
         { name = "EMAIL_FROM_ADDRESS", value = var.email_from_address }
       ]

@@ -46,6 +46,16 @@ export function isCorporateIdentityDocumentLocked(
   );
 }
 
+function sessionSortKey(session: Pick<TruestackKycSessionRow, "createdAt" | "updatedAt">): string {
+  return session.createdAt ?? session.updatedAt ?? "";
+}
+
+/** After a retry/redo, only the latest attempt should decide current KYC completion. */
+function pickLatestSession<T extends TruestackKycSessionRow>(sessions: T[]): T | undefined {
+  if (sessions.length === 0) return undefined;
+  return [...sessions].sort((a, b) => sessionSortKey(b).localeCompare(sessionSortKey(a)))[0];
+}
+
 export function isBorrowerKycComplete(
   borrower: Pick<
     BorrowerDetail,
@@ -62,21 +72,18 @@ export function isBorrowerKycComplete(
 
   if (borrower.borrowerType === "INDIVIDUAL") {
     if (isIndividualIdentityLocked(borrower)) return true;
-    return sessions.some((s) => !s.directorId && s.status === "completed" && s.result === "approved");
+    const latestIndividualSession = pickLatestSession(sessions.filter((s) => !s.directorId));
+    return latestIndividualSession?.status === "completed" && latestIndividualSession.result === "approved";
   }
 
   if (borrower.verificationStatus === "FULLY_VERIFIED") return true;
   const kycDirectors = getCorporateDirectorsForKyc(borrower.directors);
   if (kycDirectors.length === 0) return false;
 
-  return kycDirectors.every((director) =>
-    sessions.some(
-      (s) =>
-        s.directorId === director.id &&
-        s.status === "completed" &&
-        s.result === "approved"
-    )
-  );
+  return kycDirectors.every((director) => {
+    const latestDirectorSession = pickLatestSession(sessions.filter((s) => s.directorId === director.id));
+    return latestDirectorSession?.status === "completed" && latestDirectorSession.result === "approved";
+  });
 }
 
 const INDIVIDUAL_LOCKED_CATEGORIES = new Set([

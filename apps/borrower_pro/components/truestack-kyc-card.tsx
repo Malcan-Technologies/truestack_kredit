@@ -57,17 +57,9 @@ function sessionSortKey(s: TruestackKycSessionRow): string {
   return s.createdAt ?? s.updatedAt ?? "";
 }
 
-/** Prefer completed+approved over newer pending rows (e.g. after Retry KYC). */
+/** Follow the latest attempt so redo / retry shows the new session immediately. */
 function pickBestSession(rows: TruestackKycSessionRow[]): TruestackKycSessionRow | undefined {
   if (rows.length === 0) return undefined;
-  const approved = rows.filter((s) => s.status === "completed" && s.result === "approved");
-  if (approved.length > 0) {
-    return approved.reduce((a, b) => {
-      const ta = a.updatedAt ?? a.createdAt ?? "";
-      const tb = b.updatedAt ?? b.createdAt ?? "";
-      return ta > tb ? a : b;
-    });
-  }
   return [...rows].sort((a, b) => sessionSortKey(b).localeCompare(sessionSortKey(a)))[0];
 }
 

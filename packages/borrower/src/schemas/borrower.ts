@@ -37,6 +37,7 @@ export const BorrowerDirectorSchema = z.object({
   icNumber: z.string(),
   position: z.string().nullable(),
   order: z.number(),
+  isAuthorizedRepresentative: z.boolean().optional(),
 });
 
 export const BorrowerDetailSchema = z.object({
@@ -139,5 +140,6 @@ export const UpdateBorrowerPayloadSchema = z.object({
     icNumber: z.string(),
     position: z.string().optional(),
     id: z.string().optional(),
+    isAuthorizedRepresentative: z.boolean().optional(),
   })).optional(),
 });

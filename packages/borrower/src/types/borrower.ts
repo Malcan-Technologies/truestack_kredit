@@ -36,6 +36,7 @@ export interface BorrowerDirector {
   icNumber: string;
   position: string | null;
   order: number;
+  isAuthorizedRepresentative?: boolean;
 }
 
 export interface BorrowerDetail {
@@ -133,5 +134,11 @@ export interface UpdateBorrowerPayload {
   paidUpCapital?: number | null;
   numberOfEmployees?: number | null;
   bumiStatus?: string;
-  directors?: Array<{ name: string; icNumber: string; position?: string; id?: string }>;
+  directors?: Array<{
+    name: string;
+    icNumber: string;
+    position?: string;
+    id?: string;
+    isAuthorizedRepresentative?: boolean;
+  }>;
 }

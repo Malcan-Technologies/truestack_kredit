@@ -105,6 +105,7 @@ export const OnboardingPayloadSchema = z.object({
     name: z.string(),
     icNumber: z.string(),
     position: z.string().optional(),
+    isAuthorizedRepresentative: z.boolean().optional(),
   })).optional(),
 });
 

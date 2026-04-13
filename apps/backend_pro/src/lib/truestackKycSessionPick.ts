@@ -1,7 +1,9 @@
 /**
- * After "Retry KYC", a new pending session is created while an older row may
- * already be completed+approved. Status APIs must not only look at the newest
- * row by createdAt — prefer any successful completion (latest by updatedAt).
+ * Pick the current session for display.
+ *
+ * Redo / retry creates a brand new session row while older approved rows stay
+ * in history. Once a new attempt exists, the UI must reflect that latest
+ * attempt instead of staying stuck on the historical approved result.
  */
 export type TruestackKycSessionPickable = {
   status: string;
@@ -14,9 +16,9 @@ export function pickBestTruestackKycSession<T extends TruestackKycSessionPickabl
   sessions: T[]
 ): T | undefined {
   if (sessions.length === 0) return undefined;
-  const approved = sessions.filter((s) => s.status === 'completed' && s.result === 'approved');
-  if (approved.length > 0) {
-    return approved.reduce((a, b) => (a.updatedAt > b.updatedAt ? a : b));
-  }
-  return [...sessions].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  return [...sessions].sort((a, b) => {
+    const createdDiff = b.createdAt.getTime() - a.createdAt.getTime();
+    if (createdDiff !== 0) return createdDiff;
+    return b.updatedAt.getTime() - a.updatedAt.getTime();
+  })[0];
 }

@@ -38,7 +38,7 @@ import { Skeleton } from "@borrower_pro/components/ui/skeleton";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
 import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
 import { borrowerApplicationDetailPath } from "@borrower_pro/lib/borrower-application-navigation";
-import type { LoanApplicationDetail } from "@borrower_pro/lib/application-form-types";
+import type { LoanApplicationDetail } from "@kredit/borrower";
 import { toAmountNumber } from "@borrower_pro/lib/application-form-validation";
 import { formatDate } from "@borrower_pro/lib/borrower-form-display";
 import { LoanApplicationOfferParty, LoanApplicationOfferStatus } from "@kredit/shared";

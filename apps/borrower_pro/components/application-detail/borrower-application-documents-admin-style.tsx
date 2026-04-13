@@ -16,7 +16,7 @@ import type {
   ApplicationDocumentRow,
   LoanApplicationDetail,
   RequiredDocumentItem,
-} from "../../lib/application-form-types";
+} from "@kredit/borrower";
 import {
   deleteApplicationDocument,
   uploadApplicationDocument,

@@ -1,4 +1,4 @@
-import type { BorrowerLoanListItem } from "./borrower-loan-types";
+import type { BorrowerLoanListItem } from "@kredit/borrower";
 
 /**
  * True when the borrower still has attestation, agreement download/sign, or signed PDF upload work

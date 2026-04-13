@@ -29,7 +29,7 @@ import {
   getBorrowerLoanSchedule,
   type BorrowerLenderInfo,
 } from "../../lib/borrower-loans-client";
-import type { BorrowerLoanDetail } from "../../lib/borrower-loan-types";
+import type { BorrowerLoanDetail } from "@kredit/borrower";
 import { getBankLabel } from "../../lib/bank-options";
 
 function formatRm(n: number): string {

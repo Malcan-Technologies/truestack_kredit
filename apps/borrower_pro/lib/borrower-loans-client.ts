@@ -9,8 +9,21 @@ import type {
   BorrowerLoanTimelineEvent,
   LoanCenterOverview,
   RecordBorrowerPaymentBody,
-} from "./borrower-loan-types";
-import type { LoanApplicationDetail } from "./application-form-types";
+  LenderBankInfo,
+} from "@kredit/borrower";
+import type { LoanApplicationDetail } from "@kredit/borrower";
+
+export type {
+  BorrowerLoanDetail,
+  BorrowerLoanListItem,
+  BorrowerLoanMetrics,
+  BorrowerLoanTimelineEvent,
+  LoanCenterOverview,
+  RecordBorrowerPaymentBody,
+  LenderBankInfo,
+} from "@kredit/borrower";
+
+export type { LenderBankInfo as BorrowerLenderInfo } from "@kredit/borrower";
 
 const BASE = "/api/proxy/borrower-auth";
 
@@ -348,17 +361,9 @@ function randomIdempotencyKey(): string {
   return `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export type BorrowerLenderInfo = {
-  name: string;
-  lenderBankCode?: string | null;
-  lenderBankOtherName?: string | null;
-  lenderAccountHolderName?: string | null;
-  lenderAccountNumber?: string | null;
-};
-
-export async function fetchBorrowerLender(): Promise<BorrowerLenderInfo> {
+export async function fetchBorrowerLender(): Promise<LenderBankInfo> {
   const res = await fetch(`${BASE}/lender`, { credentials: "include" });
-  const json = await parseJson<{ success: boolean; data?: BorrowerLenderInfo; error?: string }>(res);
+  const json = await parseJson<{ success: boolean; data?: LenderBankInfo; error?: string }>(res);
   if (!res.ok) {
     throw new Error(json.error || "Failed to load lender details");
   }

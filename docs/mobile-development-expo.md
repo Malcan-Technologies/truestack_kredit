@@ -1,8 +1,51 @@
 # Borrower Pro mobile (Expo): Demo_Client mapping & effort
 
-This document maps `apps/borrower_pro/Demo_Client` (Next.js) to a future **Expo (React Native)** app, lists **tools**, and gives **rough effort** for planning. It complements [architecture_plan.md](./architecture_plan.md) and [authentication-context.md](./authentication-context.md).
+This document maps `apps/borrower_pro/Demo_Client` (Next.js) to the **Expo (React Native)** app at `apps/borrower_pro_mobile/Demo_Client/`, lists **tools**, and gives **rough effort** for planning. It complements [architecture_plan.md](./architecture_plan.md) and [authentication-context.md](./authentication-context.md).
 
 **Scope:** one native app per Pro client (e.g. Demo_Client → one iOS + one Android product). **Not in scope:** admin apps, SaaS borrower, or replacing the web borrower app.
+
+---
+
+## 0. Current Status (as of 2026-04-11)
+
+### What has been built
+
+**`packages/borrower` (`@kredit/borrower`)** — shared workspace package used by both web and mobile:
+- Full TypeScript type definitions for all borrower domains (borrower, application, loan, auth, signing)
+- Matching Zod validation schemas
+- Five API client factories: `createBorrowerApiClient`, `createApplicationsApiClient`, `createLoansApiClient`, `createBorrowerAuthApiClient`, `createSigningApiClient`
+- Standalone URL helpers for loan agreements, disbursement proofs, transaction receipts
+- See [packages-borrower.md](./packages-borrower.md) for full API reference
+
+**`apps/borrower_pro_mobile/Demo_Client/`** — Expo app scaffold is in place with:
+
+| File | What it does |
+|------|-------------|
+| `src/lib/auth/session-store.ts` | Persists Better Auth session token in `expo-secure-store`; exports `getSessionToken`, `setSessionToken`, `clearSessionToken`, `buildCookieHeader` |
+| `src/lib/auth/session-fetch.ts` | `sessionFetch: FetchFn` — reads stored token on every call and injects `Cookie: truestack-borrower.session_token=<token>` |
+| `src/lib/auth/auth-api.ts` | Better Auth REST calls: `signInWithEmail`, `signUpWithEmail`, `signOut`, `getSession`, `verifyTotp`, `requestPasswordReset`, `sendVerificationEmail` |
+| `src/lib/auth/session-context.tsx` | `SessionProvider` + `useSession()` React Context; validates token against server on mount; exposes `session`, `user`, `isLoading`, `signOut`, `refresh` |
+| `src/lib/auth/index.ts` | Barrel export for the auth module |
+| `src/lib/api/borrower.ts` | All five API clients instantiated with `sessionFetch`; screens import e.g. `borrowerClient.fetchBorrower()` |
+| `src/app/_layout.tsx` | Root layout with `SessionProvider` + `AuthGate` (Expo Router `<Redirect>`-based auth guard) |
+| `src/app/(auth)/sign-in.tsx` | Sign-in screen: email + password inputs, error display, loading state, calls `signInWithEmail` → `refresh` → `router.replace('/')` |
+| `metro.config.js` | Monorepo-aware Metro config: watches `packages/` so Metro can resolve `@kredit/borrower` |
+
+**Web app import consolidation** — zero behavior change, all tests pass:
+- `apps/borrower_pro/lib/borrower-*-client.ts` files now import types from `@kredit/borrower` and re-export them for backward compat
+- `apps/borrower_pro/lib/application-form-types.ts` and `borrower-loan-types.ts` deleted (types live in the shared package)
+
+### Auth transport approach
+
+Better Auth session tokens are read from the sign-in response body (`result.token`) — more reliable than parsing `Set-Cookie` on React Native. Tokens are stored in `expo-secure-store` (available in Expo Go; no custom build required). On every API call, `sessionFetch` reads the token and manually injects it as a `Cookie` header. The Better Auth server sees an identical cookie to the one set in a browser session.
+
+### Known gaps / not yet started
+
+- **2FA screen**: Sign-in detects `twoFactorRedirect: true` and shows an error message. A `/(auth)/two-factor` screen with TOTP entry needs to be built.
+- **Sign-up screen**: `signUpWithEmail` exists in `auth-api.ts` but there is no UI yet.
+- **All app screens**: Loan center, applications, profile, dashboard — not yet started.
+- **Deep linking**: Password-reset and email-verification links must open the app via Universal Links / App Links — not yet configured.
+- **Passkeys**: Not evaluated for mobile yet; web uses passkeys but the Expo path needs its own spike.
 
 ---
 
@@ -92,19 +135,27 @@ Expo uses a **navigator** (e.g. Expo Router file-based routes, or React Navigati
 
 ---
 
-## 4. Auth & session (critical path)
+## 4. Auth & session
 
 Today: **Better Auth on Next**, **session cookies**, **passkeys** with `rpId` / filtered passkey list via `backend_pro` ([authentication-context.md](./authentication-context.md)).
 
-For Expo, plan a **dedicated spike** before full UI work:
+### Completed (Expo mobile)
 
-1. **Sign-in / sign-up / session refresh** on device (Better Auth REST endpoints from the **borrower web origin** or a documented mobile base URL).
-2. **Deep linking:** `verify-email`, `reset-password`, `change-email` links must open the app when installed (iOS Universal Links + Android App Links) or fall back to Safari/Chrome.
-3. **Storage:** `expo-secure-store` (or similar) for sensitive tokens if you add a token path; cookie jars if staying cookie-based.
-4. **Passkeys:** evaluate **expo-passkey** / platform WebAuthn and **Better Auth** mobile docs; may differ from web `rpId` story.
-5. **Email:** still sent from **Next borrower** (Resend); no change unless you centralize auth email later.
+The auth spike is done. The approach chosen:
 
-Until this is settled, treat **auth effort as the main schedule risk**.
+1. **Sign-in**: POST to `${BACKEND_URL}/api/auth/sign-in/email` — token is read from the **response body** (`result.token`), not `Set-Cookie`. This is more reliable in React Native where `Set-Cookie` parsing varies by fetch implementation.
+2. **Storage**: Token persisted in **`expo-secure-store`** — works in Expo Go without a custom build. Key: `ba_session_token`. Cookie name: `truestack-borrower.session_token`.
+3. **Session transport**: Every API call goes through `sessionFetch`, which reads the stored token and injects it as a `Cookie` header. The backend sees the same cookie structure as a browser session.
+4. **Session validation**: On app start, `SessionProvider` calls `GET /api/auth/get-session` with the stored token. If invalid/expired, clears local state and redirects to sign-in.
+5. **Auth guard**: `AuthGate` component uses Expo Router's `<Redirect>` — no flash; runs inside `SessionProvider`.
+6. **Email**: still sent from **Next borrower** (Resend); no change.
+
+### Still to do
+
+- **Deep linking**: `verify-email`, `reset-password`, `change-email` links need iOS Universal Links + Android App Links configured in `app.json` + server-side `apple-app-site-association` / `assetlinks.json`.
+- **2FA**: `signInWithEmail` detects `twoFactorRedirect: true`; a `/(auth)/two-factor` TOTP screen needs to be built.
+- **Sign-up screen**: API exists, UI does not.
+- **Passkeys**: Evaluate **expo-passkey** / platform WebAuthn against Better Auth mobile docs. May require a custom dev build (not Expo Go). Treat as a separate milestone.
 
 ---
 
@@ -152,16 +203,16 @@ Exact versions should be chosen at implementation time against Expo SDK compatib
 
 Assumptions: **one** borrower client (Demo_Client pattern), **experienced** RN/Expo dev or strong React dev learning Expo, **backend_pro** APIs stable, **no** admin mobile.
 
-| Phase | Scope | Calendar (1 dev) | Notes |
-|-------|--------|-------------------|--------|
-| **A. Spike** | Expo app shell, env per client, **auth end-to-end** (sign-in, session, one protected API call), one deep link path | **1–3 weeks** | Blocks confident planning for the rest. |
-| **B. Foundation** | Navigation, theming (dark default per brand), API client abstraction, error/toast UX, secure storage | **1–2 weeks** | After spike. |
-| **C. Auth parity** | Sign-up, forgot/reset, verify email, 2FA, security-setup gating aligned with web policy | **2–4 weeks** | Highly dependent on Better Auth + passkey decisions. |
-| **D. Core borrower** | Onboarding wizard, applications list/apply/detail/documents, loans list/detail/payment | **4–8 weeks** | Largest chunk; forms + uploads. |
-| **E. Secondary** | Help, legal, about, loan extras (video, meeting) | **1–2 weeks** | Can parallelize partially. |
-| **F. Hardening** | Offline/error states, accessibility, store listings, screenshots, EAS profiles per client | **1–2 weeks** | |
+| Phase | Scope | Status | Notes |
+|-------|--------|--------|--------|
+| **A. Spike** | Expo app shell, env per client, **auth end-to-end** (sign-in, session, one protected API call) | **Done** | `@kredit/borrower` package + auth stack (session-store, session-fetch, auth-api, session-context, sign-in screen, auth guard) |
+| **B. Foundation** | Navigation, theming (dark default per brand), API client abstraction, secure storage | **Done** | `sessionFetch` wired into all 5 API clients; metro.config.js; theme system in place |
+| **C. Auth parity** | Sign-up, forgot/reset, verify email, 2FA, deep links, security-setup gating | **In progress** | Sign-up API ready, UI not started. 2FA detection exists, screen not started. Deep links not configured. |
+| **D. Core borrower** | Onboarding wizard, applications list/apply/detail/documents, loans list/detail/payment | **Not started** | Largest chunk; forms + uploads. |
+| **E. Secondary** | Help, legal, about, loan extras (video, meeting) | **Not started** | Can parallelize partially. |
+| **F. Hardening** | Offline/error states, accessibility, store listings, screenshots, EAS profiles per client | **Not started** | |
 
-**Rough total for MVP parity with current Demo_Client scope:** **~10–20 weeks** single developer, or **~3–5 months** calendar with integration risk; **shorter** if auth stays “open in browser + return to app” and **longer** if full in-app passkey + pixel parity.
+**Rough remaining effort for MVP parity:** Phase C (~2–3 weeks) → Phase D (~4–8 weeks) → Phases E+F (~2–4 weeks). **~8–15 weeks** from here for one developer.
 
 **Per additional Pro client:** mostly **branding, bundle ID, env, store assets, deep link host** — **~3–10 days** if the app is white-labeled; more if forked behavior.
 
@@ -198,4 +249,4 @@ Update this file when:
 - First Expo app path is chosen under `/apps`.
 - MVP scope is cut (e.g. phase 1 without passkeys or without document upload).
 
-Last updated: 2026-04-03.
+Last updated: 2026-04-11.

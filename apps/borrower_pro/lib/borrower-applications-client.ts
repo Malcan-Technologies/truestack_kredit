@@ -7,7 +7,14 @@ import type {
   LoanPreviewData,
   LoanApplicationDetail,
   ApplicationDocumentRow,
-} from "./application-form-types";
+} from "@kredit/borrower";
+
+export type {
+  BorrowerProduct,
+  LoanPreviewData,
+  LoanApplicationDetail,
+  ApplicationDocumentRow,
+} from "@kredit/borrower";
 
 const BASE = "/api/proxy/borrower-auth";
 

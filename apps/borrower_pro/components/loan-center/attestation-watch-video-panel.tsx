@@ -24,7 +24,7 @@ import {
   postAttestationRequestMeeting,
   postAttestationVideoComplete,
 } from "../../lib/borrower-loans-client";
-import type { BorrowerLoanDetail } from "../../lib/borrower-loan-types";
+import type { BorrowerLoanDetail } from "@kredit/borrower";
 import { toAmountNumber } from "../../lib/application-form-validation";
 import { cn } from "../../lib/utils";
 

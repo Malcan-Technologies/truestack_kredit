@@ -267,6 +267,7 @@ Shared Pro code must live in common app or package locations:
 - `apps/backend_pro`
 - `apps/signing-gateway` (on-prem Signing Gateway — one codebase, deployed per client)
 - `packages/shared`
+- `packages/borrower` — cross-platform borrower types, Zod schemas, and API client factories (see `docs/packages-borrower.md`)
 - `packages/borrower-ui`
 - `packages/form-schemas`
 - shared domain packages extracted from `backend_pro` when stable

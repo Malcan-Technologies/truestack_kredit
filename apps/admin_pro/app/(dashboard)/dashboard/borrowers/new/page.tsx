@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { RoleGate } from "@/components/role-gate";
 import {
   Table,
   TableBody,
@@ -918,7 +919,8 @@ export default function NewBorrowerPage() {
   ]);
 
   return (
-    <div className="space-y-6">
+    <RoleGate requiredPermissions={["borrowers.create"]}>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -2228,6 +2230,7 @@ export default function NewBorrowerPage() {
           </Card>
         </div>
       </div>
-    </div>
+      </div>
+    </RoleGate>
   );
 }

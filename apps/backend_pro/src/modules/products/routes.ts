@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, UnauthorizedError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
-import { requireAdmin } from '../../middleware/requireRole.js';
+import { requirePermission } from '../../middleware/requireRole.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { AuditService } from '../compliance/auditService.js';
 
@@ -133,7 +133,7 @@ const updateProductSchema = z.object({
  * List products
  * GET /api/products
  */
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('products.view'), async (req, res, next) => {
   try {
     const { activeOnly } = req.query;
 
@@ -165,7 +165,7 @@ router.get('/', async (req, res, next) => {
  * Get product timeline (audit log)
  * GET /api/products/:productId/timeline
  */
-router.get('/:productId/timeline', async (req, res, next) => {
+router.get('/:productId/timeline', requirePermission('products.view'), async (req, res, next) => {
   try {
     const productId = req.params.productId as string;
     const { cursor, limit: limitStr } = req.query;
@@ -240,11 +240,12 @@ router.get('/:productId/timeline', async (req, res, next) => {
  * Get single product
  * GET /api/products/:productId
  */
-router.get('/:productId', async (req, res, next) => {
+router.get('/:productId', requirePermission('products.view'), async (req, res, next) => {
   try {
+    const productId = req.params.productId as string;
     const product = await prisma.product.findFirst({
       where: {
-        id: req.params.productId,
+        id: productId,
         tenantId: req.tenantId,
       },
       include: {
@@ -271,7 +272,7 @@ router.get('/:productId', async (req, res, next) => {
  * Create product
  * POST /api/products
  */
-router.post('/', requireAdmin, async (req, res, next) => {
+router.post('/', requirePermission('products.create'), async (req, res, next) => {
   try {
     const data = createProductSchema.parse(req.body);
     const { tenantId, memberId } = requireAuditContext(req);
@@ -323,7 +324,7 @@ router.post('/', requireAdmin, async (req, res, next) => {
  * Update product
  * PATCH /api/products/:productId
  */
-router.patch('/:productId', requireAdmin, async (req, res, next) => {
+router.patch('/:productId', requirePermission('products.edit'), async (req, res, next) => {
   try {
     const data = updateProductSchema.parse(req.body);
     const productId = req.params.productId as string;
@@ -394,7 +395,7 @@ router.patch('/:productId', requireAdmin, async (req, res, next) => {
  * Delete product
  * DELETE /api/products/:productId
  */
-router.delete('/:productId', requireAdmin, async (req, res, next) => {
+router.delete('/:productId', requirePermission('products.archive'), async (req, res, next) => {
   try {
     const productId = req.params.productId as string;
     const { tenantId, memberId } = requireAuditContext(req);

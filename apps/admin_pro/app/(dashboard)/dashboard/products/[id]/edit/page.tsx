@@ -430,7 +430,7 @@ export default function EditProductPage() {
   }
 
   return (
-    <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
+    <RoleGate requiredPermissions={["products.edit"]}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">

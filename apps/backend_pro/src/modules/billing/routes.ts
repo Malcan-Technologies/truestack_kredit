@@ -9,6 +9,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AddOnService } from '../../lib/addOnService.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
+import { requirePermission } from '../../middleware/requireRole.js';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.use(requireActiveSubscription);
  * Add-on flags + TrueSend email stats (matches legacy SaaS response shape).
  * GET /api/billing/add-ons
  */
-router.get('/add-ons', async (req, res, next) => {
+router.get('/add-ons', requirePermission('billing.view'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
 

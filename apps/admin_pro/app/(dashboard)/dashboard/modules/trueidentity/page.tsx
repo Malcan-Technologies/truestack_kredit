@@ -245,7 +245,7 @@ export default function TrueIdentityModulePage() {
   const isPro = process.env.NEXT_PUBLIC_PRODUCT_MODE === "pro";
 
   return (
-    <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
+    <RoleGate requiredPermissions={["trueidentity.view"]}>
       <div className="space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>

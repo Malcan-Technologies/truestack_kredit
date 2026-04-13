@@ -18,9 +18,74 @@ import { buildLoanAgreementPdfBuffer } from '../loans/loanAgreementPdfService.js
 import { AuditService } from '../compliance/auditService.js';
 import { TrueSendService } from '../notifications/trueSendService.js';
 import { getMalaysiaDateString } from '../../lib/malaysiaTime.js';
+import {
+  mtsaNationalityFromBorrowerCountry,
+  mtsaRequestUsesPassportIdType,
+  storedDocumentTypeIsPassport,
+} from '../../lib/mtsaIdentity.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
+
+/**
+ * MTSA `UserID` must be the natural person's NRIC/passport. For corporate borrowers,
+ * `Borrower.icNumber` stores the company SSM/registration id — use `authorizedRepIc` instead.
+ */
+function mtsaUserIdForBorrower(borrower: {
+  borrowerType: string;
+  icNumber: string;
+  authorizedRepIc: string | null;
+}): string {
+  if (borrower.borrowerType === 'CORPORATE') {
+    return borrower.authorizedRepIc?.trim() ?? '';
+  }
+  return borrower.icNumber.trim();
+}
+
+function requireMtsaUserId(
+  borrower: { borrowerType: string; icNumber: string; authorizedRepIc: string | null },
+  notFoundMessageIndividual: string,
+): string {
+  const userId = mtsaUserIdForBorrower(borrower);
+  if (userId) return userId;
+  if (borrower.borrowerType === 'CORPORATE') {
+    throw new BadRequestError(
+      'Authorized representative IC number is required for digital signing. The certificate user ID is the representative IC, not the company SSM/registration number.'
+    );
+  }
+  throw new BadRequestError(notFoundMessageIndividual);
+}
+
+/** Full name on the certificate / SignPDF must match the signer (rep for corporate, not necessarily legal entity name). */
+function requireMtsaSignerProfile(borrower: {
+  borrowerType: string;
+  icNumber: string;
+  name: string;
+  authorizedRepIc: string | null;
+  authorizedRepName: string | null;
+}): { userId: string; fullName: string } {
+  const userId = mtsaUserIdForBorrower(borrower);
+  if (!userId) {
+    if (borrower.borrowerType === 'CORPORATE') {
+      throw new BadRequestError(
+        'Authorized representative IC number is required for certificate enrollment and signing (not the company SSM number).'
+      );
+    }
+    throw new BadRequestError('Borrower IC number is required');
+  }
+  const fullName =
+    borrower.borrowerType === 'CORPORATE'
+      ? borrower.authorizedRepName?.trim() || borrower.name?.trim() || ''
+      : borrower.name?.trim() || '';
+  if (!fullName) {
+    throw new BadRequestError(
+      borrower.borrowerType === 'CORPORATE'
+        ? 'Authorized representative name is required for certificate enrollment and signing'
+        : 'Borrower name is required'
+    );
+  }
+  return { userId, fullName };
+}
 
 function signingFooterText(): string {
   try {
@@ -52,13 +117,14 @@ router.post('/cert-status', async (req, res, next) => {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const borrower = await prisma.borrower.findFirst({
       where: { id: borrowerId, tenantId: tenant.id },
-      select: { icNumber: true, name: true },
+      select: { borrowerType: true, icNumber: true, authorizedRepIc: true },
     });
-    if (!borrower?.icNumber) {
-      throw new BadRequestError('Borrower IC number is required for certificate check');
+    if (!borrower) {
+      throw new BadRequestError('Borrower not found');
     }
 
-    const result = await getCertInfo(borrower.icNumber);
+    const userId = requireMtsaUserId(borrower, 'Borrower IC number is required for certificate check');
+    const result = await getCertInfo(userId);
     const hasCert = result.success && result.certStatus === 'Valid';
 
     res.json({
@@ -85,16 +151,17 @@ router.post('/request-otp', async (req, res, next) => {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const borrower = await prisma.borrower.findFirst({
       where: { id: borrowerId, tenantId: tenant.id },
-      select: { icNumber: true, email: true },
+      select: { borrowerType: true, icNumber: true, authorizedRepIc: true, email: true },
     });
-    if (!borrower?.icNumber) {
-      throw new BadRequestError('Borrower IC number is required');
+    if (!borrower) {
+      throw new BadRequestError('Borrower not found');
     }
     if (!borrower.email) {
       throw new BadRequestError('Borrower email is required for OTP delivery');
     }
 
-    const result = await requestEmailOTP(borrower.icNumber, 'NU', borrower.email);
+    const userId = requireMtsaUserId(borrower, 'Borrower IC number is required');
+    const result = await requestEmailOTP(userId, 'NU', borrower.email);
     res.json({
       success: result.success,
       statusCode: result.statusCode,
@@ -111,6 +178,17 @@ const enrollBodySchema = z.object({
   otp: z.string().min(4).max(8),
 });
 
+/** Categories that can satisfy MTSA RequestCertificate image fields (individual + corporate KYC). */
+const ENROLL_DOC_CATEGORIES = [
+  'IC_FRONT',
+  'IC_BACK',
+  'PASSPORT',
+  'SELFIE_LIVENESS',
+  'DIRECTOR_IC_FRONT',
+  'DIRECTOR_IC_BACK',
+  'DIRECTOR_PASSPORT',
+] as const;
+
 router.post('/enroll', async (req, res, next) => {
   try {
     if (!config.signing.enabled) {
@@ -122,22 +200,32 @@ router.post('/enroll', async (req, res, next) => {
     const borrower = await prisma.borrower.findFirst({
       where: { id: borrowerId, tenantId: tenant.id },
       select: {
+        borrowerType: true,
         icNumber: true,
         name: true,
         email: true,
         phone: true,
         documentType: true,
+        country: true,
+        authorizedRepIc: true,
+        authorizedRepName: true,
       },
     });
-    if (!borrower?.icNumber || !borrower.name || !borrower.email) {
-      throw new BadRequestError('Borrower IC, name, and email are required for certificate enrollment');
+    if (!borrower?.email) {
+      throw new BadRequestError('Borrower email is required for certificate enrollment');
     }
+    if (!borrower.phone?.trim()) {
+      throw new BadRequestError(
+        'Mobile number is required for certificate enrollment. MTSA requires a non-empty MobileNo (e.g. +60123456789).'
+      );
+    }
+    const { userId, fullName } = requireMtsaSignerProfile(borrower);
 
     const docs = await prisma.borrowerDocument.findMany({
       where: {
         borrowerId,
         tenantId: tenant.id,
-        category: { in: ['IC_FRONT', 'IC_BACK', 'SELFIE_LIVENESS'] },
+        category: { in: [...ENROLL_DOC_CATEGORIES] },
       },
       orderBy: { uploadedAt: 'desc' },
     });
@@ -155,21 +243,48 @@ router.post('/enroll', async (req, res, next) => {
       }
     }
 
-    const isPassport = borrower.documentType === 'PASSPORT';
+    const mtsaNationality = mtsaNationalityFromBorrowerCountry(borrower.country);
+    const isPassport = mtsaRequestUsesPassportIdType(
+      mtsaNationality,
+      storedDocumentTypeIsPassport(borrower.documentType),
+    );
+
+    // Corporate KYC stores director ID images under DIRECTOR_*; individual uses IC_* / PASSPORT.
+    const nricFront = docMap['IC_FRONT'] || docMap['DIRECTOR_IC_FRONT'];
+    const nricBack = docMap['IC_BACK'] || docMap['DIRECTOR_IC_BACK'];
+    const passportImage =
+      docMap['PASSPORT'] || docMap['DIRECTOR_PASSPORT'] || docMap['IC_FRONT'] || docMap['DIRECTOR_IC_FRONT'];
+    const selfie = docMap['SELFIE_LIVENESS'];
+
+    if (!isPassport) {
+      if (!nricFront || !nricBack) {
+        throw new BadRequestError(
+          'MyKad front and back images are required for certificate enrollment. Ensure KYC completed and ID images are on file.'
+        );
+      }
+    } else if (!passportImage) {
+      throw new BadRequestError(
+        'Passport image is required for certificate enrollment. Ensure KYC completed and passport image is on file.'
+      );
+    }
+    if (!selfie) {
+      throw new BadRequestError(
+        'Selfie (liveness) image is required for certificate enrollment. Ensure KYC completed and selfie is on file.'
+      );
+    }
 
     const result = await enrollCertificate({
-      UserID: borrower.icNumber,
-      FullName: borrower.name,
+      UserID: userId,
+      FullName: fullName,
       EmailAddress: borrower.email,
-      MobileNo: borrower.phone || '',
-      Nationality: 'MY',
+      MobileNo: borrower.phone!.trim(),
+      Nationality: mtsaNationality,
       UserType: '1',
       IDType: isPassport ? 'P' : 'N',
       AuthFactor: body.otp,
-      ...(!isPassport && docMap['IC_FRONT'] ? { NRICFront: docMap['IC_FRONT'] } : {}),
-      ...(!isPassport && docMap['IC_BACK'] ? { NRICBack: docMap['IC_BACK'] } : {}),
-      ...(isPassport && docMap['IC_FRONT'] ? { PassportImage: docMap['IC_FRONT'] } : {}),
-      ...(docMap['SELFIE_LIVENESS'] ? { SelfieImage: docMap['SELFIE_LIVENESS'] } : {}),
+      ...(!isPassport ? { NRICFront: nricFront, NRICBack: nricBack } : {}),
+      ...(isPassport ? { PassportImage: passportImage } : {}),
+      SelfieImage: selfie,
     });
 
     res.json({
@@ -202,21 +317,29 @@ router.post('/check-email-change', async (req, res, next) => {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const borrower = await prisma.borrower.findFirst({
       where: { id: borrowerId, tenantId: tenant.id },
-      select: { icNumber: true, email: true },
+      select: { borrowerType: true, icNumber: true, authorizedRepIc: true, email: true },
     });
-    if (!borrower?.icNumber) {
+    if (!borrower) {
       res.json({ success: true, requiresOtp: false });
       return;
     }
 
-    const certResult = await getCertInfo(borrower.icNumber);
+    let userId: string;
+    try {
+      userId = requireMtsaUserId(borrower, 'Borrower IC number is required');
+    } catch {
+      res.json({ success: true, requiresOtp: false });
+      return;
+    }
+
+    const certResult = await getCertInfo(userId);
     const hasCert = certResult.success && certResult.certStatus === 'Valid';
     if (!hasCert) {
       res.json({ success: true, requiresOtp: false });
       return;
     }
 
-    const otpResult = await requestEmailOTP(borrower.icNumber, 'NU', body.newEmail);
+    const otpResult = await requestEmailOTP(userId, 'NU', body.newEmail);
     if (!otpResult.success) {
       res.json({
         success: false,
@@ -246,13 +369,14 @@ router.post('/confirm-email-change', async (req, res, next) => {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const borrower = await prisma.borrower.findFirst({
       where: { id: borrowerId, tenantId: tenant.id },
-      select: { icNumber: true, email: true },
+      select: { borrowerType: true, icNumber: true, authorizedRepIc: true, email: true },
     });
-    if (!borrower?.icNumber) {
-      throw new BadRequestError('Borrower IC number is required');
+    if (!borrower) {
+      throw new BadRequestError('Borrower not found');
     }
 
-    const mtResult = await updateMtsaEmail(borrower.icNumber, body.newEmail, body.otp);
+    const userId = requireMtsaUserId(borrower, 'Borrower IC number is required');
+    const mtResult = await updateMtsaEmail(userId, body.newEmail, body.otp);
     if (!mtResult.success) {
       res.json({
         success: false,
@@ -294,13 +418,14 @@ router.post('/request-signing-otp', async (req, res, next) => {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const borrower = await prisma.borrower.findFirst({
       where: { id: borrowerId, tenantId: tenant.id },
-      select: { icNumber: true, email: true },
+      select: { borrowerType: true, icNumber: true, authorizedRepIc: true, email: true },
     });
-    if (!borrower?.icNumber) {
-      throw new BadRequestError('Borrower IC number is required');
+    if (!borrower) {
+      throw new BadRequestError('Borrower not found');
     }
 
-    const result = await requestEmailOTP(borrower.icNumber, 'DS');
+    const userId = requireMtsaUserId(borrower, 'Borrower IC number is required');
+    const result = await requestEmailOTP(userId, 'DS');
     res.json({
       success: result.success,
       statusCode: result.statusCode,
@@ -386,11 +511,19 @@ router.post('/sign-agreement', async (req, res, next) => {
 
     const borrower = await prisma.borrower.findFirst({
       where: { id: borrowerId, tenantId: tenant.id },
-      select: { icNumber: true, name: true, email: true },
+      select: {
+        borrowerType: true,
+        icNumber: true,
+        name: true,
+        email: true,
+        authorizedRepIc: true,
+        authorizedRepName: true,
+      },
     });
-    if (!borrower?.icNumber || !borrower.name) {
-      throw new BadRequestError('Borrower IC and name are required for signing');
+    if (!borrower) {
+      throw new BadRequestError('Borrower not found');
     }
+    const { userId, fullName } = requireMtsaSignerProfile(borrower);
 
     const agreementDate = getMalaysiaDateString();
     const { buffer, filename, signatureFields } = await buildLoanAgreementPdfBuffer({
@@ -417,8 +550,8 @@ router.post('/sign-agreement', async (req, res, next) => {
     // mode is determined by the signer identity plus whether AuthFactor is an
     // email OTP (external) or certificate PIN (internal).
     const signResult = await signAndStorePdf({
-      UserID: borrower.icNumber,
-      FullName: borrower.name,
+      UserID: userId,
+      FullName: fullName,
       AuthFactor: authFactor,
       loanId: body.loanId,
       SignatureInfo: {
@@ -495,8 +628,8 @@ router.post('/sign-agreement', async (req, res, next) => {
         agreementDate,
         authMethod: body.authMethod,
         signedAgreementReviewStatus: 'PENDING',
-        signerIcNumber: borrower.icNumber,
-        signerName: borrower.name,
+        signerIcNumber: userId,
+        signerName: fullName,
         borrowerSignaturePath: signaturePath,
         onPremDocument: signResult.document,
       },

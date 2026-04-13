@@ -15,6 +15,7 @@ const ROUTE_LABELS: Record<string, string> = {
   applications: "Applications",
   reports: "Reports",
   billing: "Billing",
+  roles: "Roles & Access",
   settings: "Settings",
   help: "Help",
   calculator: "Calculator",

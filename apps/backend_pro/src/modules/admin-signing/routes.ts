@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
 import { BadRequestError, NotFoundError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
+import { requireAnyPermission, requirePermission } from '../../middleware/requireRole.js';
 import {
   checkHealth,
   getCertInfo,
@@ -20,9 +21,28 @@ import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { AuditService } from '../compliance/auditService.js';
 import { getFile, saveAgreementFile, saveFile } from '../../lib/storage.js';
 import type { SignatureFieldMeta } from '../../lib/pdfService.js';
+import {
+  mtsaNationalityFromStaffProfile,
+  mtsaRequestUsesPassportIdType,
+  storedDocumentTypeIsPassport,
+} from '../../lib/mtsaIdentity.js';
 
 const router = Router();
 router.use(authenticateToken);
+
+const requireSigningCertificatesView = requireAnyPermission(
+  'signing_certificates.view',
+  'signing_certificates.manage',
+  'attestation.witness_sign'
+);
+const requireSigningCertificatesManage = requireAnyPermission(
+  'signing_certificates.manage',
+  'attestation.witness_sign'
+);
+const requireAgreementSigning = requireAnyPermission(
+  'agreements.manage',
+  'attestation.witness_sign'
+);
 
 /** MTSA requires `yyyy-MM-dd HH:mm:ss` — NOT ISO 8601 */
 function fmtMtsaDatetime(d: Date): string {
@@ -44,7 +64,7 @@ const profileSchema = z.object({
   designation: z.string().optional(),
 });
 
-router.get('/profile', async (req, res, next) => {
+router.get('/profile', requireSigningCertificatesView, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -60,7 +80,7 @@ router.get('/profile', async (req, res, next) => {
   }
 });
 
-router.post('/profile', async (req, res, next) => {
+router.post('/profile', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -82,7 +102,7 @@ router.post('/profile', async (req, res, next) => {
 // KYC endpoints
 // ============================================
 
-router.post('/kyc/start', async (req, res, next) => {
+router.post('/kyc/start', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -160,7 +180,7 @@ router.post('/kyc/start', async (req, res, next) => {
   }
 });
 
-router.get('/kyc/status', async (req, res, next) => {
+router.get('/kyc/status', requireSigningCertificatesView, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -205,7 +225,7 @@ router.get('/kyc/status', async (req, res, next) => {
 // Certificate endpoints
 // ============================================
 
-router.get('/health', async (_req, res, next) => {
+router.get('/health', requireSigningCertificatesView, async (_req, res, next) => {
   try {
     const health = await checkHealth();
     res.json({ success: true, ...health });
@@ -214,7 +234,7 @@ router.get('/health', async (_req, res, next) => {
   }
 });
 
-router.post('/cert-status', async (req, res, next) => {
+router.post('/cert-status', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -246,7 +266,7 @@ router.post('/cert-status', async (req, res, next) => {
   }
 });
 
-router.post('/cert-check', async (req, res, next) => {
+router.post('/cert-check', requirePermission('signing_certificates.view'), async (req, res, next) => {
   try {
     const { icNumber } = z.object({ icNumber: z.string().min(1) }).parse(req.body);
     const certInfo = await getCertInfo(icNumber);
@@ -260,7 +280,7 @@ router.post('/cert-check', async (req, res, next) => {
 // Email change (MTSA sync) endpoints
 // ============================================
 
-router.post('/check-email-change', async (req, res, next) => {
+router.post('/check-email-change', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -301,7 +321,7 @@ router.post('/check-email-change', async (req, res, next) => {
   }
 });
 
-router.post('/confirm-email-change', async (req, res, next) => {
+router.post('/confirm-email-change', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -386,7 +406,7 @@ const enrollSchema = z.object({
   }),
 });
 
-router.post('/request-otp', async (req, res, next) => {
+router.post('/request-otp', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -408,7 +428,7 @@ router.post('/request-otp', async (req, res, next) => {
   }
 });
 
-router.post('/enroll', async (req, res, next) => {
+router.post('/enroll', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -425,7 +445,11 @@ router.post('/enroll', async (req, res, next) => {
       throw new BadRequestError('KYC must be completed before enrollment');
     }
 
-    const isPassport = profile.documentType === 'PASSPORT';
+    const mtsaNationality = mtsaNationalityFromStaffProfile(profile.nationality);
+    const isPassport = mtsaRequestUsesPassportIdType(
+      mtsaNationality,
+      storedDocumentTypeIsPassport(profile.documentType),
+    );
     const docMap: Record<string, string | undefined> = {};
     for (const doc of profile.documents) {
       const buf = await getFile(doc.path);
@@ -458,7 +482,7 @@ router.post('/enroll', async (req, res, next) => {
       FullName: profile.fullName,
       EmailAddress: profile.email,
       MobileNo: body.phone,
-      Nationality: profile.nationality,
+      Nationality: mtsaNationality,
       UserType: '2',
       IDType: isPassport ? 'P' : 'N',
       AuthFactor: body.pin,
@@ -549,7 +573,7 @@ const revokeSchema = z.object({
   pin: z.string().min(1),
 });
 
-router.post('/revoke', async (req, res, next) => {
+router.post('/revoke', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -563,7 +587,11 @@ router.post('/revoke', async (req, res, next) => {
       throw new BadRequestError('Signing profile not found');
     }
 
-    const isPassport = profile.documentType === 'PASSPORT';
+    const mtsaNationality = mtsaNationalityFromStaffProfile(profile.nationality);
+    const isPassport = mtsaRequestUsesPassportIdType(
+      mtsaNationality,
+      storedDocumentTypeIsPassport(profile.documentType),
+    );
     const docMap: Record<string, string | undefined> = {};
     for (const doc of profile.documents) {
       const buf = await getFile(doc.path);
@@ -657,7 +685,7 @@ const signAgreementSchema = z.object({
   role: z.enum(['COMPANY_REP', 'WITNESS']),
 });
 
-router.post('/sign-agreement', async (req, res, next) => {
+router.post('/sign-agreement', requireAgreementSigning, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -873,7 +901,7 @@ router.post('/sign-agreement', async (req, res, next) => {
 });
 
 // List all staff signing profiles for the tenant
-router.get('/signers', async (req, res, next) => {
+router.get('/signers', requirePermission('signing_certificates.view'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
 
@@ -904,7 +932,7 @@ router.get('/signers', async (req, res, next) => {
 
 // Delete a signing profile (DB only — does NOT revoke the certificate).
 // Cascade deletes associated KYC sessions and documents.
-router.delete('/signers/:profileId', async (req, res, next) => {
+router.delete('/signers/:profileId', requirePermission('signing_certificates.manage'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -957,7 +985,10 @@ router.delete('/signers/:profileId', async (req, res, next) => {
 });
 
 // Get internal signatures for a loan
-router.get('/loan-signatures/:loanId', async (req, res, next) => {
+router.get(
+  '/loan-signatures/:loanId',
+  requireAnyPermission('agreements.view', 'attestation.view'),
+  async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const { loanId } = req.params;
@@ -985,7 +1016,7 @@ router.get('/loan-signatures/:loanId', async (req, res, next) => {
 // PIN Management
 // ============================================
 
-router.post('/verify-pin', async (req, res, next) => {
+router.post('/verify-pin', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
@@ -1013,7 +1044,7 @@ router.post('/verify-pin', async (req, res, next) => {
   }
 });
 
-router.post('/reset-pin', async (req, res, next) => {
+router.post('/reset-pin', requireSigningCertificatesManage, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;

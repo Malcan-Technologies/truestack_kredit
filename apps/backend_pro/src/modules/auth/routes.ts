@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { auth } from '../../lib/auth.js';
 import { getBetterAuthHeaders, getSessionTokenFromCookie } from '../../lib/authCookies.js';
 import { prisma } from '../../lib/prisma.js';
+import { getRoleDisplayName } from '@kredit/shared';
+import { resolveTenantAccess } from '../../lib/rbac.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnauthorizedError } from '../../lib/errors.js';
 import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
 import { getOrCreateReferralCode } from '../../lib/referral.js';
@@ -94,6 +96,11 @@ router.get('/memberships', async (req, res, next) => {
         isActive: true,
       },
       include: {
+        roleConfig: {
+          select: {
+            name: true,
+          },
+        },
         tenant: {
           select: {
             id: true,
@@ -119,6 +126,7 @@ router.get('/memberships', async (req, res, next) => {
           tenantStatus: m.tenant.status,
           tenantLogoUrl: m.tenant.logoUrl,
           role: m.role,
+          roleName: m.roleConfig?.name ?? getRoleDisplayName(m.role),
           subscription: {
             plan: 'Pro',
             status: 'ACTIVE',
@@ -255,6 +263,7 @@ router.get('/me', requireSession, async (req, res, next) => {
         },
       },
       include: {
+        roleConfig: true,
         tenant: true,
       },
     });
@@ -283,6 +292,8 @@ router.get('/me', requireSession, async (req, res, next) => {
       });
     }
 
+    const access = await resolveTenantAccess(prisma, membership);
+
     res.json({
       success: true,
       data: {
@@ -290,7 +301,11 @@ router.get('/me', requireSession, async (req, res, next) => {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: membership.role, // Role from membership (tenant-scoped)
+          role: access.roleKey,
+          roleId: access.roleId,
+          roleName: access.roleName,
+          permissions: access.permissions,
+          isOwner: access.isOwner,
           createdAt: user.createdAt.toISOString(),
           referralBankAccountName: user.referralBankAccountName,
           referralBankName: user.referralBankName,

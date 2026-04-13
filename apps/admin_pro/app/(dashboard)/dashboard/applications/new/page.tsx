@@ -31,7 +31,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CopyField } from "@/components/ui/copy-field";
 import { VerificationBadge } from "@/components/verification-badge";
+import { RoleGate } from "@/components/role-gate";
+import { useTenantPermissions } from "@/components/tenant-context";
 import { api } from "@/lib/api";
+import { hasPermission } from "@/lib/permissions";
 import {
   formatCurrency,
   formatNumber,
@@ -310,6 +313,8 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
 
 export default function NewApplicationPage() {
   const router = useRouter();
+  const permissions = useTenantPermissions();
+  const canCreateBorrower = hasPermission(permissions, "borrowers.create");
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -597,7 +602,8 @@ export default function NewApplicationPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <RoleGate requiredPermissions={["applications.create"]}>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="sm" onClick={() => router.back()}>
@@ -630,12 +636,14 @@ export default function NewApplicationPage() {
                     Search and select an existing borrower for this application
                   </p>
                 </div>
-                <Link href="/dashboard/borrowers/new">
-                  <Button variant="outline" size="sm">
-                    <UserPlus className="h-4 w-4 mr-2" />
-                    New Borrower
-                  </Button>
-                </Link>
+                {canCreateBorrower ? (
+                  <Link href="/dashboard/borrowers/new">
+                    <Button variant="outline" size="sm">
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      New Borrower
+                    </Button>
+                  </Link>
+                ) : null}
               </div>
 
               <div className="relative">
@@ -657,12 +665,14 @@ export default function NewApplicationPage() {
                         ? `No borrowers found matching "${borrowerSearch}"`
                         : "No borrowers registered yet"}
                     </p>
-                    <Link href="/dashboard/borrowers/new">
-                      <Button>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Create Borrower
-                      </Button>
-                    </Link>
+                    {canCreateBorrower ? (
+                      <Link href="/dashboard/borrowers/new">
+                        <Button>
+                          <Plus className="h-4 w-4 mr-2" />
+                          Create Borrower
+                        </Button>
+                      </Link>
+                    ) : null}
                   </div>
                 ) : (
                   filteredBorrowers.map((borrower) => {
@@ -1566,6 +1576,7 @@ export default function NewApplicationPage() {
           </Button>
         )}
       </div>
-    </div>
+      </div>
+    </RoleGate>
   );
 }

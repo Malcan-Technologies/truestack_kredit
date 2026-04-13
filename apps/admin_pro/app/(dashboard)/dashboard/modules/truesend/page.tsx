@@ -365,7 +365,7 @@ export default function TrueSendModulePage() {
   };
 
   return (
-    <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
+    <RoleGate requiredPermissions={["truesend.view"]}>
       {loading ? (
         <TrueSendModuleSkeleton />
       ) : (

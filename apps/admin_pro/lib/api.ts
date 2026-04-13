@@ -7,6 +7,7 @@ export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
   message?: string;
+  status?: number;
   emailSent?: boolean;
   pagination?: {
     total: number;
@@ -62,6 +63,7 @@ export async function fetchApi<T>(
         return {
           success: false,
           error: `Unexpected response from server (status ${response.status}).`,
+          status: response.status,
         };
       }
     }
@@ -86,15 +88,20 @@ export async function fetchApi<T>(
       return {
         success: false,
         error: typeof data?.error === "string" ? data.error : "Session expired. Please log in again.",
+        status: response.status,
       };
     }
 
-    return data as unknown as ApiResponse<T>;
+    return {
+      ...(data as unknown as ApiResponse<T>),
+      status: response.status,
+    };
   } catch (error) {
     console.error("API request failed:", error);
     return {
       success: false,
       error: "Network error. Please try again.",
+      status: 0,
     };
   }
 }

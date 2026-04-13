@@ -1,8 +1,17 @@
 import type { Request, Response, NextFunction } from 'express';
+import type { TenantPermission } from '@kredit/shared';
 import { ForbiddenError, UnauthorizedError } from '../lib/errors.js';
 
-// Valid role values (stored as strings in Better Auth)
-export type UserRole = 'OWNER' | 'ADMIN' | 'STAFF';
+export type UserRole = string;
+
+function hasRequiredPermission(
+  req: Request,
+  permissions: readonly TenantPermission[]
+): boolean {
+  if (req.user?.role === 'OWNER') return true;
+  const userPermissions = new Set(req.user?.permissions ?? []);
+  return permissions.every((permission) => userPermissions.has(permission));
+}
 
 /**
  * Require specific role(s) to access a route
@@ -22,11 +31,51 @@ export function requireRole(...roles: UserRole[]) {
 }
 
 /**
- * Require OWNER or ADMIN role
+ * Legacy helper for OWNER or operations-admin style role.
  */
-export const requireAdmin = requireRole('OWNER', 'ADMIN');
+export const requireAdmin = requireRole('OWNER', 'OPS_ADMIN');
 
 /**
  * Require OWNER role only
  */
 export const requireOwner = requireRole('OWNER');
+
+/**
+ * Require every permission in the provided list.
+ */
+export function requirePermission(...permissions: TenantPermission[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return next(new UnauthorizedError());
+    }
+
+    if (!hasRequiredPermission(req, permissions)) {
+      return next(new ForbiddenError('Insufficient permissions'));
+    }
+
+    next();
+  };
+}
+
+/**
+ * Require at least one of the provided permissions.
+ */
+export function requireAnyPermission(...permissions: TenantPermission[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return next(new UnauthorizedError());
+    }
+
+    if (req.user.role === 'OWNER') {
+      next();
+      return;
+    }
+
+    const userPermissions = new Set(req.user.permissions ?? []);
+    if (!permissions.some((permission) => userPermissions.has(permission))) {
+      return next(new ForbiddenError('Insufficient permissions'));
+    }
+
+    next();
+  };
+}

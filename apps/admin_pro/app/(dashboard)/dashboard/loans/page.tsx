@@ -28,7 +28,9 @@ import {
 } from "@/components/ui/tooltip";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
+import { useTenantPermissions } from "@/components/tenant-context";
 import { api } from "@/lib/api";
+import { canManageLoans } from "@/lib/permissions";
 import { formatLoanStatusLabelForDisplay } from "@/lib/loan-status-label";
 import { cn, formatCurrency, formatDate, formatSmartDateTime } from "@/lib/utils";
 import { toast } from "sonner";
@@ -181,6 +183,7 @@ function loanStatusDisplay(loan: Loan): {
 function LoansPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const permissions = useTenantPermissions();
   const initialFilter = searchParams.get("filter") || "";
 
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
@@ -205,6 +208,7 @@ function LoansPageContent() {
   const [lateFeeStatus, setLateFeeStatus] = useState<LateFeeStatus | null>(null);
   const [loanCounts, setLoanCounts] = useState<LoanCounts>({ pendingDisbursement: 0, pendingAttestation: 0 });
   const [processingLateFees, setProcessingLateFees] = useState(false);
+  const canManageLoanActions = canManageLoans(permissions);
 
   // Sort state
   const [sortField, setSortField] = useState<string | null>(null);
@@ -393,27 +397,29 @@ function LoansPageContent() {
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleProcessLateFees}
-                  disabled={processingLateFees}
-                >
-                  {processingLateFees ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <PlayCircle className="h-4 w-4 mr-2" />
-                  )}
-                  Process Late Fees
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                <p>Manually process late fees for overdue loans.</p>
-                <p className="opacity-70 text-xs mt-1">Late fees are also automatically processed daily at 12:30 AM (GMT+8).</p>
-              </TooltipContent>
-            </Tooltip>
+            {canManageLoanActions ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleProcessLateFees}
+                    disabled={processingLateFees}
+                  >
+                    {processingLateFees ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <PlayCircle className="h-4 w-4 mr-2" />
+                    )}
+                    Process Late Fees
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p>Manually process late fees for overdue loans.</p>
+                  <p className="opacity-70 text-xs mt-1">Late fees are also automatically processed daily at 12:30 AM (GMT+8).</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
             <Link href="/dashboard/applications">
               <Button>View Applications</Button>
             </Link>

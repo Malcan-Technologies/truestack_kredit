@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
+import { requireAnyPermission, requirePermission } from '../../middleware/requireRole.js';
 import { previewSchedule, generateSchedule } from './service.js';
 import { parseFileUpload, UPLOAD_DIR } from '../../lib/upload.js';
 import { saveFile, getFile, deleteFile } from '../../lib/storage.js';
@@ -54,7 +55,10 @@ const recordPaymentSchema = z.object({
  * Preview a schedule (without saving)
  * POST /api/schedules/preview
  */
-router.post('/preview', async (req, res, next) => {
+router.post(
+  '/preview',
+  requireAnyPermission('applications.create', 'applications.edit', 'loans.view', 'loans.manage'),
+  async (req, res, next) => {
   try {
     const data = previewScheduleSchema.parse(req.body);
     
@@ -79,7 +83,10 @@ router.post('/preview', async (req, res, next) => {
  * Get schedule for a loan
  * GET /api/schedules/loan/:loanId
  */
-router.get('/loan/:loanId', async (req, res, next) => {
+router.get(
+  '/loan/:loanId',
+  requireAnyPermission('loans.view', 'payments.view', 'settlements.view'),
+  async (req, res, next) => {
   try {
     const loan = await prisma.loan.findFirst({
       where: {
@@ -190,7 +197,10 @@ router.get('/loan/:loanId', async (req, res, next) => {
  * Record a payment allocation
  * POST /api/schedules/payments
  */
-router.post('/payments', async (req, res, next) => {
+router.post(
+  '/payments',
+  requireAnyPermission('payments.approve', 'loans.manage'),
+  async (req, res, next) => {
   let idempotencyRecordId: string | null = null;
   let businessCommitted = false;
   let replayResponseStatus: number | null = null;
@@ -453,7 +463,10 @@ router.post('/payments', async (req, res, next) => {
  * Record a payment for a loan with automatic spillover to subsequent repayments
  * POST /api/schedules/loan/:loanId/payments
  */
-router.post('/loan/:loanId/payments', async (req, res, next) => {
+router.post(
+  '/loan/:loanId/payments',
+  requireAnyPermission('payments.approve', 'loans.manage'),
+  async (req, res, next) => {
   try {
     const result = await handleRecordLoanSpilloverPayment({
       tenantId: req.tenantId!,
@@ -479,7 +492,10 @@ router.post('/loan/:loanId/payments', async (req, res, next) => {
  * Get payment transaction history for a loan
  * GET /api/schedules/loan/:loanId/payments
  */
-router.get('/loan/:loanId/payments', async (req, res, next) => {
+router.get(
+  '/loan/:loanId/payments',
+  requireAnyPermission('payments.view', 'loans.view', 'settlements.view'),
+  async (req, res, next) => {
   try {
     const loan = await prisma.loan.findFirst({
       where: {
@@ -525,7 +541,10 @@ router.get('/loan/:loanId/payments', async (req, res, next) => {
  * Download receipt for a payment transaction
  * GET /api/schedules/transactions/:transactionId/receipt
  */
-router.get('/transactions/:transactionId/receipt', async (req, res, next) => {
+router.get(
+  '/transactions/:transactionId/receipt',
+  requireAnyPermission('payments.view', 'loans.view'),
+  async (req, res, next) => {
   try {
     const { transactionId } = req.params;
 
@@ -562,7 +581,10 @@ router.get('/transactions/:transactionId/receipt', async (req, res, next) => {
  * Upload proof of payment for a payment transaction
  * POST /api/schedules/transactions/:transactionId/proof
  */
-router.post('/transactions/:transactionId/proof', async (req, res, next) => {
+router.post(
+  '/transactions/:transactionId/proof',
+  requireAnyPermission('payments.approve', 'loans.manage'),
+  async (req, res, next) => {
   try {
     const { transactionId } = req.params;
 
@@ -639,7 +661,10 @@ router.post('/transactions/:transactionId/proof', async (req, res, next) => {
  * View proof of payment for a transaction
  * GET /api/schedules/transactions/:transactionId/proof
  */
-router.get('/transactions/:transactionId/proof', async (req, res, next) => {
+router.get(
+  '/transactions/:transactionId/proof',
+  requireAnyPermission('payments.view', 'loans.view'),
+  async (req, res, next) => {
   try {
     const { transactionId } = req.params;
 
@@ -680,7 +705,7 @@ const rejectManualPaymentBodySchema = z.object({
  * List borrower manual payment requests (pending approval queue)
  * GET /api/schedules/manual-payment-requests
  */
-router.get('/manual-payment-requests', async (req, res, next) => {
+router.get('/manual-payment-requests', requirePermission('payments.view'), async (req, res, next) => {
   try {
     const status = (req.query.status as string) || 'PENDING';
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
@@ -739,9 +764,9 @@ router.get('/manual-payment-requests', async (req, res, next) => {
  * Approve borrower manual payment request
  * POST /api/schedules/manual-payment-requests/:requestId/approve
  */
-router.post('/manual-payment-requests/:requestId/approve', async (req, res, next) => {
+router.post('/manual-payment-requests/:requestId/approve', requirePermission('payments.approve'), async (req, res, next) => {
   try {
-    const { requestId } = req.params;
+    const requestId = req.params.requestId as string;
     const out = await approveBorrowerManualPaymentRequest({
       tenantId: req.tenantId!,
       requestId,
@@ -759,9 +784,9 @@ router.post('/manual-payment-requests/:requestId/approve', async (req, res, next
  * Reject borrower manual payment request
  * POST /api/schedules/manual-payment-requests/:requestId/reject
  */
-router.post('/manual-payment-requests/:requestId/reject', async (req, res, next) => {
+router.post('/manual-payment-requests/:requestId/reject', requirePermission('payments.approve'), async (req, res, next) => {
   try {
-    const { requestId } = req.params;
+    const requestId = req.params.requestId as string;
     const body = rejectManualPaymentBodySchema.parse(req.body ?? {});
     await rejectBorrowerManualPaymentRequest({
       tenantId: req.tenantId!,
@@ -787,7 +812,7 @@ const approveEarlySettlementBodySchema = z.object({
  * List borrower early settlement requests (admin queue)
  * GET /api/schedules/early-settlement-requests
  */
-router.get('/early-settlement-requests', async (req, res, next) => {
+router.get('/early-settlement-requests', requirePermission('settlements.view'), async (req, res, next) => {
   try {
     const status = (req.query.status as string) || 'PENDING';
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
@@ -846,9 +871,9 @@ router.get('/early-settlement-requests', async (req, res, next) => {
  * Approve borrower early settlement request
  * POST /api/schedules/early-settlement-requests/:requestId/approve
  */
-router.post('/early-settlement-requests/:requestId/approve', async (req, res, next) => {
+router.post('/early-settlement-requests/:requestId/approve', requirePermission('settlements.approve'), async (req, res, next) => {
   try {
-    const { requestId } = req.params;
+    const requestId = req.params.requestId as string;
     const body = approveEarlySettlementBodySchema.parse(req.body ?? {});
     const { httpStatus, body: out } = await approveBorrowerEarlySettlementRequest({
       tenantId: req.tenantId!,
@@ -871,9 +896,9 @@ router.post('/early-settlement-requests/:requestId/approve', async (req, res, ne
  * Reject borrower early settlement request
  * POST /api/schedules/early-settlement-requests/:requestId/reject
  */
-router.post('/early-settlement-requests/:requestId/reject', async (req, res, next) => {
+router.post('/early-settlement-requests/:requestId/reject', requirePermission('settlements.approve'), async (req, res, next) => {
   try {
-    const { requestId } = req.params;
+    const requestId = req.params.requestId as string;
     const body = rejectManualPaymentBodySchema.parse(req.body ?? {});
     await rejectBorrowerEarlySettlementRequest({
       tenantId: req.tenantId!,
@@ -892,9 +917,9 @@ router.post('/early-settlement-requests/:requestId/reject', async (req, res, nex
  * Admin: view borrower-uploaded payment slip
  * GET /api/schedules/manual-payment-requests/:requestId/borrower-receipt
  */
-router.get('/manual-payment-requests/:requestId/borrower-receipt', async (req, res, next) => {
+router.get('/manual-payment-requests/:requestId/borrower-receipt', requirePermission('payments.view'), async (req, res, next) => {
   try {
-    const { requestId } = req.params;
+    const requestId = req.params.requestId as string;
     const row = await prisma.borrowerManualPaymentRequest.findFirst({
       where: { id: requestId, tenantId: req.tenantId },
     });

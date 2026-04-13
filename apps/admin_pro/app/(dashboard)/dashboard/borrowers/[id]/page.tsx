@@ -76,6 +76,8 @@ import { TrueIdentityBox } from "@/components/trueidentity-box";
 import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
+import { useTenantPermissions } from "@/components/tenant-context";
+import { canManageBorrowers, canManageTrueIdentity, hasAnyPermission } from "@/lib/permissions";
 import {
   Table,
   TableBody,
@@ -1084,6 +1086,14 @@ export default function BorrowerDetailPage() {
   const params = useParams();
   const router = useRouter();
   const borrowerId = params.id as string;
+  const permissions = useTenantPermissions();
+  const canEditBorrower = canManageBorrowers(permissions);
+  const canAccessTrueIdentity = hasAnyPermission(
+    permissions,
+    "trueidentity.view",
+    "trueidentity.manage"
+  );
+  const canManageBorrowerTrueIdentity = canManageTrueIdentity(permissions);
 
   const [borrower, setBorrower] = useState<Borrower | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -1714,7 +1724,7 @@ export default function BorrowerDetailPage() {
             showLabel
             successMessage="Borrower refreshed"
           />
-          {isEditing ? (
+          {isEditing && canEditBorrower ? (
             <>
               <Button variant="outline" onClick={handleCancelEdit} disabled={saving}>
                 <X className="h-4 w-4 mr-2" />
@@ -1725,12 +1735,12 @@ export default function BorrowerDetailPage() {
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
             </>
-          ) : (
+          ) : canEditBorrower ? (
             <Button onClick={() => setIsEditing(true)}>
               <Pencil className="h-4 w-4 mr-2" />
               Edit Borrower
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -3603,7 +3613,8 @@ export default function BorrowerDetailPage() {
         {/* Right Column - Documents & Activity Timeline */}
         <div className="space-y-6">
           {/* TrueIdentity e-KYC */}
-          <TrueIdentityBox
+          {canAccessTrueIdentity ? (
+            <TrueIdentityBox
               borrowerId={borrower.id}
               borrowerType={borrower.borrowerType}
               borrowerName={borrower.name}
@@ -3612,7 +3623,9 @@ export default function BorrowerDetailPage() {
               borrowerDocumentVerified={borrower.documentVerified}
               directors={borrower.directors}
               refreshKey={trueIdentityRefreshKey}
+              canManage={canManageBorrowerTrueIdentity}
             />
+          ) : null}
 
           <Card>
             <CardHeader>
@@ -3622,7 +3635,9 @@ export default function BorrowerDetailPage() {
               </CardTitle>
               <div className="space-y-0.5">
                 <CardDescription>
-                  Upload and manage documents for this borrower.
+                  {canEditBorrower
+                    ? "Upload and manage documents for this borrower."
+                    : "View documents for this borrower."}
                 </CardDescription>
                 <p className="text-[10px] text-muted-foreground">
                   Allowed: PDF, PNG, JPG (max 5MB per file).
@@ -3631,7 +3646,7 @@ export default function BorrowerDetailPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Upload Section */}
-              {(() => {
+              {canEditBorrower ? (() => {
                 const docsInSelectedCategory =
                   selectedDocCategory !== "ALL"
                     ? (borrower.documents ?? []).filter((d) => d.category === selectedDocCategory).length
@@ -3684,7 +3699,7 @@ export default function BorrowerDetailPage() {
                     )}
                   </div>
                 );
-              })()}
+              })() : null}
 
               {/* Documents List */}
               {borrower.documents && borrower.documents.length > 0 ? (
@@ -3759,13 +3774,15 @@ export default function BorrowerDetailPage() {
                           >
                             <Download className="h-4 w-4" />
                           </a>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteDocId(doc.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
+                          {canEditBorrower ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteDocId(doc.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -3828,7 +3845,10 @@ export default function BorrowerDetailPage() {
             );
           })()}
 
-          <InternalStaffNotesPanel apiPath={`borrowers/${borrowerId}/staff-notes`} />
+          <InternalStaffNotesPanel
+            apiPath={`borrowers/${borrowerId}/staff-notes`}
+            canPost={canEditBorrower}
+          />
 
           {/* Activity Timeline */}
           <Card>

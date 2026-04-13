@@ -51,6 +51,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { AccessDeniedCard } from "@/components/role-gate";
 import { canAccessPage } from "@/lib/permissions";
 import type { TenantRole } from "@/lib/permissions";
 import { api } from "@/lib/api";
@@ -68,6 +69,9 @@ import { APP_VERSION } from "@/lib/version";
 
 interface Membership {
   role: string;
+  roleId?: string | null;
+  roleName?: string;
+  permissions?: string[];
   tenantName?: string;
   tenantLogoUrl?: string | null;
 }
@@ -153,6 +157,7 @@ const navigationSections: NavSection[] = [
     items: [
       { name: "Admin Logs", href: "/dashboard/admin-logs", icon: ScrollText },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
+      { name: "Roles & Access", href: "/dashboard/roles", icon: Lock },
     ],
   },
 ];
@@ -168,6 +173,8 @@ const PATHS_REQUIRING_MEMBERSHIP = [
   "/dashboard/debt-marketplace",
   "/dashboard/calculator",
   "/dashboard/admin-logs",
+  "/dashboard/roles",
+  "/dashboard/settings",
   "/dashboard/modules",
   "/dashboard/truekredit-pro",
 ];
@@ -207,6 +214,7 @@ export default function DashboardLayout({
   const [isSigningOutUnauthorized, setIsSigningOutUnauthorized] = useState(false);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const memberPermissions = membership?.permissions ?? [];
 
   // Avoid hydration mismatch by waiting for mount
   useEffect(() => {
@@ -222,7 +230,7 @@ export default function DashboardLayout({
   };
 
   const fetchApplicationsPendingCount = useCallback(async () => {
-    if (!hasTenants) {
+    if (!hasTenants || !canAccessPage(memberPermissions, "/dashboard/applications")) {
       setApplicationsPendingCount(0);
       return;
     }
@@ -234,7 +242,7 @@ export default function DashboardLayout({
         }
       })
       .catch(() => setApplicationsPendingCount(0));
-  }, [hasTenants]);
+  }, [hasTenants, memberPermissions]);
 
   // Fetch applications pending count on mount and when count may have changed
   useEffect(() => {
@@ -242,7 +250,13 @@ export default function DashboardLayout({
   }, [fetchApplicationsPendingCount]);
 
   const fetchLoanCounts = useCallback(async () => {
-    if (!hasTenants) {
+    const canViewLoans = canAccessPage(memberPermissions, "/dashboard/loans");
+    const canViewAttestation = canAccessPage(
+      memberPermissions,
+      "/dashboard/truekredit-pro/attestation-meetings"
+    );
+
+    if (!hasTenants || (!canViewLoans && !canViewAttestation)) {
       setLoansPendingDisbursementCount(0);
       setLoansPendingAttestationCount(0);
       setAttestationSlotProposedCount(0);
@@ -281,10 +295,13 @@ export default function DashboardLayout({
       setLoansPendingAttestationCount(0);
       setAttestationSlotProposedCount(0);
     }
-  }, [hasTenants]);
+  }, [hasTenants, memberPermissions]);
 
   const fetchPaymentApprovalsPendingCount = useCallback(async () => {
-    if (!hasTenants) {
+    if (
+      !hasTenants ||
+      !canAccessPage(memberPermissions, "/dashboard/truekredit-pro/payment-approvals")
+    ) {
       setPaymentApprovalsPendingCount(0);
       return;
     }
@@ -301,10 +318,16 @@ export default function DashboardLayout({
     } catch {
       setPaymentApprovalsPendingCount(0);
     }
-  }, [hasTenants]);
+  }, [hasTenants, memberPermissions]);
 
   const fetchEarlySettlementApprovalsPendingCount = useCallback(async () => {
-    if (!hasTenants) {
+    if (
+      !hasTenants ||
+      !canAccessPage(
+        memberPermissions,
+        "/dashboard/truekredit-pro/early-settlement-approvals"
+      )
+    ) {
       setEarlySettlementApprovalsPendingCount(0);
       return;
     }
@@ -321,7 +344,7 @@ export default function DashboardLayout({
     } catch {
       setEarlySettlementApprovalsPendingCount(0);
     }
-  }, [hasTenants]);
+  }, [hasTenants, memberPermissions]);
 
   // Fetch loan-related sidebar counts on mount and when count may have changed
   useEffect(() => {
@@ -381,7 +404,13 @@ export default function DashboardLayout({
       const access = await fetchAdminMembershipAccess();
 
       if (access.kind === "unauthorized") {
-        setMembership({ role: "NONE", tenantName: undefined, tenantLogoUrl: null });
+        setMembership({
+          role: "NONE",
+          roleName: "No access",
+          permissions: [],
+          tenantName: undefined,
+          tenantLogoUrl: null,
+        });
         setHasTenants(false);
         setMembershipAccessState("unauthorized");
         setMembershipCheckError(null);
@@ -398,6 +427,11 @@ export default function DashboardLayout({
       setMembershipAccessState("authorized");
       setMembershipCheckError(null);
 
+      let resolvedActiveTenantId = access.activeTenantId;
+      let resolvedActiveMembership = access.memberships.find(
+        (m) => m.tenantId === access.activeTenantId,
+      );
+
       if (!access.activeTenantId) {
         const firstTenant = access.memberships[0];
         await fetch("/api/proxy/auth/switch-tenant", {
@@ -406,17 +440,9 @@ export default function DashboardLayout({
           credentials: "include",
           body: JSON.stringify({ tenantId: firstTenant.tenantId }),
         });
-        setMembership({
-          role: firstTenant.role,
-          tenantName: firstTenant.tenantName,
-          tenantLogoUrl: firstTenant.tenantLogoUrl ?? null,
-        });
-        return;
+        resolvedActiveTenantId = firstTenant.tenantId;
+        resolvedActiveMembership = firstTenant;
       }
-
-      const activeMembership = access.memberships.find(
-        (m) => m.tenantId === access.activeTenantId,
-      );
 
       const response = await fetch("/api/proxy/auth/me", {
         credentials: "include",
@@ -432,7 +458,13 @@ export default function DashboardLayout({
             error?: string;
             message?: string;
             data?: {
-              user: { role: string; tenantName?: string };
+              user: {
+                role: string;
+                roleId?: string | null;
+                roleName?: string;
+                permissions?: string[];
+                tenantName?: string;
+              };
               tenant?: { subscriptionStatus?: string; status?: string; logoUrl?: string | null } | null;
             };
           }
@@ -449,10 +481,13 @@ export default function DashboardLayout({
       const tenant = data.data.tenant;
       setMembership({
         role: data.data.user.role,
+        roleId: data.data.user.roleId ?? null,
+        roleName: data.data.user.roleName,
+        permissions: data.data.user.permissions ?? [],
         tenantName:
-          activeMembership?.tenantName || data.data.user.tenantName,
+          resolvedActiveMembership?.tenantName || data.data.user.tenantName,
         tenantLogoUrl:
-          activeMembership?.tenantLogoUrl ?? tenant?.logoUrl ?? null,
+          resolvedActiveMembership?.tenantLogoUrl ?? tenant?.logoUrl ?? null,
       });
       const isPro = process.env.NEXT_PUBLIC_PRODUCT_MODE === "pro";
       if (isPro) {
@@ -642,7 +677,6 @@ export default function DashboardLayout({
   const user = session.user;
   const tenantDisplayName = membership?.tenantName ?? "Organization";
   const tenantInitial = tenantDisplayName.slice(0, 1).toUpperCase() || "?";
-
   const pathRequiresMembershipCheck = PATHS_REQUIRING_MEMBERSHIP.some(
     (p) => pathname === p || pathname.startsWith(p + "/"),
   );
@@ -650,8 +684,17 @@ export default function DashboardLayout({
     notFound();
   }
 
+  const hasCurrentPathAccess = canAccessPage(memberPermissions, pathname);
+
   return (
-    <TenantProvider role={(membership?.role as TenantRole) || "STAFF"} hasTenants={hasTenants} subscriptionStatus={subscriptionStatus}>
+    <TenantProvider
+      role={(membership?.role as TenantRole) || "GENERAL_STAFF"}
+      roleId={membership?.roleId ?? null}
+      roleName={membership?.roleName || "General Staff"}
+      permissions={memberPermissions}
+      hasTenants={hasTenants}
+      subscriptionStatus={subscriptionStatus}
+    >
       <div className="min-h-screen bg-background">
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
@@ -747,8 +790,7 @@ export default function DashboardLayout({
                             const isChildActive =
                               pathname === child.href ||
                               pathname.startsWith(child.href + "/");
-                            const memberRole = (membership?.role as TenantRole) || "STAFF";
-                            const hasAccess = canAccessPage(memberRole, child.href);
+                            const hasAccess = canAccessPage(memberPermissions, child.href);
                             const requiresMembership = pathRequiresMembership(child.href);
                             const disabledNoMembership = !hasTenants && requiresMembership;
 
@@ -905,8 +947,7 @@ export default function DashboardLayout({
                           pathname === item.href ||
                           (item.href !== "/dashboard" &&
                             pathname.startsWith(item.href));
-                        const memberRole = (membership?.role as TenantRole) || "STAFF";
-                        const hasAccess = canAccessPage(memberRole, item.href);
+                        const hasAccess = canAccessPage(memberPermissions, item.href);
                         const requiresMembership = pathRequiresMembership(item.href);
                         const disabledNoMembership = !hasTenants && requiresMembership;
 
@@ -1155,8 +1196,14 @@ export default function DashboardLayout({
                           <p className="text-sm font-medium truncate">
                             {user.name || user.email}
                           </p>
-                          <Badge variant="outline" className="text-xs">
-                            {membership?.role || "STAFF"}
+                          <Badge
+                            variant="outline"
+                            className="mt-0.5 max-w-full text-xs"
+                            title={membership?.roleName || "General Staff"}
+                          >
+                            <span className="block truncate whitespace-nowrap">
+                              {membership?.roleName || "General Staff"}
+                            </span>
                           </Badge>
                         </div>
 
@@ -1275,7 +1322,7 @@ export default function DashboardLayout({
             id="dashboard-main"
             className="w-full min-w-0 p-4 sm:p-5 md:px-6 md:py-6 lg:px-7 lg:py-8 xl:px-9 xl:py-8 2xl:px-11"
           >
-            {children}
+            {hasCurrentPathAccess ? children : <AccessDeniedCard />}
           </main>
         </div>
       </div>

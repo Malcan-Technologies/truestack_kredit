@@ -19,9 +19,12 @@ import {
 } from "@/components/ui/table";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { VerificationBadge } from "@/components/verification-badge";
+import { LoanChannelPill } from "@/components/loan-channel-pill";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
+import { useTenantPermissions } from "@/components/tenant-context";
 import { api } from "@/lib/api";
+import { hasPermission } from "@/lib/permissions";
 import { formatDate } from "@/lib/utils";
 
 // ============================================
@@ -41,6 +44,7 @@ interface Borrower {
   companyName: string | null;
   createdAt: string;
   updatedAt: string;
+  registrationChannel?: "ONLINE" | "PHYSICAL" | null;
   performanceProjection: {
     riskLevel: BorrowerPerformanceRiskLevel;
     onTimeRate: string | null;
@@ -111,6 +115,7 @@ function getPerformanceBadgeMeta(riskLevel: BorrowerPerformanceRiskLevel | undef
 
 export default function BorrowersPage() {
   const router = useRouter();
+  const permissions = useTenantPermissions();
   const [borrowers, setBorrowers] = useState<Borrower[]>([]);
   const [trueIdentityActive, setTrueIdentityActive] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,6 +133,7 @@ export default function BorrowersPage() {
   // Sort state
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const canCreateBorrower = hasPermission(permissions, "borrowers.create");
 
   // Debounce search input
   const handleSearchChange = (value: string) => {
@@ -265,12 +271,14 @@ export default function BorrowersPage() {
           <h1 className="text-2xl font-heading font-bold text-gradient">Borrowers</h1>
           <p className="text-muted">Manage your loan customers</p>
         </div>
-        <Link href="/dashboard/borrowers/new">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            New Borrower
-          </Button>
-        </Link>
+        {canCreateBorrower ? (
+          <Link href="/dashboard/borrowers/new">
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              New Borrower
+            </Button>
+          </Link>
+        ) : null}
       </div>
 
       {trueIdentityActive === false && (
@@ -354,12 +362,13 @@ export default function BorrowersPage() {
         <CardContent>
           {loading ? (
             <TableSkeleton
-              headers={["Name", "Identity", "Verification", "Contact", "Performance", "Created", "Loans"]}
+              headers={["Name", "Identity", "Verification", "Contact", "Source", "Performance", "Created", "Loans"]}
               columns={[
                 { width: "w-32", subLine: true },
                 { width: "w-28", subLine: true },
                 { badge: true, width: "w-16" },
                 { width: "w-24", subLine: true },
+                { badge: true, width: "w-20" },
                 { badge: true, width: "w-24", subLine: true },
                 { width: "w-28" },
                 { badge: true, width: "w-8" },
@@ -384,12 +393,14 @@ export default function BorrowersPage() {
                     >
                       Clear search
                     </Button>
-                    <Link href="/dashboard/borrowers/new">
-                      <Button>
-                        <Plus className="mr-2 h-4 w-4" />
-                        New Borrower
-                      </Button>
-                    </Link>
+                    {canCreateBorrower ? (
+                      <Link href="/dashboard/borrowers/new">
+                        <Button>
+                          <Plus className="mr-2 h-4 w-4" />
+                          New Borrower
+                        </Button>
+                      </Link>
+                    ) : null}
                   </div>
                 </>
               ) : (
@@ -397,12 +408,14 @@ export default function BorrowersPage() {
                   <p className="text-muted-foreground mb-4">
                     No borrowers registered yet. Create your first borrower to get started.
                   </p>
-                  <Link href="/dashboard/borrowers/new">
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create Borrower
-                    </Button>
-                  </Link>
+                  {canCreateBorrower ? (
+                    <Link href="/dashboard/borrowers/new">
+                      <Button>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Create Borrower
+                      </Button>
+                    </Link>
+                  ) : null}
                 </>
               )}
             </div>
@@ -420,6 +433,7 @@ export default function BorrowersPage() {
                       </button>
                     </TableHead>
                     <TableHead>Contact</TableHead>
+                    <TableHead>Source</TableHead>
                     <TableHead>Performance</TableHead>
                     <TableHead>
                       <button onClick={() => toggleSort("created")} className="flex items-center gap-1 hover:text-foreground transition-colors">
@@ -493,6 +507,13 @@ export default function BorrowersPage() {
                             </div>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell className="align-middle">
+                        {borrower.registrationChannel ? (
+                          <LoanChannelPill channel={borrower.registrationChannel} />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {(() => {

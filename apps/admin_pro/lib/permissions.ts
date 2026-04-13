@@ -1,28 +1,264 @@
-export type TenantRole = "OWNER" | "ADMIN" | "STAFF";
+import {
+  FULL_TENANT_PERMISSION_SET,
+  type TenantPermission,
+} from "@kredit/shared";
 
-// Pages that STAFF cannot access at all (fully blocked)
-const BLOCKED_PAGES = ["/dashboard/admin-logs", "/dashboard/modules"];
+export type TenantRole = string;
 
-/**
- * Check if a role can access a given page path.
- * Returns false only for pages in the BLOCKED_PAGES list when role is STAFF.
- */
-export function canAccessPage(role: TenantRole, path: string): boolean {
-  if (role === "OWNER" || role === "ADMIN") return true;
-  return !BLOCKED_PAGES.some((p) => path.startsWith(p));
+const PAGE_ACCESS_RULES: Array<{
+  prefix: string;
+  anyOf: TenantPermission[];
+  exact?: boolean;
+}> = [
+  { prefix: "/dashboard/settings/roles", anyOf: ["roles.view", "roles.manage"] },
+  { prefix: "/dashboard/roles", anyOf: ["roles.view", "roles.manage"] },
+  {
+    prefix: "/dashboard/settings",
+    anyOf: [
+      "tenant_settings.view",
+      "tenant_settings.edit",
+      "team.view",
+      "team.invite",
+      "team.edit_roles",
+      "team.deactivate",
+      "billing.view",
+      "billing.manage",
+    ],
+  },
+  { prefix: "/dashboard/admin-logs", anyOf: ["audit_logs.view"] },
+  { prefix: "/dashboard/modules/truesend", anyOf: ["truesend.view", "truesend.manage"] },
+  { prefix: "/dashboard/modules/trueidentity", anyOf: ["trueidentity.view", "trueidentity.manage"] },
+  {
+    prefix: "/dashboard/borrowers",
+    anyOf: ["borrowers.view", "borrowers.create", "borrowers.edit"],
+  },
+  {
+    prefix: "/dashboard/applications",
+    anyOf: [
+      "applications.view",
+      "applications.create",
+      "applications.edit",
+      "applications.approve_l1",
+      "applications.approve_l2",
+      "applications.reject",
+    ],
+  },
+  {
+    prefix: "/dashboard/loans",
+    exact: true,
+    anyOf: ["loans.view", "loans.manage", "loans.disburse"],
+  },
+  {
+    prefix: "/dashboard/loans",
+    anyOf: [
+      "loans.view",
+      "loans.manage",
+      "loans.disburse",
+      "payments.view",
+      "payments.approve",
+      "settlements.view",
+      "settlements.approve",
+      "collections.view",
+      "collections.manage",
+    ],
+  },
+  {
+    prefix: "/dashboard/truekredit-pro/payment-approvals",
+    anyOf: ["payments.view", "payments.approve"],
+  },
+  {
+    prefix: "/dashboard/truekredit-pro/early-settlement-approvals",
+    anyOf: ["settlements.view", "settlements.approve"],
+  },
+  {
+    prefix: "/dashboard/truekredit-pro/attestation-meetings",
+    anyOf: ["attestation.view", "attestation.schedule", "attestation.witness_sign"],
+  },
+  {
+    prefix: "/dashboard/products",
+    anyOf: ["products.view", "products.create", "products.edit", "products.archive"],
+  },
+  {
+    prefix: "/dashboard/compliance",
+    anyOf: ["compliance.view", "compliance.review", "compliance.export", "reports.view", "reports.export"],
+  },
+  {
+    prefix: "/dashboard/truekredit-pro/availability",
+    anyOf: ["availability.view", "availability.manage"],
+  },
+  {
+    prefix: "/dashboard/truekredit-pro/signing-certificates",
+    anyOf: ["signing_certificates.view", "signing_certificates.manage", "attestation.witness_sign"],
+  },
+  {
+    prefix: "/dashboard/truekredit-pro/agreements",
+    anyOf: ["agreements.view", "agreements.manage"],
+  },
+  { prefix: "/dashboard", anyOf: ["dashboard.view"] },
+];
+
+export function normalizePermissions(
+  permissions: string[] | undefined | null
+): TenantPermission[] {
+  if (!permissions?.length) return [];
+  return [...new Set(permissions)].filter((permission): permission is TenantPermission =>
+    FULL_TENANT_PERMISSION_SET.has(permission as TenantPermission)
+  );
 }
 
-/** OWNER/ADMIN can approve or reject loan applications */
-export function canApproveApplications(role: TenantRole): boolean {
-  return role === "OWNER" || role === "ADMIN";
+export function hasPermission(
+  permissions: string[] | undefined | null,
+  permission: TenantPermission
+): boolean {
+  return normalizePermissions(permissions).includes(permission);
 }
 
-/** OWNER/ADMIN can create, edit, delete, and toggle products */
-export function canManageProducts(role: TenantRole): boolean {
-  return role === "OWNER" || role === "ADMIN";
+export function hasAnyPermission(
+  permissions: string[] | undefined | null,
+  ...required: TenantPermission[]
+): boolean {
+  const current = new Set(normalizePermissions(permissions));
+  return required.some((permission) => current.has(permission));
 }
 
-/** OWNER/ADMIN can edit tenant info and manage team members */
-export function canManageSettings(role: TenantRole): boolean {
-  return role === "OWNER" || role === "ADMIN";
+export function canAccessPage(
+  permissions: string[] | undefined | null,
+  path: string
+): boolean {
+  const rule = PAGE_ACCESS_RULES.find(
+    ({ prefix, exact }) =>
+      exact ? path === prefix : path === prefix || path.startsWith(`${prefix}/`)
+  );
+
+  if (!rule) return true;
+  return hasAnyPermission(permissions, ...rule.anyOf);
+}
+
+export function canApproveApplications(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(
+    permissions,
+    "applications.approve_l1",
+    "applications.approve_l2"
+  );
+}
+
+export function canManageProducts(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(
+    permissions,
+    "products.create",
+    "products.edit",
+    "products.archive"
+  );
+}
+
+export function canManageBorrowers(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(permissions, "borrowers.create", "borrowers.edit");
+}
+
+export function canCreateApplications(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "applications.create");
+}
+
+export function canEditApplications(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "applications.edit");
+}
+
+export function canManageLoans(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(
+    permissions,
+    "loans.manage",
+    "loans.disburse",
+    "payments.approve",
+    "settlements.approve",
+    "collections.manage"
+  );
+}
+
+export function canApprovePayments(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "payments.approve");
+}
+
+export function canApproveSettlements(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "settlements.approve");
+}
+
+export function canManageComplianceExports(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(permissions, "compliance.export", "reports.export");
+}
+
+export function canViewReports(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(permissions, "reports.view", "reports.export");
+}
+
+export function canManageAgreements(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "agreements.manage");
+}
+
+export function canManageSigningCertificates(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(
+    permissions,
+    "signing_certificates.manage",
+    "attestation.witness_sign"
+  );
+}
+
+export function canManageAvailability(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "availability.manage");
+}
+
+export function canManageTrueSend(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "truesend.manage");
+}
+
+export function canManageTrueIdentity(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "trueidentity.manage");
+}
+
+export function canManageSettings(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(
+    permissions,
+    "tenant_settings.edit",
+    "team.invite",
+    "team.edit_roles",
+    "team.deactivate",
+    "billing.manage"
+  );
+}
+
+export function canManageRoles(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "roles.manage");
 }

@@ -1,5 +1,10 @@
 import { EventEmitter } from 'node:events';
 
+/**
+ * In-process pub/sub for TrueStack KYC webhook → SSE subscribers.
+ * Events reach clients connected to the same API process only; for multiple ECS tasks
+ * without sticky sessions, use an external bus (e.g. Redis) or accept best-effort + polling.
+ */
 export type TruestackKycSsePayload = {
   kind: 'borrower' | 'staff';
   borrowerId?: string;
@@ -20,10 +25,10 @@ export function subscribeTenantTruestackKyc(
   tenantId: string,
   handler: (payload: TruestackKycSsePayload) => void,
 ): () => void {
-  const channel = `tenant:${tenantId}`;
-  hub.on(channel, handler);
+  const ch = `tenant:${tenantId}`;
+  hub.on(ch, handler);
   return () => {
-    hub.off(channel, handler);
+    hub.off(ch, handler);
   };
 }
 
@@ -31,9 +36,9 @@ export function subscribeBorrowerTruestackKyc(
   borrowerId: string,
   handler: (payload: TruestackKycSsePayload) => void,
 ): () => void {
-  const channel = `borrower:${borrowerId}`;
-  hub.on(channel, handler);
+  const ch = `borrower:${borrowerId}`;
+  hub.on(ch, handler);
   return () => {
-    hub.off(channel, handler);
+    hub.off(ch, handler);
   };
 }

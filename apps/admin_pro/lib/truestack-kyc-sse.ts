@@ -13,14 +13,16 @@ const STREAM_URL = "/api/proxy/admin/signing/kyc/stream";
 
 let refCount = 0;
 let es: EventSource | null = null;
+/** Browser timer id (avoid NodeJS.Timeout vs number in shared typings). */
 let reconnectTimer: number | null = null;
 let streamErrorCount = 0;
 const MAX_STREAM_ERRORS = 6;
-const listeners = new Set<(payload: TruestackKycSsePayload) => void>();
+const listeners = new Set<(p: TruestackKycSsePayload) => void>();
 
 function scheduleReconnect() {
   if (typeof window === "undefined" || refCount <= 0) return;
-  if (reconnectTimer || streamErrorCount >= MAX_STREAM_ERRORS) return;
+  if (reconnectTimer) return;
+  if (streamErrorCount >= MAX_STREAM_ERRORS) return;
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
     if (refCount > 0 && !es) openStream();
@@ -33,18 +35,18 @@ function openStream() {
   es.onopen = () => {
     streamErrorCount = 0;
   };
-  es.onmessage = (event) => {
+  es.onmessage = (ev) => {
     try {
-      const payload = JSON.parse(event.data) as TruestackKycSsePayload;
-      listeners.forEach((listener) => {
+      const p = JSON.parse(ev.data) as TruestackKycSsePayload;
+      listeners.forEach((fn) => {
         try {
-          listener(payload);
+          fn(p);
         } catch {
-          // Ignore subscriber errors so the stream stays alive.
+          /* ignore subscriber errors */
         }
       });
     } catch {
-      // Ignore malformed events.
+      /* ignore */
     }
   };
   es.onerror = () => {
@@ -58,16 +60,14 @@ function openStream() {
 }
 
 export function subscribeAdminTruestackKycSse(
-  listener: (payload: TruestackKycSsePayload) => void,
+  listener: (p: TruestackKycSsePayload) => void,
 ): () => void {
   if (typeof window === "undefined") {
     return () => {};
   }
-
   listeners.add(listener);
   refCount += 1;
   openStream();
-
   return () => {
     listeners.delete(listener);
     refCount = Math.max(0, refCount - 1);

@@ -99,6 +99,26 @@ function pickPermissions(
   return permissions;
 }
 
+function withBorrowerPageTrueIdentityDefaults(
+  permissions: TenantPermission[]
+): TenantPermission[] {
+  const permissionSet = new Set<TenantPermission>(permissions);
+
+  if (permissionSet.has("borrowers.view")) {
+    permissionSet.add("trueidentity.view");
+  }
+
+  if (
+    permissionSet.has("borrowers.create") ||
+    permissionSet.has("borrowers.edit")
+  ) {
+    permissionSet.add("trueidentity.view");
+    permissionSet.add("trueidentity.manage");
+  }
+
+  return [...permissionSet];
+}
+
 export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
   {
     key: "OWNER",
@@ -116,7 +136,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
     isSystem: false,
     isEditable: true,
     isDefault: true,
-    permissions: pickPermissions(
+    permissions: withBorrowerPageTrueIdentityDefaults(pickPermissions(
       "dashboard.view",
       "borrowers.view",
       "borrowers.create",
@@ -148,7 +168,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
       "tenant_settings.view",
       "tenant_settings.edit",
       "billing.view"
-    ),
+    )),
   },
   {
     key: "GENERAL_STAFF",
@@ -157,7 +177,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
     isSystem: false,
     isEditable: true,
     isDefault: true,
-    permissions: pickPermissions(
+    permissions: withBorrowerPageTrueIdentityDefaults(pickPermissions(
       "dashboard.view",
       "borrowers.view",
       "borrowers.create",
@@ -171,7 +191,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
       "attestation.view",
       "agreements.view",
       "availability.view"
-    ),
+    )),
   },
   {
     key: "CREDIT_OFFICER_L1",
@@ -180,7 +200,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
     isSystem: false,
     isEditable: true,
     isDefault: true,
-    permissions: pickPermissions(
+    permissions: withBorrowerPageTrueIdentityDefaults(pickPermissions(
       "dashboard.view",
       "borrowers.view",
       "borrowers.create",
@@ -193,7 +213,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
       "loans.view",
       "compliance.view",
       "reports.view"
-    ),
+    )),
   },
   {
     key: "APPROVAL_AUTHORITY_L2",
@@ -274,7 +294,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
     isSystem: false,
     isEditable: true,
     isDefault: true,
-    permissions: pickPermissions(
+    permissions: withBorrowerPageTrueIdentityDefaults(pickPermissions(
       "dashboard.view",
       "borrowers.view",
       "applications.view",
@@ -288,7 +308,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
       "audit_logs.view",
       "reports.view",
       "reports.export"
-    ),
+    )),
   },
   {
     key: "AUDITOR_READONLY",
@@ -297,7 +317,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
     isSystem: false,
     isEditable: true,
     isDefault: true,
-    permissions: pickPermissions(
+    permissions: withBorrowerPageTrueIdentityDefaults(pickPermissions(
       "dashboard.view",
       "borrowers.view",
       "applications.view",
@@ -318,7 +338,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
       "team.view",
       "tenant_settings.view",
       "billing.view"
-    ),
+    )),
   },
 ];
 

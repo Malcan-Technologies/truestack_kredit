@@ -105,9 +105,6 @@ interface TenantRoleOption {
   memberCount: number;
 }
 
-/** Must stay in sync with backend `MAX_USERS_PER_TENANT` (tenant user invite limit). */
-const MAX_TEAM_MEMBERS = 10;
-
 export default function SettingsPage() {
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -963,7 +960,9 @@ export default function SettingsPage() {
             <div>
               <CardTitle>Team Members</CardTitle>
               <CardDescription className="flex items-center gap-2">
-                {users.length}/{MAX_TEAM_MEMBERS} members used
+                {users.length} {users.length === 1 ? "member" : "members"}
+                <span className="text-muted-foreground/60">·</span>
+                Unlimited seats
                 <span className="text-muted-foreground/60">·</span>
                 <Link
                   href="/dashboard/help?doc=getting-started/roles-and-permissions"
@@ -981,12 +980,9 @@ export default function SettingsPage() {
               </Button>
             )}
             {canInviteUsers && (
-              <Button
-                onClick={() => setShowAddUser(!showAddUser)}
-                disabled={users.length >= MAX_TEAM_MEMBERS}
-              >
+              <Button onClick={() => setShowAddUser(!showAddUser)}>
                 <Plus className="h-4 w-4 mr-2" />
-                {users.length >= MAX_TEAM_MEMBERS ? "Limit Reached" : "Add User"}
+                Add User
               </Button>
             )}
           </div>

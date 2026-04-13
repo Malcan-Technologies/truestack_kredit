@@ -820,14 +820,11 @@ router.get('/users', requirePermission('team.view'), async (req, res, next) => {
   }
 });
 
-// Maximum users per tenant (including owner)
-const MAX_USERS_PER_TENANT = 10;
-
 /**
  * List roles for the active tenant
  * GET /api/tenants/roles
  */
-router.get('/roles', requireAnyPermission('roles.view', 'team.edit_roles', 'team.invite'), async (req, res, next) => {
+router.get('/roles', requireAnyPermission('roles.view', 'roles.manage', 'team.edit_roles', 'team.invite'), async (req, res, next) => {
   try {
     await ensureTenantMembershipRoleAssignments(prisma, req.tenantId!);
     await ensureTenantRoleCatalog(prisma, req.tenantId!);
@@ -1119,8 +1116,6 @@ router.post('/roles/:roleId/reset', requirePermission('roles.manage'), async (re
  * 
  * If user already exists: just create membership
  * If user doesn't exist: create user + account + membership
- * 
- * Limit: Maximum 10 users per tenant (including owner)
  */
 router.post('/users', requirePermission('team.invite'), async (req, res, next) => {
   try {
@@ -1132,17 +1127,6 @@ router.post('/users', requirePermission('team.invite'), async (req, res, next) =
       data,
       canAssignCustomRoles
     );
-
-    // Check current member count
-    const memberCount = await prisma.tenantMember.count({
-      where: { tenantId: req.tenantId! },
-    });
-
-    if (memberCount >= MAX_USERS_PER_TENANT) {
-      throw new BadRequestError(
-        `Maximum of ${MAX_USERS_PER_TENANT} team members allowed per tenant.`
-      );
-    }
 
     // Check if user already exists
     let user = await prisma.user.findUnique({

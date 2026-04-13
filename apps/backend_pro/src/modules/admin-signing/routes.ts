@@ -27,7 +27,7 @@ const router = Router();
 router.use(authenticateToken);
 
 /** SSE: TrueStack KYC webhook updates for this tenant (staff + borrower sessions). */
-router.get('/kyc/stream', async (req, res, next) => {
+router.get('/kyc/stream', requireAnyPermission('trueidentity.view', 'trueidentity.manage'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');

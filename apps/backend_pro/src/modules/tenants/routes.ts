@@ -228,6 +228,53 @@ function hasPermission(req: Request, permission: TenantPermission): boolean {
   return (req.user?.permissions ?? []).includes(permission);
 }
 
+function hasRequestedRoleSelection(input: {
+  roleId?: string;
+  roleKey?: string;
+  role?: string;
+}): boolean {
+  return !!(input.roleId || input.roleKey || input.role);
+}
+
+async function resolveInviteAssignedRole(
+  db: typeof prisma | Prisma.TransactionClient,
+  tenantId: string,
+  input: {
+    roleId?: string;
+    roleKey?: string;
+    role?: string;
+  },
+  canAssignCustomRoles: boolean
+) {
+  const assignedRole = await resolveAssignableTenantRole(
+    db,
+    tenantId,
+    hasRequestedRoleSelection(input)
+      ? {
+          roleId: input.roleId,
+          roleKey: input.roleKey,
+          legacyRole: input.role,
+        }
+      : {
+          roleKey: 'GENERAL_STAFF',
+        }
+  ).catch(() => {
+    throw new BadRequestError('Selected role is not available for this tenant');
+  });
+
+  if (assignedRole.key === 'OWNER') {
+    throw new BadRequestError('Use ownership transfer to assign the owner role');
+  }
+
+  if (!canAssignCustomRoles && assignedRole.key !== 'GENERAL_STAFF') {
+    throw new ForbiddenError(
+      'You can invite users, but only role managers can choose a role other than General Staff'
+    );
+  }
+
+  return assignedRole;
+}
+
 // Validation schemas
 const updateTenantSchema = z.object({
   name: z.string().min(2).max(100).optional(),
@@ -242,16 +289,6 @@ const updateTenantSchema = z.object({
   lenderAccountNumber: z.string().max(64).optional().nullable(),
 });
 
-const roleAssignmentSchema = z
-  .object({
-    roleId: z.string().min(1).optional(),
-    roleKey: z.string().min(1).optional(),
-    role: z.string().min(1).optional(),
-  })
-  .refine((value) => !!(value.roleId || value.roleKey || value.role), {
-    message: 'Role is required',
-  });
-
 const inviteUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(2).max(100).optional(),
@@ -259,7 +296,7 @@ const inviteUserSchema = z.object({
   roleKey: z.string().min(1).optional(),
   role: z.string().min(1).optional(),
   password: z.string().min(8).optional(), // Optional if user already exists
-}).and(roleAssignmentSchema);
+});
 
 const updateMemberSchema = z.object({
   roleId: z.string().min(1).optional(),
@@ -1088,17 +1125,13 @@ router.post('/roles/:roleId/reset', requirePermission('roles.manage'), async (re
 router.post('/users', requirePermission('team.invite'), async (req, res, next) => {
   try {
     const data = inviteUserSchema.parse(req.body);
-    const assignedRole = await resolveAssignableTenantRole(prisma, req.tenantId!, {
-      roleId: data.roleId,
-      roleKey: data.roleKey,
-      legacyRole: data.role,
-    }).catch(() => {
-      throw new BadRequestError('Selected role is not available for this tenant');
-    });
-
-    if (assignedRole.key === 'OWNER') {
-      throw new BadRequestError('Use ownership transfer to assign the owner role');
-    }
+    const canAssignCustomRoles = hasPermission(req, 'team.edit_roles');
+    const assignedRole = await resolveInviteAssignedRole(
+      prisma,
+      req.tenantId!,
+      data,
+      canAssignCustomRoles
+    );
 
     // Check current member count
     const memberCount = await prisma.tenantMember.count({
@@ -1191,11 +1224,12 @@ router.post('/users', requirePermission('team.invite'), async (req, res, next) =
     const passwordHash = await hashPassword(data.password);
     
     const result = await prisma.$transaction(async (tx) => {
-      const txAssignedRole = await resolveAssignableTenantRole(tx, req.tenantId!, {
-        roleId: data.roleId,
-        roleKey: data.roleKey,
-        legacyRole: data.role,
-      });
+      const txAssignedRole = await resolveInviteAssignedRole(
+        tx,
+        req.tenantId!,
+        data,
+        canAssignCustomRoles
+      );
 
       // Create user
       const newUser = await tx.user.create({

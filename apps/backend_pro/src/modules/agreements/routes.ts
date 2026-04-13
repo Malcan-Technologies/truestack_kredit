@@ -95,7 +95,7 @@ router.get('/', requirePermission('agreements.view'), async (req, res, next) => 
 router.post('/:loanId/sync', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = req.params.loanId as string;
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId, agreementPath: { not: null } },

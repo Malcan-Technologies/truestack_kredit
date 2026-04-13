@@ -93,6 +93,18 @@ async function proxyRequest(
 
     // Check if this is a binary response (images, PDFs, ZIPs, etc.)
     const responseContentType = response.headers.get("content-type") || "";
+    const isSse =
+      responseContentType.includes("text/event-stream") ||
+      responseContentType.includes("text/x-event-stream");
+
+    if (isSse && response.body) {
+      return new NextResponse(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      });
+    }
+
     const isBinaryResponse = 
       responseContentType.startsWith("image/") ||
       responseContentType.startsWith("application/pdf") ||

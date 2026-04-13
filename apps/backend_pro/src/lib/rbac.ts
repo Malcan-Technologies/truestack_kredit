@@ -90,55 +90,40 @@ export async function ensureTenantRoleCatalog(
   db: PrismaLike,
   tenantId: string
 ): Promise<ResolvedAssignableTenantRole[]> {
-  const existingRoles = await db.tenantRole.findMany({
-    where: { tenantId },
-    select: {
-      id: true,
-      key: true,
-      name: true,
-      description: true,
-      permissions: true,
-      isSystem: true,
-      isEditable: true,
-      isDefault: true,
-    },
+  await db.tenantRole.createMany({
+    data: DEFAULT_TENANT_ROLE_TEMPLATES.map((template) => ({
+      tenantId,
+      key: template.key,
+      name: template.name,
+      description: template.description,
+      permissions: [...template.permissions],
+      isSystem: template.isSystem,
+      isEditable: template.isEditable,
+      isDefault: template.isDefault,
+    })),
+    skipDuplicates: true,
   });
-  const existingByKey = new Map(existingRoles.map((role) => [role.key, role]));
 
-  for (const template of DEFAULT_TENANT_ROLE_TEMPLATES) {
-    const existing = existingByKey.get(template.key);
-
-    if (!existing) {
-      await db.tenantRole.create({
-        data: {
+  const ownerTemplate = getDefaultTenantRoleTemplate("OWNER");
+  if (ownerTemplate) {
+    // Preserve tenant customizations for editable default roles while still
+    // enforcing the immutable OWNER template after bootstrap.
+    await db.tenantRole.update({
+      where: {
+        tenantId_key: {
           tenantId,
-          key: template.key,
-          name: template.name,
-          description: template.description,
-          permissions: [...template.permissions],
-          isSystem: template.isSystem,
-          isEditable: template.isEditable,
-          isDefault: template.isDefault,
+          key: ownerTemplate.key,
         },
-      });
-      continue;
-    }
-
-    // Keep editable default roles customizable per tenant.
-    // Only enforce the immutable OWNER role metadata/template.
-    if (template.key === "OWNER") {
-      await db.tenantRole.update({
-        where: { id: existing.id },
-        data: {
-          name: template.name,
-          description: template.description,
-          permissions: [...template.permissions],
-          isSystem: template.isSystem,
-          isEditable: template.isEditable,
-          isDefault: template.isDefault,
-        },
-      });
-    }
+      },
+      data: {
+        name: ownerTemplate.name,
+        description: ownerTemplate.description,
+        permissions: [...ownerTemplate.permissions],
+        isSystem: ownerTemplate.isSystem,
+        isEditable: ownerTemplate.isEditable,
+        isDefault: ownerTemplate.isDefault,
+      },
+    });
   }
 
   const roles = await db.tenantRole.findMany({

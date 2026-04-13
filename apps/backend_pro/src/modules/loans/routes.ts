@@ -61,6 +61,10 @@ function resolveVerificationStatus(borrower: {
   return getBorrowerVerificationSummary(borrower);
 }
 
+function getRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
 const submitApplicationSchema = z.object({
   enableInternalSchedule: z.boolean().optional().default(false),
   actualInterestRate: z.number().positive().max(100).optional(),
@@ -680,9 +684,10 @@ router.post('/applications', requirePermission('applications.create'), async (re
  */
 router.get('/applications/:applicationId', requirePermission('applications.view'), async (req, res, next) => {
   try {
+    const applicationId = getRouteParam(req.params.applicationId);
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: applicationId,
         tenantId: req.tenantId,
       },
       include: {
@@ -785,11 +790,12 @@ router.get('/applications/:applicationId', requirePermission('applications.view'
  */
 router.patch('/applications/:applicationId', requirePermission('applications.edit'), async (req, res, next) => {
   try {
+    const applicationId = getRouteParam(req.params.applicationId);
     const data = updateApplicationSchema.parse(req.body);
 
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: applicationId,
         tenantId: req.tenantId,
       },
       include: { product: true },
@@ -830,7 +836,7 @@ router.patch('/applications/:applicationId', requirePermission('applications.edi
     };
 
     const updated = await prisma.loanApplication.update({
-      where: { id: req.params.applicationId },
+      where: { id: applicationId },
       data,
       include: {
         borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
@@ -864,10 +870,11 @@ router.patch('/applications/:applicationId', requirePermission('applications.edi
  */
 router.post('/applications/:applicationId/submit', requirePermission('applications.edit'), async (req, res, next) => {
   try {
+    const applicationId = getRouteParam(req.params.applicationId);
     const submitData = submitApplicationSchema.parse(req.body);
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: applicationId,
         tenantId: req.tenantId,
       },
       include: {
@@ -907,7 +914,7 @@ router.post('/applications/:applicationId/submit', requirePermission('applicatio
     }
 
     const updated = await prisma.loanApplication.update({
-      where: { id: req.params.applicationId },
+      where: { id: applicationId },
       data: {
         status: 'SUBMITTED',
         actualInterestRate,
@@ -1318,7 +1325,7 @@ router.post('/applications/:applicationId/return-to-draft', requireAnyPermission
  */
 router.get('/applications/:applicationId/timeline', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const { cursor, limit: limitStr = '10' } = req.query;
     const limit = Math.min(parseInt(limitStr as string, 10), 50);
 
@@ -1408,7 +1415,7 @@ function mapApplicationStaffNoteAuthor(createdBy: {
  */
 router.get('/applications/:applicationId/staff-notes', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const { cursor, limit: limitStr = '30' } = req.query;
     const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
 
@@ -1460,7 +1467,7 @@ router.get('/applications/:applicationId/staff-notes', requirePermission('applic
  */
 router.post('/applications/:applicationId/staff-notes', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const parsed = applicationStaffNoteBodySchema.parse(req.body);
 
     const application = await prisma.loanApplication.findFirst({
@@ -1522,7 +1529,7 @@ router.post('/applications/:applicationId/staff-notes', requirePermission('appli
  */
 router.post('/applications/:applicationId/documents', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -1598,7 +1605,7 @@ router.post('/applications/:applicationId/documents', requirePermission('applica
  */
 router.get('/applications/:applicationId/documents', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -1635,7 +1642,8 @@ router.get('/applications/:applicationId/documents', requirePermission('applicat
  */
 router.delete('/applications/:applicationId/documents/:documentId', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const { applicationId, documentId } = req.params;
+    const applicationId = getRouteParam(req.params.applicationId);
+    const documentId = getRouteParam(req.params.documentId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -2047,7 +2055,7 @@ router.get(
 router.post('/:loanId/attestation/accept-proposal', requirePermission('attestation.schedule'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     const memberId = req.memberId;
     if (!memberId) {
       throw new BadRequestError('Member context required');
@@ -2104,7 +2112,7 @@ router.post('/:loanId/attestation/accept-proposal', requirePermission('attestati
 router.post('/:loanId/attestation/counter-proposal', requirePermission('attestation.schedule'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     const memberId = req.memberId;
     if (!memberId) {
       throw new BadRequestError('Member context required');
@@ -2167,7 +2175,7 @@ router.post('/:loanId/attestation/counter-proposal', requirePermission('attestat
 router.post('/:loanId/attestation/reject-proposal', requirePermission('attestation.schedule'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId },
       select: {
@@ -2225,7 +2233,7 @@ router.post(
   try {
     const tenantId = req.tenantId!;
     const memberId = req.memberId;
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     if (!memberId) {
       throw new BadRequestError('Member context required');
     }
@@ -2304,7 +2312,7 @@ function mapLoanStaffNoteAuthor(createdBy: {
  */
 router.get('/:loanId/staff-notes', requirePermission('loans.view'), async (req, res, next) => {
   try {
-    const loanId = req.params.loanId;
+    const loanId = getRouteParam(req.params.loanId);
     const { cursor, limit: limitStr = '30' } = req.query;
     const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
 
@@ -2356,7 +2364,7 @@ router.get('/:loanId/staff-notes', requirePermission('loans.view'), async (req, 
  */
 router.post('/:loanId/staff-notes', requirePermission('loans.manage'), async (req, res, next) => {
   try {
-    const loanId = req.params.loanId;
+    const loanId = getRouteParam(req.params.loanId);
     const parsed = loanStaffNoteBodySchema.parse(req.body);
 
     const loan = await prisma.loan.findFirst({
@@ -2414,7 +2422,7 @@ router.post('/:loanId/staff-notes', requirePermission('loans.manage'), async (re
  */
 router.get('/:loanId', requirePermission('loans.view'), async (req, res, next) => {
   try {
-    const loanId = req.params.loanId;
+    const loanId = getRouteParam(req.params.loanId);
     const tenantId = req.tenantId!;
     await expireStaleAttestationProposalForLoan({ loanId, tenantId });
 
@@ -2619,9 +2627,10 @@ router.get('/:loanId/schedule/internal', requireAnyPermission('applications.appr
  */
 router.post('/:loanId/update-status', requirePermission('loans.manage'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -2840,6 +2849,7 @@ router.post('/update-all-statuses', requirePermission('loans.manage'), async (re
  */
 router.get('/:loanId/schedule/preview', requirePermission('loans.view'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const { disbursementDate: disbursementDateStr } = req.query;
     const disbursementDate = disbursementDateStr 
       ? new Date(disbursementDateStr as string) 
@@ -2847,7 +2857,7 @@ router.get('/:loanId/schedule/preview', requirePermission('loans.view'), async (
 
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: { product: true },
@@ -2889,7 +2899,7 @@ router.get('/:loanId/schedule/preview', requirePermission('loans.view'), async (
  */
 router.get('/:loanId/timeline', requirePermission('loans.view'), async (req, res, next) => {
   try {
-    const loanId = req.params.loanId;
+    const loanId = getRouteParam(req.params.loanId);
     const { cursor, limit: limitStr = '20' } = req.query;
     const limit = Math.min(parseInt(limitStr as string, 10), 50);
 
@@ -2976,9 +2986,10 @@ router.get('/:loanId/timeline', requirePermission('loans.view'), async (req, res
  */
 router.get('/:loanId/metrics', requirePermission('loans.view'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3137,11 +3148,12 @@ router.get('/:loanId/metrics', requirePermission('loans.view'), async (req, res,
  */
 router.post('/:loanId/complete', requirePermission('loans.manage'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const { notes } = req.body;
 
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3330,9 +3342,10 @@ router.get(
   requireAnyPermission('loans.view', 'collections.view'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });
@@ -3372,9 +3385,10 @@ router.get(
   requireAnyPermission('loans.view', 'collections.view'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });
@@ -3410,9 +3424,10 @@ router.get(
   requireAnyPermission('loans.view', 'collections.view'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });
@@ -3453,9 +3468,10 @@ router.post(
   requireAnyPermission('loans.manage', 'collections.manage'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3624,9 +3640,10 @@ router.post(
   requireAnyPermission('loans.manage', 'collections.manage'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3793,11 +3810,12 @@ router.post(
   requireAnyPermission('loans.manage', 'collections.manage'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const { reason } = req.body;
 
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -4214,7 +4232,7 @@ router.post('/:loanId/disburse', requirePermission('loans.disburse'), async (req
  */
 router.post('/:loanId/disbursement-proof', requirePermission('loans.disburse'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4290,7 +4308,7 @@ router.post('/:loanId/disbursement-proof', requirePermission('loans.disburse'), 
  */
 router.get('/:loanId/disbursement-proof', requireAnyPermission('loans.view', 'loans.disburse'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4347,7 +4365,7 @@ import {
  */
 router.get('/:loanId/generate-agreement', requireAnyPermission('agreements.view', 'agreements.manage'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     const agreementDateParam =
       typeof req.query.agreementDate === 'string' ? req.query.agreementDate : undefined;
 
@@ -4374,7 +4392,7 @@ router.get('/:loanId/generate-agreement', requireAnyPermission('agreements.view'
  */
 router.post('/:loanId/agreement', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4569,7 +4587,7 @@ router.post('/:loanId/signed-agreement/reject', requireAnyPermission('loans.disb
  */
 router.get('/:loanId/agreement', requirePermission('agreements.view'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4620,7 +4638,7 @@ router.get('/:loanId/agreement', requirePermission('agreements.view'), async (re
  */
 router.get('/:loanId/borrower-signed-agreement', requirePermission('agreements.view'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId: req.tenantId },
@@ -4665,7 +4683,8 @@ router.get(
   requireAnyPermission('agreements.view', 'agreements.manage'),
   async (req, res, next) => {
   try {
-    const { loanId, guarantorId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
+    const guarantorId = getRouteParam(req.params.guarantorId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4779,7 +4798,8 @@ router.get(
  */
 router.post('/:loanId/guarantors/:guarantorId/agreement', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
-    const { loanId, guarantorId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
+    const guarantorId = getRouteParam(req.params.guarantorId);
 
     const guarantor = await prisma.loanGuarantor.findFirst({
       where: {
@@ -4875,7 +4895,8 @@ router.post('/:loanId/guarantors/:guarantorId/agreement', requirePermission('agr
  */
 router.get('/:loanId/guarantors/:guarantorId/agreement', requirePermission('agreements.view'), async (req, res, next) => {
   try {
-    const { loanId, guarantorId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
+    const guarantorId = getRouteParam(req.params.guarantorId);
 
     const guarantor = await prisma.loanGuarantor.findFirst({
       where: {
@@ -4925,7 +4946,7 @@ router.get('/:loanId/guarantors/:guarantorId/agreement', requirePermission('agre
  */
 router.post('/:loanId/stamp-certificate', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -5024,7 +5045,7 @@ router.post('/:loanId/stamp-certificate', requirePermission('agreements.manage')
  */
 router.get('/:loanId/stamp-certificate', requirePermission('agreements.view'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -5079,7 +5100,8 @@ router.get('/:loanId/stamp-certificate', requirePermission('agreements.view'), a
  */
 router.get('/:loanId/early-settlement/quote', requireAnyPermission('settlements.view', 'loans.view'), async (req, res, next) => {
   try {
-    const out = await getEarlySettlementQuoteForLoan(req.tenantId!, req.params.loanId);
+    const loanId = getRouteParam(req.params.loanId);
+    const out = await getEarlySettlementQuoteForLoan(req.tenantId!, loanId);
     res.json(out);
   } catch (error) {
     next(error);
@@ -5092,10 +5114,11 @@ router.get('/:loanId/early-settlement/quote', requireAnyPermission('settlements.
  */
 router.post('/:loanId/early-settlement/confirm', requirePermission('settlements.approve'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const { httpStatus, body } = await confirmEarlySettlement({
       tenantId: req.tenantId!,
       memberId: req.memberId,
-      loanId: req.params.loanId,
+      loanId,
       ip: req.ip,
       headers: req.headers,
       body: req.body,
@@ -5118,9 +5141,10 @@ router.post('/:loanId/early-settlement/confirm', requirePermission('settlements.
  */
 router.get('/:loanId/email-logs', requireAnyPermission('loans.view', 'truesend.view'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });

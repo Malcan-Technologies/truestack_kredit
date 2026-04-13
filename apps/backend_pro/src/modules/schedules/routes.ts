@@ -28,6 +28,10 @@ import {
 
 const router = Router();
 
+function getRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
 // All routes require authentication and active subscription
 router.use(authenticateToken);
 router.use(requirePaidSubscription);
@@ -88,9 +92,10 @@ router.get(
   requireAnyPermission('loans.view', 'payments.view', 'settlements.view'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -468,9 +473,10 @@ router.post(
   requireAnyPermission('payments.approve', 'loans.manage'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const result = await handleRecordLoanSpilloverPayment({
       tenantId: req.tenantId!,
-      loanId: req.params.loanId,
+      loanId,
       body: req.body,
       memberId: req.memberId,
       ip: req.ip,
@@ -497,9 +503,10 @@ router.get(
   requireAnyPermission('payments.view', 'loans.view', 'settlements.view'),
   async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });
@@ -510,7 +517,7 @@ router.get(
 
     const transactions = await prisma.paymentTransaction.findMany({
       where: {
-        loanId: req.params.loanId,
+        loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -546,7 +553,7 @@ router.get(
   requireAnyPermission('payments.view', 'loans.view'),
   async (req, res, next) => {
   try {
-    const { transactionId } = req.params;
+    const transactionId = getRouteParam(req.params.transactionId);
 
     const transaction = await prisma.paymentTransaction.findFirst({
       where: {
@@ -586,7 +593,7 @@ router.post(
   requireAnyPermission('payments.approve', 'loans.manage'),
   async (req, res, next) => {
   try {
-    const { transactionId } = req.params;
+    const transactionId = getRouteParam(req.params.transactionId);
 
     const transaction = await prisma.paymentTransaction.findFirst({
       where: {
@@ -666,7 +673,7 @@ router.get(
   requireAnyPermission('payments.view', 'loans.view'),
   async (req, res, next) => {
   try {
-    const { transactionId } = req.params;
+    const transactionId = getRouteParam(req.params.transactionId);
 
     const transaction = await prisma.paymentTransaction.findFirst({
       where: {

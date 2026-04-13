@@ -22,6 +22,9 @@ RBAC is stored in the backend schema with:
 
 Default tenant roles are lazily seeded and legacy memberships are normalized automatically when RBAC-aware routes are used.
 
+- Missing default tenant roles are auto-seeded on demand when a tenant is resolved.
+- Bootstrap is safe against concurrent requests, so an empty `TenantRole` table can self-heal immediately after deployment without overwriting tenant-customized editable default roles.
+
 ## Default Roles
 
 Every tenant is seeded with these role presets:
@@ -158,6 +161,12 @@ The page supports:
 Member assignment remains in:
 
 - `/dashboard/settings`
+
+Invite behavior:
+
+- Users with `team.invite` can add team members.
+- Assigning a non-default invite role requires `team.edit_roles`.
+- If a user can invite but cannot edit roles, new invites default to `GENERAL_STAFF`.
 
 The team settings page now uses the tenant role catalog for:
 

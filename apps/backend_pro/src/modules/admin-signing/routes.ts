@@ -21,14 +21,74 @@ import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { AuditService } from '../compliance/auditService.js';
 import { getFile, saveAgreementFile, saveFile } from '../../lib/storage.js';
 import type { SignatureFieldMeta } from '../../lib/pdfService.js';
-import {
-  mtsaNationalityFromStaffProfile,
-  mtsaRequestUsesPassportIdType,
-  storedDocumentTypeIsPassport,
-} from '../../lib/mtsaIdentity.js';
+import { subscribeTenantTruestackKyc } from '../../lib/truestackKycSseHub.js';
 
 const router = Router();
 router.use(authenticateToken);
+
+/** SSE: TrueStack KYC webhook updates for this tenant (staff + borrower sessions). */
+router.get('/kyc/stream', async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch {
+        clearInterval(keepAlive);
+      }
+    }, 25_000);
+
+    const unsub = subscribeTenantTruestackKyc(tenantId, (payload) => {
+      try {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      } catch {
+        /* client gone */
+      }
+    });
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      unsub();
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** MTSA requires `yyyy-MM-dd HH:mm:ss` — NOT ISO 8601 */
+function fmtMtsaDatetime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+type MtsaNationality = 'MY' | 'ZZ';
+
+function isMalaysianCountryOrNationality(stored: string | null | undefined): boolean {
+  const value = stored?.trim().toUpperCase() ?? '';
+  return !value || value === 'MY' || value === 'MYS' || value === 'MALAYSIA';
+}
+
+function mtsaNationalityFromStaffProfile(storedNationality: string | null | undefined): MtsaNationality {
+  return isMalaysianCountryOrNationality(storedNationality) ? 'MY' : 'ZZ';
+}
+
+function storedDocumentTypeIsPassport(documentType: string | null | undefined): boolean {
+  return documentType?.trim().toUpperCase() === 'PASSPORT';
+}
+
+function mtsaRequestUsesPassportIdType(
+  mtsaNationality: MtsaNationality,
+  documentTypePassport: boolean,
+): boolean {
+  if (mtsaNationality === 'MY') return false;
+  return documentTypePassport;
+}
 
 const requireSigningCertificatesView = requireAnyPermission(
   'signing_certificates.view',
@@ -43,12 +103,6 @@ const requireAgreementSigning = requireAnyPermission(
   'agreements.manage',
   'attestation.witness_sign'
 );
-
-/** MTSA requires `yyyy-MM-dd HH:mm:ss` — NOT ISO 8601 */
-function fmtMtsaDatetime(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
 
 // ============================================
 // Profile endpoints
@@ -567,10 +621,14 @@ router.post('/enroll', requireSigningCertificatesManage, async (req, res, next) 
   }
 });
 
+const certPinManagementSchema = z
+  .string()
+  .regex(/^\d{4,32}$/, 'PIN must be 4–32 digits (numbers only)');
+
 const revokeSchema = z.object({
   certSerialNo: z.string().min(1),
   reason: z.enum(['keyCompromise', 'CACompromise', 'affiliationChanged', 'superseded', 'cessationOfOperation']),
-  pin: z.string().min(1),
+  pin: certPinManagementSchema,
 });
 
 router.post('/revoke', requireSigningCertificatesManage, async (req, res, next) => {
@@ -936,7 +994,7 @@ router.delete('/signers/:profileId', requirePermission('signing_certificates.man
   try {
     const tenantId = req.tenantId!;
     const userId = req.user!.userId;
-    const { profileId } = req.params;
+    const profileId = req.params.profileId as string;
 
     const profile = await prisma.staffSigningProfile.findFirst({
       where: { id: profileId, tenantId },
@@ -991,7 +1049,7 @@ router.get(
   async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = req.params.loanId as string;
 
     const signatures = await prisma.loanInternalSignature.findMany({
       where: { loanId, tenantId },
@@ -1032,10 +1090,11 @@ router.post('/verify-pin', requireSigningCertificatesManage, async (req, res, ne
       throw new BadRequestError('No certificate serial number on record');
     }
 
-    const { pin } = req.body;
-    if (!pin) {
-      throw new BadRequestError('PIN is required');
+    const parsed = z.object({ pin: certPinManagementSchema }).safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('PIN must be 4–32 digits (numbers only)');
     }
+    const { pin } = parsed.data;
 
     const result = await verifyCertPin(profile.icNumber, profile.certSerialNo, pin);
     res.json(result);
@@ -1060,13 +1119,16 @@ router.post('/reset-pin', requireSigningCertificatesManage, async (req, res, nex
       throw new BadRequestError('No certificate serial number on record');
     }
 
-    const { currentPin, newPin } = req.body;
-    if (!currentPin || !newPin) {
-      throw new BadRequestError('Current PIN and new PIN are required');
+    const parsed = z
+      .object({
+        currentPin: certPinManagementSchema,
+        newPin: certPinManagementSchema,
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Current and new PIN must each be 4–32 digits (numbers only)');
     }
-    if (newPin.length < 4 || newPin.length > 8) {
-      throw new BadRequestError('New PIN must be 4–8 characters');
-    }
+    const { currentPin, newPin } = parsed.data;
 
     const pinCheck = await verifyCertPin(profile.icNumber, profile.certSerialNo, currentPin);
     if (!pinCheck.success || pinCheck.certPinStatus !== 'Valid') {

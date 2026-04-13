@@ -174,6 +174,8 @@ export default function SettingsPage() {
     "roles.view",
     "roles.manage"
   );
+  const defaultInviteRole =
+    roles.find((role) => role.key === "GENERAL_STAFF") ?? roles[0] ?? null;
 
   const fetchData = async () => {
     if (!session) return;
@@ -236,7 +238,7 @@ export default function SettingsPage() {
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!newUser.roleId) {
+    if (canEditRoles && !newUser.roleId) {
       toast.error("Select a role for the new user");
       return;
     }
@@ -250,7 +252,7 @@ export default function SettingsPage() {
           email: newUser.email,
           name: newUser.name,
           password: newUser.password,
-          roleId: newUser.roleId,
+          ...(canEditRoles && newUser.roleId ? { roleId: newUser.roleId } : {}),
         }),
       });
       const res = await response.json();
@@ -1021,26 +1023,35 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Role *</Label>
-                  <Select
-                    value={newUser.roleId || undefined}
-                    onValueChange={(value) =>
-                      setNewUser((current) => ({ ...current, roleId: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {roles
-                        .filter((role) => role.key !== "OWNER")
-                        .map((role) => (
-                          <SelectItem key={role.id} value={role.id}>
-                            {role.name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>{canEditRoles ? "Role *" : "Default role"}</Label>
+                  {canEditRoles ? (
+                    <Select
+                      value={newUser.roleId || undefined}
+                      onValueChange={(value) =>
+                        setNewUser((current) => ({ ...current, roleId: value }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roles
+                          .filter((role) => role.key !== "OWNER")
+                          .map((role) => (
+                            <SelectItem key={role.id} value={role.id}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <>
+                      <Input value={defaultInviteRole?.name ?? "General Staff"} disabled readOnly />
+                      <p className="text-xs text-muted-foreground">
+                        Invites without role-edit permission default new users to General Staff.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2">

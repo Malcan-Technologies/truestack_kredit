@@ -93,9 +93,10 @@ router.post('/', requirePermission('truesend.manage'), async (req, res, next) =>
  */
 router.post('/:notificationId/retry', requirePermission('truesend.manage'), async (req, res, next) => {
   try {
+    const notificationId = req.params.notificationId as string;
     const notification = await prisma.notification.findFirst({
       where: {
-        id: req.params.notificationId,
+        id: notificationId,
         tenantId: req.tenantId,
         status: 'failed',
       },
@@ -132,7 +133,8 @@ router.post('/:notificationId/retry', requirePermission('truesend.manage'), asyn
  */
 router.post('/truesend/:id/resend', requirePermission('truesend.manage'), async (req, res, next) => {
   try {
-    const result = await TrueSendService.resendEmail(req.params.id, req.tenantId!);
+    const notificationId = req.params.id as string;
+    const result = await TrueSendService.resendEmail(notificationId, req.tenantId!);
 
     if (!result.success) {
       res.status(400).json({

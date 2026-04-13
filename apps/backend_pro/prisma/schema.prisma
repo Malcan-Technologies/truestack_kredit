@@ -679,6 +679,8 @@ model BorrowerDirector {
   icNumber   String
   position   String?
   order      Int      @default(0)
+  /// Exactly one director per corporate borrower should be true (authorized signatory for KYC + agreement).
+  isAuthorizedRepresentative Boolean @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

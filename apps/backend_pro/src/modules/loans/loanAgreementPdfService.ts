@@ -122,11 +122,17 @@ export async function buildLoanAgreementPdfBuffer(params: {
       borrowerType: loan.borrower.borrowerType,
       companyName: loan.borrower.companyName,
       companyRegistrationNumber: loan.borrower.ssmRegistrationNo,
-      directors: loan.borrower.directors.map((director) => ({
-        name: director.name,
-        icNumber: director.icNumber,
-        position: director.position,
-      })),
+      directors: (() => {
+        const all = loan.borrower.directors.map((director) => ({
+          name: director.name,
+          icNumber: director.icNumber,
+          position: director.position,
+          isAuthorizedRepresentative: director.isAuthorizedRepresentative === true,
+        }));
+        const arOnly = all.filter((d) => d.isAuthorizedRepresentative);
+        const signers = arOnly.length > 0 ? arOnly : all.slice(0, 1);
+        return signers.map(({ name, icNumber, position }) => ({ name, icNumber, position }));
+      })(),
     },
     tenant: {
       name: loan.tenant.name,

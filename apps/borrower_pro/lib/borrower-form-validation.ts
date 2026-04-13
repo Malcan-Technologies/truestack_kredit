@@ -159,6 +159,13 @@ export function validateCorporateFormStep(
           }
         }
       });
+      const arCount = data.directors.filter((d) => d.isAuthorizedRepresentative).length;
+      if (arCount !== 1) {
+        errors.authorizedRepresentative =
+          arCount === 0
+            ? "Select one director as the authorized representative"
+            : "Only one director can be the authorized representative";
+      }
     }
   }
   if (subStep === 4) {
@@ -222,6 +229,13 @@ export function validateCorporateForm(
         }
       }
     });
+    const arCount = data.directors.filter((d) => d.isAuthorizedRepresentative).length;
+    if (arCount !== 1) {
+      errors.authorizedRepresentative =
+        arCount === 0
+          ? "Select one director as the authorized representative"
+          : "Only one director can be the authorized representative";
+    }
   }
   return errors;
 }

@@ -103,6 +103,8 @@ interface Signatory {
   directorName?: string;
   directorIc?: string;
   directorPosition?: string; // Designation, defaults to "Director"
+  /** When true, draws dotted line + printed name/IC/designation (legacy multi-director). AR-only flow omits this. */
+  printDirectorUnderSignature?: boolean;
 }
 
 interface JadualRow {
@@ -477,7 +479,7 @@ function getBorrowerSignatories(loan: LoanForAgreement, borrowerName: string): S
     .slice(0, 10);
 
   if (directors.length > 0) {
-    // One signature block per director, each with company info on left
+    // One borrower-side corporate block; loan layer passes the authorized representative only.
     return directors.map((d) => ({
       name: companyName,
       icNumber: companyReg,
@@ -485,6 +487,7 @@ function getBorrowerSignatories(loan: LoanForAgreement, borrowerName: string): S
       directorName: d.name,
       directorIc: d.icNumber,
       directorPosition: d.position?.trim() || 'Director',
+      printDirectorUnderSignature: false,
     }));
   }
 
@@ -538,8 +541,8 @@ function drawBorrowerSigBlock(
   doc.text(')', BRACKET_COL, y);
   y += lineH;
 
-  // For corporate: director signature info in the blank space to the RIGHT of )
-  if (sig.directorName) {
+  // For corporate: optional legacy block (dotted line + captions). AR-only agreements omit printing here.
+  if (sig.directorName && sig.printDirectorUnderSignature === true) {
     const rightX = BRACKET_COL + 16; // start after the ) bracket
     const rightW = PAGE_WIDTH - MR - rightX; // available width to right margin
     // Signature line in the right column, vertically centered with rows 1-2

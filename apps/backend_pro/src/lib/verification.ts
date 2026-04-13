@@ -14,16 +14,21 @@ export function getBorrowerVerificationSummary(borrower: {
   directors?: Array<{
     trueIdentityStatus: string | null;
     trueIdentityResult: string | null;
+    isAuthorizedRepresentative?: boolean | null;
   }>;
 }): BorrowerVerificationSummary {
   if (borrower.borrowerType === 'CORPORATE') {
     const directors = borrower.directors ?? [];
+    const relevant =
+      directors.some((d) => d.isAuthorizedRepresentative === true)
+        ? directors.filter((d) => d.isAuthorizedRepresentative === true)
+        : directors;
     const allDirectorsVerified =
-      directors.length > 0 &&
-      directors.every(
+      relevant.length > 0 &&
+      relevant.every(
         (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
       );
-    const anyDirectorVerified = directors.some(
+    const anyDirectorVerified = relevant.some(
       (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
     );
 

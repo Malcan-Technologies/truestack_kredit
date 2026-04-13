@@ -167,8 +167,20 @@ export default function AdminLogsPage() {
     fetchLogs();
   }, [fetchLogs]);
 
+  const formatUnknownActionLabel = (action: string) =>
+    action
+      .split("_")
+      .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+      .join(" ");
+
   const getActionConfig = (action: string) => {
-    return ACTION_CONFIG[action] || { label: action, icon: Shield, variant: "outline" as const };
+    return (
+      ACTION_CONFIG[action] || {
+        label: formatUnknownActionLabel(action),
+        icon: Shield,
+        variant: "outline" as const,
+      }
+    );
   };
 
   const formatDetails = (log: AuditLog): { main: string; secondary?: string } | null => {
@@ -256,10 +268,16 @@ export default function AdminLogsPage() {
     const main = log.details.email || "";
     let secondary: string | undefined;
     
+    const prettyRole = (r: string) =>
+      r
+        .split("_")
+        .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+        .join(" ");
+
     if (log.action === "USER_ROLE_CHANGED" && log.details.previousRole && log.details.newRole) {
-      secondary = `${log.details.previousRole} → ${log.details.newRole}`;
+      secondary = `${prettyRole(log.details.previousRole)} → ${prettyRole(log.details.newRole)}`;
     } else if (log.details.role) {
-      secondary = `Role: ${log.details.role}`;
+      secondary = `Role: ${prettyRole(log.details.role)}`;
     }
 
     return main ? { main, secondary } : null;

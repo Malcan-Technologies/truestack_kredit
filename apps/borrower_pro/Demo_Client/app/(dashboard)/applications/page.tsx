@@ -86,14 +86,6 @@ function formatCurrencyMaybe(v: unknown): string {
 }
 
 function navigateForApplication(router: ReturnType<typeof useRouter>, app: LoanApplicationDetail) {
-  if (app.status === "DRAFT") {
-    const href =
-      app.loanChannel === "PHYSICAL"
-        ? borrowerApplicationDetailPath(app)
-        : `/applications/apply?applicationId=${app.id}`;
-    router.push(href);
-    return;
-  }
   router.push(borrowerApplicationDetailPath(app));
 }
 
@@ -620,17 +612,18 @@ export default function ApplicationsPage() {
                             onClick={(e) => e.stopPropagation()}
                           >
                             {isDraft && (
-                              <Button variant="secondary" size="sm" asChild>
-                                <Link
-                                  href={
-                                    app.loanChannel === "PHYSICAL"
-                                      ? borrowerApplicationDetailPath(app)
-                                      : `/applications/apply?applicationId=${app.id}`
-                                  }
-                                >
-                                  {app.loanChannel === "PHYSICAL" ? "View application" : "Continue"}
-                                </Link>
-                              </Button>
+                              <div className="flex flex-col items-end gap-1.5">
+                                <Button variant="secondary" size="sm" asChild>
+                                  <Link href={borrowerApplicationDetailPath(app)}>View details</Link>
+                                </Button>
+                                {app.loanChannel !== "PHYSICAL" && (
+                                  <Button variant="outline" size="sm" asChild>
+                                    <Link href={`/applications/apply?applicationId=${app.id}`}>
+                                      Edit application
+                                    </Link>
+                                  </Button>
+                                )}
+                              </div>
                             )}
                             {(app.status === "SUBMITTED" || app.status === "UNDER_REVIEW") && (
                               <Button variant="outline" size="sm" asChild>

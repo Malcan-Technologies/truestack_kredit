@@ -67,5 +67,5 @@ export const initialCorporateFormData: CorporateFormData = {
   facebook: "",
   linkedin: "",
   xTwitter: "",
-  directors: [{ name: "", icNumber: "", position: "" }],
+  directors: [{ name: "", icNumber: "", position: "", isAuthorizedRepresentative: true }],
 };

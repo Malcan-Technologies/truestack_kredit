@@ -54,6 +54,7 @@ import {
 import type {
   IndividualFormData,
   CorporateFormData,
+  CorporateDirector,
 } from "../../lib/borrower-form-types";
 import {
   getOptionLabel,
@@ -76,11 +77,34 @@ interface OnboardingDraft {
   noMonthlyIncome: boolean;
 }
 
+function normalizeCorporateDraftData(data: CorporateFormData): CorporateFormData {
+  const directors: CorporateDirector[] = (data.directors ?? []).map((d, i) => ({
+    name: d.name ?? "",
+    icNumber: d.icNumber ?? "",
+    position: d.position ?? "",
+    isAuthorizedRepresentative:
+      typeof d.isAuthorizedRepresentative === "boolean"
+        ? d.isAuthorizedRepresentative
+        : i === 0,
+  }));
+  let next = directors;
+  if (next.length === 0) {
+    next = [{ name: "", icNumber: "", position: "", isAuthorizedRepresentative: true }];
+  } else if (!next.some((d) => d.isAuthorizedRepresentative)) {
+    next = next.map((d, i) => ({ ...d, isAuthorizedRepresentative: i === 0 }));
+  }
+  return { ...data, directors: next };
+}
+
 function loadDraft(): OnboardingDraft | null {
   try {
     const raw = localStorage.getItem(ONBOARDING_DRAFT_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as OnboardingDraft;
+    const parsed = JSON.parse(raw) as OnboardingDraft;
+    if (parsed.corporateFormData) {
+      parsed.corporateFormData = normalizeCorporateDraftData(parsed.corporateFormData);
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -336,10 +360,11 @@ export function OnboardingWizard() {
     }
 
     const d = corporateFormData;
-    const primaryDirector = d.directors[0];
+    const arDirector =
+      d.directors.find((dir) => dir.isAuthorizedRepresentative) ?? d.directors[0];
     return {
       borrowerType: "CORPORATE",
-      name: primaryDirector?.name.trim() || d.authorizedRepName.trim(),
+      name: arDirector?.name.trim() || d.authorizedRepName.trim(),
       icNumber: d.ssmRegistrationNo.trim(),
       documentType: "IC",
       phone: d.companyPhone.trim() || undefined,
@@ -355,9 +380,9 @@ export function OnboardingWizard() {
       businessAddress: d.addressLine1.trim() || undefined,
       bumiStatus: d.bumiStatus.trim() || undefined,
       authorizedRepName:
-        primaryDirector?.name.trim() || d.authorizedRepName.trim() || undefined,
+        arDirector?.name.trim() || d.authorizedRepName.trim() || undefined,
       authorizedRepIc:
-        primaryDirector?.icNumber.trim() || d.authorizedRepIc.trim() || undefined,
+        arDirector?.icNumber.trim() || d.authorizedRepIc.trim() || undefined,
       companyPhone: d.companyPhone.trim() || undefined,
       companyEmail: d.companyEmail.trim() || undefined,
       natureOfBusiness: d.natureOfBusiness.trim() || undefined,
@@ -380,6 +405,7 @@ export function OnboardingWizard() {
           name: dir.name.trim(),
           icNumber: dir.icNumber.replace(/\D/g, ""),
           position: dir.position.trim() || undefined,
+          isAuthorizedRepresentative: dir.isAuthorizedRepresentative === true,
         })),
       instagram: d.instagram?.trim() || undefined,
       tiktok: d.tiktok?.trim() || undefined,
@@ -1043,7 +1069,7 @@ export function OnboardingWizard() {
                           >
                             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                               Director {i + 1}
-                              {i === 0 && " (Authorized Representative)"}
+                              {d.isAuthorizedRepresentative ? " (Authorized Representative)" : ""}
                             </p>
                             <div className="space-y-1 text-sm">
                               <ReviewRow label="Name" value={d.name} />

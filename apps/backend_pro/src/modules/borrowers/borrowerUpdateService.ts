@@ -5,6 +5,7 @@ import { normalizeIdentityNumber } from '../../lib/crossTenantLookupService.js';
 import { assertNoLockedIndividualIdentityChanges } from '../../lib/identityLock.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { ConflictError, NotFoundError } from '../../lib/errors.js';
+import { normalizeCorporateDirectorFlags } from '../../lib/borrowerDirectorAuthorizedRep.js';
 
 const BORROWER_TYPE_VALUES = ['INDIVIDUAL', 'CORPORATE'] as const;
 const DOCUMENT_TYPE_VALUES = ['IC', 'PASSPORT'] as const;
@@ -174,6 +175,7 @@ const directorSchema = z.object({
     .transform((val) => val.replace(/\D/g, ''))
     .refine((val) => val.length === 12, 'Director IC must be exactly 12 digits'),
   position: z.string().max(100).optional(),
+  isAuthorizedRepresentative: z.boolean().optional(),
 });
 const updateDirectorSchema = directorSchema.extend({
   id: z.string().cuid().optional(),
@@ -222,13 +224,16 @@ export async function performBorrowerUpdate(
 
   const updateData: Record<string, unknown> = {};
   const effectiveBorrowerType = data.borrowerType ?? existing.borrowerType;
-  const normalizedDirectors = (data.directors || []).map((director, index) => ({
-    id: 'id' in director ? director.id : undefined,
-    name: director.name.trim(),
-    icNumber: director.icNumber.trim(),
-    position: director.position?.trim() || null,
-    order: index,
-  }));
+  const normalizedDirectors = normalizeCorporateDirectorFlags(
+    (data.directors || []).map((director, index) => ({
+      id: 'id' in director ? director.id : undefined,
+      name: director.name.trim(),
+      icNumber: director.icNumber.trim(),
+      position: director.position?.trim() || null,
+      order: index,
+      isAuthorizedRepresentative: director.isAuthorizedRepresentative === true,
+    })),
+  );
 
   const hasIndividualNameChange =
     data.name !== undefined && data.name.trim() !== existing.name.trim();
@@ -321,8 +326,9 @@ export async function performBorrowerUpdate(
   if (data.paidUpCapital !== undefined) updateData.paidUpCapital = data.paidUpCapital ?? null;
   if (data.numberOfEmployees !== undefined) updateData.numberOfEmployees = data.numberOfEmployees ?? null;
   if (data.directors !== undefined && effectiveBorrowerType === 'CORPORATE') {
-    updateData.authorizedRepName = normalizedDirectors[0]?.name || null;
-    updateData.authorizedRepIc = normalizedDirectors[0]?.icNumber || null;
+    const ar = normalizedDirectors.find((d) => d.isAuthorizedRepresentative);
+    updateData.authorizedRepName = ar?.name || null;
+    updateData.authorizedRepIc = ar?.icNumber || null;
   }
   if (shouldInvalidateIndividualKyc) {
     updateData.trueIdentityStatus = null;
@@ -375,6 +381,7 @@ export async function performBorrowerUpdate(
                 icNumber: director.icNumber,
                 position: director.position,
                 order: director.order,
+                isAuthorizedRepresentative: director.isAuthorizedRepresentative,
                 ...(hasDirectorIdentityChange && {
                   trueIdentityStatus: null,
                   trueIdentityResult: null,
@@ -395,6 +402,7 @@ export async function performBorrowerUpdate(
                 icNumber: director.icNumber,
                 position: director.position,
                 order: director.order,
+                isAuthorizedRepresentative: director.isAuthorizedRepresentative,
               },
               select: { id: true },
             });
@@ -420,7 +428,11 @@ export async function performBorrowerUpdate(
       if (effectiveBorrowerType === 'CORPORATE') {
         const directorStates = await tx.borrowerDirector.findMany({
           where: { borrowerId },
-          select: { trueIdentityStatus: true, trueIdentityResult: true },
+          select: {
+            trueIdentityStatus: true,
+            trueIdentityResult: true,
+            isAuthorizedRepresentative: true,
+          },
         });
         const verificationStatus = getBorrowerVerificationSummary({
           borrowerType: 'CORPORATE',
@@ -429,9 +441,12 @@ export async function performBorrowerUpdate(
           trueIdentityResult: null,
           directors: directorStates,
         });
+        const relevantDirectors = directorStates.some((d) => d.isAuthorizedRepresentative)
+          ? directorStates.filter((d) => d.isAuthorizedRepresentative)
+          : directorStates;
         const allDirectorsVerified =
-          directorStates.length > 0 &&
-          directorStates.every(
+          relevantDirectors.length > 0 &&
+          relevantDirectors.every(
             (d) => d.trueIdentityStatus === 'completed' && d.trueIdentityResult === 'approved'
           );
 

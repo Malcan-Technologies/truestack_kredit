@@ -27,6 +27,7 @@ import {
   type TruestackKycStatusData,
 } from "../lib/borrower-api-client";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "../lib/borrower-auth-client";
+import { getCorporateDirectorsForKyc } from "../lib/borrower-verification";
 
 function formatSmartDateTime(iso: string): string {
   try {
@@ -559,6 +560,16 @@ export function TruestackKycCard({
     return () => window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
   }, [load]);
 
+  useEffect(() => {
+    const sessions = kyc?.sessions ?? [];
+    const hasActiveFlow = sessions.some((s) => s.status === "pending" || s.status === "processing");
+    if (!hasActiveFlow) return;
+    const timer = window.setInterval(() => {
+      void load();
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [kyc, load]);
+
   const handleCopyLink = (url: string) => {
     void navigator.clipboard.writeText(url);
     toast.success("Link copied to clipboard");
@@ -596,11 +607,16 @@ export function TruestackKycCard({
   const sessions = kyc?.sessions ?? [];
   const isCorporate = borrower !== null && borrower.borrowerType === "CORPORATE";
   const ind = borrower ? individualStateFromSessions(sessions) : null;
+
+  // For corporate: only the authorized representative(s) need KYC.
+  const corporateKycDirectors =
+    borrower !== null && isCorporate ? getCorporateDirectorsForKyc(borrower.directors) : [];
+
   const isKycVerified =
     borrower !== null &&
     (isCorporate
-      ? borrower.directors.length > 0 &&
-        borrower.directors
+      ? corporateKycDirectors.length > 0 &&
+        corporateKycDirectors
           .map((d) => mergeDirectorWithSessions(d, sessions))
           .every((d) => d.status === "completed" && d.result === "approved")
       : ind?.status === "completed" && ind.result === "approved");
@@ -608,7 +624,7 @@ export function TruestackKycCard({
   const statusBadge = () => {
     if (!kyc) return null;
     if (isCorporate) {
-      const directors = borrower!.directors.map((d) => mergeDirectorWithSessions(d, sessions));
+      const directors = corporateKycDirectors.map((d) => mergeDirectorWithSessions(d, sessions));
       const allVerified =
         directors.length > 0 &&
         directors.every((d) => d.status === "completed" && d.result === "approved");
@@ -715,7 +731,7 @@ export function TruestackKycCard({
         </div>
         <CardDescription className="mt-0.5">
           {isCorporate
-            ? "Verify each director's identity via IC capture and facial recognition"
+            ? "Verify the authorized representative's identity via IC capture and facial recognition"
             : "Verify your identity to enable digital signing"}
         </CardDescription>
       </CardHeader>
@@ -740,12 +756,12 @@ export function TruestackKycCard({
 
             {isCorporate ? (
               <div className="space-y-3">
-                {borrower.directors.length === 0 ? (
+                {corporateKycDirectors.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">
-                    No directors added. Add directors to this corporate profile to verify their identity.
+                    No authorized representative set. Add directors and designate an authorized representative.
                   </p>
                 ) : (
-                  borrower.directors.map((d) => (
+                  corporateKycDirectors.map((d) => (
                     <DirectorKycCard
                       key={d.id}
                       director={mergeDirectorWithSessions(d, sessions)}

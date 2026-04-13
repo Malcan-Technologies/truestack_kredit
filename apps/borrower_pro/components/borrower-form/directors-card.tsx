@@ -3,6 +3,7 @@
 import { User, Plus, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui/card";
 import { Button } from "../ui/button";
+import { Label } from "../ui/label";
 import { Field } from "./field";
 import type { CorporateFormData, CorporateDirector } from "../../lib/borrower-form-types";
 
@@ -13,6 +14,21 @@ interface DirectorsCardProps {
   onErrorClear: (key: string) => void;
 }
 
+function syncRepFieldsFromDirectors(directors: CorporateDirector[]): Pick<
+  CorporateFormData,
+  "authorizedRepName" | "authorizedRepIc" | "name"
+> {
+  const ar = directors.find((d) => d.isAuthorizedRepresentative) ?? directors[0];
+  if (!ar) {
+    return { authorizedRepName: "", authorizedRepIc: "", name: "" };
+  }
+  return {
+    authorizedRepName: ar.name,
+    authorizedRepIc: ar.icNumber,
+    name: ar.name,
+  };
+}
+
 export function DirectorsCard({
   data,
   onChange,
@@ -21,39 +37,74 @@ export function DirectorsCard({
 }: DirectorsCardProps) {
   const directors = data.directors;
 
+  const setAuthorizedRepIndex = (index: number) => {
+    const nextDirectors = directors.map((d, i) => ({
+      ...d,
+      isAuthorizedRepresentative: i === index,
+    }));
+    onChange({
+      directors: nextDirectors,
+      ...syncRepFieldsFromDirectors(nextDirectors),
+    });
+    if (errors.authorizedRepresentative) onErrorClear("authorizedRepresentative");
+  };
+
   const updateDirector = (index: number, updates: Partial<CorporateDirector>) => {
     const nextDirectors = [...directors];
-    nextDirectors[index] = { ...nextDirectors[index], ...updates };
-    const firstDirector = nextDirectors[0];
-    const result: Partial<CorporateFormData> = {
-      directors: nextDirectors,
-      authorizedRepName: index === 0 ? (updates.name ?? firstDirector?.name) : data.authorizedRepName,
-      authorizedRepIc: index === 0 ? (updates.icNumber ?? firstDirector?.icNumber) : data.authorizedRepIc,
-      name: index === 0 ? (updates.name ?? firstDirector?.name) : data.name,
+    const prev = nextDirectors[index];
+    const merged: CorporateDirector = {
+      ...prev,
+      ...updates,
+      // Preserve AR flag unless we’re replacing the whole row
+      isAuthorizedRepresentative:
+        updates.isAuthorizedRepresentative ?? prev.isAuthorizedRepresentative,
     };
-    onChange(result);
+    nextDirectors[index] = merged;
+
+    let normalized = nextDirectors;
+    if (!normalized.some((d) => d.isAuthorizedRepresentative) && normalized.length > 0) {
+      normalized = normalized.map((d, i) => ({
+        ...d,
+        isAuthorizedRepresentative: i === 0,
+      }));
+    }
+
+    onChange({
+      directors: normalized,
+      ...syncRepFieldsFromDirectors(normalized),
+    });
     if (errors[`directorName_${index}`]) onErrorClear(`directorName_${index}`);
     if (errors[`directorIc_${index}`]) onErrorClear(`directorIc_${index}`);
     if (errors.directors) onErrorClear("directors");
+    if (errors.authorizedRepresentative) onErrorClear("authorizedRepresentative");
   };
 
   const removeDirector = (index: number) => {
     if (directors.length <= 1) return;
+    const removedWasAr = directors[index]?.isAuthorizedRepresentative;
     const nextDirectors = directors.filter((_, i) => i !== index);
-    const firstDirector = nextDirectors[0];
+    let normalized = nextDirectors;
+    if (removedWasAr || !normalized.some((d) => d.isAuthorizedRepresentative)) {
+      normalized = normalized.map((d, i) => ({
+        ...d,
+        isAuthorizedRepresentative: i === 0,
+      }));
+    }
     onChange({
-      directors: nextDirectors,
-      authorizedRepName: firstDirector?.name || "",
-      authorizedRepIc: firstDirector?.icNumber || "",
-      name: firstDirector?.name || "",
+      directors: normalized,
+      ...syncRepFieldsFromDirectors(normalized),
     });
     if (errors.directors) onErrorClear("directors");
+    if (errors.authorizedRepresentative) onErrorClear("authorizedRepresentative");
   };
 
   const addDirector = () => {
     if (directors.length >= 10) return;
     onChange({
-      directors: [...directors, { name: "", icNumber: "", position: "" }],
+      directors: [
+        ...directors,
+        { name: "", icNumber: "", position: "", isAuthorizedRepresentative: false },
+      ],
     });
     if (errors.directors) onErrorClear("directors");
   };
@@ -66,21 +117,29 @@ export function DirectorsCard({
           Company Directors
         </CardTitle>
         <CardDescription>
-          Add 1 to 10 directors. The first director will be used as authorized representative.
+          Add 1 to 10 directors. Choose exactly one authorized representative for e-KYC and loan agreements.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
+          {errors.authorizedRepresentative ? (
+            <p className="text-xs text-destructive">{errors.authorizedRepresentative}</p>
+          ) : null}
+
           {directors.map((director, index) => (
             <div
               key={`director-${index}`}
               className="rounded-lg border p-4 space-y-3"
             >
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">
-                  Director {index + 1}
-                  {index === 0 ? " (Authorized Representative)" : ""}
-                </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <p className="text-sm font-medium">Director {index + 1}</p>
+                  {director.isAuthorizedRepresentative ? (
+                    <span className="text-xs font-medium rounded-full bg-primary/15 text-primary px-2 py-0.5">
+                      Authorized representative
+                    </span>
+                  ) : null}
+                </div>
                 <Button
                   type="button"
                   variant="ghost"
@@ -92,6 +151,26 @@ export function DirectorsCard({
                   Remove
                 </Button>
               </div>
+
+              <div className="flex items-start gap-3 rounded-md border bg-muted/30 p-3">
+                <input
+                  type="radio"
+                  id={`director-ar-${index}`}
+                  name="authorized-representative"
+                  className="mt-1 h-4 w-4 accent-primary"
+                  checked={director.isAuthorizedRepresentative}
+                  onChange={() => setAuthorizedRepIndex(index)}
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor={`director-ar-${index}`} className="text-sm font-medium cursor-pointer">
+                    Authorized representative for this company
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    This person will complete TrueStack e-KYC and sign loan documents on behalf of the company.
+                  </p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Field
                   label="Director Name"
@@ -126,9 +205,9 @@ export function DirectorsCard({
             </div>
           ))}
 
-          {errors.directors && (
-            <p className="text-xs text-error">{errors.directors}</p>
-          )}
+          {errors.directors ? (
+            <p className="text-xs text-destructive">{errors.directors}</p>
+          ) : null}
 
           <Button
             type="button"

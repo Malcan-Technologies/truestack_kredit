@@ -107,19 +107,22 @@ router.post('/kyc/start', async (req, res, next) => {
     const webhookUrl = new URL('/api/webhooks/truestack-kyc', base).href;
     const documentType = profile.documentType === 'PASSPORT' ? '2' : '1';
 
-    const ts = await createKycSession({
+    const createBody = {
       document_name: profile.fullName,
       document_number: profile.icNumber,
       webhook_url: webhookUrl,
       document_type: documentType,
-      platform: 'Web',
-      redirect_url: config.truestackKyc.redirectUrl,
+      platform: 'Web' as const,
       metadata: {
         type: 'staff',
         profileId: profile.id,
         tenantId,
         userId,
       },
+    };
+    const ts = await createKycSession({
+      ...createBody,
+      ...(config.truestackKyc.redirectUrl ? { redirect_url: config.truestackKyc.redirectUrl } : {}),
     });
 
     const expiresAt = ts.expires_at ? new Date(ts.expires_at) : null;

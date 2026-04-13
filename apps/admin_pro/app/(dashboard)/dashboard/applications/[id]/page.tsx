@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -382,6 +383,7 @@ export default function ApplicationDetailPage() {
   const [showApproveDialog, setShowApproveDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showReturnToDraftDialog, setShowReturnToDraftDialog] = useState(false);
+  const [returnToDraftNote, setReturnToDraftNote] = useState("");
   const [showCounterDialog, setShowCounterDialog] = useState(false);
   const [counterAmount, setCounterAmount] = useState("");
   const [counterTerm, setCounterTerm] = useState("");
@@ -624,6 +626,7 @@ export default function ApplicationDetailPage() {
   };
 
   const handleReturnToDraftClick = () => {
+    setReturnToDraftNote("");
     setShowReturnToDraftDialog(true);
   };
 
@@ -631,7 +634,7 @@ export default function ApplicationDetailPage() {
     setShowReturnToDraftDialog(false);
     setActionLoading("returnToDraft");
     const res = await api.post(`/api/loans/applications/${applicationId}/return-to-draft`, {
-      reason: "Amendments needed",
+      reason: returnToDraftNote.trim() || undefined,
     });
     if (res.success) {
       toast.success("Application returned to draft for amendments");
@@ -1883,7 +1886,10 @@ export default function ApplicationDetailPage() {
       </Dialog>
 
       {/* Return for Amendments Confirmation Dialog */}
-      <Dialog open={showReturnToDraftDialog} onOpenChange={setShowReturnToDraftDialog}>
+      <Dialog open={showReturnToDraftDialog} onOpenChange={(open) => {
+        if (!open) setReturnToDraftNote("");
+        setShowReturnToDraftDialog(open);
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Return for Amendments</DialogTitle>
@@ -1892,7 +1898,7 @@ export default function ApplicationDetailPage() {
               They can update the application and resubmit when ready.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="space-y-4 py-2">
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Borrower</span>
@@ -1911,9 +1917,29 @@ export default function ApplicationDetailPage() {
                 <span className="font-medium">{application.product.name}</span>
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="return-to-draft-note">
+                Amendment notes{" "}
+                <span className="text-muted-foreground font-normal">(optional — visible to borrower when provided)</span>
+              </Label>
+              <Textarea
+                id="return-to-draft-note"
+                placeholder="Optional: describe what needs to be corrected or updated…"
+                rows={4}
+                value={returnToDraftNote}
+                onChange={(e) => setReturnToDraftNote(e.target.value)}
+                className="resize-none"
+              />
+              <p className="text-xs text-muted-foreground">
+                If you add notes here, the borrower will see them when they open the application.
+              </p>
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowReturnToDraftDialog(false)}>
+            <Button variant="outline" onClick={() => {
+              setReturnToDraftNote("");
+              setShowReturnToDraftDialog(false);
+            }}>
               Cancel
             </Button>
             <Button variant="secondary" onClick={handleReturnToDraftConfirm}>

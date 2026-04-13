@@ -14,6 +14,7 @@ import { createKycSession, refreshKycSession } from '../truestack-kyc/publicApiC
 import { ingestTruestackKycDocuments } from '../truestack-kyc/ingestKycDocuments.js';
 import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
 import { resolveProTenant, requireActiveBorrower } from './borrowerContext.js';
+import { subscribeBorrowerTruestackKyc } from '../../lib/truestackKycSseHub.js';
 import { normalizeCorporateDirectorFlags } from '../../lib/borrowerDirectorAuthorizedRep.js';
 import {
   canManageCompanyProfile,
@@ -939,6 +940,42 @@ router.post('/kyc/sessions', async (req, res, next) => {
         expiresAt: expiresAt?.toISOString() ?? null,
         directorId: targetDirectorId ?? undefined,
       },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** GET /api/borrower-auth/kyc/stream — SSE when TrueStack KYC updates for active borrower */
+router.get('/kyc/stream', async (req, res, next) => {
+  try {
+    const { borrowerId } = await requireActiveBorrower(req);
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch {
+        clearInterval(keepAlive);
+      }
+    }, 25_000);
+
+    const unsub = subscribeBorrowerTruestackKyc(borrowerId, (payload) => {
+      try {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      } catch {
+        /* client gone */
+      }
+    });
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      unsub();
     });
   } catch (e) {
     next(e);

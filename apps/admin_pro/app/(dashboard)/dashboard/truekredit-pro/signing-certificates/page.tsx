@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import {
   ShieldCheck,
@@ -80,9 +80,12 @@ import {
 } from "@/lib/admin-signing-client";
 import {
   CERT_PIN_REGEX,
+  CERT_PIN_MANAGEMENT_REGEX,
   filterCertPinInput,
+  filterCertPinManagementInput,
 } from "@/lib/cert-pin-validation";
 import { formatDate } from "@/lib/utils";
+import { subscribeAdminTruestackKycSse } from "@/lib/truestack-kyc-sse";
 
 /** Certificate lookup by Malaysian IC (MyKad): exactly 12 numeric digits */
 const CERT_LOOKUP_IC_REGEX = /^\d{12}$/;
@@ -289,9 +292,20 @@ export default function SigningCertificatesPage() {
     }
   }, [fetchSigners]);
 
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    return subscribeAdminTruestackKycSse((payload) => {
+      if (payload.kind === "staff") {
+        void loadDataRef.current();
+      }
+    });
+  }, []);
 
   // ---- Handlers ----
 
@@ -525,8 +539,8 @@ export default function SigningCertificatesPage() {
 
   const handleRevoke = async () => {
     if (!revokePin || !certInfo?.certSerialNo) return;
-    if (!CERT_PIN_REGEX.test(revokePin)) {
-      toast.error("PIN must be exactly 8 digits (numbers only)");
+    if (!CERT_PIN_MANAGEMENT_REGEX.test(revokePin)) {
+      toast.error("PIN must be 4–32 digits (numbers only)");
       return;
     }
     setRevoking(true);
@@ -594,8 +608,8 @@ export default function SigningCertificatesPage() {
 
   const handleVerifyPin = async () => {
     if (!verifyPinValue) return;
-    if (!CERT_PIN_REGEX.test(verifyPinValue)) {
-      toast.error("PIN must be exactly 8 digits (numbers only)");
+    if (!CERT_PIN_MANAGEMENT_REGEX.test(verifyPinValue)) {
+      toast.error("PIN must be 4–32 digits (numbers only)");
       return;
     }
     setVerifyingPin(true);
@@ -620,12 +634,12 @@ export default function SigningCertificatesPage() {
 
   const handleResetPin = async () => {
     if (!resetCurrentPin || !resetNewPin) return;
-    if (!CERT_PIN_REGEX.test(resetCurrentPin)) {
-      toast.error("Current PIN must be exactly 8 digits (numbers only)");
+    if (!CERT_PIN_MANAGEMENT_REGEX.test(resetCurrentPin)) {
+      toast.error("Current PIN must be 4–32 digits (numbers only)");
       return;
     }
-    if (!CERT_PIN_REGEX.test(resetNewPin)) {
-      toast.error("New PIN must be exactly 8 digits (numbers only)");
+    if (!CERT_PIN_MANAGEMENT_REGEX.test(resetNewPin)) {
+      toast.error("New PIN must be 4–32 digits (numbers only)");
       return;
     }
     if (resetNewPin !== resetNewPinConfirm) {
@@ -1649,18 +1663,18 @@ export default function SigningCertificatesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Your PIN (8 digits)</Label>
+                       <div className="space-y-2">
+              <Label>Your PIN (4–32 digits)</Label>
               <Input
                 type="password"
                 inputMode="numeric"
                 value={revokePin}
                 onChange={(e) =>
-                  setRevokePin(filterCertPinInput(e.target.value))
+                  setRevokePin(filterCertPinManagementInput(e.target.value))
                 }
-                maxLength={8}
-                pattern="\d{8}"
-                placeholder="8-digit certificate PIN"
+                maxLength={32}
+                pattern="[0-9]{4,32}"
+                placeholder="Certificate PIN"
                 className="max-w-[250px]"
               />
             </div>
@@ -1676,7 +1690,7 @@ export default function SigningCertificatesPage() {
             <Button
               variant="destructive"
               onClick={handleRevoke}
-              disabled={revoking || !CERT_PIN_REGEX.test(revokePin)}
+              disabled={revoking || !CERT_PIN_MANAGEMENT_REGEX.test(revokePin)}
             >
               {revoking && (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1706,18 +1720,18 @@ export default function SigningCertificatesPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Your PIN (8 digits)</Label>
+              <Label>Your PIN (4–32 digits)</Label>
               <Input
                 type="password"
                 inputMode="numeric"
                 value={verifyPinValue}
                 onChange={(e) => {
-                  setVerifyPinValue(filterCertPinInput(e.target.value));
+                  setVerifyPinValue(filterCertPinManagementInput(e.target.value));
                   setVerifyPinResult(null);
                 }}
-                maxLength={8}
-                pattern="\d{8}"
-                placeholder="8-digit certificate PIN"
+                maxLength={32}
+                pattern="[0-9]{4,32}"
+                placeholder="Certificate PIN"
                 onKeyDown={(e) => e.key === "Enter" && handleVerifyPin()}
               />
             </div>
@@ -1749,7 +1763,9 @@ export default function SigningCertificatesPage() {
             </Button>
             <Button
               onClick={handleVerifyPin}
-              disabled={verifyingPin || !CERT_PIN_REGEX.test(verifyPinValue)}
+              disabled={
+                verifyingPin || !CERT_PIN_MANAGEMENT_REGEX.test(verifyPinValue)
+              }
             >
               {verifyingPin && (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1783,7 +1799,7 @@ export default function SigningCertificatesPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="reset-cert-pin-current">Current PIN (8 digits)</Label>
+              <Label htmlFor="reset-cert-pin-current">Current PIN (4–32 digits)</Label>
               <Input
                 id="reset-cert-pin-current"
                 type="text"
@@ -1794,11 +1810,11 @@ export default function SigningCertificatesPage() {
                 spellCheck={false}
                 value={resetCurrentPin}
                 onChange={(e) =>
-                  setResetCurrentPin(filterCertPinInput(e.target.value))
+                  setResetCurrentPin(filterCertPinManagementInput(e.target.value))
                 }
-                maxLength={8}
-                pattern="\d{8}"
-                placeholder="8-digit current PIN"
+                maxLength={32}
+                pattern="[0-9]{4,32}"
+                placeholder="Current certificate PIN"
                 className="[-webkit-text-security:disc]"
                 data-1p-ignore
                 data-lpignore="true"
@@ -1806,7 +1822,7 @@ export default function SigningCertificatesPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="reset-cert-pin-new">New PIN (8 digits, numbers only)</Label>
+              <Label htmlFor="reset-cert-pin-new">New PIN (4–32 digits, numbers only)</Label>
               <Input
                 id="reset-cert-pin-new"
                 type="text"
@@ -1817,11 +1833,11 @@ export default function SigningCertificatesPage() {
                 spellCheck={false}
                 value={resetNewPin}
                 onChange={(e) =>
-                  setResetNewPin(filterCertPinInput(e.target.value))
+                  setResetNewPin(filterCertPinManagementInput(e.target.value))
                 }
-                maxLength={8}
-                pattern="\d{8}"
-                placeholder="8-digit PIN"
+                maxLength={32}
+                pattern="[0-9]{4,32}"
+                placeholder="New PIN"
                 className="[-webkit-text-security:disc]"
                 data-1p-ignore
                 data-lpignore="true"
@@ -1840,11 +1856,11 @@ export default function SigningCertificatesPage() {
                 spellCheck={false}
                 value={resetNewPinConfirm}
                 onChange={(e) =>
-                  setResetNewPinConfirm(filterCertPinInput(e.target.value))
+                  setResetNewPinConfirm(filterCertPinManagementInput(e.target.value))
                 }
-                maxLength={8}
-                pattern="\d{8}"
-                placeholder="Re-enter 8-digit PIN"
+                maxLength={32}
+                pattern="[0-9]{4,32}"
+                placeholder="Re-enter new PIN"
                 className="[-webkit-text-security:disc]"
                 data-1p-ignore
                 data-lpignore="true"
@@ -1869,8 +1885,8 @@ export default function SigningCertificatesPage() {
               onClick={handleResetPin}
               disabled={
                 resettingPin ||
-                !CERT_PIN_REGEX.test(resetCurrentPin) ||
-                !CERT_PIN_REGEX.test(resetNewPin) ||
+                !CERT_PIN_MANAGEMENT_REGEX.test(resetCurrentPin) ||
+                !CERT_PIN_MANAGEMENT_REGEX.test(resetNewPin) ||
                 resetNewPin !== resetNewPinConfirm
               }
             >

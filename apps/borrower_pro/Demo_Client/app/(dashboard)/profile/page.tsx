@@ -282,7 +282,9 @@ export default function YourProfilePage() {
         </div>
         {/* Right column - TrueIdentity & Documents */}
         <div className="space-y-6">
-          {borrowerType === "CORPORATE" ? <CompanyMembersCard /> : null}
+          {borrowerType === "CORPORATE" ? (
+            <CompanyMembersCard externalRefreshKey={dataRefreshKey} />
+          ) : null}
           <TruestackKycCard
             onStatusLoaded={bumpDataRefresh}
             refreshKey={dataRefreshKey}

@@ -247,14 +247,7 @@ export function canManageTrueIdentity(
 export function canManageSettings(
   permissions: string[] | undefined | null
 ): boolean {
-  return hasAnyPermission(
-    permissions,
-    "tenant_settings.edit",
-    "team.invite",
-    "team.edit_roles",
-    "team.deactivate",
-    "billing.manage"
-  );
+  return hasPermission(permissions, "tenant_settings.edit");
 }
 
 export function canManageRoles(

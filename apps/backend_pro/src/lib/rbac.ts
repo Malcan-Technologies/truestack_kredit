@@ -86,6 +86,65 @@ function toResolvedAssignableRole(role: {
   };
 }
 
+type TenantRoleConfig = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  permissions: string[];
+  isSystem: boolean;
+  isEditable: boolean;
+  isDefault: boolean;
+};
+
+async function findTenantRoleConfigForMembership(
+  db: PrismaLike,
+  membership: MembershipWithRoleConfig,
+  normalizedKey: string
+): Promise<TenantRoleConfig | null> {
+  let roleConfig: TenantRoleConfig | null =
+    membership.roleConfig && membership.roleConfig.key === normalizedKey
+      ? membership.roleConfig
+      : null;
+
+  if (!roleConfig && membership.roleId) {
+    roleConfig = await db.tenantRole.findFirst({
+      where: {
+        id: membership.roleId,
+        tenantId: membership.tenantId,
+      },
+    });
+  }
+
+  if (!roleConfig) {
+    roleConfig = await db.tenantRole.findUnique({
+      where: {
+        tenantId_key: {
+          tenantId: membership.tenantId,
+          key: normalizedKey,
+        },
+      },
+    });
+  }
+
+  return roleConfig;
+}
+
+async function findTenantFallbackRoleConfig(
+  db: PrismaLike,
+  tenantId: string
+): Promise<TenantRoleConfig | null> {
+  const fallbackTemplate = getDefaultTenantRoleTemplate("GENERAL_STAFF");
+  return db.tenantRole.findUnique({
+    where: {
+      tenantId_key: {
+        tenantId,
+        key: fallbackTemplate?.key ?? "GENERAL_STAFF",
+      },
+    },
+  });
+}
+
 export async function ensureTenantRoleCatalog(
   db: PrismaLike,
   tenantId: string
@@ -215,44 +274,26 @@ export async function resolveTenantAccess(
   db: PrismaLike,
   membership: MembershipWithRoleConfig
 ): Promise<ResolvedTenantAccess> {
-  await ensureTenantRoleCatalog(db, membership.tenantId);
-
   const normalizedKey = normalizeTenantRoleKey(membership.role);
-  let roleConfig =
-    membership.roleConfig && membership.roleConfig.key === normalizedKey
-      ? membership.roleConfig
-      : null;
+  let roleConfig = await findTenantRoleConfigForMembership(
+    db,
+    membership,
+    normalizedKey
+  );
 
-  if (!roleConfig && membership.roleId) {
-    roleConfig = await db.tenantRole.findFirst({
-      where: {
-        id: membership.roleId,
-        tenantId: membership.tenantId,
-      },
-    });
+  if (!roleConfig) {
+    // Self-heal missing tenant role catalogs or newly introduced default roles,
+    // but keep the normal auth path read-only when the expected role already exists.
+    await ensureTenantRoleCatalog(db, membership.tenantId);
+    roleConfig = await findTenantRoleConfigForMembership(
+      db,
+      membership,
+      normalizedKey
+    );
   }
 
   if (!roleConfig) {
-    roleConfig = await db.tenantRole.findUnique({
-      where: {
-        tenantId_key: {
-          tenantId: membership.tenantId,
-          key: normalizedKey,
-        },
-      },
-    });
-  }
-
-  if (!roleConfig) {
-    const fallbackTemplate = getDefaultTenantRoleTemplate("GENERAL_STAFF");
-    roleConfig = await db.tenantRole.findUnique({
-      where: {
-        tenantId_key: {
-          tenantId: membership.tenantId,
-          key: fallbackTemplate?.key ?? "GENERAL_STAFF",
-        },
-      },
-    });
+    roleConfig = await findTenantFallbackRoleConfig(db, membership.tenantId);
   }
 
   if (!roleConfig) {

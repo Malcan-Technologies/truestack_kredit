@@ -1007,7 +1007,9 @@ export function LoanPendingAgreementPage() {
                   <TruestackKycCard
                     refreshKey={ekycCardRefreshKey}
                     onStatusLoaded={() => {
-                      void loadKyc();
+                      void loadKyc().then(() => {
+                        setJourneyUiStep(certDone ? "sign" : "certificate");
+                      });
                     }}
                   />
                 </div>

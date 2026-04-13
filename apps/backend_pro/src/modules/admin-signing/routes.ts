@@ -543,10 +543,14 @@ router.post('/enroll', async (req, res, next) => {
   }
 });
 
+const certPinManagementSchema = z
+  .string()
+  .regex(/^\d{4,32}$/, 'PIN must be 4–32 digits (numbers only)');
+
 const revokeSchema = z.object({
   certSerialNo: z.string().min(1),
   reason: z.enum(['keyCompromise', 'CACompromise', 'affiliationChanged', 'superseded', 'cessationOfOperation']),
-  pin: z.string().min(1),
+  pin: certPinManagementSchema,
 });
 
 router.post('/revoke', async (req, res, next) => {
@@ -1001,10 +1005,11 @@ router.post('/verify-pin', async (req, res, next) => {
       throw new BadRequestError('No certificate serial number on record');
     }
 
-    const { pin } = req.body;
-    if (!pin) {
-      throw new BadRequestError('PIN is required');
+    const parsed = z.object({ pin: certPinManagementSchema }).safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('PIN must be 4–32 digits (numbers only)');
     }
+    const { pin } = parsed.data;
 
     const result = await verifyCertPin(profile.icNumber, profile.certSerialNo, pin);
     res.json(result);
@@ -1029,13 +1034,16 @@ router.post('/reset-pin', async (req, res, next) => {
       throw new BadRequestError('No certificate serial number on record');
     }
 
-    const { currentPin, newPin } = req.body;
-    if (!currentPin || !newPin) {
-      throw new BadRequestError('Current PIN and new PIN are required');
+    const parsed = z
+      .object({
+        currentPin: certPinManagementSchema,
+        newPin: certPinManagementSchema,
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Current and new PIN must each be 4–32 digits (numbers only)');
     }
-    if (newPin.length < 4 || newPin.length > 8) {
-      throw new BadRequestError('New PIN must be 4–8 characters');
-    }
+    const { currentPin, newPin } = parsed.data;
 
     const pinCheck = await verifyCertPin(profile.icNumber, profile.certSerialNo, currentPin);
     if (!pinCheck.success || pinCheck.certPinStatus !== 'Valid') {

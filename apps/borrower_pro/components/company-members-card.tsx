@@ -83,7 +83,12 @@ function roleIncludes(role: string, ...keys: string[]): boolean {
   return keys.some((k) => parts.includes(k));
 }
 
-export function CompanyMembersCard() {
+export function CompanyMembersCard({
+  externalRefreshKey,
+}: {
+  /** Increment (e.g. profile toolbar refresh) to reload org context, members, and pending invitations. */
+  externalRefreshKey?: number;
+} = {}) {
   const [context, setContext] = useState<CompanyMembersContext | null>(null);
   const [members, setMembers] = useState<OrgMemberRow[]>([]);
   const [invites, setInvites] = useState<OrgInviteRow[]>([]);
@@ -128,6 +133,11 @@ export function CompanyMembersCard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (externalRefreshKey === undefined || externalRefreshKey === 0) return;
+    void load();
+  }, [externalRefreshKey, load]);
 
   const refreshLists = async () => {
     if (!orgId) return;

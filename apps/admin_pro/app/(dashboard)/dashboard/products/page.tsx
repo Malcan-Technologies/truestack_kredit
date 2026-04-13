@@ -26,7 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { formatCurrency, formatCompactCurrency, toSafeNumber } from "@/lib/utils";
-import { useCurrentRole } from "@/components/tenant-context";
+import { useTenantPermissions } from "@/components/tenant-context";
 import { canManageProducts } from "@/lib/permissions";
 
 // ============================================
@@ -83,7 +83,7 @@ const interestModelLabels: Record<string, string> = {
 };
 
 export default function ProductsPage() {
-  const currentRole = useCurrentRole();
+  const permissions = useTenantPermissions();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [hideInactive, setHideInactive] = useState(true);
@@ -177,7 +177,7 @@ export default function ProductsPage() {
               Hide inactive
             </Label>
           </div>
-          {canManageProducts(currentRole) && (
+          {canManageProducts(permissions) && (
             <Link href="/dashboard/products/new">
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
@@ -439,7 +439,7 @@ export default function ProductsPage() {
                   <Link href={`/dashboard/products/${product.id}`}>
                     <TableActionButton icon={Eye} label="View" onClick={() => {}} />
                   </Link>
-                  {canManageProducts(currentRole) && (
+                  {canManageProducts(permissions) && (
                     <>
                       <Link href={`/dashboard/products/${product.id}/edit`}>
                         <TableActionButton icon={Edit2} label="Edit" onClick={() => {}} />

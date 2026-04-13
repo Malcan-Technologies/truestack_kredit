@@ -84,7 +84,9 @@ import { CopyField } from "@/components/ui/copy-field";
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
-import { useCurrentRole } from "@/components/tenant-context";
+import {
+  useTenantPermissions,
+} from "@/components/tenant-context";
 import { api } from "@/lib/api";
 import { formatLoanStatusLabelForDisplay } from "@/lib/loan-status-label";
 import {
@@ -106,8 +108,10 @@ import { TrueSendEmailLog } from "@/components/truesend-email-log";
 import { TrueSendBadge } from "@/components/truesend-badge";
 import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
 import InternalSigningCard from "@/components/internal-signing-card";
+import { AccessDeniedCard } from "@/components/role-gate";
 import { getLoanSignatures, type InternalSignature } from "@/lib/admin-signing-client";
 import { useSession } from "@/lib/auth-client";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 
 // ============================================
 // Types
@@ -877,8 +881,32 @@ export default function LoanDetailPage() {
   const params = useParams();
   const router = useRouter();
   const loanId = params.loanId as string;
-  const currentRole = useCurrentRole();
-  const canViewInternalSchedule = currentRole === "OWNER" || currentRole === "ADMIN";
+  const permissions = useTenantPermissions();
+  const canDisburseLoans = hasPermission(permissions, "loans.disburse");
+  const canManageLoanLifecycle = hasPermission(permissions, "loans.manage");
+  const canManageCollections = hasAnyPermission(permissions, "loans.manage", "collections.manage");
+  const canApprovePayments = hasAnyPermission(permissions, "payments.approve", "loans.manage");
+  const canApproveSettlement = hasPermission(permissions, "settlements.approve");
+  const canViewAgreements = hasPermission(permissions, "agreements.view");
+  const canManageAgreementDocs = hasPermission(permissions, "agreements.manage");
+  const canApproveSignedAgreement = hasAnyPermission(
+    permissions,
+    "loans.disburse",
+    "applications.approve_l2"
+  );
+  const canManageInternalSigning = hasAnyPermission(
+    permissions,
+    "signing_certificates.manage",
+    "attestation.witness_sign"
+  );
+  const canExportCompliance = hasPermission(permissions, "compliance.export");
+  const canViewInternalSchedule = hasAnyPermission(
+    permissions,
+    "applications.approve_l1",
+    "applications.approve_l2",
+    "loans.manage",
+    "loans.disburse"
+  );
 
   // State
   const [loan, setLoan] = useState<Loan | null>(null);
@@ -892,6 +920,7 @@ export default function LoanDetailPage() {
   const [loadingMoreTimeline, setLoadingMoreTimeline] = useState(false);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // Dialog states
@@ -1036,15 +1065,24 @@ export default function LoanDetailPage() {
     }
   }, [loanId]);
 
-  const fetchLoan = useCallback(async () => {
+  const fetchLoan = useCallback(async (): Promise<"ok" | "forbidden" | "missing"> => {
     const res = await api.get<Loan>(`/api/loans/${loanId}`);
     if (res.success && res.data) {
       setLoan(res.data);
+      setAccessDenied(false);
       if (res.data.loanChannel === "ONLINE" && res.data.agreementPath) {
         fetchInternalSignatures();
       }
+      await fetchInternalSchedule();
+      return "ok";
     }
-    await fetchInternalSchedule();
+
+    setLoan(null);
+    setInternalSchedule(null);
+    setScheduleView("standard");
+    setAccessDenied(res.status === 403);
+
+    return res.status === 403 ? "forbidden" : "missing";
   }, [fetchInternalSchedule, fetchInternalSignatures, loanId]);
 
   const fetchMetrics = useCallback(async () => {
@@ -1095,8 +1133,11 @@ export default function LoanDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await fetchLoan();
+      const result = await fetchLoan();
       setLoading(false);
+      if (result !== "ok") {
+        return;
+      }
       refreshEmailLog();
       fetchTimeline();
     };
@@ -1863,6 +1904,10 @@ export default function LoanDetailPage() {
     );
   }
 
+  if (accessDenied) {
+    return <AccessDeniedCard />;
+  }
+
   if (!loan) {
     return (
       <div className="flex flex-col items-center justify-center h-64">
@@ -1966,7 +2011,7 @@ export default function LoanDetailPage() {
 
         {/* Action Buttons */}
         <div className="flex gap-2">
-          {loan.status === "PENDING_DISBURSEMENT" && (
+          {loan.status === "PENDING_DISBURSEMENT" && canDisburseLoans && (
             <Button 
               onClick={() => {
                 // Initialize reference when opening dialog
@@ -1988,35 +2033,37 @@ export default function LoanDetailPage() {
           />
           {(loan.status === "ACTIVE" || loan.status === "IN_ARREARS") && (
             <>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span tabIndex={0}>
-                      <Button
-                        variant="outline"
-                        onClick={handleOpenEarlySettlement}
-                        disabled={!canEarlySettle}
-                        className={!canEarlySettle ? "pointer-events-none opacity-50" : ""}
-                      >
-                        <Banknote className="h-4 w-4 mr-2" />
-                        Early Settlement
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {earlySettlementDisabledReason && (
-                    <TooltipContent className="max-w-xs">
-                      <p>{earlySettlementDisabledReason}</p>
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-              {canComplete && (
+              {canApproveSettlement ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={0}>
+                        <Button
+                          variant="outline"
+                          onClick={handleOpenEarlySettlement}
+                          disabled={!canEarlySettle}
+                          className={!canEarlySettle ? "pointer-events-none opacity-50" : ""}
+                        >
+                          <Banknote className="h-4 w-4 mr-2" />
+                          Early Settlement
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {earlySettlementDisabledReason && (
+                      <TooltipContent className="max-w-xs">
+                        <p>{earlySettlementDisabledReason}</p>
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
+              ) : null}
+              {canComplete && canManageLoanLifecycle && (
                 <Button onClick={() => setShowCompleteDialog(true)}>
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Complete Loan
                 </Button>
               )}
-              {loan.status === "IN_ARREARS" && (
+              {loan.status === "IN_ARREARS" && canManageCollections && (
                 <Button variant="destructive" onClick={() => setShowDefaultDialog(true)}>
                   <XCircle className="h-4 w-4 mr-2" />
                   Mark Default
@@ -2336,26 +2383,30 @@ export default function LoanDetailPage() {
                                   <Eye className="h-3 w-3 mr-1" />
                                   View
                                 </Button>
+                                {canDisburseLoans ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs h-7"
+                                    onClick={() => setShowUploadDisbursementProofDialog(true)}
+                                  >
+                                    <Upload className="h-3 w-3 mr-1" />
+                                    Replace
+                                  </Button>
+                                ) : null}
+                              </>
+                            ) : (
+                              canDisburseLoans ? (
                                 <Button
-                                  variant="ghost"
+                                  variant="outline"
                                   size="sm"
-                                  className="text-xs h-7"
+                                  className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
                                   onClick={() => setShowUploadDisbursementProofDialog(true)}
                                 >
                                   <Upload className="h-3 w-3 mr-1" />
-                                  Replace
+                                  Upload
                                 </Button>
-                              </>
-                            ) : (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
-                                onClick={() => setShowUploadDisbursementProofDialog(true)}
-                              >
-                                <Upload className="h-3 w-3 mr-1" />
-                                Upload
-                              </Button>
+                              ) : null
                             )}
                           </div>
                         </div>
@@ -2376,7 +2427,7 @@ export default function LoanDetailPage() {
                                 </p>
                               </div>
                               <div className="flex flex-wrap gap-2">
-                                {!isOnlineLoan && loan.agreementDate && (
+                                {!isOnlineLoan && loan.agreementDate && canManageAgreementDocs && (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -2395,16 +2446,18 @@ export default function LoanDetailPage() {
                                 )}
                                 {loan.agreementPath ? (
                                   <>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="text-xs h-7"
-                                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
-                                    >
-                                      <Eye className="h-3 w-3 mr-1" />
-                                      View
-                                    </Button>
-                                    {!isOnlineLoan && (
+                                    {canViewAgreements ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs h-7"
+                                        onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
+                                      >
+                                        <Eye className="h-3 w-3 mr-1" />
+                                        View
+                                      </Button>
+                                    ) : null}
+                                    {!isOnlineLoan && canManageAgreementDocs ? (
                                       <Button
                                         variant="ghost"
                                         size="sm"
@@ -2414,9 +2467,9 @@ export default function LoanDetailPage() {
                                         <Upload className="h-3 w-3 mr-1" />
                                         Replace
                                       </Button>
-                                    )}
+                                    ) : null}
                                   </>
-                                ) : !isOnlineLoan ? (
+                                ) : !isOnlineLoan && canManageAgreementDocs ? (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -2442,35 +2495,41 @@ export default function LoanDetailPage() {
                               <div className="flex flex-wrap gap-2">
                                 {loan.stampCertPath ? (
                                   <>
+                                    {canViewAgreements ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs h-7"
+                                        onClick={() => window.open(`/api/proxy/loans/${loan.id}/stamp-certificate`, "_blank")}
+                                      >
+                                        <Eye className="h-3 w-3 mr-1" />
+                                        View
+                                      </Button>
+                                    ) : null}
+                                    {canManageAgreementDocs ? (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-xs h-7"
+                                        onClick={() => setShowUploadStampCertDialog(true)}
+                                      >
+                                        <Upload className="h-3 w-3 mr-1" />
+                                        Replace
+                                      </Button>
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  canManageAgreementDocs ? (
                                     <Button
                                       variant="outline"
                                       size="sm"
-                                      className="text-xs h-7"
-                                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/stamp-certificate`, "_blank")}
-                                    >
-                                      <Eye className="h-3 w-3 mr-1" />
-                                      View
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="text-xs h-7"
+                                      className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
                                       onClick={() => setShowUploadStampCertDialog(true)}
                                     >
                                       <Upload className="h-3 w-3 mr-1" />
-                                      Replace
+                                      Upload
                                     </Button>
-                                  </>
-                                ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
-                                    onClick={() => setShowUploadStampCertDialog(true)}
-                                  >
-                                    <Upload className="h-3 w-3 mr-1" />
-                                    Upload
-                                  </Button>
+                                  ) : null
                                 )}
                               </div>
                             </div>
@@ -2492,7 +2551,7 @@ export default function LoanDetailPage() {
                                     </p>
                                   </div>
                                   <div className="flex flex-wrap gap-2">
-                                    {loan.agreementDate && (
+                                    {loan.agreementDate && canManageAgreementDocs ? (
                                       <Button
                                         variant="outline"
                                         size="sm"
@@ -2508,38 +2567,44 @@ export default function LoanDetailPage() {
                                         )}
                                         Regenerate
                                       </Button>
-                                    )}
+                                    ) : null}
                                     {guarantor.agreementPath ? (
                                       <>
+                                        {canViewAgreements ? (
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-xs h-7"
+                                            onClick={() => window.open(`/api/proxy/loans/${loan.id}/guarantors/${guarantor.id}/agreement`, "_blank")}
+                                          >
+                                            <Eye className="h-3 w-3 mr-1" />
+                                            View
+                                          </Button>
+                                        ) : null}
+                                        {canManageAgreementDocs ? (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-xs h-7"
+                                            onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}
+                                          >
+                                            <Upload className="h-3 w-3 mr-1" />
+                                            Replace
+                                          </Button>
+                                        ) : null}
+                                      </>
+                                    ) : (
+                                      canManageAgreementDocs ? (
                                         <Button
                                           variant="outline"
                                           size="sm"
-                                          className="text-xs h-7"
-                                          onClick={() => window.open(`/api/proxy/loans/${loan.id}/guarantors/${guarantor.id}/agreement`, "_blank")}
-                                        >
-                                          <Eye className="h-3 w-3 mr-1" />
-                                          View
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="text-xs h-7"
+                                          className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
                                           onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}
                                         >
                                           <Upload className="h-3 w-3 mr-1" />
-                                          Replace
+                                          Upload
                                         </Button>
-                                      </>
-                                    ) : (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="text-xs h-7 border-amber-500 text-amber-600 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-500 dark:hover:bg-amber-900/20"
-                                        onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}
-                                      >
-                                        <Upload className="h-3 w-3 mr-1" />
-                                        Upload
-                                      </Button>
+                                      ) : null
                                     )}
                                   </div>
                                 </div>
@@ -2547,7 +2612,7 @@ export default function LoanDetailPage() {
                             );
                           })}
 
-                          {!isAwaitingDisbursement && (
+                          {!isAwaitingDisbursement && canExportCompliance && (
                             <div className="rounded-md border bg-secondary/30 p-3">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
@@ -2649,7 +2714,7 @@ export default function LoanDetailPage() {
                       <p className="text-sm text-destructive mt-2">{loan.signedAgreementReviewNotes}</p>
                     )}
                     <div className="flex flex-wrap gap-2 mt-3">
-                      {loan.agreementPath ? (
+                      {loan.agreementPath && canViewAgreements ? (
                         <>
                           <Button
                             variant="outline"
@@ -2680,13 +2745,15 @@ export default function LoanDetailPage() {
                             </Button>
                           )}
                         </>
-                      ) : (
+                      ) : loan.agreementPath ? null : (
                         <p className="text-sm text-muted-foreground">Awaiting digital signature from borrower.</p>
                       )}
                     </div>
 
                     {/* Internal signing cards — shown when borrower has signed */}
-                    {loan.agreementPath && (loan.signedAgreementReviewStatus ?? "NONE") !== "APPROVED" && (
+                    {loan.agreementPath &&
+                      canManageInternalSigning &&
+                      (loan.signedAgreementReviewStatus ?? "NONE") !== "APPROVED" && (
                       <div className="mt-4 space-y-3">
                         <h4 className="text-sm font-medium text-muted-foreground">Internal signatures required</h4>
                         <div className="grid gap-3 md:grid-cols-2">
@@ -2746,12 +2813,14 @@ export default function LoanDetailPage() {
                         : "Set this first by generating the agreement PDF. Disbursement is blocked until the agreement date is fixed."
                       }
                     </p>
-                    <div className="flex gap-2 mt-3">
-                      <Button variant="outline" size="sm" onClick={() => setShowGenerateAgreementDialog(true)}>
-                        <Download className="h-4 w-4 mr-2" />
-                        {loan.agreementDate ? "Regenerate Agreement PDF" : "Generate Agreement PDF"}
-                      </Button>
-                    </div>
+                    {canManageAgreementDocs ? (
+                      <div className="flex gap-2 mt-3">
+                        <Button variant="outline" size="sm" onClick={() => setShowGenerateAgreementDialog(true)}>
+                          <Download className="h-4 w-4 mr-2" />
+                          {loan.agreementDate ? "Regenerate Agreement PDF" : "Generate Agreement PDF"}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </CardContent>
@@ -2824,23 +2893,27 @@ export default function LoanDetailPage() {
                     <div className="flex flex-wrap gap-2 mt-3">
                       {loan.agreementPath ? (
                         <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Agreement
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setShowUploadAgreementDialog(true)}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            Replace
-                          </Button>
-                          {(loan.signedAgreementReviewStatus ?? "NONE") === "PENDING" && (
+                          {canViewAgreements ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(`/api/proxy/loans/${loan.id}/agreement`, "_blank")}
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Agreement
+                            </Button>
+                          ) : null}
+                          {canManageAgreementDocs ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowUploadAgreementDialog(true)}
+                            >
+                              <Upload className="h-4 w-4 mr-2" />
+                              Replace
+                            </Button>
+                          ) : null}
+                          {(loan.signedAgreementReviewStatus ?? "NONE") === "PENDING" && canApproveSignedAgreement && (
                             <>
                               <Button
                                 size="sm"
@@ -2861,12 +2934,12 @@ export default function LoanDetailPage() {
                             </>
                           )}
                         </>
-                      ) : (
+                      ) : canManageAgreementDocs ? (
                         <Button size="sm" onClick={() => setShowUploadAgreementDialog(true)}>
                           <Upload className="h-4 w-4 mr-2" />
                           Upload Signed Agreement
                         </Button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -2939,45 +3012,51 @@ export default function LoanDetailPage() {
                             </div>
 
                             <div className="flex flex-wrap gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={generatingThisGuarantor || !loan.agreementDate}
-                                onClick={() => handleGenerateGuarantorAgreement(guarantor.id)}
-                              >
-                                <Download className="h-4 w-4 mr-2" />
-                                {generatingThisGuarantor
-                                  ? "Generating..."
-                                  : guarantor.agreementGeneratedAt
-                                    ? "Regenerate PDF"
-                                    : "Generate PDF"}
-                              </Button>
+                              {canManageAgreementDocs ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={generatingThisGuarantor || !loan.agreementDate}
+                                  onClick={() => handleGenerateGuarantorAgreement(guarantor.id)}
+                                >
+                                  <Download className="h-4 w-4 mr-2" />
+                                  {generatingThisGuarantor
+                                    ? "Generating..."
+                                    : guarantor.agreementGeneratedAt
+                                      ? "Regenerate PDF"
+                                      : "Generate PDF"}
+                                </Button>
+                              ) : null}
 
                               {guarantor.agreementPath ? (
                                 <>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => window.open(`/api/proxy/loans/${loan.id}/guarantors/${guarantor.id}/agreement`, "_blank")}
-                                  >
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    View Signed
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}
-                                  >
-                                    <Upload className="h-4 w-4 mr-2" />
-                                    Replace Signed
-                                  </Button>
+                                  {canViewAgreements ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => window.open(`/api/proxy/loans/${loan.id}/guarantors/${guarantor.id}/agreement`, "_blank")}
+                                    >
+                                      <Eye className="h-4 w-4 mr-2" />
+                                      View Signed
+                                    </Button>
+                                  ) : null}
+                                  {canManageAgreementDocs ? (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}
+                                    >
+                                      <Upload className="h-4 w-4 mr-2" />
+                                      Replace Signed
+                                    </Button>
+                                  ) : null}
                                 </>
-                              ) : (
+                              ) : canManageAgreementDocs ? (
                                 <Button size="sm" onClick={() => openUploadGuarantorAgreementDialog(guarantor.id)}>
                                   <Upload className="h-4 w-4 mr-2" />
                                   Upload Signed
                                 </Button>
-                              )}
+                              ) : null}
                             </div>
                           </div>
                         );
@@ -3026,29 +3105,33 @@ export default function LoanDetailPage() {
                       </Button>
                       {loan.stampCertPath ? (
                         <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => window.open(`/api/proxy/loans/${loan.id}/stamp-certificate`, "_blank")}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Certificate
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setShowUploadStampCertDialog(true)}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            Replace
-                          </Button>
+                          {canViewAgreements ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(`/api/proxy/loans/${loan.id}/stamp-certificate`, "_blank")}
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Certificate
+                            </Button>
+                          ) : null}
+                          {canManageAgreementDocs ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowUploadStampCertDialog(true)}
+                            >
+                              <Upload className="h-4 w-4 mr-2" />
+                              Replace
+                            </Button>
+                          ) : null}
                         </>
-                      ) : (
+                      ) : canManageAgreementDocs ? (
                         <Button size="sm" onClick={() => setShowUploadStampCertDialog(true)}>
                           <Upload className="h-4 w-4 mr-2" />
                           Upload Stamp Certificate
                         </Button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -3366,10 +3449,12 @@ export default function LoanDetailPage() {
                                   </p>
                                 )}
                               </div>
-                              <Button onClick={() => openPaymentDialog()} size="sm">
-                                <CreditCard className="h-4 w-4 mr-2" />
-                                Record Payment
-                              </Button>
+                              {canApprovePayments ? (
+                                <Button onClick={() => openPaymentDialog()} size="sm">
+                                  <CreditCard className="h-4 w-4 mr-2" />
+                                  Record Payment
+                                </Button>
+                              ) : null}
                             </div>
                           );
                         })()}
@@ -3556,7 +3641,7 @@ export default function LoanDetailPage() {
                                                   View Proof of Payment
                                                 </DropdownMenuItem>
                                               )}
-                                              {tx && (
+                                              {tx && canApprovePayments ? (
                                                 <DropdownMenuItem
                                                   onClick={() => openUploadProofDialog(tx.id)}
                                                   className={!hasProof ? "text-amber-500 focus:text-amber-500" : ""}
@@ -3564,7 +3649,7 @@ export default function LoanDetailPage() {
                                                   <Upload className="h-4 w-4 mr-2" />
                                                   {hasProof ? "Replace" : "Upload"} Proof of Payment
                                                 </DropdownMenuItem>
-                                              )}
+                                              ) : null}
                                             </div>
                                           );
                                         })}
@@ -3821,7 +3906,7 @@ export default function LoanDetailPage() {
                           </button>
                         );
                       })()}
-                      {(loan.status === "IN_ARREARS" || loan.status === "DEFAULTED") && (
+                      {(loan.status === "IN_ARREARS" || loan.status === "DEFAULTED") && canManageCollections && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -3854,7 +3939,7 @@ export default function LoanDetailPage() {
                           </button>
                         );
                       })()}
-                      {loan.status === "DEFAULTED" && (
+                      {loan.status === "DEFAULTED" && canManageCollections && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -3895,7 +3980,7 @@ export default function LoanDetailPage() {
             </CardContent>
           </Card>
 
-          <InternalStaffNotesPanel apiPath={`loans/${loanId}/staff-notes`} />
+          <InternalStaffNotesPanel apiPath={`loans/${loanId}/staff-notes`} canPost={canManageLoanLifecycle} />
 
           {/* Activity Timeline */}
           <Card>

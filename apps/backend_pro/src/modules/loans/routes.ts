@@ -6,7 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
-import { requireAdmin } from '../../middleware/requireRole.js';
+import { requireAnyPermission, requirePermission } from '../../middleware/requireRole.js';
 import { generateSchedule } from '../schedules/service.js';
 import { parseDocumentUpload, parseFileUpload, saveDocumentFile, deleteDocumentFile, UPLOAD_DIR } from '../../lib/upload.js';
 import { AuditService } from '../compliance/auditService.js';
@@ -59,6 +59,10 @@ function resolveVerificationStatus(borrower: {
     return borrower.verificationStatus;
   }
   return getBorrowerVerificationSummary(borrower);
+}
+
+function getRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
 
 const submitApplicationSchema = z.object({
@@ -306,7 +310,7 @@ async function resolveValidGuarantors(
  * Get loan counts for action-needed badges (pre-disbursement pipeline, attestation proposals)
  * GET /api/loans/counts
  */
-router.get('/counts', async (req, res, next) => {
+router.get('/counts', requireAnyPermission('loans.view', 'loans.disburse', 'attestation.view'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const [pendingDisbursement, pendingAttestation, attestationSlotProposed] = await Promise.all([
@@ -338,7 +342,10 @@ router.get('/counts', async (req, res, next) => {
  * Get application counts for action-needed badges (SUBMITTED, UNDER_REVIEW)
  * GET /api/loans/applications/counts
  */
-router.get('/applications/counts', async (req, res, next) => {
+router.get(
+  '/applications/counts',
+  requireAnyPermission('applications.view', 'applications.approve_l1', 'applications.approve_l2', 'applications.reject'),
+  async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const [submitted, underReview] = await Promise.all([
@@ -362,7 +369,7 @@ router.get('/applications/counts', async (req, res, next) => {
  * List loan applications
  * GET /api/loans/applications
  */
-router.get('/applications', async (req, res, next) => {
+router.get('/applications', requirePermission('applications.view'), async (req, res, next) => {
   try {
     const { status, search, page = '1', pageSize = '20' } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(pageSize as string);
@@ -415,7 +422,7 @@ router.get('/applications', async (req, res, next) => {
  * Preview loan calculation (fees, monthly payment, net disbursement)
  * POST /api/loans/applications/preview
  */
-router.post('/applications/preview', async (req, res, next) => {
+router.post('/applications/preview', requirePermission('applications.create'), async (req, res, next) => {
   try {
     const data = previewSchema.parse(req.body);
 
@@ -474,7 +481,7 @@ router.post('/applications/preview', async (req, res, next) => {
  * Create loan application
  * POST /api/loans/applications
  */
-router.post('/applications', async (req, res, next) => {
+router.post('/applications', requirePermission('applications.create'), async (req, res, next) => {
   try {
     const data = createApplicationSchema.parse(req.body);
     const tenantId = req.tenantId!;
@@ -675,11 +682,12 @@ router.post('/applications', async (req, res, next) => {
  * GET /api/loans/applications/:applicationId
  * Includes documents to avoid a separate round-trip.
  */
-router.get('/applications/:applicationId', async (req, res, next) => {
+router.get('/applications/:applicationId', requirePermission('applications.view'), async (req, res, next) => {
   try {
+    const applicationId = getRouteParam(req.params.applicationId);
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: applicationId,
         tenantId: req.tenantId,
       },
       include: {
@@ -780,13 +788,14 @@ router.get('/applications/:applicationId', async (req, res, next) => {
  * Update application
  * PATCH /api/loans/applications/:applicationId
  */
-router.patch('/applications/:applicationId', async (req, res, next) => {
+router.patch('/applications/:applicationId', requirePermission('applications.edit'), async (req, res, next) => {
   try {
+    const applicationId = getRouteParam(req.params.applicationId);
     const data = updateApplicationSchema.parse(req.body);
 
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: applicationId,
         tenantId: req.tenantId,
       },
       include: { product: true },
@@ -827,7 +836,7 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
     };
 
     const updated = await prisma.loanApplication.update({
-      where: { id: req.params.applicationId },
+      where: { id: applicationId },
       data,
       include: {
         borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
@@ -859,12 +868,13 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
  * Submit application for approval
  * POST /api/loans/applications/:applicationId/submit
  */
-router.post('/applications/:applicationId/submit', async (req, res, next) => {
+router.post('/applications/:applicationId/submit', requirePermission('applications.edit'), async (req, res, next) => {
   try {
+    const applicationId = getRouteParam(req.params.applicationId);
     const submitData = submitApplicationSchema.parse(req.body);
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: applicationId,
         tenantId: req.tenantId,
       },
       include: {
@@ -904,7 +914,7 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
     }
 
     const updated = await prisma.loanApplication.update({
-      where: { id: req.params.applicationId },
+      where: { id: applicationId },
       data: {
         status: 'SUBMITTED',
         actualInterestRate,
@@ -945,7 +955,7 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
  * Approve application and create loan with schedule
  * POST /api/loans/applications/:applicationId/approve
  */
-router.post('/applications/:applicationId/approve', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/approve', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
     const application = await prisma.loanApplication.findFirst({
@@ -1115,7 +1125,7 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
  * Reject application
  * POST /api/loans/applications/:applicationId/reject
  */
-router.post('/applications/:applicationId/reject', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/reject', requirePermission('applications.reject'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
     const { reason } = req.body;
@@ -1175,7 +1185,7 @@ const negotiationBodySchema = z.object({
  * Admin counter-offer (amount + term)
  * POST /api/loans/applications/:applicationId/counter-offer
  */
-router.post('/applications/:applicationId/counter-offer', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/counter-offer', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
     const body = negotiationBodySchema.parse(req.body);
@@ -1204,7 +1214,7 @@ router.post('/applications/:applicationId/counter-offer', requireAdmin, async (r
  * Admin accepts borrower's latest pending counter-offer
  * POST /api/loans/applications/:applicationId/accept-offer
  */
-router.post('/applications/:applicationId/accept-offer', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/accept-offer', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
     await adminAcceptLatestOffer({ tenantId: req.tenantId!, applicationId });
@@ -1230,7 +1240,7 @@ router.post('/applications/:applicationId/accept-offer', requireAdmin, async (re
  * Reject all pending negotiation offers (admin)
  * POST /api/loans/applications/:applicationId/reject-offers
  */
-router.post('/applications/:applicationId/reject-offers', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/reject-offers', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
     await rejectPendingOffers({ tenantId: req.tenantId!, applicationId });
@@ -1252,7 +1262,7 @@ router.post('/applications/:applicationId/reject-offers', requireAdmin, async (r
  * Return application to draft (amendments needed)
  * POST /api/loans/applications/:applicationId/return-to-draft
  */
-router.post('/applications/:applicationId/return-to-draft', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/return-to-draft', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
     const { reason } = req.body;
@@ -1313,9 +1323,9 @@ router.post('/applications/:applicationId/return-to-draft', requireAdmin, async 
  * Get application activity timeline
  * GET /api/loans/applications/:applicationId/timeline
  */
-router.get('/applications/:applicationId/timeline', async (req, res, next) => {
+router.get('/applications/:applicationId/timeline', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const { cursor, limit: limitStr = '10' } = req.query;
     const limit = Math.min(parseInt(limitStr as string, 10), 50);
 
@@ -1403,9 +1413,9 @@ function mapApplicationStaffNoteAuthor(createdBy: {
  * Staff internal notes on an application
  * GET /api/loans/applications/:applicationId/staff-notes
  */
-router.get('/applications/:applicationId/staff-notes', async (req, res, next) => {
+router.get('/applications/:applicationId/staff-notes', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const { cursor, limit: limitStr = '30' } = req.query;
     const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
 
@@ -1455,9 +1465,9 @@ router.get('/applications/:applicationId/staff-notes', async (req, res, next) =>
 /**
  * POST /api/loans/applications/:applicationId/staff-notes
  */
-router.post('/applications/:applicationId/staff-notes', async (req, res, next) => {
+router.post('/applications/:applicationId/staff-notes', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const parsed = applicationStaffNoteBodySchema.parse(req.body);
 
     const application = await prisma.loanApplication.findFirst({
@@ -1517,9 +1527,9 @@ router.post('/applications/:applicationId/staff-notes', async (req, res, next) =
  * Upload document to application
  * POST /api/loans/applications/:applicationId/documents
  */
-router.post('/applications/:applicationId/documents', async (req, res, next) => {
+router.post('/applications/:applicationId/documents', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -1593,9 +1603,9 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
  * List documents for application
  * GET /api/loans/applications/:applicationId/documents
  */
-router.get('/applications/:applicationId/documents', async (req, res, next) => {
+router.get('/applications/:applicationId/documents', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -1630,9 +1640,10 @@ router.get('/applications/:applicationId/documents', async (req, res, next) => {
  * Delete document from application
  * DELETE /api/loans/applications/:applicationId/documents/:documentId
  */
-router.delete('/applications/:applicationId/documents/:documentId', async (req, res, next) => {
+router.delete('/applications/:applicationId/documents/:documentId', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const { applicationId, documentId } = req.params;
+    const applicationId = getRouteParam(req.params.applicationId);
+    const documentId = getRouteParam(req.params.documentId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -1699,7 +1710,7 @@ router.delete('/applications/:applicationId/documents/:documentId', async (req, 
  * List loans
  * GET /api/loans
  */
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('loans.view'), async (req, res, next) => {
   try {
     const { status, search, page = '1', pageSize = '20' } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(pageSize as string);
@@ -1837,7 +1848,7 @@ router.get('/', async (req, res, next) => {
  * (@@unique([repaymentId, accrualDate])) prevents double-charging.
  * Each run catches up any missed days since the last accrual.
  */
-router.post('/process-late-fees', async (req, res, next) => {
+router.post('/process-late-fees', requireAnyPermission('loans.manage', 'collections.manage'), async (req, res, next) => {
   try {
     // Scope to current tenant so admin only processes their own loans
     const result = await LateFeeProcessor.processLateFees('MANUAL', req.tenantId!);
@@ -1881,7 +1892,10 @@ router.post('/process-late-fees', async (req, res, next) => {
  * Get late fee processing status
  * GET /api/loans/late-fee-status
  */
-router.get('/late-fee-status', async (req, res, next) => {
+router.get(
+  '/late-fee-status',
+  requireAnyPermission('loans.view', 'loans.manage', 'collections.view', 'collections.manage'),
+  async (req, res, next) => {
   try {
     const [status, loansPendingDisbursement, loansPendingAttestation] = await Promise.all([
       LateFeeProcessor.getProcessingStatus(req.tenantId!),
@@ -1911,7 +1925,10 @@ router.get('/late-fee-status', async (req, res, next) => {
  * Get recent late fee processing logs
  * GET /api/loans/late-fee-logs
  */
-router.get('/late-fee-logs', async (req, res, next) => {
+router.get(
+  '/late-fee-logs',
+  requireAnyPermission('loans.view', 'loans.manage', 'collections.view', 'collections.manage'),
+  async (req, res, next) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
     const logs = await LateFeeProcessor.getRecentLogs(limit, req.tenantId!);
@@ -1951,7 +1968,10 @@ const attestationCounterSchema = z.object({
  * GET /api/loans/attestation/office-hours
  * Fallback availability rules when Google free/busy is unavailable.
  */
-router.get('/attestation/office-hours', async (req, res, next) => {
+router.get(
+  '/attestation/office-hours',
+  requireAnyPermission('availability.view', 'availability.manage', 'attestation.view'),
+  async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const config = await getTenantOfficeHoursConfig(tenantId);
@@ -1991,7 +2011,10 @@ router.put('/attestation/office-hours', async (req, res, next) => {
  * GET /api/loans/attestation-queue
  * Loans with pending attestation meeting proposals (sorted by meeting requested time).
  */
-router.get('/attestation-queue', async (req, res, next) => {
+router.get(
+  '/attestation-queue',
+  requireAnyPermission('attestation.view', 'attestation.schedule', 'attestation.witness_sign'),
+  async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     await expirePendingProposals({ tenantId });
@@ -2029,10 +2052,10 @@ router.get('/attestation-queue', async (req, res, next) => {
 /**
  * POST /api/loans/:loanId/attestation/accept-proposal
  */
-router.post('/:loanId/attestation/accept-proposal', async (req, res, next) => {
+router.post('/:loanId/attestation/accept-proposal', requirePermission('attestation.schedule'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     const memberId = req.memberId;
     if (!memberId) {
       throw new BadRequestError('Member context required');
@@ -2086,10 +2109,10 @@ router.post('/:loanId/attestation/accept-proposal', async (req, res, next) => {
 /**
  * POST /api/loans/:loanId/attestation/counter-proposal
  */
-router.post('/:loanId/attestation/counter-proposal', async (req, res, next) => {
+router.post('/:loanId/attestation/counter-proposal', requirePermission('attestation.schedule'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     const memberId = req.memberId;
     if (!memberId) {
       throw new BadRequestError('Member context required');
@@ -2149,10 +2172,10 @@ router.post('/:loanId/attestation/counter-proposal', async (req, res, next) => {
 /**
  * POST /api/loans/:loanId/attestation/reject-proposal
  */
-router.post('/:loanId/attestation/reject-proposal', async (req, res, next) => {
+router.post('/:loanId/attestation/reject-proposal', requirePermission('attestation.schedule'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId },
       select: {
@@ -2203,11 +2226,14 @@ router.post('/:loanId/attestation/reject-proposal', async (req, res, next) => {
  * POST /api/loans/:loanId/attestation/complete-meeting
  * Admin confirms the scheduled attestation meeting is finished; unlocks signing.
  */
-router.post('/:loanId/attestation/complete-meeting', async (req, res, next) => {
+router.post(
+  '/:loanId/attestation/complete-meeting',
+  requireAnyPermission('attestation.schedule', 'attestation.witness_sign'),
+  async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const memberId = req.memberId;
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     if (!memberId) {
       throw new BadRequestError('Member context required');
     }
@@ -2284,9 +2310,9 @@ function mapLoanStaffNoteAuthor(createdBy: {
  * Staff internal notes on a loan
  * GET /api/loans/:loanId/staff-notes
  */
-router.get('/:loanId/staff-notes', async (req, res, next) => {
+router.get('/:loanId/staff-notes', requirePermission('loans.view'), async (req, res, next) => {
   try {
-    const loanId = req.params.loanId;
+    const loanId = getRouteParam(req.params.loanId);
     const { cursor, limit: limitStr = '30' } = req.query;
     const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
 
@@ -2336,9 +2362,9 @@ router.get('/:loanId/staff-notes', async (req, res, next) => {
 /**
  * POST /api/loans/:loanId/staff-notes
  */
-router.post('/:loanId/staff-notes', async (req, res, next) => {
+router.post('/:loanId/staff-notes', requirePermission('loans.manage'), async (req, res, next) => {
   try {
-    const loanId = req.params.loanId;
+    const loanId = getRouteParam(req.params.loanId);
     const parsed = loanStaffNoteBodySchema.parse(req.body);
 
     const loan = await prisma.loan.findFirst({
@@ -2394,9 +2420,9 @@ router.post('/:loanId/staff-notes', async (req, res, next) => {
  * Get single loan with schedule
  * GET /api/loans/:loanId
  */
-router.get('/:loanId', async (req, res, next) => {
+router.get('/:loanId', requirePermission('loans.view'), async (req, res, next) => {
   try {
-    const loanId = req.params.loanId;
+    const loanId = getRouteParam(req.params.loanId);
     const tenantId = req.tenantId!;
     await expireStaleAttestationProposalForLoan({ loanId, tenantId });
 
@@ -2487,7 +2513,7 @@ router.get('/:loanId', async (req, res, next) => {
   }
 });
 
-router.get('/:loanId/schedule/internal', requireAdmin, async (req, res, next) => {
+router.get('/:loanId/schedule/internal', requireAnyPermission('applications.approve_l1', 'applications.approve_l2', 'loans.manage', 'loans.disburse'), async (req, res, next) => {
   try {
     const loanId = req.params.loanId as string;
     const loan = await prisma.loan.findFirst({
@@ -2599,11 +2625,12 @@ router.get('/:loanId/schedule/internal', requireAdmin, async (req, res, next) =>
  * - IN_ARREARS -> DEFAULTED if any repayment is overdue past defaultPeriod
  * - IN_ARREARS -> ACTIVE if all overdue repayments are now paid
  */
-router.post('/:loanId/update-status', async (req, res, next) => {
+router.post('/:loanId/update-status', requirePermission('loans.manage'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -2720,7 +2747,7 @@ router.post('/:loanId/update-status', async (req, res, next) => {
  * Bulk update loan statuses for all active/in-arrears loans (admin utility)
  * POST /api/loans/update-all-statuses
  */
-router.post('/update-all-statuses', async (req, res, next) => {
+router.post('/update-all-statuses', requirePermission('loans.manage'), async (req, res, next) => {
   try {
     // Get all active and in-arrears loans for this tenant
     const loans = await prisma.loan.findMany({
@@ -2820,8 +2847,9 @@ router.post('/update-all-statuses', async (req, res, next) => {
  * Preview schedule for a loan (before disbursement)
  * GET /api/loans/:loanId/schedule/preview
  */
-router.get('/:loanId/schedule/preview', async (req, res, next) => {
+router.get('/:loanId/schedule/preview', requirePermission('loans.view'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const { disbursementDate: disbursementDateStr } = req.query;
     const disbursementDate = disbursementDateStr 
       ? new Date(disbursementDateStr as string) 
@@ -2829,7 +2857,7 @@ router.get('/:loanId/schedule/preview', async (req, res, next) => {
 
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: { product: true },
@@ -2869,9 +2897,9 @@ router.get('/:loanId/schedule/preview', async (req, res, next) => {
  * Get loan activity timeline
  * GET /api/loans/:loanId/timeline
  */
-router.get('/:loanId/timeline', async (req, res, next) => {
+router.get('/:loanId/timeline', requirePermission('loans.view'), async (req, res, next) => {
   try {
-    const loanId = req.params.loanId;
+    const loanId = getRouteParam(req.params.loanId);
     const { cursor, limit: limitStr = '20' } = req.query;
     const limit = Math.min(parseInt(limitStr as string, 10), 50);
 
@@ -2956,11 +2984,12 @@ router.get('/:loanId/timeline', async (req, res, next) => {
  * Get loan metrics (repayment rate, totals, etc.)
  * GET /api/loans/:loanId/metrics
  */
-router.get('/:loanId/metrics', async (req, res, next) => {
+router.get('/:loanId/metrics', requirePermission('loans.view'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3117,13 +3146,14 @@ router.get('/:loanId/metrics', async (req, res, next) => {
  * Complete/discharge loan after all payments
  * POST /api/loans/:loanId/complete
  */
-router.post('/:loanId/complete', async (req, res, next) => {
+router.post('/:loanId/complete', requirePermission('loans.manage'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const { notes } = req.body;
 
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3307,11 +3337,15 @@ router.post('/:loanId/complete', async (req, res, next) => {
  * Download discharge letter for a completed loan
  * GET /api/loans/:loanId/discharge-letter
  */
-router.get('/:loanId/discharge-letter', async (req, res, next) => {
+router.get(
+  '/:loanId/discharge-letter',
+  requireAnyPermission('loans.view', 'collections.view'),
+  async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });
@@ -3346,11 +3380,15 @@ router.get('/:loanId/discharge-letter', async (req, res, next) => {
  * Download arrears letter for a loan
  * GET /api/loans/:loanId/arrears-letter
  */
-router.get('/:loanId/arrears-letter', async (req, res, next) => {
+router.get(
+  '/:loanId/arrears-letter',
+  requireAnyPermission('loans.view', 'collections.view'),
+  async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });
@@ -3381,11 +3419,15 @@ router.get('/:loanId/arrears-letter', async (req, res, next) => {
  * Download default letter for a loan
  * GET /api/loans/:loanId/default-letter
  */
-router.get('/:loanId/default-letter', async (req, res, next) => {
+router.get(
+  '/:loanId/default-letter',
+  requireAnyPermission('loans.view', 'collections.view'),
+  async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });
@@ -3421,11 +3463,15 @@ router.get('/:loanId/default-letter', async (req, res, next) => {
  * Enforces a 1-day cooldown: if the current arrearsLetterPath was generated 
  * within the last 24 hours, the request is rejected.
  */
-router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
+router.post(
+  '/:loanId/generate-arrears-letter',
+  requireAnyPermission('loans.manage', 'collections.manage'),
+  async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3589,11 +3635,15 @@ router.post('/:loanId/generate-arrears-letter', async (req, res, next) => {
  * Does NOT overwrite old letters — generates a new PDF with fresh data.
  * Enforces a 1-day cooldown from the last generated default letter.
  */
-router.post('/:loanId/generate-default-letter', async (req, res, next) => {
+router.post(
+  '/:loanId/generate-default-letter',
+  requireAnyPermission('loans.manage', 'collections.manage'),
+  async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3755,13 +3805,17 @@ router.post('/:loanId/generate-default-letter', async (req, res, next) => {
  * Enhanced: generates a default letter PDF and logs to audit trail.
  * Loan should ideally have readyForDefault=true (but admin can override).
  */
-router.post('/:loanId/mark-default', async (req, res, next) => {
+router.post(
+  '/:loanId/mark-default',
+  requireAnyPermission('loans.manage', 'collections.manage'),
+  async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const { reason } = req.body;
 
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -3924,8 +3978,9 @@ router.post('/:loanId/mark-default', async (req, res, next) => {
  * 
  * Supports multipart form data for optional proof of disbursement file upload
  */
-router.post('/:loanId/disburse', async (req, res, next) => {
+router.post('/:loanId/disburse', requirePermission('loans.disburse'), async (req, res, next) => {
   try {
+    const loanId = req.params.loanId as string;
     // Check content type to determine if file upload
     const isMultipart = req.headers['content-type']?.includes('multipart/form-data');
     
@@ -3956,7 +4011,7 @@ router.post('/:loanId/disburse', async (req, res, next) => {
 
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -4175,9 +4230,9 @@ router.post('/:loanId/disburse', async (req, res, next) => {
  * Upload proof of disbursement for a loan
  * POST /api/loans/:loanId/disbursement-proof
  */
-router.post('/:loanId/disbursement-proof', async (req, res, next) => {
+router.post('/:loanId/disbursement-proof', requirePermission('loans.disburse'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4251,9 +4306,9 @@ router.post('/:loanId/disbursement-proof', async (req, res, next) => {
  * View proof of disbursement for a loan
  * GET /api/loans/:loanId/disbursement-proof
  */
-router.get('/:loanId/disbursement-proof', async (req, res, next) => {
+router.get('/:loanId/disbursement-proof', requireAnyPermission('loans.view', 'loans.disburse'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4308,9 +4363,9 @@ import {
  * 
  * Downloads a PDF with loan details pre-filled for printing and signing
  */
-router.get('/:loanId/generate-agreement', async (req, res, next) => {
+router.get('/:loanId/generate-agreement', requireAnyPermission('agreements.view', 'agreements.manage'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
     const agreementDateParam =
       typeof req.query.agreementDate === 'string' ? req.query.agreementDate : undefined;
 
@@ -4335,9 +4390,9 @@ router.get('/:loanId/generate-agreement', async (req, res, next) => {
  * 
  * Uploads the signed agreement PDF with version control audit trail
  */
-router.post('/:loanId/agreement', async (req, res, next) => {
+router.post('/:loanId/agreement', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4437,7 +4492,7 @@ const signedAgreementReviewBodySchema = z.object({
  * POST /api/loans/:loanId/signed-agreement/approve
  * Admin approves the borrower-uploaded signed agreement so disbursement can proceed.
  */
-router.post('/:loanId/signed-agreement/approve', requireAdmin, async (req, res, next) => {
+router.post('/:loanId/signed-agreement/approve', requireAnyPermission('loans.disburse', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const loanId = String(req.params.loanId);
     const loan = await prisma.loan.findFirst({
@@ -4484,7 +4539,7 @@ router.post('/:loanId/signed-agreement/approve', requireAdmin, async (req, res, 
  * POST /api/loans/:loanId/signed-agreement/reject
  * Admin rejects the signed agreement; borrower must upload a replacement.
  */
-router.post('/:loanId/signed-agreement/reject', requireAdmin, async (req, res, next) => {
+router.post('/:loanId/signed-agreement/reject', requireAnyPermission('loans.disburse', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const loanId = String(req.params.loanId);
     const loan = await prisma.loan.findFirst({
@@ -4530,9 +4585,9 @@ router.post('/:loanId/signed-agreement/reject', requireAdmin, async (req, res, n
  * View/download signed loan agreement
  * GET /api/loans/:loanId/agreement
  */
-router.get('/:loanId/agreement', async (req, res, next) => {
+router.get('/:loanId/agreement', requirePermission('agreements.view'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4581,9 +4636,9 @@ router.get('/:loanId/agreement', async (req, res, next) => {
  * View/download borrower-only signed agreement (before internal signatures)
  * GET /api/loans/:loanId/borrower-signed-agreement
  */
-router.get('/:loanId/borrower-signed-agreement', async (req, res, next) => {
+router.get('/:loanId/borrower-signed-agreement', requirePermission('agreements.view'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId: req.tenantId },
@@ -4623,9 +4678,13 @@ router.get('/:loanId/borrower-signed-agreement', async (req, res, next) => {
  * Generate pre-filled guarantor agreement PDF
  * GET /api/loans/:loanId/guarantors/:guarantorId/generate-agreement
  */
-router.get('/:loanId/guarantors/:guarantorId/generate-agreement', async (req, res, next) => {
+router.get(
+  '/:loanId/guarantors/:guarantorId/generate-agreement',
+  requireAnyPermission('agreements.view', 'agreements.manage'),
+  async (req, res, next) => {
   try {
-    const { loanId, guarantorId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
+    const guarantorId = getRouteParam(req.params.guarantorId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4737,9 +4796,10 @@ router.get('/:loanId/guarantors/:guarantorId/generate-agreement', async (req, re
  * Upload signed guarantor agreement
  * POST /api/loans/:loanId/guarantors/:guarantorId/agreement
  */
-router.post('/:loanId/guarantors/:guarantorId/agreement', async (req, res, next) => {
+router.post('/:loanId/guarantors/:guarantorId/agreement', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
-    const { loanId, guarantorId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
+    const guarantorId = getRouteParam(req.params.guarantorId);
 
     const guarantor = await prisma.loanGuarantor.findFirst({
       where: {
@@ -4833,9 +4893,10 @@ router.post('/:loanId/guarantors/:guarantorId/agreement', async (req, res, next)
  * View/download signed guarantor agreement
  * GET /api/loans/:loanId/guarantors/:guarantorId/agreement
  */
-router.get('/:loanId/guarantors/:guarantorId/agreement', async (req, res, next) => {
+router.get('/:loanId/guarantors/:guarantorId/agreement', requirePermission('agreements.view'), async (req, res, next) => {
   try {
-    const { loanId, guarantorId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
+    const guarantorId = getRouteParam(req.params.guarantorId);
 
     const guarantor = await prisma.loanGuarantor.findFirst({
       where: {
@@ -4883,9 +4944,9 @@ router.get('/:loanId/guarantors/:guarantorId/agreement', async (req, res, next) 
  * 
  * Uploads the stamp certificate PDF with version control audit trail
  */
-router.post('/:loanId/stamp-certificate', async (req, res, next) => {
+router.post('/:loanId/stamp-certificate', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -4982,9 +5043,9 @@ router.post('/:loanId/stamp-certificate', async (req, res, next) => {
  * View/download stamp certificate
  * GET /api/loans/:loanId/stamp-certificate
  */
-router.get('/:loanId/stamp-certificate', async (req, res, next) => {
+router.get('/:loanId/stamp-certificate', requirePermission('agreements.view'), async (req, res, next) => {
   try {
-    const { loanId } = req.params;
+    const loanId = getRouteParam(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
       where: {
@@ -5037,9 +5098,10 @@ router.get('/:loanId/stamp-certificate', async (req, res, next) => {
  * Get early settlement quote
  * GET /api/loans/:loanId/early-settlement/quote
  */
-router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
+router.get('/:loanId/early-settlement/quote', requireAnyPermission('settlements.view', 'loans.view'), async (req, res, next) => {
   try {
-    const out = await getEarlySettlementQuoteForLoan(req.tenantId!, req.params.loanId);
+    const loanId = getRouteParam(req.params.loanId);
+    const out = await getEarlySettlementQuoteForLoan(req.tenantId!, loanId);
     res.json(out);
   } catch (error) {
     next(error);
@@ -5050,12 +5112,13 @@ router.get('/:loanId/early-settlement/quote', async (req, res, next) => {
  * Confirm early settlement
  * POST /api/loans/:loanId/early-settlement/confirm
  */
-router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
+router.post('/:loanId/early-settlement/confirm', requirePermission('settlements.approve'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const { httpStatus, body } = await confirmEarlySettlement({
       tenantId: req.tenantId!,
       memberId: req.memberId,
-      loanId: req.params.loanId,
+      loanId,
       ip: req.ip,
       headers: req.headers,
       body: req.body,
@@ -5076,11 +5139,12 @@ router.post('/:loanId/early-settlement/confirm', async (req, res, next) => {
  * Get email logs for a specific loan
  * GET /api/loans/:loanId/email-logs
  */
-router.get('/:loanId/email-logs', async (req, res, next) => {
+router.get('/:loanId/email-logs', requireAnyPermission('loans.view', 'truesend.view'), async (req, res, next) => {
   try {
+    const loanId = getRouteParam(req.params.loanId);
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
     });

@@ -21,7 +21,9 @@ import {
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
+import { useTenantPermissions } from "@/components/tenant-context";
 import { api } from "@/lib/api";
+import { canCreateApplications } from "@/lib/permissions";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 interface ApplicationCounts {
@@ -64,6 +66,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 function ApplicationsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const permissions = useTenantPermissions();
   const initialFilter = searchParams.get("filter") || "";
 
   const [applications, setApplications] = useState<Application[]>([]);
@@ -85,6 +88,7 @@ function ApplicationsPageContent() {
   // Sort state
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const canCreateApplication = canCreateApplications(permissions);
 
   // Debounce search input
   const handleSearchChange = (value: string) => {
@@ -205,12 +209,14 @@ function ApplicationsPageContent() {
           <h1 className="text-2xl font-heading font-bold text-gradient">Loan Applications</h1>
           <p className="text-muted">Review and manage loan applications</p>
         </div>
-        <Link href="/dashboard/applications/new">
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            New Application
-          </Button>
-        </Link>
+        {canCreateApplication ? (
+          <Link href="/dashboard/applications/new">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              New Application
+            </Button>
+          </Link>
+        ) : null}
       </div>
 
       {/* Status Alert Bar */}
@@ -328,12 +334,14 @@ function ApplicationsPageContent() {
             <div className="flex flex-col items-center justify-center h-64 text-center">
               <ClipboardList className="h-12 w-12 text-muted mb-4" />
               <p className="text-muted">No applications found</p>
-              <Link href="/dashboard/applications/new">
-                <Button className="mt-4">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create application
-                </Button>
-              </Link>
+              {canCreateApplication ? (
+                <Link href="/dashboard/applications/new">
+                  <Button className="mt-4">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create application
+                  </Button>
+                </Link>
+              ) : null}
             </div>
           ) : (
             <Table>

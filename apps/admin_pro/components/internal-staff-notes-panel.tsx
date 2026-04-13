@@ -30,10 +30,12 @@ export function InternalStaffNotesPanel({
   apiPath,
   title = "Internal notes",
   description = "Visible only to your team. Shown in compliance activity as STAFF_NOTE_CREATE.",
+  canPost = true,
 }: {
   apiPath: string;
   title?: string;
   description?: string;
+  canPost?: boolean;
 }) {
   const [notes, setNotes] = useState<StaffNoteDto[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -119,28 +121,34 @@ export function InternalStaffNotesPanel({
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Textarea
-            placeholder="Add an internal note…"
-            value={composer}
-            onChange={(e) => setComposer(e.target.value)}
-            rows={3}
-            className="resize-y min-h-[80px] text-sm"
-            disabled={posting}
-          />
-          <div className="flex justify-end">
-            <Button type="button" size="sm" onClick={() => void onSubmit()} disabled={posting || loading}>
-              {posting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Saving…
-                </>
-              ) : (
-                "Add note"
-              )}
-            </Button>
+        {canPost ? (
+          <div className="space-y-2">
+            <Textarea
+              placeholder="Add an internal note…"
+              value={composer}
+              onChange={(e) => setComposer(e.target.value)}
+              rows={3}
+              className="resize-y min-h-[80px] text-sm"
+              disabled={posting}
+            />
+            <div className="flex justify-end">
+              <Button type="button" size="sm" onClick={() => void onSubmit()} disabled={posting || loading}>
+                {posting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Saving…
+                  </>
+                ) : (
+                  "Add note"
+                )}
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            You can view notes, but you do not have permission to add new ones.
+          </div>
+        )}
 
         <div className="border-t pt-4 space-y-3 max-h-[420px] overflow-y-auto pr-1">
           {loading ? (

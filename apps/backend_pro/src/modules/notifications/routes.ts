@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
+import { requirePermission } from '../../middleware/requireRole.js';
 import { NotificationService } from './service.js';
 import { TrueSendService } from './trueSendService.js';
 
@@ -24,7 +25,7 @@ const sendNotificationSchema = z.object({
  * List notifications
  * GET /api/notifications
  */
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('truesend.view'), async (req, res, next) => {
   try {
     const { status, type, page = '1', pageSize = '20' } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(pageSize as string);
@@ -65,7 +66,7 @@ router.get('/', async (req, res, next) => {
  * Send a notification
  * POST /api/notifications
  */
-router.post('/', async (req, res, next) => {
+router.post('/', requirePermission('truesend.manage'), async (req, res, next) => {
   try {
     const data = sendNotificationSchema.parse(req.body);
 
@@ -90,11 +91,12 @@ router.post('/', async (req, res, next) => {
  * Retry a failed notification
  * POST /api/notifications/:notificationId/retry
  */
-router.post('/:notificationId/retry', async (req, res, next) => {
+router.post('/:notificationId/retry', requirePermission('truesend.manage'), async (req, res, next) => {
   try {
+    const notificationId = req.params.notificationId as string;
     const notification = await prisma.notification.findFirst({
       where: {
-        id: req.params.notificationId,
+        id: notificationId,
         tenantId: req.tenantId,
         status: 'failed',
       },
@@ -129,9 +131,10 @@ router.post('/:notificationId/retry', async (req, res, next) => {
  * Rate limited to 1x per day per email.
  * Only allowed for failed/bounced/complained emails.
  */
-router.post('/truesend/:id/resend', async (req, res, next) => {
+router.post('/truesend/:id/resend', requirePermission('truesend.manage'), async (req, res, next) => {
   try {
-    const result = await TrueSendService.resendEmail(req.params.id, req.tenantId!);
+    const notificationId = req.params.id as string;
+    const result = await TrueSendService.resendEmail(notificationId, req.tenantId!);
 
     if (!result.success) {
       res.status(400).json({

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
+import { requirePermission } from '../../middleware/requireRole.js';
 import { getFile } from '../../lib/storage.js';
 import {
   checkHealth,
@@ -11,7 +12,7 @@ import {
 const router = Router();
 router.use(authenticateToken);
 
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('agreements.view'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
 
@@ -91,10 +92,10 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/:loanId/sync', async (req, res, next) => {
+router.post('/:loanId/sync', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const { loanId } = req.params;
+    const loanId = req.params.loanId as string;
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, tenantId, agreementPath: { not: null } },
@@ -126,7 +127,7 @@ router.post('/:loanId/sync', async (req, res, next) => {
   }
 });
 
-router.post('/sync-batch', async (req, res, next) => {
+router.post('/sync-batch', requirePermission('agreements.manage'), async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
     const { loanIds } = req.body;

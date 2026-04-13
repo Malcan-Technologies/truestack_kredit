@@ -2,6 +2,7 @@
 
 export * from "./auth-config";
 export * from "./auth-onboarding";
+export * from "./rbac";
 
 // ============================================
 // Enums

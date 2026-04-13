@@ -8,6 +8,7 @@ export const ADMIN_ACCESS_RETRYABLE_MESSAGE =
 export interface AdminMembershipRecord {
   tenantId: string;
   role: string;
+  roleName?: string;
   tenantName?: string;
   tenantLogoUrl?: string | null;
 }

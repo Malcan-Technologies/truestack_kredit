@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dialog";
 import { CopyField } from "@/components/ui/copy-field";
 import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
+import { AccessDeniedCard } from "@/components/role-gate";
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
@@ -66,8 +67,8 @@ import {
   safeRound,
   safeSubtract,
 } from "@/lib/utils";
-import { useCurrentRole } from "@/components/tenant-context";
-import { canApproveApplications } from "@/lib/permissions";
+import { useTenantPermissions } from "@/components/tenant-context";
+import { canApproveApplications, canEditApplications } from "@/lib/permissions";
 import { LoanApplicationOfferParty } from "@kredit/shared";
 
 // ============================================
@@ -363,7 +364,9 @@ export default function ApplicationDetailPage() {
   const params = useParams();
   const router = useRouter();
   const applicationId = params.id as string;
-  const currentRole = useCurrentRole();
+  const permissions = useTenantPermissions();
+  const canEditApplication = canEditApplications(permissions);
+  const canApproveApplication = canApproveApplications(permissions);
 
   const [application, setApplication] = useState<Application | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -372,6 +375,7 @@ export default function ApplicationDetailPage() {
   const [loadingMoreTimeline, setLoadingMoreTimeline] = useState(false);
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [useInternalSchedule, setUseInternalSchedule] = useState(false);
@@ -401,15 +405,25 @@ export default function ApplicationDetailPage() {
   const missingRequiredDocs = getMissingRequiredDocs();
   const canSubmit = missingRequiredDocs.length === 0;
 
-  const fetchApplication = useCallback(async () => {
+  const fetchApplication = useCallback(async (): Promise<"ok" | "forbidden" | "missing"> => {
     try {
       const res = await api.get<Application>(`/api/loans/applications/${applicationId}`);
       if (res.success && res.data) {
         setApplication(res.data);
+        setAccessDenied(false);
+        return "ok";
       }
+
+      setApplication(null);
+      setAccessDenied(res.status === 403);
+      return res.status === 403 ? "forbidden" : "missing";
     } catch (error) {
       console.error("Failed to fetch application:", error);
     }
+
+    setApplication(null);
+    setAccessDenied(false);
+    return "missing";
   }, [applicationId]);
 
   const fetchTimeline = useCallback(async (cursor?: string, append = false) => {
@@ -444,7 +458,10 @@ export default function ApplicationDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchApplication(), fetchTimeline()]);
+      const result = await fetchApplication();
+      if (result === "ok") {
+        await fetchTimeline();
+      }
       setLoading(false);
     };
     loadData();
@@ -763,6 +780,10 @@ export default function ApplicationDetailPage() {
     );
   }
 
+  if (accessDenied) {
+    return <AccessDeniedCard />;
+  }
+
   if (!application) {
     return (
       <div className="space-y-6">
@@ -873,7 +894,7 @@ export default function ApplicationDetailPage() {
             showToast
             successMessage="Application refreshed"
           />
-          {application.status === "DRAFT" && (
+          {application.status === "DRAFT" && canEditApplication && (
             <Button
               onClick={handleSubmitClick}
               disabled={actionLoading === "submit" || !canSubmit}
@@ -883,7 +904,7 @@ export default function ApplicationDetailPage() {
               {actionLoading === "submit" ? "Submitting..." : "Submit"}
             </Button>
           )}
-          {(application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") && canApproveApplications(currentRole) && (
+          {(application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") && canApproveApplication && (
             <>
               <Button
                 variant="outline"
@@ -1472,31 +1493,35 @@ export default function ApplicationDetailPage() {
                             >
                               <ExternalLink className="h-4 w-4 text-foreground" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteDocument(uploadedDoc.id)}
-                              title="Delete document"
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
+                            {canEditApplication ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteDocument(uploadedDoc.id)}
+                                title="Delete document"
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
+                            ) : null}
                           </>
                         ) : (
-                          <label className="cursor-pointer">
-                            <input
-                              type="file"
-                              className="hidden"
-                              accept=".pdf,.jpg,.jpeg,.png,.webp"
-                              onChange={(e) => handleUploadDocument(e, docType.key)}
-                              disabled={uploading}
-                            />
-                            <Button variant="outline" size="sm" asChild>
-                              <span>
-                                <Upload className="h-4 w-4 mr-1" />
-                                Upload
-                              </span>
-                            </Button>
-                          </label>
+                          canEditApplication ? (
+                            <label className="cursor-pointer">
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                onChange={(e) => handleUploadDocument(e, docType.key)}
+                                disabled={uploading}
+                              />
+                              <Button variant="outline" size="sm" asChild>
+                                <span>
+                                  <Upload className="h-4 w-4 mr-1" />
+                                  Upload
+                                </span>
+                              </Button>
+                            </label>
+                          ) : null
                         )}
                       </div>
                     </div>
@@ -1523,32 +1548,36 @@ export default function ApplicationDetailPage() {
                           >
                             <ExternalLink className="h-4 w-4 text-foreground" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteDocument(doc.id)}
-                            title="Delete document"
-                          >
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
+                          {canEditApplication ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteDocument(doc.id)}
+                              title="Delete document"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          ) : null}
                         </div>
                       </div>
                     ))}
-                  <label className="cursor-pointer">
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.jpg,.jpeg,.png,.webp"
-                      onChange={(e) => handleUploadDocument(e, "OTHER")}
-                      disabled={uploading}
-                    />
-                    <Button variant="outline" size="sm" asChild>
-                      <span>
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add Document
-                      </span>
-                    </Button>
-                  </label>
+                  {canEditApplication ? (
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                        onChange={(e) => handleUploadDocument(e, "OTHER")}
+                        disabled={uploading}
+                      />
+                      <Button variant="outline" size="sm" asChild>
+                        <span>
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Document
+                        </span>
+                      </Button>
+                    </label>
+                  ) : null}
                 </div>
               </div>
             </CardContent>
@@ -1642,7 +1671,10 @@ export default function ApplicationDetailPage() {
             </CardContent>
           </Card>
 
-          <InternalStaffNotesPanel apiPath={`loans/applications/${applicationId}/staff-notes`} />
+          <InternalStaffNotesPanel
+            apiPath={`loans/applications/${applicationId}/staff-notes`}
+            canPost={canEditApplication}
+          />
 
           {/* Activity Timeline */}
           <Card>

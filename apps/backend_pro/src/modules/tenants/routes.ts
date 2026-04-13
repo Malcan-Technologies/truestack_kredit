@@ -2,11 +2,18 @@ import { Router, Request } from 'express';
 import { z } from 'zod';
 import path from 'path';
 import { Prisma } from '@prisma/client';
+import {
+  DEFAULT_TENANT_ROLE_TEMPLATES,
+  getDefaultTenantRoleTemplate,
+  getRoleDisplayName,
+  isTenantPermission,
+  type TenantPermission,
+} from '@kredit/shared';
 import { getSessionTokenFromCookie } from '../../lib/authCookies.js';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
 import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
-import { requireAdmin, requireOwner } from '../../middleware/requireRole.js';
+import { requireAnyPermission, requireOwner, requirePermission } from '../../middleware/requireRole.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
 import { 
   parseLogoUpload, 
@@ -15,6 +22,11 @@ import {
   deleteLogoFile 
 } from '../../lib/upload.js';
 import { derivePlanName } from '../../lib/subscription.js';
+import {
+  ensureTenantRoleCatalog,
+  ensureTenantMembershipRoleAssignments,
+  resolveAssignableTenantRole,
+} from '../../lib/rbac.js';
 // @ts-ignore - better-auth crypto module
 import { hashPassword } from 'better-auth/crypto';
 
@@ -66,11 +78,18 @@ router.post('/create', requireSession, async (req, res, next) => {
         },
       });
 
+      const tenantRoles = await ensureTenantRoleCatalog(tx, newTenant.id);
+      const ownerRole = tenantRoles.find((role) => role.key === 'OWNER');
+      if (!ownerRole) {
+        throw new Error('Owner role template was not created');
+      }
+
       await tx.tenantMember.create({
         data: {
           userId: userId,
           tenantId: newTenant.id,
-          role: "OWNER",
+          role: ownerRole.key,
+          roleId: ownerRole.id,
           isActive: true,
         },
       });
@@ -168,6 +187,94 @@ function validatePasswordStrength(password: string): { valid: boolean; errors: s
   return { valid: errors.length === 0, errors };
 }
 
+function makeRoleKey(name: string): string {
+  return name
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+    .toUpperCase();
+}
+
+async function generateUniqueRoleKey(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  name: string
+): Promise<string> {
+  const baseKey = makeRoleKey(name) || 'CUSTOM_ROLE';
+  let key = baseKey;
+  let counter = 1;
+
+  while (
+    await tx.tenantRole.findUnique({
+      where: {
+        tenantId_key: {
+          tenantId,
+          key,
+        },
+      },
+      select: { id: true },
+    })
+  ) {
+    counter += 1;
+    key = `${baseKey}_${counter}`;
+  }
+
+  return key;
+}
+
+function hasPermission(req: Request, permission: TenantPermission): boolean {
+  if (req.user?.role === 'OWNER') return true;
+  return (req.user?.permissions ?? []).includes(permission);
+}
+
+function hasRequestedRoleSelection(input: {
+  roleId?: string;
+  roleKey?: string;
+  role?: string;
+}): boolean {
+  return !!(input.roleId || input.roleKey || input.role);
+}
+
+async function resolveInviteAssignedRole(
+  db: typeof prisma | Prisma.TransactionClient,
+  tenantId: string,
+  input: {
+    roleId?: string;
+    roleKey?: string;
+    role?: string;
+  },
+  canAssignCustomRoles: boolean
+) {
+  const assignedRole = await resolveAssignableTenantRole(
+    db,
+    tenantId,
+    hasRequestedRoleSelection(input)
+      ? {
+          roleId: input.roleId,
+          roleKey: input.roleKey,
+          legacyRole: input.role,
+        }
+      : {
+          roleKey: 'GENERAL_STAFF',
+        }
+  ).catch(() => {
+    throw new BadRequestError('Selected role is not available for this tenant');
+  });
+
+  if (assignedRole.key === 'OWNER') {
+    throw new BadRequestError('Use ownership transfer to assign the owner role');
+  }
+
+  if (!canAssignCustomRoles && assignedRole.key !== 'GENERAL_STAFF') {
+    throw new ForbiddenError(
+      'You can invite users, but only role managers can choose a role other than General Staff'
+    );
+  }
+
+  return assignedRole;
+}
+
 // Validation schemas
 const updateTenantSchema = z.object({
   name: z.string().min(2).max(100).optional(),
@@ -185,13 +292,47 @@ const updateTenantSchema = z.object({
 const inviteUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(2).max(100).optional(),
-  role: z.enum(['ADMIN', 'STAFF']),
+  roleId: z.string().min(1).optional(),
+  roleKey: z.string().min(1).optional(),
+  role: z.string().min(1).optional(),
   password: z.string().min(8).optional(), // Optional if user already exists
 });
 
 const updateMemberSchema = z.object({
-  role: z.enum(['ADMIN', 'STAFF']).optional(),
+  roleId: z.string().min(1).optional(),
+  roleKey: z.string().min(1).optional(),
+  role: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
+});
+
+const rolePermissionsSchema = z
+  .array(z.string())
+  .min(1)
+  .transform((permissions, ctx) => {
+    const invalidPermissions = permissions.filter((permission) => !isTenantPermission(permission));
+    if (invalidPermissions.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Unknown permissions: ${invalidPermissions.join(', ')}`,
+      });
+      return z.NEVER;
+    }
+
+    return [...new Set(permissions)] as TenantPermission[];
+  });
+
+const createRoleSchema = z.object({
+  name: z.string().min(2).max(80),
+  description: z.string().max(240).optional().nullable(),
+  permissions: rolePermissionsSchema.optional(),
+  cloneRoleId: z.string().min(1).optional(),
+  cloneRoleKey: z.string().min(1).optional(),
+});
+
+const updateRoleSchema = z.object({
+  name: z.string().min(2).max(80).optional(),
+  description: z.string().max(240).optional().nullable(),
+  permissions: rolePermissionsSchema.optional(),
 });
 
 const DEFAULT_PAYMENT_REMINDER_DAYS = [3, 1, 0] as const;
@@ -336,7 +477,7 @@ router.get('/current', async (req, res, next) => {
  * Update tenant
  * PATCH /api/tenants/current
  */
-router.patch('/current', requireAdmin, async (req, res, next) => {
+router.patch('/current', requirePermission('tenant_settings.edit'), async (req, res, next) => {
   try {
     const data = updateTenantSchema.parse(req.body);
 
@@ -400,7 +541,7 @@ router.patch('/current', requireAdmin, async (req, res, next) => {
  * Get TrueSend module settings
  * GET /api/tenants/modules/truesend
  */
-router.get('/modules/truesend', requireAdmin, async (req, res, next) => {
+router.get('/modules/truesend', requirePermission('truesend.view'), async (req, res, next) => {
   try {
     const [tenantRow, periods] = await Promise.all([
       prisma.tenant.findUnique({
@@ -435,7 +576,7 @@ router.get('/modules/truesend', requireAdmin, async (req, res, next) => {
  * Update TrueSend module settings
  * PATCH /api/tenants/modules/truesend
  */
-router.patch('/modules/truesend', requireAdmin, async (req, res, next) => {
+router.patch('/modules/truesend', requirePermission('truesend.manage'), async (req, res, next) => {
   try {
     const payload = updateTrueSendSettingsSchema.parse(req.body);
 
@@ -522,7 +663,7 @@ router.patch('/modules/truesend', requireAdmin, async (req, res, next) => {
  * - Dimensions: 100-1000px width/height
  * - Aspect ratio: between 1:2 and 2:1
  */
-router.post('/current/logo', requireAdmin, async (req, res, next) => {
+router.post('/current/logo', requirePermission('tenant_settings.edit'), async (req, res, next) => {
   try {
     // Parse the uploaded file
     const { buffer, originalName, mimeType } = await parseLogoUpload(req);
@@ -580,7 +721,7 @@ router.post('/current/logo', requireAdmin, async (req, res, next) => {
  * Delete tenant logo
  * DELETE /api/tenants/current/logo
  */
-router.delete('/current/logo', requireAdmin, async (req, res, next) => {
+router.delete('/current/logo', requirePermission('tenant_settings.edit'), async (req, res, next) => {
   try {
     const currentTenant = await prisma.tenant.findUnique({
       where: { id: req.tenantId },
@@ -623,11 +764,20 @@ router.delete('/current/logo', requireAdmin, async (req, res, next) => {
  * List members in tenant
  * GET /api/tenants/users
  */
-router.get('/users', async (req, res, next) => {
+router.get('/users', requirePermission('team.view'), async (req, res, next) => {
   try {
+    await ensureTenantMembershipRoleAssignments(prisma, req.tenantId!);
     const members = await prisma.tenantMember.findMany({
       where: { tenantId: req.tenantId },
       include: {
+        roleConfig: {
+          select: {
+            id: true,
+            key: true,
+            name: true,
+            isSystem: true,
+          },
+        },
         user: {
           select: {
             id: true,
@@ -657,6 +807,9 @@ router.get('/users', async (req, res, next) => {
         email: m.user.email,
         name: m.user.name,
         role: m.role,
+        roleId: m.roleId,
+        roleName: m.roleConfig?.name ?? getRoleDisplayName(m.role),
+        isSystemRole: m.roleConfig?.isSystem ?? m.role === 'OWNER',
         isActive: m.isActive,
         createdAt: m.createdAt,
         lastLoginAt: lastLoginMap.get(m.user.id) ?? null,
@@ -667,8 +820,295 @@ router.get('/users', async (req, res, next) => {
   }
 });
 
-// Maximum users per tenant (including owner)
-const MAX_USERS_PER_TENANT = 10;
+/**
+ * List roles for the active tenant
+ * GET /api/tenants/roles
+ */
+router.get('/roles', requireAnyPermission('roles.view', 'roles.manage', 'team.edit_roles', 'team.invite'), async (req, res, next) => {
+  try {
+    await ensureTenantMembershipRoleAssignments(prisma, req.tenantId!);
+    await ensureTenantRoleCatalog(prisma, req.tenantId!);
+
+    const roles = await prisma.tenantRole.findMany({
+      where: { tenantId: req.tenantId! },
+      orderBy: [{ isSystem: 'desc' }, { isDefault: 'desc' }, { name: 'asc' }],
+      include: {
+        _count: {
+          select: {
+            members: true,
+          },
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: roles.map((role) => ({
+        id: role.id,
+        key: role.key,
+        name: role.name,
+        description: role.description,
+        permissions: role.permissions,
+        isSystem: role.isSystem,
+        isEditable: role.isEditable,
+        isDefault: role.isDefault,
+        memberCount: role._count.members,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Create a custom role for the active tenant
+ * POST /api/tenants/roles
+ */
+router.post('/roles', requirePermission('roles.manage'), async (req, res, next) => {
+  try {
+    const data = createRoleSchema.parse(req.body);
+
+    const role = await prisma.$transaction(async (tx) => {
+      await ensureTenantRoleCatalog(tx, req.tenantId!);
+
+      let clonedRole: Awaited<ReturnType<typeof resolveAssignableTenantRole>> | null = null;
+      if (data.cloneRoleId || data.cloneRoleKey) {
+        clonedRole = await resolveAssignableTenantRole(tx, req.tenantId!, {
+          roleId: data.cloneRoleId,
+          roleKey: data.cloneRoleKey,
+        });
+      }
+
+      const key = await generateUniqueRoleKey(tx, req.tenantId!, data.name);
+      return tx.tenantRole.create({
+        data: {
+          tenantId: req.tenantId!,
+          key,
+          name: data.name,
+          description: data.description ?? clonedRole?.description ?? null,
+          permissions:
+            data.permissions ??
+            clonedRole?.permissions ??
+            getDefaultTenantRoleTemplate('GENERAL_STAFF')?.permissions ??
+            ['dashboard.view'],
+          isSystem: false,
+          isEditable: true,
+          isDefault: false,
+        },
+        include: {
+          _count: {
+            select: {
+              members: true,
+            },
+          },
+        },
+      });
+    });
+
+    await logAdminAction(
+      req.user!.userId,
+      req.tenantId!,
+      'ROLE_CREATED',
+      req,
+      role.id,
+      'TENANT_ROLE',
+      {
+        key: role.key,
+        name: role.name,
+        permissions: role.permissions,
+      }
+    );
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id: role.id,
+        key: role.key,
+        name: role.name,
+        description: role.description,
+        permissions: role.permissions,
+        isSystem: role.isSystem,
+        isEditable: role.isEditable,
+        isDefault: role.isDefault,
+        memberCount: role._count.members,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Update a tenant role
+ * PATCH /api/tenants/roles/:roleId
+ */
+router.patch('/roles/:roleId', requirePermission('roles.manage'), async (req, res, next) => {
+  try {
+    const data = updateRoleSchema.parse(req.body);
+    const roleId = req.params.roleId as string;
+
+    const existingRole = await prisma.tenantRole.findFirst({
+      where: {
+        id: roleId,
+        tenantId: req.tenantId!,
+      },
+      include: {
+        _count: {
+          select: {
+            members: true,
+          },
+        },
+      },
+    });
+
+    if (!existingRole) {
+      throw new NotFoundError('Role');
+    }
+
+    if (!existingRole.isEditable) {
+      throw new BadRequestError('This role is managed by the system and cannot be edited');
+    }
+
+    const updatedRole = await prisma.tenantRole.update({
+      where: { id: existingRole.id },
+      data: {
+        name: data.name ?? existingRole.name,
+        description:
+          data.description === undefined ? existingRole.description : data.description,
+        permissions: data.permissions ?? existingRole.permissions,
+      },
+      include: {
+        _count: {
+          select: {
+            members: true,
+          },
+        },
+      },
+    });
+
+    await logAdminAction(
+      req.user!.userId,
+      req.tenantId!,
+      'ROLE_UPDATED',
+      req,
+      updatedRole.id,
+      'TENANT_ROLE',
+      {
+        previous: {
+          name: existingRole.name,
+          description: existingRole.description,
+          permissions: existingRole.permissions,
+        },
+        next: {
+          name: updatedRole.name,
+          description: updatedRole.description,
+          permissions: updatedRole.permissions,
+        },
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        id: updatedRole.id,
+        key: updatedRole.key,
+        name: updatedRole.name,
+        description: updatedRole.description,
+        permissions: updatedRole.permissions,
+        isSystem: updatedRole.isSystem,
+        isEditable: updatedRole.isEditable,
+        isDefault: updatedRole.isDefault,
+        memberCount: updatedRole._count.members,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Reset a default role back to platform defaults
+ * POST /api/tenants/roles/:roleId/reset
+ */
+router.post('/roles/:roleId/reset', requirePermission('roles.manage'), async (req, res, next) => {
+  try {
+    const roleId = req.params.roleId as string;
+    const existingRole = await prisma.tenantRole.findFirst({
+      where: {
+        id: roleId,
+        tenantId: req.tenantId!,
+      },
+      include: {
+        _count: {
+          select: {
+            members: true,
+          },
+        },
+      },
+    });
+
+    if (!existingRole) {
+      throw new NotFoundError('Role');
+    }
+
+    const template = getDefaultTenantRoleTemplate(existingRole.key);
+    if (!template || !existingRole.isDefault) {
+      throw new BadRequestError('Only default roles can be reset to platform defaults');
+    }
+
+    if (!existingRole.isEditable) {
+      throw new BadRequestError('This role is managed by the system and cannot be reset here');
+    }
+
+    const resetRole = await prisma.tenantRole.update({
+      where: { id: existingRole.id },
+      data: {
+        name: template.name,
+        description: template.description,
+        permissions: [...template.permissions],
+        isSystem: template.isSystem,
+        isEditable: template.isEditable,
+        isDefault: template.isDefault,
+      },
+      include: {
+        _count: {
+          select: {
+            members: true,
+          },
+        },
+      },
+    });
+
+    await logAdminAction(
+      req.user!.userId,
+      req.tenantId!,
+      'ROLE_RESET',
+      req,
+      resetRole.id,
+      'TENANT_ROLE',
+      {
+        key: resetRole.key,
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        id: resetRole.id,
+        key: resetRole.key,
+        name: resetRole.name,
+        description: resetRole.description,
+        permissions: resetRole.permissions,
+        isSystem: resetRole.isSystem,
+        isEditable: resetRole.isEditable,
+        isDefault: resetRole.isDefault,
+        memberCount: resetRole._count.members,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 /**
  * Invite/add a user to tenant
@@ -676,23 +1116,17 @@ const MAX_USERS_PER_TENANT = 10;
  * 
  * If user already exists: just create membership
  * If user doesn't exist: create user + account + membership
- * 
- * Limit: Maximum 10 users per tenant (including owner)
  */
-router.post('/users', requireAdmin, async (req, res, next) => {
+router.post('/users', requirePermission('team.invite'), async (req, res, next) => {
   try {
     const data = inviteUserSchema.parse(req.body);
-
-    // Check current member count
-    const memberCount = await prisma.tenantMember.count({
-      where: { tenantId: req.tenantId! },
-    });
-
-    if (memberCount >= MAX_USERS_PER_TENANT) {
-      throw new BadRequestError(
-        `Maximum of ${MAX_USERS_PER_TENANT} team members allowed per tenant.`
-      );
-    }
+    const canAssignCustomRoles = hasPermission(req, 'team.edit_roles');
+    const assignedRole = await resolveInviteAssignedRole(
+      prisma,
+      req.tenantId!,
+      data,
+      canAssignCustomRoles
+    );
 
     // Check if user already exists
     let user = await prisma.user.findUnique({
@@ -719,7 +1153,8 @@ router.post('/users', requireAdmin, async (req, res, next) => {
         data: {
           userId: user.id,
           tenantId: req.tenantId!,
-          role: data.role,
+          role: assignedRole.key,
+          roleId: assignedRole.id,
           isActive: true,
         },
       });
@@ -735,7 +1170,8 @@ router.post('/users', requireAdmin, async (req, res, next) => {
         { 
           email: user.email,
           name: user.name,
-          role: data.role,
+          role: assignedRole.key,
+          roleName: assignedRole.name,
           isExistingUser: true,
         }
       );
@@ -748,6 +1184,8 @@ router.post('/users', requireAdmin, async (req, res, next) => {
           email: user.email,
           name: user.name,
           role: membership.role,
+          roleId: membership.roleId,
+          roleName: assignedRole.name,
           isActive: membership.isActive,
           createdAt: membership.createdAt,
           isExistingUser: true,
@@ -770,6 +1208,13 @@ router.post('/users', requireAdmin, async (req, res, next) => {
     const passwordHash = await hashPassword(data.password);
     
     const result = await prisma.$transaction(async (tx) => {
+      const txAssignedRole = await resolveInviteAssignedRole(
+        tx,
+        req.tenantId!,
+        data,
+        canAssignCustomRoles
+      );
+
       // Create user
       const newUser = await tx.user.create({
         data: {
@@ -795,12 +1240,13 @@ router.post('/users', requireAdmin, async (req, res, next) => {
         data: {
           userId: newUser.id,
           tenantId: req.tenantId!,
-          role: data.role,
+          role: txAssignedRole.key,
+          roleId: txAssignedRole.id,
           isActive: true,
         },
       });
 
-      return { user: newUser, membership };
+      return { user: newUser, membership, assignedRole: txAssignedRole };
     });
 
     // Log audit trail
@@ -814,7 +1260,8 @@ router.post('/users', requireAdmin, async (req, res, next) => {
       { 
         email: result.user.email,
         name: result.user.name,
-        role: data.role,
+        role: result.assignedRole.key,
+        roleName: result.assignedRole.name,
         isExistingUser: false,
       }
     );
@@ -827,6 +1274,8 @@ router.post('/users', requireAdmin, async (req, res, next) => {
         email: result.user.email,
         name: result.user.name,
         role: result.membership.role,
+        roleId: result.membership.roleId,
+        roleName: result.assignedRole.name,
         isActive: result.membership.isActive,
         createdAt: result.membership.createdAt,
         isExistingUser: false,
@@ -841,10 +1290,21 @@ router.post('/users', requireAdmin, async (req, res, next) => {
  * Update a member's role or status
  * PATCH /api/tenants/users/:userId
  */
-router.patch('/users/:userId', requireAdmin, async (req, res, next) => {
+router.patch('/users/:userId', requireAnyPermission('team.deactivate', 'team.edit_roles'), async (req, res, next) => {
   try {
     const data = updateMemberSchema.parse(req.body);
     const userId = req.params.userId as string;
+    const isRoleChangeRequested =
+      data.role !== undefined || data.roleId !== undefined || data.roleKey !== undefined;
+    const isStatusChangeRequested = data.isActive !== undefined;
+
+    if (isRoleChangeRequested && !hasPermission(req, 'team.edit_roles')) {
+      throw new ForbiddenError('You do not have permission to change member roles');
+    }
+
+    if (isStatusChangeRequested && !hasPermission(req, 'team.deactivate')) {
+      throw new ForbiddenError('You do not have permission to activate or deactivate members');
+    }
 
     // Get membership
     const membership = await prisma.tenantMember.findUnique({
@@ -860,14 +1320,9 @@ router.patch('/users/:userId', requireAdmin, async (req, res, next) => {
       throw new NotFoundError('Member');
     }
 
-    // Only OWNER can change roles
-    if (data.role && req.user!.role !== 'OWNER') {
-      throw new ForbiddenError('Only the owner can change member roles');
-    }
-
     // Prevent demoting or deactivating OWNER
     if (membership.role === 'OWNER') {
-      if (data.role) {
+      if (isRoleChangeRequested) {
         throw new BadRequestError('Cannot change owner role');
       }
       if (data.isActive === false) {
@@ -875,10 +1330,41 @@ router.patch('/users/:userId', requireAdmin, async (req, res, next) => {
       }
     }
 
+    let nextRole = null as Awaited<ReturnType<typeof resolveAssignableTenantRole>> | null;
+    if (isRoleChangeRequested) {
+      nextRole = await resolveAssignableTenantRole(prisma, req.tenantId!, {
+        roleId: data.roleId,
+        roleKey: data.roleKey,
+        legacyRole: data.role,
+      }).catch(() => {
+        throw new BadRequestError('Selected role is not available for this tenant');
+      });
+
+      if (nextRole.key === 'OWNER') {
+        throw new BadRequestError('Use ownership transfer to assign the owner role');
+      }
+    }
+
     const updatedMembership = await prisma.tenantMember.update({
       where: { id: membership.id },
-      data,
+      data: {
+        ...(nextRole
+          ? {
+              role: nextRole.key,
+              roleId: nextRole.id,
+            }
+          : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+      },
       include: {
+        roleConfig: {
+          select: {
+            id: true,
+            key: true,
+            name: true,
+            isSystem: true,
+          },
+        },
         user: {
           select: {
             id: true,
@@ -906,7 +1392,7 @@ router.patch('/users/:userId', requireAdmin, async (req, res, next) => {
       );
     }
 
-    if (data.role && data.role !== membership.role) {
+    if (nextRole && nextRole.key !== membership.role) {
       await logAdminAction(
         req.user!.userId,
         req.tenantId!,
@@ -917,7 +1403,9 @@ router.patch('/users/:userId', requireAdmin, async (req, res, next) => {
         { 
           email: updatedMembership.user.email,
           previousRole: membership.role,
-          newRole: data.role,
+          previousRoleName: getRoleDisplayName(membership.role),
+          newRole: nextRole.key,
+          newRoleName: nextRole.name,
         }
       );
     }
@@ -930,6 +1418,9 @@ router.patch('/users/:userId', requireAdmin, async (req, res, next) => {
         email: updatedMembership.user.email,
         name: updatedMembership.user.name,
         role: updatedMembership.role,
+        roleId: updatedMembership.roleId,
+        roleName: updatedMembership.roleConfig?.name ?? getRoleDisplayName(updatedMembership.role),
+        isSystemRole: updatedMembership.roleConfig?.isSystem ?? updatedMembership.role === 'OWNER',
         isActive: updatedMembership.isActive,
         createdAt: updatedMembership.createdAt,
       },
@@ -1006,16 +1497,30 @@ router.post('/transfer-ownership', requireOwner, async (req, res, next) => {
 
     // Transfer ownership in a transaction
     await prisma.$transaction(async (tx) => {
+      const roles = await ensureTenantRoleCatalog(tx, req.tenantId!);
+      const ownerRole = roles.find((role) => role.key === 'OWNER');
+      const opsAdminRole = roles.find((role) => role.key === 'OPS_ADMIN');
+
+      if (!ownerRole || !opsAdminRole) {
+        throw new Error('Default tenant roles are missing');
+      }
+
       // Demote current owner to ADMIN
       await tx.tenantMember.update({
         where: { id: currentOwnerMembership.id },
-        data: { role: 'ADMIN' },
+        data: {
+          role: opsAdminRole.key,
+          roleId: opsAdminRole.id,
+        },
       });
 
       // Promote new owner to OWNER
       await tx.tenantMember.update({
         where: { id: newOwnerMembership.id },
-        data: { role: 'OWNER' },
+        data: {
+          role: ownerRole.key,
+          roleId: ownerRole.id,
+        },
       });
     });
 
@@ -1048,7 +1553,7 @@ router.post('/transfer-ownership', requireOwner, async (req, res, next) => {
         previousOwner: {
           id: currentOwnerMembership.user.id,
           email: currentOwnerMembership.user.email,
-          newRole: 'ADMIN',
+          newRole: 'OPS_ADMIN',
         },
         newOwner: {
           id: newOwnerMembership.user.id,
@@ -1066,7 +1571,7 @@ router.post('/transfer-ownership', requireOwner, async (req, res, next) => {
  * Remove a member from tenant
  * DELETE /api/tenants/users/:userId
  */
-router.delete('/users/:userId', requireOwner, async (req, res, next) => {
+router.delete('/users/:userId', requirePermission('team.deactivate'), async (req, res, next) => {
   try {
     const userId = req.params.userId as string;
 
@@ -1127,7 +1632,7 @@ router.delete('/users/:userId', requireOwner, async (req, res, next) => {
  * Get admin audit logs for the tenant
  * GET /api/tenants/admin-logs
  */
-router.get('/admin-logs', requireAdmin, async (req, res, next) => {
+router.get('/admin-logs', requirePermission('audit_logs.view'), async (req, res, next) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 20;
@@ -1186,7 +1691,7 @@ router.get('/admin-logs', requireAdmin, async (req, res, next) => {
  * Get entity audit logs for the tenant (Borrower, Loan, etc.)
  * GET /api/tenants/audit-logs
  */
-router.get('/audit-logs', requireAdmin, async (req, res, next) => {
+router.get('/audit-logs', requirePermission('audit_logs.view'), async (req, res, next) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 20;

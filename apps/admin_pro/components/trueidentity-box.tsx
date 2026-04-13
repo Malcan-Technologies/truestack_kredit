@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
+import { subscribeAdminTruestackKycSse } from "@/lib/truestack-kyc-sse";
 import { toast } from "sonner";
 import { formatSmartDateTime } from "@/lib/utils";
 import { subscribeAdminTruestackKycSse } from "@/lib/truestack-kyc-sse";
@@ -64,6 +65,7 @@ interface TrueIdentityBoxProps {
   directors?: Director[];
   /** Increment to trigger refetch (e.g. when parent refresh is clicked) */
   refreshKey?: number;
+  canManage?: boolean;
 }
 
 function isApproved(status: string | null | undefined, result: string | null | undefined): boolean {
@@ -140,11 +142,13 @@ function DirectorVerificationCard({
   onSendVerification,
   onCopyLink,
   onStatusRefetch,
+  canManage,
 }: {
   director: DirectorVerifyStatus;
   onSendVerification: (directorId: string) => Promise<void>;
   onCopyLink: (url: string) => void;
   onStatusRefetch: () => void;
+  canManage: boolean;
 }) {
   const [sending, setSending] = useState(false);
   const d = director;
@@ -206,7 +210,7 @@ function DirectorVerificationCard({
             )}
           </div>
         </div>
-        {hasUrl && !isCompleted && !isExpired && (
+        {hasUrl && !isCompleted && !isExpired && canManage && (
           <div className="space-y-2 mb-3">
             <p className="text-xs text-muted-foreground">
               Share the QR code or link with this director to complete verification.
@@ -257,8 +261,29 @@ function DirectorVerificationCard({
               </p>
             )}
             <p className="text-xs text-emerald-700 dark:text-emerald-400 mb-2">
-              This director is verified. You can re-verify to generate a new link if needed.
+              {canManage
+                ? "This director is verified. You can re-verify to generate a new link if needed."
+                : "This director is verified."}
             </p>
+            {canManage ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={handleSend}
+                disabled={sending}
+              >
+                {sending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                {sending ? "Creating..." : "Redo verification"}
+              </Button>
+            ) : null}
+          </div>
+        ) : canStart ? (
+          canManage ? (
             <Button
               variant="outline"
               size="sm"
@@ -268,29 +293,18 @@ function DirectorVerificationCard({
             >
               {sending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
+              ) : isRetry ? (
                 <RefreshCw className="h-3.5 w-3.5" />
+              ) : (
+                <Fingerprint className="h-3.5 w-3.5" />
               )}
-              {sending ? "Creating..." : "Redo verification"}
+              {sending ? "Creating..." : isRetry ? "Retry KYC" : "Send Verification"}
             </Button>
-          </div>
-        ) : canStart ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full gap-1.5"
-            onClick={handleSend}
-            disabled={sending}
-          >
-            {sending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : isRetry ? (
-              <RefreshCw className="h-3.5 w-3.5" />
-            ) : (
-              <Fingerprint className="h-3.5 w-3.5" />
-            )}
-            {sending ? "Creating..." : isRetry ? "Retry KYC" : "Send Verification"}
-          </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              You can view verification status, but you do not have permission to manage it.
+            </p>
+          )
         ) : (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
@@ -298,7 +312,7 @@ function DirectorVerificationCard({
                 ? "Verification in progress. Share the QR code above with this director."
                 : "Verification link created. Share the QR code above with this director."}
             </p>
-            {(isPending || isProcessing) && (
+            {canManage && (isPending || isProcessing) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -331,12 +345,14 @@ function IndividualVerificationCard({
   status,
   onSendVerification,
   onCopyLink,
+  canManage,
 }: {
   borrowerName: string;
   borrowerIcNumber: string;
   status: NonNullable<VerifyStatusResponse & { borrowerType: "INDIVIDUAL" }>;
   onSendVerification: () => Promise<void>;
   onCopyLink: (url: string) => void;
+  canManage: boolean;
 }) {
   const [sending, setSending] = useState(false);
   const hasUrl = Boolean(status.onboardingUrl);
@@ -391,6 +407,32 @@ function IndividualVerificationCard({
                 Last verified: {formatSmartDateTime(status.lastWebhookAt)}
               </p>
             )}
+            {canManage ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={async () => {
+                  setSending(true);
+                  try {
+                    await onSendVerification();
+                  } finally {
+                    setSending(false);
+                  }
+                }}
+                disabled={sending}
+              >
+                {sending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                {sending ? "Creating..." : "Redo verification"}
+              </Button>
+            ) : null}
+          </div>
+        ) : canStart ? (
+          canManage ? (
             <Button
               variant="outline"
               size="sm"
@@ -407,36 +449,18 @@ function IndividualVerificationCard({
             >
               {sending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
+              ) : isRetry ? (
                 <RefreshCw className="h-3.5 w-3.5" />
+              ) : (
+                <Fingerprint className="h-3.5 w-3.5" />
               )}
-              {sending ? "Creating..." : "Redo verification"}
+              {sending ? "Creating..." : isRetry ? "Retry KYC" : "Send Verification"}
             </Button>
-          </div>
-        ) : canStart ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full gap-1.5"
-            onClick={async () => {
-              setSending(true);
-              try {
-                await onSendVerification();
-              } finally {
-                setSending(false);
-              }
-            }}
-            disabled={sending}
-          >
-            {sending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : isRetry ? (
-              <RefreshCw className="h-3.5 w-3.5" />
-            ) : (
-              <Fingerprint className="h-3.5 w-3.5" />
-            )}
-            {sending ? "Creating..." : isRetry ? "Retry KYC" : "Send Verification"}
-          </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              You can view verification status, but you do not have permission to manage it.
+            </p>
+          )
         ) : (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
@@ -444,7 +468,7 @@ function IndividualVerificationCard({
                 ? "Verification in progress. Share the QR code above with the borrower."
                 : "Verification link created. Share the QR code above with the borrower."}
             </p>
-            {(isPending || isProcessing) && (
+            {canManage && (isPending || isProcessing) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -487,6 +511,7 @@ export function TrueIdentityBox({
   borrowerDocumentVerified,
   directors = [],
   refreshKey,
+  canManage = true,
 }: TrueIdentityBoxProps) {
   const [isActive, setIsActive] = useState<boolean | null>(null);
   const [status, setStatus] = useState<VerifyStatusResponse | null>(null);
@@ -814,6 +839,7 @@ export function TrueIdentityBox({
                     onSendVerification={handleSendVerificationDirector}
                     onCopyLink={handleCopyLink}
                     onStatusRefetch={fetchStatus}
+                    canManage={canManage}
                   />
                 ))}
               </>
@@ -835,7 +861,10 @@ export function TrueIdentityBox({
                 </p>
               </div>
             )}
-            {effectiveStatus.onboardingUrl && effectiveStatus.status !== "completed" && effectiveStatus.status !== "expired" && (
+            {canManage &&
+              effectiveStatus.onboardingUrl &&
+              effectiveStatus.status !== "completed" &&
+              effectiveStatus.status !== "expired" && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
                   Share the QR code or link with the borrower to complete verification.
@@ -870,6 +899,7 @@ export function TrueIdentityBox({
               status={effectiveStatus}
               onSendVerification={handleSendVerificationIndividual}
               onCopyLink={handleCopyLink}
+              canManage={canManage}
             />
             {(effectiveStatus.status === "processing" || effectiveStatus.status === "pending") && (
               <p className="text-xs text-muted-foreground">

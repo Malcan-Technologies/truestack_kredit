@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
+import { requirePermission } from '../../middleware/requireRole.js';
 import { safeRound, safeAdd, safeSubtract, safeMultiply, safeDivide, safePercentage, toSafeNumber } from '../../lib/math.js';
 import { calculateDaysOverdueMalaysia, getMalaysiaEndOfDay } from '../../lib/malaysiaTime.js';
 
@@ -10,6 +11,7 @@ const router = Router();
 // All dashboard routes require authentication + active subscription
 router.use(authenticateToken);
 router.use(requireActiveSubscription);
+router.use(requirePermission('dashboard.view'));
 
 /**
  * GET /api/dashboard/stats

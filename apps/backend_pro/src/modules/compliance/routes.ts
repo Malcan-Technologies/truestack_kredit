@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
-import { requireAdmin } from '../../middleware/requireRole.js';
+import { requirePermission } from '../../middleware/requireRole.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { AuditService } from './auditService.js';
 import { toSafeNumber, safeRound, safeSubtract, safeAdd, safeDivide, safeMultiply } from '../../lib/math.js';
@@ -31,7 +31,7 @@ router.use(requirePaidSubscription);
  * Get audit logs
  * GET /api/compliance/audit-logs
  */
-router.get('/audit-logs', requireAdmin, async (req, res, next) => {
+router.get('/audit-logs', requirePermission('audit_logs.view'), async (req, res, next) => {
   try {
     const { 
       entityType, 
@@ -99,7 +99,7 @@ router.get('/audit-logs', requireAdmin, async (req, res, next) => {
  * Get audit log for a specific entity
  * GET /api/compliance/audit-logs/entity/:entityType/:entityId
  */
-router.get('/audit-logs/entity/:entityType/:entityId', requireAdmin, async (req, res, next) => {
+router.get('/audit-logs/entity/:entityType/:entityId', requirePermission('audit_logs.view'), async (req, res, next) => {
   try {
     const entityType = req.params.entityType as string;
     const entityId = req.params.entityId as string;
@@ -135,7 +135,7 @@ router.get('/audit-logs/entity/:entityType/:entityId', requireAdmin, async (req,
  * Export loans data as CSV
  * GET /api/compliance/exports/loans
  */
-router.get('/exports/loans', requireAdmin, async (req, res, next) => {
+router.get('/exports/loans', requirePermission('compliance.export'), async (req, res, next) => {
   try {
     const { status, startDate, endDate } = req.query;
 
@@ -229,7 +229,7 @@ router.get('/exports/loans', requireAdmin, async (req, res, next) => {
  * Export borrowers data as CSV
  * GET /api/compliance/exports/borrowers
  */
-router.get('/exports/borrowers', requireAdmin, async (req, res, next) => {
+router.get('/exports/borrowers', requirePermission('compliance.export'), async (req, res, next) => {
   try {
     const { borrowerType, startDate, endDate } = req.query;
 
@@ -395,11 +395,12 @@ router.get('/exports/borrowers', requireAdmin, async (req, res, next) => {
  * Export repayment schedule as CSV
  * GET /api/compliance/exports/schedule/:loanId
  */
-router.get('/exports/schedule/:loanId', async (req, res, next) => {
+router.get('/exports/schedule/:loanId', requirePermission('compliance.export'), async (req, res, next) => {
   try {
+    const loanId = req.params.loanId as string;
     const loan = await prisma.loan.findFirst({
       where: {
-        id: req.params.loanId,
+        id: loanId,
         tenantId: req.tenantId,
       },
       include: {
@@ -482,7 +483,7 @@ router.get('/exports/schedule/:loanId', async (req, res, next) => {
  * Get loan portfolio summary (Schedule A style report)
  * GET /api/compliance/reports/portfolio
  */
-router.get('/reports/portfolio', requireAdmin, async (req, res, next) => {
+router.get('/reports/portfolio', requirePermission('reports.view'), async (req, res, next) => {
   try {
     const loans = await prisma.loan.findMany({
       where: {
@@ -779,7 +780,7 @@ function buildLampiranAData(loan: any): LampiranAData {
  * Generate Lampiran A (Borrower Account Ledger) PDF for a single loan
  * GET /api/compliance/exports/lampiran-a/:loanId
  */
-router.get('/exports/lampiran-a/:loanId', requireAdmin, async (req, res, next) => {
+router.get('/exports/lampiran-a/:loanId', requirePermission('compliance.export'), async (req, res, next) => {
   try {
     const loanId = req.params.loanId as string;
     const tenantId = req.tenantId as string;
@@ -829,7 +830,7 @@ router.get('/exports/lampiran-a/:loanId', requireAdmin, async (req, res, next) =
  * Bulk export all Lampiran A PDFs as a ZIP archive, filtered by year
  * GET /api/compliance/exports/lampiran-a-bulk?year=2026
  */
-router.get('/exports/lampiran-a-bulk', requireAdmin, async (req, res, next) => {
+router.get('/exports/lampiran-a-bulk', requirePermission('compliance.export'), async (req, res, next) => {
   try {
     const { year, status } = req.query;
     const tenantId = req.tenantId as string;
@@ -953,7 +954,7 @@ router.get('/exports/lampiran-a-bulk', requireAdmin, async (req, res, next) => {
  * Export loans in KPKT format for portal upload
  * GET /api/compliance/exports/kpkt
  */
-router.get('/exports/kpkt', requireAdmin, async (req, res, next) => {
+router.get('/exports/kpkt', requirePermission('compliance.export'), async (req, res, next) => {
   try {
     const { status, startDate, endDate, year } = req.query;
 
@@ -1195,7 +1196,7 @@ router.get('/exports/kpkt', requireAdmin, async (req, res, next) => {
  * Export overdue loans report as CSV
  * GET /api/compliance/exports/overdue
  */
-router.get('/exports/overdue', requireAdmin, async (req, res, next) => {
+router.get('/exports/overdue', requirePermission('reports.export'), async (req, res, next) => {
   try {
     const now = new Date();
     const tenantId = req.tenantId as string;
@@ -1355,7 +1356,7 @@ router.get('/exports/overdue', requireAdmin, async (req, res, next) => {
  * Export monthly collection summary as CSV
  * GET /api/compliance/exports/collection-summary
  */
-router.get('/exports/collection-summary', requireAdmin, async (req, res, next) => {
+router.get('/exports/collection-summary', requirePermission('reports.export'), async (req, res, next) => {
   try {
     const { months = '12' } = req.query;
     const numMonths = Math.min(parseInt(months as string) || 12, 24);

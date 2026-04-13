@@ -284,7 +284,7 @@ export default function AdminLogsPage() {
   };
 
   return (
-    <RoleGate allowedRoles={["OWNER", "ADMIN"]}>
+    <RoleGate requiredPermissions={["audit_logs.view"]}>
     {loading && logs.length === 0 ? (
       <AdminLogsPageSkeleton />
     ) : (

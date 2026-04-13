@@ -31,11 +31,13 @@ import {
 } from "@/components/ui/dialog";
 import Link from "next/link";
 import { useSession } from "@/lib/auth-client";
-import { useTenantContext } from "@/components/tenant-context";
+import { useTenantContext, useTenantPermissions } from "@/components/tenant-context";
 import { dispatchTenantDataUpdated } from "@/lib/tenant-events";
 import { formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
-import { canManageSettings } from "@/lib/permissions";
-import type { TenantRole } from "@/lib/permissions";
+import {
+  canManageSettings,
+  hasAnyPermission,
+} from "@/lib/permissions";
 import { BANK_OPTIONS, getBankLabel } from "@/lib/bank-options";
 import {
   Select,
@@ -76,6 +78,9 @@ interface User {
   email: string;
   name: string | null;
   role: string;
+  roleId?: string | null;
+  roleName?: string;
+  isSystemRole?: boolean;
   isActive: boolean;
   createdAt: string;
   lastLoginAt: string | null;
@@ -83,14 +88,27 @@ interface User {
 
 interface CurrentMembership {
   role: string;
+  roleId?: string | null;
+  roleName?: string;
+  permissions?: string[];
 }
 
-/** Must stay in sync with backend `MAX_USERS_PER_TENANT` (tenant user invite limit). */
-const MAX_TEAM_MEMBERS = 10;
+interface TenantRoleOption {
+  id: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  permissions: string[];
+  isSystem: boolean;
+  isEditable: boolean;
+  isDefault: boolean;
+  memberCount: number;
+}
 
 export default function SettingsPage() {
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<TenantRoleOption[]>([]);
   const [currentMembership, setCurrentMembership] = useState<CurrentMembership | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddUser, setShowAddUser] = useState(false);
@@ -98,8 +116,11 @@ export default function SettingsPage() {
     email: "",
     name: "",
     password: "",
-    role: "STAFF",
+    roleId: "",
   });
+  const [showChangeRoleDialog, setShowChangeRoleDialog] = useState(false);
+  const [roleDialogUser, setRoleDialogUser] = useState<User | null>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState("");
   // Tenant editing state
   const [showEditTenant, setShowEditTenant] = useState(false);
   const [savingTenant, setSavingTenant] = useState(false);
@@ -134,8 +155,24 @@ export default function SettingsPage() {
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const { refreshTenantData, hasTenants } = useTenantContext();
+  const currentPermissions = useTenantPermissions();
   const currentUser = session?.user;
-  const currentRole = currentMembership?.role || "STAFF";
+  const currentRole = currentMembership?.role || "GENERAL_STAFF";
+  const canEditSettings = canManageSettings(currentPermissions);
+  const canEditRoles = hasAnyPermission(
+    currentPermissions,
+    "team.edit_roles",
+    "roles.manage"
+  );
+  const canInviteUsers = hasAnyPermission(currentPermissions, "team.invite");
+  const canToggleUsers = hasAnyPermission(currentPermissions, "team.deactivate");
+  const canViewRolesPage = hasAnyPermission(
+    currentPermissions,
+    "roles.view",
+    "roles.manage"
+  );
+  const defaultInviteRole =
+    roles.find((role) => role.key === "GENERAL_STAFF") ?? roles[0] ?? null;
 
   const fetchData = async () => {
     if (!session) return;
@@ -143,10 +180,11 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       // Use proxy route for backend calls (ensures cookies work correctly)
-      const [tenantRes, usersRes, meRes] = await Promise.all([
+      const [tenantRes, usersRes, meRes, rolesRes] = await Promise.all([
         fetch("/api/proxy/tenants/current", { credentials: "include" }).then(r => r.json()),
         fetch("/api/proxy/tenants/users", { credentials: "include" }).then(r => r.json()),
         fetch("/api/proxy/auth/me", { credentials: "include" }).then(r => r.json()),
+        fetch("/api/proxy/tenants/roles", { credentials: "include" }).then(r => r.json()),
       ]);
 
       if (tenantRes.success && tenantRes.data) {
@@ -163,7 +201,24 @@ export default function SettingsPage() {
         setUsers(usersRes.data);
       }
       if (meRes.success && meRes.data?.user) {
-        setCurrentMembership({ role: meRes.data.user.role });
+        setCurrentMembership({
+          role: meRes.data.user.role,
+          roleId: meRes.data.user.roleId ?? null,
+          roleName: meRes.data.user.roleName,
+          permissions: meRes.data.user.permissions ?? [],
+        });
+      }
+      if (rolesRes.success && rolesRes.data) {
+        const roleList = rolesRes.data as TenantRoleOption[];
+        setRoles(roleList);
+        setNewUser((current) => ({
+          ...current,
+          roleId:
+            current.roleId ||
+            roleList.find((role) => role.key === "GENERAL_STAFF")?.id ||
+            roleList[0]?.id ||
+            "",
+        }));
       }
     } catch (error) {
       console.error("Failed to fetch settings data:", error);
@@ -179,19 +234,38 @@ export default function SettingsPage() {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (canEditRoles && !newUser.roleId) {
+      toast.error("Select a role for the new user");
+      return;
+    }
+
     try {
       const response = await fetch("/api/proxy/tenants/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(newUser),
+        body: JSON.stringify({
+          email: newUser.email,
+          name: newUser.name,
+          password: newUser.password,
+          ...(canEditRoles && newUser.roleId ? { roleId: newUser.roleId } : {}),
+        }),
       });
       const res = await response.json();
       
       if (res.success) {
         toast.success("User added successfully");
         setShowAddUser(false);
-        setNewUser({ email: "", name: "", password: "", role: "STAFF" });
+        setNewUser({
+          email: "",
+          name: "",
+          password: "",
+          roleId:
+            roles.find((role) => role.key === "GENERAL_STAFF")?.id ||
+            roles[0]?.id ||
+            "",
+        });
         fetchData();
       } else {
         toast.error(res.error || "Failed to add user");
@@ -222,19 +296,30 @@ export default function SettingsPage() {
     }
   };
 
-  const handleChangeRole = async (user: User) => {
-    const newRole = user.role === "ADMIN" ? "STAFF" : "ADMIN";
+  const handleChangeRole = async () => {
+    if (!roleDialogUser || !selectedRoleId) {
+      toast.error("Select a role before saving");
+      return;
+    }
+
+    const selectedRole = roles.find((role) => role.id === selectedRoleId);
     try {
-      const response = await fetch(`/api/proxy/tenants/users/${user.id}`, {
+      const response = await fetch(`/api/proxy/tenants/users/${roleDialogUser.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ role: newRole }),
+        body: JSON.stringify({ roleId: selectedRoleId }),
       });
       const res = await response.json();
 
       if (res.success) {
-        toast.success(`${user.name || user.email} is now ${newRole}`);
+        toast.success(
+          `${roleDialogUser.name || roleDialogUser.email} is now ${
+            selectedRole?.name || "updated"
+          }`
+        );
+        setShowChangeRoleDialog(false);
+        setRoleDialogUser(null);
         fetchData();
       } else {
         toast.error(res.error || "Failed to change role");
@@ -484,7 +569,7 @@ export default function SettingsPage() {
                 </CardDescription>
               </div>
             </div>
-            {canManageSettings(currentRole as TenantRole) && !showEditTenant && (
+            {canEditSettings && !showEditTenant && (
               <Button
                 variant="outline"
                 onClick={() => {
@@ -772,7 +857,7 @@ export default function SettingsPage() {
                 </CardDescription>
               </div>
             </div>
-            {canManageSettings(currentRole as TenantRole) && !showEditBank && (
+            {canEditSettings && !showEditBank && (
               <Button
                 variant="outline"
                 onClick={() => {
@@ -875,7 +960,9 @@ export default function SettingsPage() {
             <div>
               <CardTitle>Team Members</CardTitle>
               <CardDescription className="flex items-center gap-2">
-                {users.length}/{MAX_TEAM_MEMBERS} members used
+                {users.length} {users.length === 1 ? "member" : "members"}
+                <span className="text-muted-foreground/60">·</span>
+                Unlimited seats
                 <span className="text-muted-foreground/60">·</span>
                 <Link
                   href="/dashboard/help?doc=getting-started/roles-and-permissions"
@@ -886,19 +973,23 @@ export default function SettingsPage() {
               </CardDescription>
             </div>
           </div>
-          {canManageSettings(currentRole as TenantRole) && (
-            <Button 
-              onClick={() => setShowAddUser(!showAddUser)}
-              disabled={users.length >= MAX_TEAM_MEMBERS}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              {users.length >= MAX_TEAM_MEMBERS ? "Limit Reached" : "Add User"}
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {canViewRolesPage && (
+              <Button asChild variant="outline">
+                <Link href="/dashboard/roles">Roles & Access</Link>
+              </Button>
+            )}
+            {canInviteUsers && (
+              <Button onClick={() => setShowAddUser(!showAddUser)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add User
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Add user form */}
-          {showAddUser && (
+          {showAddUser && canInviteUsers && (
             <form onSubmit={handleAddUser} className="p-4 border border-border rounded-lg space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -928,15 +1019,35 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Role *</label>
-                  <select
-                    value={newUser.role}
-                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-                    className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="STAFF">Staff</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
+                  <Label>{canEditRoles ? "Role *" : "Default role"}</Label>
+                  {canEditRoles ? (
+                    <Select
+                      value={newUser.roleId || undefined}
+                      onValueChange={(value) =>
+                        setNewUser((current) => ({ ...current, roleId: value }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roles
+                          .filter((role) => role.key !== "OWNER")
+                          .map((role) => (
+                            <SelectItem key={role.id} value={role.id}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <>
+                      <Input value={defaultInviteRole?.name ?? "General Staff"} disabled readOnly />
+                      <p className="text-xs text-muted-foreground">
+                        Invites without role-edit permission default new users to General Staff.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2">
@@ -972,7 +1083,7 @@ export default function SettingsPage() {
                   <TableCell>
                     <Badge variant={user.role === "OWNER" ? "default" : "outline"}>
                       {user.role === "OWNER" && <Crown className="h-3 w-3 mr-1" />}
-                      {user.role}
+                      {user.roleName || user.role}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -995,22 +1106,28 @@ export default function SettingsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      {user.role !== "OWNER" && currentRole === "OWNER" && (
+                      {user.role !== "OWNER" && (canToggleUsers || canEditRoles || currentRole === "OWNER") && (
                         <>
-                          <TableActionButton
-                            icon={user.isActive ? UserX : UserCheck}
-                            label={user.isActive ? "Deactivate" : "Activate"}
-                            variant={user.isActive ? "destructive" : "success"}
-                            onClick={() => handleToggleUserActive(user)}
-                          />
-                          {user.isActive && (
+                          {canToggleUsers && (
                             <TableActionButton
-                              icon={ArrowLeftRight}
-                              label={user.role === "ADMIN" ? "Switch to Staff" : "Switch to Admin"}
-                              onClick={() => handleChangeRole(user)}
+                              icon={user.isActive ? UserX : UserCheck}
+                              label={user.isActive ? "Deactivate" : "Activate"}
+                              variant={user.isActive ? "destructive" : "success"}
+                              onClick={() => handleToggleUserActive(user)}
                             />
                           )}
-                          {user.isActive && (
+                          {user.isActive && canEditRoles && (
+                            <TableActionButton
+                              icon={ArrowLeftRight}
+                              label="Change role"
+                              onClick={() => {
+                                setRoleDialogUser(user);
+                                setSelectedRoleId(user.roleId || "");
+                                setShowChangeRoleDialog(true);
+                              }}
+                            />
+                          )}
+                          {user.isActive && currentRole === "OWNER" && (
                             <TableActionButton
                               icon={Crown}
                               label="Transfer Ownership"
@@ -1031,6 +1148,68 @@ export default function SettingsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={showChangeRoleDialog}
+        onOpenChange={(open) => {
+          setShowChangeRoleDialog(open);
+          if (!open) {
+            setRoleDialogUser(null);
+            setSelectedRoleId("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change member role</DialogTitle>
+            <DialogDescription>
+              Update the role assigned to {roleDialogUser?.name || roleDialogUser?.email || "this user"}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Assigned role</Label>
+              <Select value={selectedRoleId || undefined} onValueChange={setSelectedRoleId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles
+                    .filter((role) => role.key !== "OWNER")
+                    .map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedRoleId && (
+              <p className="text-sm text-muted-foreground">
+                {roles.find((role) => role.id === selectedRoleId)?.description ||
+                  "This role controls which areas this team member can access and edit."}
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowChangeRoleDialog(false);
+                setRoleDialogUser(null);
+                setSelectedRoleId("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleChangeRole} disabled={!selectedRoleId}>
+              Save role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Transfer Ownership Confirmation Dialog */}
       <Dialog open={showTransferOwnership} onOpenChange={setShowTransferOwnership}>

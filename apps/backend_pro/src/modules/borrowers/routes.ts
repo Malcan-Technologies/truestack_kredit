@@ -22,6 +22,7 @@ import {
 } from '../../lib/crossTenantLookupService.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
+import { requireAnyPermission, requirePermission } from '../../middleware/requireRole.js';
 import { AuditService } from '../compliance/auditService.js';
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
 import { ensureBorrowerPerformanceProjections } from './performanceProjectionService.js';
@@ -145,6 +146,10 @@ const buildLegacyAddress = (data: {
 
   return parts.length > 0 ? parts.join(', ') : null;
 };
+
+function getRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
 
 const resolveCreateAddressFields = (data: AddressInput) => {
   const legacyAddressInput = normalizeOptionalText(data.businessAddress) ?? normalizeOptionalText(data.address);
@@ -335,7 +340,7 @@ const crossTenantLookupQuerySchema = z.object({
  * List borrowers
  * GET /api/borrowers
  */
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('borrowers.view'), async (req, res, next) => {
   try {
     const { search, page = '1', pageSize = '20', borrowerType } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(pageSize as string);
@@ -363,7 +368,7 @@ router.get('/', async (req, res, next) => {
       orderBy: { createdAt: 'desc' as const },
       include: {
         _count: {
-          select: { loans: true, applications: true },
+          select: { loans: true, applications: true, borrowerProfileLinks: true },
         },
         directors: {
           select: {
@@ -401,6 +406,7 @@ router.get('/', async (req, res, next) => {
 
     const borrowersWithVerification = borrowers.map((borrower) => ({
       ...borrower,
+      registrationChannel: borrower._count.borrowerProfileLinks > 0 ? 'ONLINE' : 'PHYSICAL',
       verificationStatus: resolveVerificationStatus(borrower),
     }));
 
@@ -438,9 +444,9 @@ function mapStaffNoteAuthor(createdBy: {
  * Staff-only internal notes for a borrower
  * GET /api/borrowers/:borrowerId/staff-notes
  */
-router.get('/:borrowerId/staff-notes', async (req, res, next) => {
+router.get('/:borrowerId/staff-notes', requirePermission('borrowers.view'), async (req, res, next) => {
   try {
-    const borrowerId = req.params.borrowerId;
+    const borrowerId = getRouteParam(req.params.borrowerId);
     const { cursor, limit: limitStr = '30' } = req.query;
     const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
 
@@ -490,9 +496,9 @@ router.get('/:borrowerId/staff-notes', async (req, res, next) => {
 /**
  * POST /api/borrowers/:borrowerId/staff-notes
  */
-router.post('/:borrowerId/staff-notes', async (req, res, next) => {
+router.post('/:borrowerId/staff-notes', requirePermission('borrowers.edit'), async (req, res, next) => {
   try {
-    const borrowerId = req.params.borrowerId;
+    const borrowerId = getRouteParam(req.params.borrowerId);
     const parsed = staffNoteBodySchema.parse(req.body);
 
     const borrower = await prisma.borrower.findFirst({
@@ -548,9 +554,9 @@ router.post('/:borrowerId/staff-notes', async (req, res, next) => {
  * Get single borrower
  * GET /api/borrowers/:borrowerId
  */
-router.get('/:borrowerId', async (req, res, next) => {
+router.get('/:borrowerId', requirePermission('borrowers.view'), async (req, res, next) => {
   try {
-    const borrowerId = req.params.borrowerId;
+    const borrowerId = getRouteParam(req.params.borrowerId);
     const [borrower, totalBorrowedRes, totalPaidRes, guarantorCount] = await Promise.all([
       prisma.borrower.findFirst({
         where: {
@@ -612,8 +618,8 @@ router.get('/:borrowerId', async (req, res, next) => {
 
     const resolvedVerificationStatus = resolveVerificationStatus(borrower);
     const loanSummary = {
-      totalBorrowed: toSafeNumber(totalBorrowedRes._sum.principalAmount),
-      totalPaid: toSafeNumber(totalPaidRes._sum.totalAmount),
+      totalBorrowed: toSafeNumber(totalBorrowedRes._sum?.principalAmount),
+      totalPaid: toSafeNumber(totalPaidRes._sum?.totalAmount),
     };
 
     res.json({
@@ -635,7 +641,10 @@ router.get('/:borrowerId', async (req, res, next) => {
  * Includes lender names and aggregated risk/payment signals.
  * GET /api/borrowers/cross-tenant-insights/lookup
  */
-router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
+router.get(
+  '/cross-tenant-insights/lookup',
+  requireAnyPermission('borrowers.view', 'borrowers.create', 'borrowers.edit'),
+  async (req, res, next) => {
   try {
     const parsed = crossTenantLookupQuerySchema.safeParse(req.query ?? {});
     if (!parsed.success) {
@@ -682,9 +691,9 @@ router.get('/cross-tenant-insights/lookup', async (req, res, next) => {
  * Includes lender names and aggregated risk/payment signals.
  * GET /api/borrowers/:borrowerId/cross-tenant-insights
  */
-router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
+router.get('/:borrowerId/cross-tenant-insights', requirePermission('borrowers.view'), async (req, res, next) => {
   try {
-    const borrowerId = req.params.borrowerId;
+    const borrowerId = getRouteParam(req.params.borrowerId);
     const buildEmptyInsights = () => ({
       hasHistory: false,
       otherLenderCount: 0,
@@ -1049,8 +1058,9 @@ router.get('/:borrowerId/cross-tenant-insights', async (req, res, next) => {
  * Get borrower activity timeline
  * GET /api/borrowers/:borrowerId/timeline
  */
-router.get('/:borrowerId/timeline', async (req, res, next) => {
+router.get('/:borrowerId/timeline', requirePermission('borrowers.view'), async (req, res, next) => {
   try {
+    const borrowerId = getRouteParam(req.params.borrowerId);
     // Pagination params
     const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
     const cursor = req.query.cursor as string | undefined;
@@ -1058,7 +1068,7 @@ router.get('/:borrowerId/timeline', async (req, res, next) => {
     // Verify borrower belongs to tenant
     const borrower = await prisma.borrower.findFirst({
       where: {
-        id: req.params.borrowerId,
+        id: borrowerId,
         tenantId: req.tenantId,
       },
     });
@@ -1072,7 +1082,7 @@ router.get('/:borrowerId/timeline', async (req, res, next) => {
       where: {
         tenantId: req.tenantId!,
         entityType: 'Borrower',
-        entityId: req.params.borrowerId,
+        entityId: borrowerId,
       },
       orderBy: { createdAt: 'desc' },
       take: limit + 1, // Fetch one extra to check if there are more
@@ -1137,9 +1147,9 @@ const verifyStartSchema = z.object({
  * POST /api/borrowers/:borrowerId/verify/start
  * Body: { directorId?: string } - Required for CORPORATE borrowers (KYC is per director)
  */
-router.post('/:borrowerId/verify/start', async (req, res, next) => {
+router.post('/:borrowerId/verify/start', requirePermission('trueidentity.manage'), async (req, res, next) => {
   try {
-    const borrowerId = req.params.borrowerId;
+    const borrowerId = getRouteParam(req.params.borrowerId);
     const body = verifyStartSchema.safeParse(req.body ?? {});
     const directorId = body.success ? body.data.directorId : undefined;
 
@@ -1427,9 +1437,9 @@ router.post('/:borrowerId/verify/start', async (req, res, next) => {
  * For INDIVIDUAL: returns single status
  * For CORPORATE: returns directors array with per-director status
  */
-router.get('/:borrowerId/verify/status', async (req, res, next) => {
+router.get('/:borrowerId/verify/status', requirePermission('trueidentity.view'), async (req, res, next) => {
   try {
-    const borrowerId = req.params.borrowerId;
+    const borrowerId = getRouteParam(req.params.borrowerId);
 
     const borrower = await prisma.borrower.findFirst({
       where: {
@@ -1533,7 +1543,7 @@ router.get('/:borrowerId/verify/status', async (req, res, next) => {
  * Create borrower
  * POST /api/borrowers
  */
-router.post('/', async (req, res, next) => {
+router.post('/', requirePermission('borrowers.create'), async (req, res, next) => {
   try {
     const data = createBorrowerSchema.parse(req.body);
 
@@ -1693,14 +1703,15 @@ router.post('/', async (req, res, next) => {
  * Update borrower
  * PATCH /api/borrowers/:borrowerId
  */
-router.patch('/:borrowerId', async (req, res, next) => {
+router.patch('/:borrowerId', requirePermission('borrowers.edit'), async (req, res, next) => {
   try {
+    const borrowerId = getRouteParam(req.params.borrowerId);
     const data = updateBorrowerSchema.parse(req.body);
 
     // Verify borrower belongs to tenant
     const existing = await prisma.borrower.findFirst({
       where: {
-        id: req.params.borrowerId,
+        id: borrowerId,
         tenantId: req.tenantId,
       },
       include: {
@@ -1845,18 +1856,18 @@ router.patch('/:borrowerId', async (req, res, next) => {
 
     const borrower = await prisma.$transaction(async (tx) => {
       const updatedBorrower = await tx.borrower.update({
-        where: { id: req.params.borrowerId },
+        where: { id: borrowerId },
         data: updateData as Parameters<typeof prisma.borrower.update>[0]['data'],
       });
 
       if (data.directors !== undefined) {
         if (effectiveBorrowerType !== 'CORPORATE') {
           await tx.borrowerDirector.deleteMany({
-            where: { borrowerId: req.params.borrowerId },
+            where: { borrowerId },
           });
         } else if (normalizedDirectors.length > 0) {
           const existingDirectors = await tx.borrowerDirector.findMany({
-            where: { borrowerId: req.params.borrowerId },
+            where: { borrowerId },
             select: { id: true, name: true, icNumber: true },
           });
 
@@ -1898,7 +1909,7 @@ router.patch('/:borrowerId', async (req, res, next) => {
             } else {
               const created = await tx.borrowerDirector.create({
                 data: {
-                  borrowerId: req.params.borrowerId,
+                  borrowerId,
                   name: director.name,
                   icNumber: director.icNumber,
                   position: director.position,
@@ -1914,24 +1925,24 @@ router.patch('/:borrowerId', async (req, res, next) => {
           if (retainedIds.size > 0) {
             await tx.borrowerDirector.deleteMany({
               where: {
-                borrowerId: req.params.borrowerId,
+                borrowerId,
                 id: { notIn: Array.from(retainedIds) },
               },
             });
           } else {
             await tx.borrowerDirector.deleteMany({
-              where: { borrowerId: req.params.borrowerId },
+              where: { borrowerId },
             });
           }
         } else {
           await tx.borrowerDirector.deleteMany({
-            where: { borrowerId: req.params.borrowerId },
+            where: { borrowerId },
           });
         }
 
         if (effectiveBorrowerType === 'CORPORATE') {
           const directorStates = await tx.borrowerDirector.findMany({
-            where: { borrowerId: req.params.borrowerId },
+            where: { borrowerId },
             select: {
               trueIdentityStatus: true,
               trueIdentityResult: true,
@@ -2109,12 +2120,13 @@ router.patch('/:borrowerId', async (req, res, next) => {
  * Delete borrower
  * DELETE /api/borrowers/:borrowerId
  */
-router.delete('/:borrowerId', async (req, res, next) => {
+router.delete('/:borrowerId', requirePermission('borrowers.edit'), async (req, res, next) => {
   try {
+    const borrowerId = getRouteParam(req.params.borrowerId);
     // Verify borrower belongs to tenant and has no active loans
     const borrower = await prisma.borrower.findFirst({
       where: {
-        id: req.params.borrowerId,
+        id: borrowerId,
         tenantId: req.tenantId,
       },
       include: {
@@ -2135,7 +2147,7 @@ router.delete('/:borrowerId', async (req, res, next) => {
     }
 
     await prisma.borrower.delete({
-      where: { id: req.params.borrowerId },
+      where: { id: borrowerId },
     });
 
     // Log to audit trail
@@ -2157,7 +2169,7 @@ router.delete('/:borrowerId', async (req, res, next) => {
       req.tenantId!,
       req.memberId!,
       'Borrower',
-      req.params.borrowerId,
+      borrowerId,
       deleteAuditData,
       req.ip
     );
@@ -2179,12 +2191,13 @@ router.delete('/:borrowerId', async (req, res, next) => {
  * List borrower documents
  * GET /api/borrowers/:borrowerId/documents
  */
-router.get('/:borrowerId/documents', async (req, res, next) => {
+router.get('/:borrowerId/documents', requirePermission('borrowers.view'), async (req, res, next) => {
   try {
+    const borrowerId = getRouteParam(req.params.borrowerId);
     // Verify borrower belongs to tenant
     const borrower = await prisma.borrower.findFirst({
       where: {
-        id: req.params.borrowerId,
+        id: borrowerId,
         tenantId: req.tenantId,
       },
     });
@@ -2195,7 +2208,7 @@ router.get('/:borrowerId/documents', async (req, res, next) => {
 
     const documents = await prisma.borrowerDocument.findMany({
       where: {
-        borrowerId: req.params.borrowerId,
+        borrowerId,
         tenantId: req.tenantId,
       },
       orderBy: { uploadedAt: 'desc' },
@@ -2214,12 +2227,13 @@ router.get('/:borrowerId/documents', async (req, res, next) => {
  * Upload borrower document
  * POST /api/borrowers/:borrowerId/documents
  */
-router.post('/:borrowerId/documents', async (req, res, next) => {
+router.post('/:borrowerId/documents', requirePermission('borrowers.edit'), async (req, res, next) => {
   try {
+    const borrowerId = getRouteParam(req.params.borrowerId);
     // Verify borrower belongs to tenant
     const borrower = await prisma.borrower.findFirst({
       where: {
-        id: req.params.borrowerId,
+        id: borrowerId,
         tenantId: req.tenantId,
       },
     });
@@ -2255,7 +2269,7 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
     const MAX_DOCUMENTS_PER_CATEGORY = 3;
     const existingCount = await prisma.borrowerDocument.count({
       where: {
-        borrowerId: req.params.borrowerId,
+        borrowerId,
         category,
       },
     });
@@ -2270,7 +2284,7 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
     const { filename, path: filePath } = await saveDocumentFile(
       buffer,
       req.tenantId!,
-      req.params.borrowerId,
+      borrowerId,
       ext
     );
 
@@ -2278,7 +2292,7 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
     const document = await prisma.borrowerDocument.create({
       data: {
         tenantId: req.tenantId!,
-        borrowerId: req.params.borrowerId,
+        borrowerId,
         filename,
         originalName,
         mimeType,
@@ -2294,7 +2308,7 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
       memberId: req.user!.memberId,
       action: 'DOCUMENT_UPLOAD',
       entityType: 'Borrower',
-      entityId: req.params.borrowerId,
+      entityId: borrowerId,
       newData: {
         documentId: document.id,
         category,
@@ -2316,12 +2330,14 @@ router.post('/:borrowerId/documents', async (req, res, next) => {
  * Delete borrower document
  * DELETE /api/borrowers/:borrowerId/documents/:documentId
  */
-router.delete('/:borrowerId/documents/:documentId', async (req, res, next) => {
+router.delete('/:borrowerId/documents/:documentId', requirePermission('borrowers.edit'), async (req, res, next) => {
   try {
+    const borrowerId = getRouteParam(req.params.borrowerId);
+    const documentId = getRouteParam(req.params.documentId);
     // Verify borrower belongs to tenant
     const borrower = await prisma.borrower.findFirst({
       where: {
-        id: req.params.borrowerId,
+        id: borrowerId,
         tenantId: req.tenantId,
       },
     });
@@ -2333,8 +2349,8 @@ router.delete('/:borrowerId/documents/:documentId', async (req, res, next) => {
     // Find the document
     const document = await prisma.borrowerDocument.findFirst({
       where: {
-        id: req.params.documentId,
-        borrowerId: req.params.borrowerId,
+        id: documentId,
+        borrowerId,
         tenantId: req.tenantId,
       },
     });
@@ -2357,7 +2373,7 @@ router.delete('/:borrowerId/documents/:documentId', async (req, res, next) => {
       memberId: req.user!.memberId,
       action: 'DOCUMENT_DELETE',
       entityType: 'Borrower',
-      entityId: req.params.borrowerId,
+      entityId: borrowerId,
       previousData: {
         documentId: document.id,
         category: document.category,

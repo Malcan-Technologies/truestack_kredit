@@ -14,11 +14,15 @@ const STREAM_URL = "/api/proxy/borrower-auth/kyc/stream";
 let refCount = 0;
 let es: EventSource | null = null;
 let reconnectTimer: number | null = null;
+/** Stops tight reconnect loops when the route is missing (404) or SSE is blocked. */
+let streamErrorCount = 0;
+const MAX_STREAM_ERRORS = 6;
 const listeners = new Set<(p: TruestackKycSsePayload) => void>();
 
 function scheduleReconnect() {
   if (typeof window === "undefined" || refCount <= 0) return;
   if (reconnectTimer) return;
+  if (streamErrorCount >= MAX_STREAM_ERRORS) return;
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
     if (refCount > 0 && !es) openStream();
@@ -28,6 +32,9 @@ function scheduleReconnect() {
 function openStream() {
   if (typeof window === "undefined" || es) return;
   es = new EventSource(STREAM_URL, { withCredentials: true });
+  es.onopen = () => {
+    streamErrorCount = 0;
+  };
   es.onmessage = (ev) => {
     try {
       const p = JSON.parse(ev.data) as TruestackKycSsePayload;
@@ -43,9 +50,12 @@ function openStream() {
     }
   };
   es.onerror = () => {
+    streamErrorCount += 1;
     es?.close();
     es = null;
-    scheduleReconnect();
+    if (streamErrorCount < MAX_STREAM_ERRORS) {
+      scheduleReconnect();
+    }
   };
 }
 
@@ -75,6 +85,7 @@ export function subscribeBorrowerTruestackKycSse(
 /** Call after switching active borrower so SSE re-binds to the new session server-side. */
 export function reconnectBorrowerTruestackKycSse(): void {
   if (typeof window === "undefined" || refCount <= 0) return;
+  streamErrorCount = 0;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;

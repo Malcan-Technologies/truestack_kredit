@@ -18,6 +18,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import {
   fetchBorrower,
+  getTruestackKycStatus,
   getTruestackKycStatusWithActiveSessionSync,
   refreshTruestackKycSession,
   startTruestackKycSession,
@@ -510,44 +511,54 @@ export function TruestackKycCard({
   const [error, setError] = useState<string | null>(null);
   const hadApprovedSessionRef = useRef<boolean | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    let bumpDocs = false;
-    try {
-      const bRes = await fetchBorrower();
-      if (bRes.success) setBorrower(bRes.data);
-      else setBorrower(null);
+  /**
+   * @param syncProvider When true (default), POST /kyc/refresh for each in-flight session (expensive).
+   * Use false for polling and SSE so we only read DB state — webhooks + manual sync cover updates.
+   */
+  const load = useCallback(
+    async (opts?: { syncProvider?: boolean }) => {
+      const syncProvider = opts?.syncProvider !== false;
+      setLoading(true);
+      setError(null);
+      let bumpDocs = false;
       try {
-        const kRes = await getTruestackKycStatusWithActiveSessionSync();
-        if (kRes.success) {
-          setKyc(kRes.data);
-          bumpDocs = kRes.data.sessions.some(
-            (s: TruestackKycSessionRow) => s.status === "completed" && s.result === "approved"
-          );
+        const bRes = await fetchBorrower();
+        if (bRes.success) setBorrower(bRes.data);
+        else setBorrower(null);
+        try {
+          const kRes = syncProvider
+            ? await getTruestackKycStatusWithActiveSessionSync()
+            : await getTruestackKycStatus();
+          if (kRes.success) {
+            setKyc(kRes.data);
+            bumpDocs = kRes.data.sessions.some(
+              (s: TruestackKycSessionRow) => s.status === "completed" && s.result === "approved"
+            );
+          }
+        } catch (ke) {
+          setKyc(null);
+          setError(ke instanceof Error ? ke.message : "Failed to load KYC status");
         }
-      } catch (ke) {
+      } catch (e) {
+        setBorrower(null);
         setKyc(null);
-        setError(ke instanceof Error ? ke.message : "Failed to load KYC status");
-      }
-    } catch (e) {
-      setBorrower(null);
-      setKyc(null);
-      setError(e instanceof Error ? e.message : "Failed to load profile");
-    } finally {
-      setLoading(false);
-      // Only notify parent when KYC transitions into an approved state.
-      // Otherwise the parent refresh key can cause a fetch loop.
-      if (hadApprovedSessionRef.current === null) {
-        hadApprovedSessionRef.current = bumpDocs;
-      } else {
-        if (!hadApprovedSessionRef.current && bumpDocs) {
-          onStatusLoaded?.();
+        setError(e instanceof Error ? e.message : "Failed to load profile");
+      } finally {
+        setLoading(false);
+        // Only notify parent when KYC transitions into an approved state.
+        // Otherwise the parent refresh key can cause a fetch loop.
+        if (hadApprovedSessionRef.current === null) {
+          hadApprovedSessionRef.current = bumpDocs;
+        } else {
+          if (!hadApprovedSessionRef.current && bumpDocs) {
+            onStatusLoaded?.();
+          }
+          hadApprovedSessionRef.current = bumpDocs;
         }
-        hadApprovedSessionRef.current = bumpDocs;
       }
-    }
-  }, [onStatusLoaded]);
+    },
+    [onStatusLoaded]
+  );
 
   useEffect(() => {
     void load();
@@ -569,7 +580,7 @@ export function TruestackKycCard({
 
   useEffect(() => {
     return subscribeBorrowerTruestackKycSse(() => {
-      void load();
+      void load({ syncProvider: false });
     });
   }, [load]);
 
@@ -580,7 +591,7 @@ export function TruestackKycCard({
     );
     if (!hasActiveFlow) return;
     const timer = window.setInterval(() => {
-      void load();
+      void load({ syncProvider: false });
     }, 4000);
     return () => window.clearInterval(timer);
   }, [kyc, load]);
@@ -616,7 +627,7 @@ export function TruestackKycCard({
 
   const handleSyncSession = async (externalSessionId: string) => {
     await refreshTruestackKycSession(externalSessionId);
-    await load();
+    await load({ syncProvider: false });
   };
 
   const sessions = kyc?.sessions ?? [];

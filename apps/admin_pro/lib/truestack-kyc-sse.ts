@@ -15,11 +15,14 @@ let refCount = 0;
 let es: EventSource | null = null;
 /** Browser timer id (avoid NodeJS.Timeout vs number in shared typings). */
 let reconnectTimer: number | null = null;
+let streamErrorCount = 0;
+const MAX_STREAM_ERRORS = 6;
 const listeners = new Set<(p: TruestackKycSsePayload) => void>();
 
 function scheduleReconnect() {
   if (typeof window === "undefined" || refCount <= 0) return;
   if (reconnectTimer) return;
+  if (streamErrorCount >= MAX_STREAM_ERRORS) return;
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
     if (refCount > 0 && !es) openStream();
@@ -29,6 +32,9 @@ function scheduleReconnect() {
 function openStream() {
   if (typeof window === "undefined" || es) return;
   es = new EventSource(STREAM_URL, { withCredentials: true });
+  es.onopen = () => {
+    streamErrorCount = 0;
+  };
   es.onmessage = (ev) => {
     try {
       const p = JSON.parse(ev.data) as TruestackKycSsePayload;
@@ -44,9 +50,12 @@ function openStream() {
     }
   };
   es.onerror = () => {
+    streamErrorCount += 1;
     es?.close();
     es = null;
-    scheduleReconnect();
+    if (streamErrorCount < MAX_STREAM_ERRORS) {
+      scheduleReconnect();
+    }
   };
 }
 

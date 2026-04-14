@@ -16,6 +16,7 @@ import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.j
 import { resolveProTenant, requireActiveBorrower } from './borrowerContext.js';
 import { subscribeBorrowerTruestackKyc } from '../../lib/truestackKycSseHub.js';
 import { normalizeCorporateDirectorFlags } from '../../lib/borrowerDirectorAuthorizedRep.js';
+import { getCorporateBorrowerVerificationFromLatestSessions } from '../../lib/verification.js';
 import {
   canManageCompanyProfile,
   canManageCompanyMembers,
@@ -798,6 +799,58 @@ function assertKycConfigured(res: Response): boolean {
   return true;
 }
 
+async function syncCorporateBorrowerVerificationFromSessions(
+  borrowerId: string,
+  tenantId: string,
+): Promise<void> {
+  const borrower = await prisma.borrower.findUnique({
+    where: { id: borrowerId },
+    select: {
+      borrowerType: true,
+      directors: {
+        select: {
+          id: true,
+          isAuthorizedRepresentative: true,
+        },
+      },
+    },
+  });
+
+  if (!borrower || borrower.borrowerType !== 'CORPORATE') {
+    return;
+  }
+
+  const sessions = await prisma.truestackKycSession.findMany({
+    where: {
+      borrowerId,
+      tenantId,
+      directorId: { not: null },
+    },
+    select: {
+      directorId: true,
+      status: true,
+      result: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  const summary = getCorporateBorrowerVerificationFromLatestSessions({
+    directors: borrower.directors,
+    sessions,
+  });
+
+  await prisma.borrower.update({
+    where: { id: borrowerId },
+    data: {
+      verificationStatus: summary.verificationStatus,
+      documentVerified: summary.documentVerified,
+      verifiedAt: summary.documentVerified ? new Date() : null,
+      verifiedBy: summary.documentVerified ? 'TRUESTACK_KYC_API' : null,
+    },
+  });
+}
+
 /** POST /api/borrower-auth/kyc/sessions — start public API KYC (TrueStack Bearer key) */
 router.post('/kyc/sessions', async (req, res, next) => {
   try {
@@ -1070,6 +1123,10 @@ router.post('/kyc/refresh', async (req, res, next) => {
         lastWebhookAt: new Date(),
       },
     });
+
+    if (row.directorId) {
+      await syncCorporateBorrowerVerificationFromSessions(borrowerId, tenant.id);
+    }
 
     if (status === 'completed' && result === 'approved' && !row.directorId) {
       await prisma.borrower.update({

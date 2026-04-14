@@ -18,8 +18,12 @@ const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3006";
 
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
-  title: "Demo Client | TrueKredit Pro",
-  description: "Digital license KPKT borrowing",
+  title: {
+    default: "TrueStack Demo Client | KPKT digital lending",
+    template: "%s | TrueStack Demo Client",
+  },
+  description:
+    "TrueStack Demo Client: borrower and lender tooling for Malaysian licensed money lenders and KPKT digital lending licence journeys.",
   icons: { icon: "/favicon.ico" },
 };
 

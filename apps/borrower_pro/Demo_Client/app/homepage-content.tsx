@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import {
   ArrowRight,
@@ -10,7 +10,9 @@ import {
   CircleAlert,
   CircleHelp,
   Clock3,
+  ExternalLink,
   FileText,
+  Mail,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
@@ -32,6 +34,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@borrower_pro/components/ui/tooltip";
+import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
 import { fetchBorrowerMe } from "@borrower_pro/lib/borrower-auth-client";
 import {
   calculateFlatInterest,
@@ -49,7 +52,7 @@ const ANNUAL_INTEREST_RATE = 18;
 const AFFORDABILITY_FACTOR = 0.8;
 const DEMO_NOTICE =
   "Demo only. Demo Client is not a real lending company. Figures shown here are illustrative and do not represent a real loan offer, approval, or underwriting decision.";
-const TERM_MONTHS_OPTIONS = [6, 12, 18, 24, 36] as const;
+const TERM_MONTHS_OPTIONS = [6, 12, 18, 24] as const;
 /** Floor max loan to this step (e.g. 24,406.78 → 24,400). */
 const MAX_LOAN_ROUND_STEP = 100;
 
@@ -105,7 +108,7 @@ const BENEFITS = [
   },
 ] as const;
 
-const FAQS = [
+const FAQS: { question: string; answer: ReactNode }[] = [
   {
     question: "Who is this homepage designed for?",
     answer:
@@ -126,7 +129,50 @@ const FAQS = [
     answer:
       "It uses your net income, current monthly commitments, the term you choose, and a flat 18% p.a. example to estimate indicative figures. It is not a credit decision.",
   },
-] as const;
+  {
+    question: "Can we book a live demo of this borrower portal and the admin portal?",
+    answer: (
+      <>
+        Yes. For a guided walkthrough of this borrower experience and the lender admin portal,
+        contact TrueStack at{" "}
+        <a
+          href="mailto:hello@truestack.my"
+          className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
+        >
+          hello@truestack.my
+        </a>{" "}
+        or reach out via{" "}
+        <a
+          href="https://truestack.my/contact"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
+        >
+          truestack.my/contact
+        </a>
+        .
+      </>
+    ),
+  },
+  {
+    question: "Where can I learn more about what TrueStack does for KPKT digital lending?",
+    answer: (
+      <>
+        For digital licence conversion, the end-to-end programme, and how TrueStack supports
+        licensed money lenders, see{" "}
+        <a
+          href="https://www.truestack.my/services/digital-license"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
+        >
+          Digital KPKT licence conversion on truestack.my
+        </a>
+        .
+      </>
+    ),
+  },
+];
 
 function HomeBrandMark() {
   const { resolvedTheme } = useTheme();
@@ -507,7 +553,10 @@ export function HomePageContent() {
               FAQ
             </Link>
           </div>
-          <HomeHeaderActions />
+          <div className="flex items-center gap-1 sm:gap-2">
+            <ThemeToggle />
+            <HomeHeaderActions />
+          </div>
         </div>
       </header>
 
@@ -522,11 +571,31 @@ export function HomePageContent() {
                 Show your lending business with a cleaner digital borrower journey.
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-muted-foreground">
-                Demo Client is a sample borrower-facing website for licensed money
+                This is a sample borrower-facing website for licensed money
                 lenders exploring KPKT digital licence lending. It shows how your
                 business could present a branded homepage, an upfront affordability
                 preview, and a simple path into sign-up and application flows.
               </p>
+            </div>
+
+            <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-secondary/40 to-card/90 p-5 sm:p-6">
+              <p className="font-medium text-foreground">
+                KPKT digital licence and your lending platform
+              </p>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Contact TrueStack about digital licence conversion or setting up your own
+                lending platform.
+              </p>
+              <Button asChild size="lg" className="mt-4">
+                <a
+                  href="https://truestack.my/contact"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Contact us
+                  <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+                </a>
+              </Button>
             </div>
 
             <div className="rounded-2xl border border-border/70 bg-card/80 p-5">
@@ -623,7 +692,7 @@ export function HomePageContent() {
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
           <div className="max-w-2xl space-y-3">
             <Badge variant="outline">FAQ</Badge>
-            <h2 className="font-heading text-3xl font-semibold">Questions lenders may ask</h2>
+            <h2 className="font-heading text-3xl font-semibold">FAQ</h2>
             <p className="text-muted-foreground">
               These answers clarify how the demo should be positioned during internal
               reviews, client walkthroughs, and product discussions.
@@ -657,6 +726,16 @@ export function HomePageContent() {
                 <Button asChild variant="outline" className="w-full">
                   <Link href="/sign-in">Sign in to demo portal</Link>
                 </Button>
+                <Button asChild variant="outline" className="w-full">
+                  <a
+                    href="https://truestack.my/contact"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Contact us — KPKT and lending platform
+                    <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+                  </a>
+                </Button>
                 <p className="text-xs leading-6 text-muted-foreground">{DEMO_NOTICE}</p>
               </CardContent>
             </Card>
@@ -664,14 +743,66 @@ export function HomePageContent() {
         </div>
       </section>
 
-      <footer className="bg-background">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-10 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-heading text-xl font-semibold">Demo Client</p>
-              <p className="text-sm text-muted-foreground">KPKT digital lending demo</p>
+      <footer className="border-t border-border/60 bg-background">
+        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="max-w-3xl space-y-3">
+            <h2 className="font-heading text-lg font-semibold text-foreground">
+              KPKT digital lending licence demo
+            </h2>
+            <p className="text-sm leading-7 text-muted-foreground">
+              This site demonstrates a borrower-facing experience for Malaysian licensed money
+              lenders preparing for or operating under a{" "}
+              <span className="text-foreground/90">KPKT digital lending licence</span>. It is
+              meant for product discovery, internal reviews, and conversations about digital
+              borrower journeys—not live lending or credit decisions. TrueStack Technologies
+              builds software and implementation support for{" "}
+              <span className="text-foreground/90">KPKT digital lending licence</span>{" "}
+              conversion and compliant digital operations; figures and flows shown here are
+              illustrative unless stated otherwise.
+            </p>
+          </div>
+
+          <div className="mt-10 flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
+            <div className="max-w-md space-y-6">
+              <HomeBrandMark />
+              <div className="space-y-2 text-sm leading-6">
+                <p className="font-heading font-semibold text-foreground">
+                  TRUESTACK TECHNOLOGIES SDN. BHD.
+                </p>
+                <p className="text-muted-foreground">
+                  Registration No. 202501058714 (1660120-X)
+                </p>
+                <p className="text-muted-foreground">
+                  Lot C-13-3, KL Trillion
+                  <br />
+                  No 338 Jalan Tun Razak
+                  <br />
+                  50400 Kuala Lumpur
+                </p>
+                <p>
+                  <a
+                    href="mailto:hello@truestack.my"
+                    className="inline-flex items-center gap-2 text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                  >
+                    <Mail className="h-4 w-4 shrink-0" aria-hidden />
+                    hello@truestack.my
+                  </a>
+                </p>
+                <p>
+                  <a
+                    href="https://truestack.my"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                  >
+                    <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
+                    truestack.my
+                  </a>
+                </p>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground lg:shrink-0">
               <Link href="/legal/terms" className="transition-colors hover:text-foreground">
                 Terms
               </Link>
@@ -683,7 +814,9 @@ export function HomePageContent() {
               </Link>
             </div>
           </div>
-          <div className="rounded-2xl border border-border/70 bg-secondary/30 p-5">
+
+          <div className="mt-10 space-y-4 rounded-2xl border border-border/70 bg-secondary/30 p-5">
+            <p className="text-sm font-medium text-foreground">Disclaimer</p>
             <p className="text-sm leading-6 text-muted-foreground">{DEMO_NOTICE}</p>
           </div>
         </div>

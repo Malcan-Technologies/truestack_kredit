@@ -8,8 +8,12 @@
 import type { FetchFn } from '@kredit/borrower';
 import { authClient } from './auth-client';
 
+const authClientWithCookie = authClient as typeof authClient & {
+  getCookie: () => string | null | undefined;
+};
+
 export const sessionFetch: FetchFn = async (url, init) => {
-  const cookie = authClient.getCookie();
+  const cookie = authClientWithCookie.getCookie?.();
   if (!cookie) {
     return fetch(url, init);
   }

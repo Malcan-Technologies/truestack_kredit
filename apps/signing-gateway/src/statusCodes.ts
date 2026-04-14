@@ -103,7 +103,9 @@ const STATUS_CODES: Record<string, string> = {
   RV113: 'AuthFactor has expired',
   RV114: 'AuthFactor validation failed',
   RV115: 'Failed to retrieve certificate request record',
-  RV116: 'User has no completed certificate request record',
+  // MTSA often emits this when MTIDA already has a request in "Pending Revoke", or enrolment never completed — the stock text is misleading.
+  RV116:
+    'Trustgate cannot accept another revoke right now: a revoke may already be pending, or your certificate was not issued from a completed enrolment request. Wait for an in-flight revoke to finish, check status with Trustgate, or contact support.',
   RV117: 'MyTrustID Service returns error',
   RV118: 'Document size is bigger than the limit',
   RV119: 'No document to upload',

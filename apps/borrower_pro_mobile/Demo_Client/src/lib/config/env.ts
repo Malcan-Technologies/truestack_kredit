@@ -6,5 +6,6 @@ export function getEnv() {
     backendUrl: (process.env.EXPO_PUBLIC_BACKEND_URL ?? '').replace(/\/$/, ''),
     authBaseUrl: (process.env.EXPO_PUBLIC_AUTH_BASE_URL ?? '').replace(/\/$/, ''),
     clientId: process.env.EXPO_PUBLIC_CLIENT_ID ?? 'demo-client',
+    passkeyRpId: (process.env.EXPO_PUBLIC_PASSKEY_RP_ID ?? '').trim(),
   };
 }

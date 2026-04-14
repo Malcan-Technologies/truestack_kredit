@@ -18,6 +18,7 @@ function palette(mode: 'light' | 'dark') {
     textSecondary: b.textSecondary,
     border: b.border,
     primary: b.primary,
+    primaryForeground: b.primaryForeground,
     success: b.success,
     warning: b.warning,
     error: b.error,

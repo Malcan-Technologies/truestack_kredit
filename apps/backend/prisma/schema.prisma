@@ -349,6 +349,7 @@ model TwoFactor {
   userId      String
   secret      String
   backupCodes String
+  verified    Boolean @default(false)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

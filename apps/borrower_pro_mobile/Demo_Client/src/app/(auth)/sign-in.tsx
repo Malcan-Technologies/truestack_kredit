@@ -1,30 +1,44 @@
-import { Stack } from 'expo-router';
+import { Link, Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
+import { AuthButton, AuthInput, AuthMessage } from '@/components/auth-controls';
+import { AuthScreen } from '@/components/auth-screen';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Colors, Spacing } from '@/constants/theme';
-import { signInWithEmail } from '@/lib/auth/auth-api';
-import { useSession } from '@/lib/auth/session-context';
+import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  getPasskeySupportMessage,
+  signInWithEmail,
+  signInWithPasskey,
+} from '@/lib/auth/auth-api';
+import { useSession } from '@/lib/auth/session-context';
 
 export default function SignInScreen() {
-  const { refresh } = useSession();
+  const router = useRouter();
   const theme = useTheme();
+  const { refresh } = useSession();
+  const passkeySupportMessage = getPasskeySupportMessage();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<'credentials' | 'passkey' | null>(null);
+
+  async function handlePasskey() {
+    setError(null);
+    setLoading('passkey');
+
+    try {
+      await signInWithPasskey(email.trim().toLowerCase() || undefined);
+      await refresh();
+      router.replace('/');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Passkey sign in failed. Please try again.');
+    } finally {
+      setLoading(null);
+    }
+  }
 
   async function handleSignIn() {
     if (!email.trim() || !password) {
@@ -33,143 +47,130 @@ export default function SignInScreen() {
     }
 
     setError(null);
-    setLoading(true);
+    setLoading('credentials');
 
     try {
-      const result = await signInWithEmail(email.trim().toLowerCase(), password);
+      const normalizedEmail = email.trim().toLowerCase();
+      const result = await signInWithEmail(normalizedEmail, password);
 
       if (result.twoFactorRedirect) {
-        setError(
-          'Two-factor authentication is required. 2FA is not yet supported on mobile. Please sign in via the web app.',
-        );
+        router.replace(`/two-factor?email=${encodeURIComponent(normalizedEmail)}`);
         return;
       }
 
       await refresh();
+      router.replace('/');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Sign in failed. Please try again.');
+      const message = e instanceof Error ? e.message : 'Sign in failed. Please try again.';
+      if (/not verified|verify/i.test(message) && email.trim()) {
+        router.push(`/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}&source=signin`);
+        return;
+      }
+      setError(message);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
-
-  const inputStyle = [
-    styles.input,
-    {
-      backgroundColor: theme.backgroundElement,
-      borderColor: error ? theme.error : theme.border,
-      color: theme.text,
-    },
-  ];
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <ThemedView style={styles.root}>
-        <KeyboardAvoidingView
-          style={styles.inner}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <View style={styles.header}>
-            <ThemedText type="subtitle">Sign in</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-              Use your borrower account email and password.
-            </ThemedText>
-          </View>
-
-          <View style={styles.form}>
-            <TextInput
-              style={inputStyle}
-              placeholder="Email"
-              placeholderTextColor={theme.textSecondary}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              textContentType="emailAddress"
-              returnKeyType="next"
-              editable={!loading}
-            />
-            <TextInput
-              style={inputStyle}
-              placeholder="Password"
-              placeholderTextColor={theme.textSecondary}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              textContentType="password"
-              returnKeyType="done"
-              onSubmitEditing={handleSignIn}
-              editable={!loading}
-            />
-
-            {error ? (
-              <ThemedText type="small" style={[styles.error, { color: theme.error }]}>
-                {error}
+      <AuthScreen
+        title="Sign in"
+        subtitle="Use your borrower account email, password, or passkey."
+        showTenantLogo
+        centerHeader
+        footer={
+          <View style={styles.footer}>
+            <View style={styles.footerRow}>
+              <ThemedText type="small" themeColor="textSecondary">
+                Don&apos;t have an account?
               </ThemedText>
-            ) : null}
-
-            <Pressable
-              style={[styles.button, { backgroundColor: theme.primary }, loading && styles.buttonDisabled]}
-              onPress={handleSignIn}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color={Colors.dark.text} size="small" />
-              ) : (
-                <ThemedText type="smallBold" style={styles.buttonText}>
-                  Sign in
-                </ThemedText>
-              )}
-            </Pressable>
+              <Link href="/sign-up" asChild>
+                <Pressable>
+                  <ThemedText type="smallBold" themeColor="primary">
+                    Sign up
+                  </ThemedText>
+                </Pressable>
+              </Link>
+            </View>
           </View>
-        </KeyboardAvoidingView>
-      </ThemedView>
+        }>
+        <AuthButton
+          label={loading === 'passkey' ? 'Waiting for passkey…' : 'Sign in with passkey'}
+          variant="outline"
+          onPress={handlePasskey}
+          loading={loading === 'passkey'}
+          disabled={loading !== null || Boolean(passkeySupportMessage)}
+        />
+
+        <View style={styles.divider}>
+          <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+          <ThemedText type="small" themeColor="textSecondary">
+            Or use email and password
+          </ThemedText>
+          <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+        </View>
+
+        <AuthInput
+          value={email}
+          onChangeText={setEmail}
+          placeholder="Email"
+          keyboardType="email-address"
+          editable={loading === null}
+        />
+        <AuthInput
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Password"
+          secureTextEntry
+          editable={loading === null}
+        />
+
+        <View style={styles.linksRow}>
+          <View />
+          <Link
+            href={email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim())}` : '/forgot-password'}
+            asChild>
+            <Pressable>
+              <ThemedText type="smallBold" themeColor="primary">
+                Forgot password?
+              </ThemedText>
+            </Pressable>
+          </Link>
+        </View>
+
+        {error ? <AuthMessage tone="error">{error}</AuthMessage> : null}
+
+        <AuthButton
+          label={loading === 'credentials' ? 'Signing in…' : 'Sign in'}
+          onPress={handleSignIn}
+          loading={loading === 'credentials'}
+          disabled={loading !== null}
+        />
+      </AuthScreen>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  inner: {
-    flex: 1,
-    padding: Spacing.four,
-    justifyContent: 'center',
-    gap: Spacing.four,
-  },
-  header: {
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.two,
   },
-  subtitle: {
-    lineHeight: 20,
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
   },
-  form: {
-    gap: Spacing.three,
+  linksRow: {
+    alignItems: 'flex-end',
   },
-  input: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two + Spacing.one, // 12
-    fontSize: 16,
-  },
-  error: {
-    lineHeight: 18,
-  },
-  button: {
-    borderRadius: 8,
-    paddingVertical: Spacing.two + Spacing.one, // 12
+  footer: {
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 44,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#FFFFFF',
+  footerRow: {
+    flexDirection: 'row',
+    gap: Spacing.one,
   },
 });

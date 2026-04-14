@@ -7,6 +7,7 @@ import { config } from '../../lib/config.js';
 import { requireBorrowerSession } from '../../middleware/authenticateBorrower.js';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
 import { runCrossTenantLookup } from '../../lib/crossTenantLookupService.js';
+import { getFile } from '../../lib/storage.js';
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
 import { assertIdentityDocumentMutationAllowed } from '../../lib/identityLock.js';
 import { performBorrowerUpdate, updateBorrowerSchema } from '../borrowers/borrowerUpdateService.js';
@@ -674,6 +675,36 @@ router.get('/borrower/documents', async (req, res, next) => {
       success: true,
       data: documents,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** GET /api/borrower-auth/borrower/documents/:documentId/file - download document bytes (session auth) */
+router.get('/borrower/documents/:documentId/file', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+
+    const document = await prisma.borrowerDocument.findFirst({
+      where: {
+        id: req.params.documentId,
+        borrowerId,
+        tenantId: tenant.id,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundError('Document');
+    }
+
+    const buffer = await getFile(document.path);
+    if (!buffer) {
+      throw new NotFoundError('Document file');
+    }
+
+    res.setHeader('Content-Type', document.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(buffer);
   } catch (e) {
     next(e);
   }

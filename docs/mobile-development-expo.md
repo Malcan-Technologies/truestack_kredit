@@ -23,12 +23,14 @@ This document maps `apps/borrower_pro/Demo_Client` (Next.js) to the **Expo (Reac
 |------|-------------|
 | `src/lib/auth/session-store.ts` | Persists Better Auth session token in `expo-secure-store`; exports `getSessionToken`, `setSessionToken`, `clearSessionToken`, `buildCookieHeader` |
 | `src/lib/auth/session-fetch.ts` | `sessionFetch: FetchFn` — reads stored token on every call and injects `Cookie: truestack-borrower.session_token=<token>` |
-| `src/lib/auth/auth-api.ts` | Better Auth REST calls: `signInWithEmail`, `signUpWithEmail`, `signOut`, `getSession`, `verifyTotp`, `requestPasswordReset`, `sendVerificationEmail` |
+| `src/lib/auth/auth-api.ts` | Better Auth helpers for email auth, passkeys, account/security fetches, password reset, and verification resend |
 | `src/lib/auth/session-context.tsx` | `SessionProvider` + `useSession()` React Context; validates token against server on mount; exposes `session`, `user`, `isLoading`, `signOut`, `refresh` |
 | `src/lib/auth/index.ts` | Barrel export for the auth module |
 | `src/lib/api/borrower.ts` | All five API clients instantiated with `sessionFetch`; screens import e.g. `borrowerClient.fetchBorrower()` |
-| `src/app/_layout.tsx` | Root layout with `SessionProvider` + `AuthGate` (Expo Router `<Redirect>`-based auth guard) |
-| `src/app/(auth)/sign-in.tsx` | Sign-in screen: email + password inputs, error display, loading state, calls `signInWithEmail` → `refresh` → `router.replace('/')` |
+| `src/app/_layout.tsx` | Root layout with `SessionProvider` + `AuthGate` (Expo Router auth guard) |
+| `src/app/(auth)/*.tsx` | Sign-in, sign-up, forgot-password, and verify-email screens wired to Better Auth mobile helpers |
+| `src/app/(app)/account.tsx` | Mobile account tab with profile edit, email/password actions, passkey management, and login activity |
+| `src/app/(app)/applications.tsx`, `src/app/(app)/loans.tsx` | Placeholder tab screens so the borrower menu structure is in place while auth is being built out |
 | `metro.config.js` | Monorepo-aware Metro config: watches `packages/` so Metro can resolve `@kredit/borrower` |
 
 **Web app import consolidation** — zero behavior change, all tests pass:
@@ -41,11 +43,10 @@ Better Auth session tokens are read from the sign-in response body (`result.toke
 
 ### Known gaps / not yet started
 
-- **2FA screen**: Sign-in detects `twoFactorRedirect: true` and shows an error message. A `/(auth)/two-factor` screen with TOTP entry needs to be built.
-- **Sign-up screen**: `signUpWithEmail` exists in `auth-api.ts` but there is no UI yet.
-- **All app screens**: Loan center, applications, profile, dashboard — not yet started.
-- **Deep linking**: Password-reset and email-verification links must open the app via Universal Links / App Links — not yet configured.
-- **Passkeys**: Not evaluated for mobile yet; web uses passkeys but the Expo path needs its own spike.
+- **2FA screen**: Sign-in still detects `twoFactorRedirect: true` and shows an unsupported message. A `/(auth)/two-factor` screen with TOTP entry still needs to be built.
+- **Deep linking**: Password-reset and email-verification links still open the borrower web app until Universal Links / App Links are configured.
+- **Passkey platform hardening**: Native passkeys are now wired through `expo-better-auth-passkey`, but they still require a custom dev/prod build plus associated-domain / asset-links setup. Expo Go does not support them.
+- **Core borrower screens**: Dashboard, applications, and loans tabs are scaffolded with placeholders only.
 
 ---
 
@@ -154,8 +155,8 @@ The auth spike is done. The approach chosen:
 
 - **Deep linking**: `verify-email`, `reset-password`, `change-email` links need iOS Universal Links + Android App Links configured in `app.json` + server-side `apple-app-site-association` / `assetlinks.json`.
 - **2FA**: `signInWithEmail` detects `twoFactorRedirect: true`; a `/(auth)/two-factor` TOTP screen needs to be built.
-- **Sign-up screen**: API exists, UI does not.
-- **Passkeys**: Evaluate **expo-passkey** / platform WebAuthn against Better Auth mobile docs. May require a custom dev build (not Expo Go). Treat as a separate milestone.
+- **Passkeys**: Initial client/server support is now wired via `expo-better-auth-passkey` + Better Auth `passkey` plugin. Native device passkeys still require a custom dev build / production build plus platform domain association work.
+- **TOTP UI**: `twoFactorRedirect` is still not handled in-app; use the borrower web app for authenticator flows until a dedicated mobile screen is built.
 
 ---
 

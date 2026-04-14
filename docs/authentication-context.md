@@ -7,8 +7,12 @@ This document captures the current authentication architecture and policy across
 - `apps/admin` owns Better Auth for the non-pro admin frontend.
 - `apps/admin_pro` owns Better Auth for the pro admin frontend.
 - `apps/borrower_pro/Demo_Client` owns Better Auth for the borrower frontend (web).
-- `apps/borrower_pro_mobile/Demo_Client` is the Expo mobile app for borrowers. It authenticates directly against `apps/backend_pro` using the official `@better-auth/expo` integration.
-- `apps/backend` and `apps/backend_pro` do not send auth emails. They verify sessions created by the frontend auth owners and share the same database and `BETTER_AUTH_SECRET` for their stack.
+- `apps/borrower_pro_mobile/Demo_Client` is the Expo mobile app for borrowers. It authenticates directly against a dedicated Better Auth instance inside `apps/backend_pro` at `/api/borrower-auth/auth`.
+- `apps/backend` does not own Better Auth. It verifies sessions created by `apps/admin`.
+- `apps/backend_pro` is split:
+  - it verifies sessions created by `apps/admin_pro`
+  - it also owns a dedicated borrower Better Auth server for Expo/mobile sign-in
+- In the pro borrower stack, web and mobile share the same database and `BETTER_AUTH_SECRET`, but they do not share the same HTTP auth handler.
 
 ## Stack-Level Rules
 
@@ -63,6 +67,13 @@ This document captures the current authentication architecture and policy across
 - Sidebar items that require a borrower profile are visually disabled until onboarding is complete.
 - If a security-status check fails, security pages remain accessible, but other protected pages redirect back to `/security-setup`.
 
+### Borrower Mobile
+
+- Uses `expoClient()` plus `twoFactorClient()` from Better Auth for borrower password sign-in and TOTP verification.
+- Password sign-in can redirect to the mobile `/two-factor` route when Better Auth returns `twoFactorRedirect`.
+- The mobile root auth gate must only block on the initial session bootstrap. If it replaces the navigator during later `useSession()` refetches, it can unmount `/two-factor` mid-challenge and bounce the user back to `/sign-in`.
+- Mobile still relies on `backend_pro` for the actual auth HTTP endpoints, while borrower web uses the embedded Next.js auth handler.
+
 ## Security UI Conventions
 
 All three auth-owning frontends now follow the same security-management behavior:
@@ -82,13 +93,14 @@ All three auth-owning frontends now follow the same security-management behavior
 
 ## Email Delivery
 
-Auth emails are sent directly from the auth-owning Next.js apps:
+Auth emails are sent directly from the auth-owning web apps plus the dedicated borrower mobile auth server:
 
 - `apps/admin/lib/sendEmail.ts`
 - `apps/admin_pro/lib/sendEmail.ts`
 - `apps/borrower_pro/Demo_Client/lib/sendEmail.ts`
+- `apps/backend_pro/src/lib/borrower-auth.ts` (borrower mobile auth)
 
-Required env vars on those frontend apps:
+Required env vars on the auth sender:
 
 - `RESEND_API_KEY`
 - `EMAIL_FROM_NAME`
@@ -119,6 +131,7 @@ Defaults exist for sender name/address, but `RESEND_API_KEY` must be present or 
   - `NEXT_PUBLIC_APP_URL`
   - backend URL
   - `RESEND_API_KEY` for auth emails
+- `apps/backend_pro` also needs `RESEND_API_KEY` because borrower mobile auth emails are sent from its dedicated Better Auth server.
 - Shared auth helpers normalize pathful `BETTER_AUTH_URL` values back to bare browser origins before generating auth emails, trusted origins, and passkey origin settings.
 - Passkey origin/RP ID can be overridden with:
   - `BETTER_AUTH_PASSKEY_ORIGINS`
@@ -135,10 +148,11 @@ token from the response body instead of the full signed cookie value.
 1. `apps/backend_pro` runs a dedicated Better Auth instance at `basePath: /api/borrower-auth/auth`,
    mounted via `toNodeHandler(borrowerAuth)` before `express.json()`.
 2. The mobile app creates an auth client with `createAuthClient` + `expoClient` from `@better-auth/expo/client`.
-3. `expoClient` intercepts `Set-Cookie` response headers, extracts the full signed cookie value
+3. The mobile app also enables Better Auth `twoFactorClient()` so TOTP verification writes the resulting session/trusted-device cookies through the Expo fetch pipeline instead of bypassing cookie persistence.
+4. `expoClient` intercepts `Set-Cookie` response headers, extracts the full signed cookie value
    (e.g. `truestack-borrower.session_token=<token.hmac>`) and stores it in `expo-secure-store`.
-4. `authClient.getCookie()` returns the stored signed cookie string for use in subsequent API requests.
-5. `authClient.useSession()` is a React hook that reads the cached session from SecureStore, reducing
+5. `authClient.getCookie()` returns the stored signed cookie string for use in subsequent API requests.
+6. `authClient.useSession()` is a React hook that reads the cached session from SecureStore, reducing
    loading states on app relaunch.
 
 ### Configuration
@@ -160,6 +174,7 @@ createAuthClient({
       cookiePrefix: 'truestack-borrower',
       storage: SecureStore,
     }),
+    twoFactorClient(),
   ],
 })
 ```
@@ -172,8 +187,28 @@ createAuthClient({
 | Session storage | Browser cookies (automatic) | `expo-secure-store` via `expoClient` |
 | Session transport | Cookie header (browser) | `authClient.getCookie()` set manually |
 | `useSession()` source | Better Auth React hook | Same, backed by SecureStore cache |
-| Passkeys | Supported | Not yet (v1) |
-| 2FA | TOTP supported | Not yet (v1) — shows unsupported message |
+| Passkeys | Supported | Supported in custom dev/prod builds via `expo-better-auth-passkey`; Expo Go unsupported |
+| 2FA | TOTP supported | TOTP supported via `/two-factor` screen and `twoFactorClient()` |
+
+### Important borrower pro/mobile nuance
+
+- Borrower web and borrower mobile are separate Better Auth servers.
+- Both default to the same pro database and `BETTER_AUTH_SECRET`.
+- Borrower web currently generates Prisma Client from `apps/backend_pro/prisma/schema.prisma`:
+  - `apps/borrower_pro/Demo_Client/package.json`
+  - `db:generate = prisma generate --schema=../../backend_pro/prisma/schema.prisma`
+- This means schema changes in `backend_pro` can affect borrower web runtime even though the web app still owns its own auth handler.
+- If the web dev server and `backend_pro` are regenerated/restarted at different times, auth behavior can drift in confusing ways.
+
+### Better Auth 1.6.2 `TwoFactor.verified`
+
+- Better Auth `1.6.2` expects the `TwoFactor` model to include `verified Boolean @default(false)`.
+- On successful TOTP confirmation, Better Auth marks the `TwoFactor` row as `verified = true`.
+- Existing rows created before this field existed can fail in two stages:
+  - before the field exists in Prisma: successful verification can crash with a Prisma validation error while trying to update `verified`
+  - after the field exists but legacy rows remain `verified = false`: sign-in TOTP verification can return `TOTP not enabled`
+- For already-enrolled legacy users, backfill `verified = true` on their `TwoFactor` rows after adding the field.
+- Changing a user's email does not invalidate TOTP or passkeys because both are bound to `userId`, not email.
 
 ### Mobile environment variables
 
@@ -187,6 +222,9 @@ Required in `apps/borrower_pro_mobile/Demo_Client/.env`:
 - `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/auth-api.ts`
 - `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/session-context.tsx`
 - `apps/borrower_pro_mobile/Demo_Client/src/lib/auth/session-fetch.ts`
+- `apps/borrower_pro_mobile/Demo_Client/src/app/(auth)/sign-in.tsx`
+- `apps/borrower_pro_mobile/Demo_Client/src/app/(auth)/sign-up.tsx`
+- `apps/borrower_pro_mobile/Demo_Client/src/app/(app)/account.tsx`
 - `apps/backend_pro/src/lib/borrower-auth.ts`
 
 ---
@@ -196,7 +234,8 @@ Required in `apps/borrower_pro_mobile/Demo_Client/.env`:
 - Frontend auth email delivery depends on the frontend task/container receiving `RESEND_API_KEY`.
 - Borrower production wiring was previously the main gap and has already been patched.
 - Admin and admin_pro were already wired for `RESEND_API_KEY`; their auth UI is now aligned with borrower as well.
-- Backend ECS tasks may also carry auth-related secrets for shared stack consistency, but auth email sending happens in the frontend auth owners.
+- `backend_pro` borrower auth is the exception: it sends borrower auth emails for the Expo/mobile-owned auth flow, while still redirecting users back to borrower web URLs for email verification and reset-password completion.
+- Backend ECS tasks may also carry auth-related secrets for shared stack consistency, but auth email sending otherwise happens in the auth-owning frontend apps.
 
 ## Files To Check First
 

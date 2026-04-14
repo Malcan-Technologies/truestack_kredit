@@ -14,8 +14,10 @@
  */
 
 import { betterAuth } from 'better-auth';
+import { createAuthMiddleware } from 'better-auth/api';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { twoFactor } from 'better-auth/plugins/two-factor';
+import { passkey } from '@better-auth/passkey';
 import { expo } from '@better-auth/expo';
 import {
   AUTH_COOKIE_PREFIXES,
@@ -23,12 +25,14 @@ import {
   TWO_FACTOR_COOKIE_MAX_AGE_SECONDS,
   TRUSTED_DEVICE_MAX_AGE_SECONDS,
   collectOrigins,
+  getPasskeyRpId,
   splitOrigins,
 } from '@kredit/shared';
 import { prisma } from './prisma.js';
 import { config } from './config.js';
 
 const BORROWER_AUTH_BASE_PATH = '/api/borrower-auth/auth';
+const APP_NAME = 'TrueKredit Borrower';
 
 // Backend base URL — used for generating email links.
 // Falls back to localhost:4001 for local dev.
@@ -56,6 +60,12 @@ const trustedOrigins = collectOrigins(
   // Expo Go development scheme
   'exp://',
 );
+const passkeyOrigins = collectOrigins(
+  borrowerWebUrl,
+  splitOrigins(process.env.BETTER_AUTH_PASSKEY_ORIGINS),
+);
+const passkeyRpId =
+  process.env.BETTER_AUTH_PASSKEY_RP_ID || getPasskeyRpId(borrowerWebUrl);
 
 /** Minimal Resend email sender — uses the same API key as the rest of backend_pro. */
 async function sendResendEmail(params: {
@@ -183,11 +193,48 @@ export const borrowerAuth = betterAuth({
   plugins: [
     expo(),
     twoFactor({
+      issuer: APP_NAME,
       twoFactorCookieMaxAge: TWO_FACTOR_COOKIE_MAX_AGE_SECONDS,
       trustDeviceMaxAge: TRUSTED_DEVICE_MAX_AGE_SECONDS,
       totpOptions: { digits: 6, period: 30 },
     }),
+    passkey({
+      rpID: passkeyRpId,
+      origin: passkeyOrigins,
+    }),
   ],
+
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== '/passkey/verify-registration') {
+        return;
+      }
+
+      try {
+        const returned = ctx.context.returned;
+        if (!returned) return;
+
+        let data: Record<string, unknown> | null = null;
+        if (returned instanceof Response) {
+          if (returned.status === 200) {
+            data = (await returned.clone().json()) as Record<string, unknown>;
+          }
+        } else if (typeof returned === 'object' && !('stack' in (returned as object))) {
+          data = returned as Record<string, unknown>;
+        }
+
+        const id = data?.id as string | undefined;
+        if (!id) return;
+
+        await prisma.passkey.update({
+          where: { id },
+          data: { rpId: passkeyRpId },
+        });
+      } catch (error) {
+        console.error('[borrower-auth] Failed to stamp rpId on passkey:', error);
+      }
+    }),
+  },
 
   advanced: {
     cookiePrefix: AUTH_COOKIE_PREFIXES.borrower,

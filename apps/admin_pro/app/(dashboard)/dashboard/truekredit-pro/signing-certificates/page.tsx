@@ -556,6 +556,11 @@ export default function SigningCertificatesPage() {
         setRevokeReason("keyCompromise");
         setRevokeDialogOpen(false);
         await loadData();
+      } else if (res.statusCode === "RV116") {
+        toast.error(
+          res.errorDescription ||
+            "A revoke may already be pending at Trustgate, or your certificate was not issued from a completed enrolment. Wait, check Trustgate request status, or contact support.",
+        );
       } else {
         toast.error(
           res.errorDescription || res.statusMsg || "Revocation failed",

@@ -1,0 +1,438 @@
+import type {
+  BorrowerDetail,
+  BorrowerDirector,
+  TruestackKycSessionRow,
+  TruestackKycStatusData,
+} from '@kredit/borrower';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+
+import { SectionCard } from '@/components/section-card';
+import { ThemedText } from '@/components/themed-text';
+import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+import {
+  getCorporateDirectorsForKyc,
+  isSessionApproved,
+  pickLatestKycSession,
+} from '@/lib/borrower-verification';
+import { formatDateTime } from '@/lib/format/date';
+
+type ButtonVariant = 'primary' | 'outline';
+
+function ActionButton({
+  label,
+  onPress,
+  variant = 'primary',
+  loading,
+}: {
+  label: string;
+  onPress: () => void | Promise<void>;
+  variant?: ButtonVariant;
+  loading?: boolean;
+}) {
+  const theme = useTheme();
+  const palette =
+    variant === 'outline'
+      ? {
+          backgroundColor: theme.background,
+          borderColor: theme.border,
+          textColor: theme.text,
+        }
+      : {
+          backgroundColor: theme.primary,
+          borderColor: theme.primary,
+          textColor: theme.primaryForeground,
+        };
+
+  return (
+    <Pressable
+      disabled={loading}
+      onPress={() => void onPress()}
+      style={({ pressed }) => [
+        styles.actionButton,
+        {
+          backgroundColor: palette.backgroundColor,
+          borderColor: palette.borderColor,
+          opacity: pressed || loading ? 0.75 : 1,
+        },
+      ]}>
+      {loading ? (
+        <ActivityIndicator color={palette.textColor} size="small" />
+      ) : (
+        <ThemedText type="smallBold" style={{ color: palette.textColor }}>
+          {label}
+        </ThemedText>
+      )}
+    </Pressable>
+  );
+}
+
+function StatusBadge({
+  tone,
+  label,
+}: {
+  tone: 'success' | 'warning' | 'error' | 'neutral';
+  label: string;
+}) {
+  const theme = useTheme();
+  const color =
+    tone === 'success'
+      ? theme.success
+      : tone === 'warning'
+        ? theme.warning
+        : tone === 'error'
+          ? theme.error
+          : theme.textSecondary;
+
+  return (
+    <View
+      style={[
+        styles.badge,
+        {
+          borderColor: color,
+          backgroundColor: theme.background,
+        },
+      ]}>
+      <ThemedText type="smallBold" style={{ color }}>
+        {label}
+      </ThemedText>
+    </View>
+  );
+}
+
+function describeSessionState(session: TruestackKycSessionRow | undefined) {
+  if (!session) {
+    return {
+      label: 'Not started',
+      tone: 'neutral' as const,
+      description: 'No e-KYC session has been created yet.',
+      canOpenExistingLink: false,
+      shouldOfferNewSession: true,
+      ctaLabel: 'Start e-KYC',
+    };
+  }
+
+  if (session.status === 'completed' && session.result === 'approved') {
+    return {
+      label: 'Verified',
+      tone: 'success' as const,
+      description: 'The latest TrueStack verification was approved.',
+      canOpenExistingLink: false,
+      shouldOfferNewSession: true,
+      ctaLabel: 'Redo verification',
+    };
+  }
+
+  if (session.status === 'completed' && session.result === 'rejected') {
+    return {
+      label: 'Rejected',
+      tone: 'error' as const,
+      description: session.rejectMessage || 'The latest TrueStack verification was rejected.',
+      canOpenExistingLink: false,
+      shouldOfferNewSession: true,
+      ctaLabel: 'Retry e-KYC',
+    };
+  }
+
+  if (session.status === 'failed') {
+    return {
+      label: 'Failed',
+      tone: 'error' as const,
+      description: 'The verification session failed before approval.',
+      canOpenExistingLink: false,
+      shouldOfferNewSession: true,
+      ctaLabel: 'Retry e-KYC',
+    };
+  }
+
+  if (session.status === 'expired') {
+    return {
+      label: 'Expired',
+      tone: 'error' as const,
+      description: 'The existing verification link expired. Start a fresh session when ready.',
+      canOpenExistingLink: false,
+      shouldOfferNewSession: true,
+      ctaLabel: 'Create new link',
+    };
+  }
+
+  if (session.status === 'processing') {
+    return {
+      label: 'In review',
+      tone: 'warning' as const,
+      description: 'TrueStack is reviewing the latest submission.',
+      canOpenExistingLink: Boolean(session.onboardingUrl),
+      shouldOfferNewSession: false,
+      ctaLabel: 'Open verification link',
+    };
+  }
+
+  return {
+    label: 'Pending',
+    tone: 'warning' as const,
+    description: 'Finish the verification flow in your browser to continue.',
+    canOpenExistingLink: Boolean(session.onboardingUrl),
+    shouldOfferNewSession: false,
+    ctaLabel: 'Open verification link',
+  };
+}
+
+function DirectorSessionCard({
+  director,
+  session,
+  onStartSession,
+  onOpenLink,
+  onSyncSession,
+}: {
+  director: BorrowerDirector;
+  session: TruestackKycSessionRow | undefined;
+  onStartSession: (directorId: string) => Promise<void>;
+  onOpenLink: (url: string) => Promise<void>;
+  onSyncSession: (externalSessionId: string) => Promise<void>;
+}) {
+  const theme = useTheme();
+  const [starting, setStarting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const state = describeSessionState(session);
+
+  return (
+    <View
+      style={[
+        styles.sessionCard,
+        {
+          borderColor: theme.border,
+          backgroundColor: theme.background,
+        },
+      ]}>
+      <View style={styles.rowBetween}>
+        <View style={styles.stackTight}>
+          <ThemedText type="smallBold">{director.name || 'Director'}</ThemedText>
+          {director.position ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              {director.position}
+            </ThemedText>
+          ) : null}
+        </View>
+        <StatusBadge tone={state.tone} label={state.label} />
+      </View>
+
+      <ThemedText type="small" themeColor="textSecondary">
+        {state.description}
+      </ThemedText>
+
+      {session?.updatedAt ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          Last update: {formatDateTime(session.updatedAt)}
+        </ThemedText>
+      ) : null}
+
+      <View style={styles.actionStack}>
+        {state.canOpenExistingLink && session?.onboardingUrl ? (
+          <ActionButton
+            label="Open verification link"
+            variant="outline"
+            onPress={() => onOpenLink(session.onboardingUrl)}
+          />
+        ) : null}
+        {state.shouldOfferNewSession ? (
+          <ActionButton
+            label={state.ctaLabel}
+            loading={starting}
+            onPress={async () => {
+              setStarting(true);
+              try {
+                await onStartSession(director.id);
+              } finally {
+                setStarting(false);
+              }
+            }}
+          />
+        ) : null}
+        {session?.externalSessionId ? (
+          <ActionButton
+            label="Sync status"
+            variant="outline"
+            loading={syncing}
+            onPress={async () => {
+              setSyncing(true);
+              try {
+                await onSyncSession(session.externalSessionId);
+              } finally {
+                setSyncing(false);
+              }
+            }}
+          />
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+export function TruestackKycMobileCard({
+  borrower,
+  kyc,
+  onStartIndividualSession,
+  onStartDirectorSession,
+  onOpenLink,
+  onSyncSession,
+}: {
+  borrower: BorrowerDetail;
+  kyc: TruestackKycStatusData | null;
+  onStartIndividualSession: () => Promise<void>;
+  onStartDirectorSession: (directorId: string) => Promise<void>;
+  onOpenLink: (url: string) => Promise<void>;
+  onSyncSession: (externalSessionId: string) => Promise<void>;
+}) {
+  const [starting, setStarting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const individualSession = useMemo(
+    () => pickLatestKycSession((kyc?.sessions ?? []).filter((session) => !session.directorId)),
+    [kyc?.sessions],
+  );
+  const requiredDirectors = useMemo(
+    () => getCorporateDirectorsForKyc(borrower.directors),
+    [borrower.directors],
+  );
+
+  if (borrower.borrowerType === 'CORPORATE') {
+    return (
+      <SectionCard
+        title="TrueStack e-KYC"
+        description="Only the authorized representative needs to complete verification.">
+        {requiredDirectors.length === 0 ? (
+          <ThemedText type="small" themeColor="textSecondary">
+            Add an authorized representative in the profile editor to start corporate e-KYC.
+          </ThemedText>
+        ) : (
+          <View style={styles.stack}>
+            {requiredDirectors.map((director) => (
+              <DirectorSessionCard
+                key={director.id}
+                director={director}
+                session={pickLatestKycSession(
+                  (kyc?.sessions ?? []).filter((session) => session.directorId === director.id),
+                )}
+                onStartSession={onStartDirectorSession}
+                onOpenLink={onOpenLink}
+                onSyncSession={onSyncSession}
+              />
+            ))}
+          </View>
+        )}
+      </SectionCard>
+    );
+  }
+
+  const state = describeSessionState(individualSession);
+
+  return (
+    <SectionCard
+      title="TrueStack e-KYC"
+      description="Verify your identity to keep your borrower profile compliant and ready for signing.">
+      <View style={styles.rowBetween}>
+        <View style={styles.stackTight}>
+          <ThemedText type="smallBold">Current status</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {state.description}
+          </ThemedText>
+        </View>
+        <StatusBadge tone={state.tone} label={state.label} />
+      </View>
+
+      {individualSession?.updatedAt ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          Last update: {formatDateTime(individualSession.updatedAt)}
+        </ThemedText>
+      ) : null}
+
+      <View style={styles.actionStack}>
+        {state.canOpenExistingLink && individualSession?.onboardingUrl ? (
+          <ActionButton
+            label="Open verification link"
+            variant="outline"
+            onPress={() => onOpenLink(individualSession.onboardingUrl)}
+          />
+        ) : null}
+        {state.shouldOfferNewSession ? (
+          <ActionButton
+            label={state.ctaLabel}
+            loading={starting}
+            onPress={async () => {
+              setStarting(true);
+              try {
+                await onStartIndividualSession();
+              } finally {
+                setStarting(false);
+              }
+            }}
+          />
+        ) : null}
+        {individualSession?.externalSessionId ? (
+          <ActionButton
+            label="Sync status"
+            variant="outline"
+            loading={syncing}
+            onPress={async () => {
+              setSyncing(true);
+              try {
+                await onSyncSession(individualSession.externalSessionId);
+              } finally {
+                setSyncing(false);
+              }
+            }}
+          />
+        ) : null}
+      </View>
+
+      {isSessionApproved(individualSession) ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          Approved e-KYC will lock identity fields during profile editing, matching the borrower web
+          experience.
+        </ThemedText>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+const styles = StyleSheet.create({
+  stack: {
+    gap: Spacing.two,
+  },
+  stackTight: {
+    gap: Spacing.one,
+    flex: 1,
+  },
+  rowBetween: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    flexWrap: 'wrap',
+  },
+  badge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  actionStack: {
+    gap: Spacing.two,
+  },
+  actionButton: {
+    minHeight: 40,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sessionCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: Spacing.three,
+    gap: Spacing.two,
+  },
+});

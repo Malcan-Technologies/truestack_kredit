@@ -8,7 +8,7 @@ import {
 } from 'expo-router/ui';
 import { SymbolView } from 'expo-symbols';
 import React from 'react';
-import { Pressable, useColorScheme, View, StyleSheet } from 'react-native';
+import { Pressable, View, StyleSheet } from 'react-native';
 
 import { ExternalLink } from './external-link';
 import { ThemedText } from './themed-text';
@@ -16,6 +16,7 @@ import { ThemedView } from './themed-view';
 
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useBrand } from '@/hooks/use-brand';
+import { useThemePreference } from '@/lib/theme/theme-preference';
 
 export default function AppTabs() {
   return (
@@ -23,11 +24,20 @@ export default function AppTabs() {
       <TabSlot style={{ height: '100%' }} />
       <TabList asChild>
         <CustomTabList>
-          <TabTrigger name="home" href="/" asChild>
-            <TabButton>Home</TabButton>
+          <TabTrigger name="dashboard" href="/" asChild>
+            <TabButton>Dashboard</TabButton>
           </TabTrigger>
-          <TabTrigger name="explore" href="/explore" asChild>
-            <TabButton>Explore</TabButton>
+          <TabTrigger name="applications" href="/applications" asChild>
+            <TabButton>Applications</TabButton>
+          </TabTrigger>
+          <TabTrigger name="loans" href="/loans" asChild>
+            <TabButton>Loans</TabButton>
+          </TabTrigger>
+          <TabTrigger name="borrower-profile" href="/borrower-profile" asChild>
+            <TabButton>Profile</TabButton>
+          </TabTrigger>
+          <TabTrigger name="settings-menu" href="/settings-menu" asChild>
+            <TabButton>Settings</TabButton>
           </TabTrigger>
         </CustomTabList>
       </TabList>
@@ -50,8 +60,8 @@ export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps
 }
 
 export function CustomTabList(props: TabListProps) {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
+  const { resolvedScheme } = useThemePreference();
+  const colors = Colors[resolvedScheme];
   const brand = useBrand();
 
   return (

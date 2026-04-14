@@ -12,6 +12,8 @@ export type ThemeModePalette = {
   textSecondary: string;
   /** Links, tab accents, key CTAs */
   primary: string;
+  /** Foreground color rendered on primary surfaces */
+  primaryForeground: string;
   success: string;
   warning: string;
   error: string;

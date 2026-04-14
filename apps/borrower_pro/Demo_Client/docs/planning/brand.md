@@ -65,8 +65,11 @@ Reference branding for **Demo_Client** — the template/demo borrower frontend f
 ### Primary / Accent
 
 - Use for CTAs, links, focus. Client can override.
-- Default: neutral (dark/light adapts to theme).
-- **To change brand color** (e.g. to `#6151ca`): update `--primary` in `app/globals.css`.
+- Default: neutral to match the borrower portal.
+- **Light theme primary:** near-black (`#171717`) with light foreground text.
+- **Dark theme primary:** near-white (`#FAFAFA`) with dark foreground text.
+- When implementing other frontends, keep a matching `primary` + `primaryForeground` pairing so buttons, chips, and selected states stay readable in both themes.
+- **To change brand color**: update the `primary` and `primary-foreground` theme tokens together.
 
 ### Status Colors
 

@@ -55,8 +55,15 @@ Editing routes: [Expo Router — file-based routing](https://docs.expo.dev/route
 
 1. Add `src/brand/clients/<client-id>.ts` (copy `demo-client.ts`, adjust palette + copy from that client’s brand guide).
 2. Point `src/brand/active.ts` at the new export.
-3. Update `app.json` / EAS: **name**, **slug**, **scheme**, icons, splash.
+3. Update `app.config.ts` / EAS: **name**, **slug**, **scheme**, icons, splash, bundle/package IDs, and any associated domains.
 4. Set per-build **`.env`** or EAS secrets for `EXPO_PUBLIC_*`.
+
+## Passkeys
+
+- Passkeys are **not supported in Expo Go**. Use a native development build or production build.
+- Keep the relying-party host env-driven with `EXPO_PUBLIC_PASSKEY_RP_ID`. If it is blank, the app derives it from `EXPO_PUBLIC_AUTH_BASE_URL`.
+- Web passkeys can use `localhost`, but **native iOS/Android passkeys cannot**. For native development, point `EXPO_PUBLIC_AUTH_BASE_URL` or `EXPO_PUBLIC_PASSKEY_RP_ID` to an HTTPS tunnel or deployed domain.
+- iOS associated domains and similar native config should be generated from env in `app.config.ts`, not hardcoded to a single client domain.
 
 Web counterpart for colors/copy reference: `apps/borrower_pro/Demo_Client/docs/planning/brand.md`.
 

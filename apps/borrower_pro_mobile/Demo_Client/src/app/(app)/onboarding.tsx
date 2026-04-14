@@ -1,26 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   StyleSheet,
   View,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+} from "react-native";
+import { useRouter } from "expo-router";
 
 import {
   Field,
   FormSwitchRow,
   OptionChipGroup,
   SelectField,
-} from '@/components/borrower-form-fields';
-import { PageHeaderToolbarButton, PageScreen } from '@/components/page-screen';
-import { SectionCard } from '@/components/section-card';
-import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
-import { borrowerAuthClient } from '@/lib/api/borrower';
-import { getCountryOptions, getStateOptions } from '@/lib/address-options';
+} from "@/components/borrower-form-fields";
+import { PageScreen } from "@/components/page-screen";
+import { SectionCard } from "@/components/section-card";
+import { ThemedText } from "@/components/themed-text";
+import { Spacing } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
+import { borrowerAuthClient } from "@/lib/api/borrower";
+import { getCountryOptions, getStateOptions } from "@/lib/address-options";
 import {
   bankOptions,
   borrowerTypeCards,
@@ -54,17 +54,17 @@ import {
   validateCorporateFormStep,
   validateIndividualForm,
   validateIndividualFormStep,
-} from '@/lib/onboarding';
+} from "@/lib/onboarding";
 import {
   formatAddressValue,
   formatBankLabel,
   formatCurrency,
   formatOptionLabel,
   normalizeDisplayValue,
-} from '@/lib/format/borrower';
-import { formatDate } from '@/lib/format/date';
+} from "@/lib/format/borrower";
+import { formatDate } from "@/lib/format/date";
 
-type ButtonVariant = 'primary' | 'outline' | 'ghost';
+type ButtonVariant = "primary" | "outline" | "ghost";
 
 type ReviewRowProps = {
   label: string;
@@ -77,38 +77,40 @@ const GUIDED_TITLES: Record<
 > = {
   INDIVIDUAL: {
     1: {
-      title: 'Tell us about yourself',
-      description: "We'll need your identity and personal details to get started.",
+      title: "Tell us about yourself",
+      description:
+        "We'll need your identity and personal details to get started.",
     },
     2: {
-      title: 'How can we reach you?',
-      description: 'Add your contact information and bank account details.',
+      title: "How can we reach you?",
+      description: "Add your contact information and bank account details.",
     },
     3: {
-      title: 'A few more details',
-      description: 'Emergency contact and social media are optional but helpful.',
+      title: "A few more details",
+      description:
+        "Emergency contact and social media are optional but helpful.",
     },
   },
   CORPORATE: {
     1: {
-      title: 'Tell us about your company',
-      description: 'Basic company registration and address details.',
+      title: "Tell us about your company",
+      description: "Basic company registration and address details.",
     },
     2: {
-      title: 'A bit more about the business',
-      description: 'Additional company details and contact information.',
+      title: "A bit more about the business",
+      description: "Additional company details and contact information.",
     },
     3: {
-      title: 'Who runs the show?',
-      description: 'Add your company directors and authorized representative.',
+      title: "Who runs the show?",
+      description: "Add your company directors and authorized representative.",
     },
     4: {
-      title: 'Where should funds go?',
+      title: "Where should funds go?",
       description: "Your company's bank account details.",
     },
     5: {
-      title: 'Stay connected',
-      description: 'Social media profiles are optional but help build trust.',
+      title: "Stay connected",
+      description: "Social media profiles are optional but help build trust.",
     },
   },
 };
@@ -116,7 +118,7 @@ const GUIDED_TITLES: Record<
 function ActionButton({
   label,
   onPress,
-  variant = 'primary',
+  variant = "primary",
   disabled,
   loading,
 }: {
@@ -129,7 +131,7 @@ function ActionButton({
   const theme = useTheme();
 
   const palette = useMemo(() => {
-    if (variant === 'outline') {
+    if (variant === "outline") {
       return {
         backgroundColor: theme.background,
         borderColor: theme.border,
@@ -137,10 +139,10 @@ function ActionButton({
       };
     }
 
-    if (variant === 'ghost') {
+    if (variant === "ghost") {
       return {
         backgroundColor: theme.backgroundElement,
-        borderColor: 'transparent',
+        borderColor: "transparent",
         textColor: theme.textSecondary,
       };
     }
@@ -163,7 +165,8 @@ function ActionButton({
           borderColor: palette.borderColor,
           opacity: pressed || disabled || loading ? 0.7 : 1,
         },
-      ]}>
+      ]}
+    >
       {loading ? (
         <ActivityIndicator color={palette.textColor} size="small" />
       ) : (
@@ -187,7 +190,8 @@ function ProgressBar({
   const theme = useTheme();
   const totalSteps = getOnboardingTotalSteps(borrowerType);
   const activeIndex = step === 3 ? totalSteps - 1 : step === 2 ? subStep : 0;
-  const percent = totalSteps > 1 ? Math.round((activeIndex / (totalSteps - 1)) * 100) : 0;
+  const percent =
+    totalSteps > 1 ? Math.round((activeIndex / (totalSteps - 1)) * 100) : 0;
 
   return (
     <View style={styles.progressWrap}>
@@ -197,9 +201,9 @@ function ProgressBar({
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           {step === 1
-            ? 'Choose type'
+            ? "Choose type"
             : step === 3
-              ? 'Review & confirm'
+              ? "Review & confirm"
               : GUIDED_TITLES[borrowerType][subStep].title}
         </ThemedText>
       </View>
@@ -239,16 +243,18 @@ export default function OnboardingScreen() {
   const [hasIndividual, setHasIndividual] = useState(false);
   const [step, setStep] = useState<OnboardingMainStep>(0);
   const [resumeStep, setResumeStep] = useState<1 | 2 | 3>(1);
-  const [borrowerType, setBorrowerType] = useState<BorrowerType>('INDIVIDUAL');
-  const [borrowerDetailSubStep, setBorrowerDetailSubStep] = useState<BorrowerDetailSubStep>(1);
-  const [individualFormData, setIndividualFormData] = useState<IndividualFormData>(
-    initialIndividualFormData,
-  );
+  const [borrowerType, setBorrowerType] = useState<BorrowerType>("INDIVIDUAL");
+  const [borrowerDetailSubStep, setBorrowerDetailSubStep] =
+    useState<BorrowerDetailSubStep>(1);
+  const [individualFormData, setIndividualFormData] =
+    useState<IndividualFormData>(initialIndividualFormData);
   const [corporateFormData, setCorporateFormData] = useState<CorporateFormData>(
     initialCorporateFormData,
   );
   const [noMonthlyIncome, setNoMonthlyIncome] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, string>
+  >({});
   const countryOptions = useMemo(() => getCountryOptions(), []);
   const individualStateOptions = useMemo(
     () => getStateOptions(individualFormData.country),
@@ -286,7 +292,9 @@ export default function OnboardingScreen() {
       if (meResult?.success) {
         setProfileCount(meResult.data.profileCount);
         setHasIndividual(
-          meResult.data.profiles.some((profile) => profile.borrowerType === 'INDIVIDUAL'),
+          meResult.data.profiles.some(
+            (profile) => profile.borrowerType === "INDIVIDUAL",
+          ),
         );
       }
 
@@ -339,45 +347,27 @@ export default function OnboardingScreen() {
     });
   }, []);
 
-  const handleSaveAndExit = useCallback(async () => {
-    await saveOnboardingDraft({
-      step,
-      borrowerType,
-      borrowerDetailSubStep,
-      individualFormData,
-      corporateFormData,
-      noMonthlyIncome,
-    });
-    await setOnboardingDismissed(true);
-    router.replace('/');
-  }, [
-    borrowerDetailSubStep,
-    borrowerType,
-    corporateFormData,
-    individualFormData,
-    noMonthlyIncome,
-    router,
-    step,
-  ]);
-
   const handleBorrowerTypeChange = useCallback((type: BorrowerType) => {
     setBorrowerType(type);
     setBorrowerDetailSubStep(1);
     setValidationErrors({});
-    if (type === 'INDIVIDUAL') {
+    if (type === "INDIVIDUAL") {
       setNoMonthlyIncome(false);
     }
   }, []);
 
   const handleSubmit = useCallback(async () => {
     const errors =
-      borrowerType === 'INDIVIDUAL'
+      borrowerType === "INDIVIDUAL"
         ? validateIndividualForm(individualFormData, noMonthlyIncome)
         : validateCorporateForm(corporateFormData);
 
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors);
-      Alert.alert('Missing required fields', 'Please complete the required onboarding fields.');
+      Alert.alert(
+        "Missing required fields",
+        "Please complete the required onboarding fields.",
+      );
       return;
     }
 
@@ -394,20 +384,26 @@ export default function OnboardingScreen() {
       );
       await clearOnboardingDraft();
       await setOnboardingDismissed(false);
-      router.replace('/borrower-profile');
+      router.replace("/borrower-profile");
     } catch (error) {
       Alert.alert(
-        'Unable to create profile',
-        error instanceof Error ? error.message : 'Please try again.',
+        "Unable to create profile",
+        error instanceof Error ? error.message : "Please try again.",
       );
     } finally {
       setLoading(false);
     }
-  }, [borrowerType, corporateFormData, individualFormData, noMonthlyIncome, router]);
+  }, [
+    borrowerType,
+    corporateFormData,
+    individualFormData,
+    noMonthlyIncome,
+    router,
+  ]);
 
   const currentGuide =
     step === 2 ? GUIDED_TITLES[borrowerType][borrowerDetailSubStep] : null;
-  const totalSubSteps = borrowerType === 'INDIVIDUAL' ? 3 : 5;
+  const totalSubSteps = borrowerType === "INDIVIDUAL" ? 3 : 5;
   const draftProgress = useMemo(
     () =>
       getSavedDraftProgressLabel({
@@ -418,106 +414,170 @@ export default function OnboardingScreen() {
         corporateFormData,
         noMonthlyIncome,
       }),
-    [borrowerDetailSubStep, borrowerType, corporateFormData, individualFormData, noMonthlyIncome, step],
+    [
+      borrowerDetailSubStep,
+      borrowerType,
+      corporateFormData,
+      individualFormData,
+      noMonthlyIncome,
+      step,
+    ],
   );
-  const isIndividualIC = individualFormData.documentType === 'IC';
-  const derivedDateOfBirth = isIndividualIC ? extractDateFromIC(individualFormData.icNumber) : null;
-  const derivedGender = isIndividualIC ? extractGenderFromIC(individualFormData.icNumber) : null;
+  const isIndividualIC = individualFormData.documentType === "IC";
+  const derivedDateOfBirth = isIndividualIC
+    ? extractDateFromIC(individualFormData.icNumber)
+    : null;
+  const derivedGender = isIndividualIC
+    ? extractGenderFromIC(individualFormData.icNumber)
+    : null;
   const dateOfBirthValue =
-    individualFormData.dateOfBirth || (isIndividualIC && derivedDateOfBirth ? derivedDateOfBirth : '');
+    individualFormData.dateOfBirth ||
+    (isIndividualIC && derivedDateOfBirth ? derivedDateOfBirth : "");
   const genderValue =
-    individualFormData.gender || (isIndividualIC && derivedGender ? derivedGender : '');
+    individualFormData.gender ||
+    (isIndividualIC && derivedGender ? derivedGender : "");
 
   const reviewSections = useMemo(() => {
-    if (borrowerType === 'INDIVIDUAL') {
+    if (borrowerType === "INDIVIDUAL") {
       return [
         {
-          title: 'Identity information',
+          title: "Identity information",
           rows: [
-            { label: 'Name', value: normalizeDisplayValue(individualFormData.name) },
             {
-              label: 'Document type',
-              value: formatOptionLabel('documentType', individualFormData.documentType),
+              label: "Name",
+              value: normalizeDisplayValue(individualFormData.name),
             },
             {
-              label: 'IC / Passport',
+              label: "Document type",
+              value: formatOptionLabel(
+                "documentType",
+                individualFormData.documentType,
+              ),
+            },
+            {
+              label: "IC / Passport",
               value: normalizeDisplayValue(individualFormData.icNumber),
             },
           ],
         },
         {
-          title: 'Personal information',
+          title: "Personal information",
           rows: [
-            { label: 'Date of birth', value: formatDate(individualFormData.dateOfBirth) },
-            { label: 'Gender', value: formatOptionLabel('gender', individualFormData.gender) },
-            { label: 'Race', value: formatOptionLabel('race', individualFormData.race) },
             {
-              label: 'Education',
-              value: formatOptionLabel('educationLevel', individualFormData.educationLevel),
-            },
-            { label: 'Occupation', value: normalizeDisplayValue(individualFormData.occupation) },
-            {
-              label: 'Employment status',
-              value: formatOptionLabel('employmentStatus', individualFormData.employmentStatus),
+              label: "Date of birth",
+              value: formatDate(individualFormData.dateOfBirth),
             },
             {
-              label: 'Monthly income',
-              value: noMonthlyIncome ? 'No monthly income' : formatCurrency(individualFormData.monthlyIncome),
+              label: "Gender",
+              value: formatOptionLabel("gender", individualFormData.gender),
+            },
+            {
+              label: "Race",
+              value: formatOptionLabel("race", individualFormData.race),
+            },
+            {
+              label: "Education",
+              value: formatOptionLabel(
+                "educationLevel",
+                individualFormData.educationLevel,
+              ),
+            },
+            {
+              label: "Occupation",
+              value: normalizeDisplayValue(individualFormData.occupation),
+            },
+            {
+              label: "Employment status",
+              value: formatOptionLabel(
+                "employmentStatus",
+                individualFormData.employmentStatus,
+              ),
+            },
+            {
+              label: "Monthly income",
+              value: noMonthlyIncome
+                ? "No monthly income"
+                : formatCurrency(individualFormData.monthlyIncome),
             },
           ],
         },
         {
-          title: 'Contact information',
+          title: "Contact information",
           rows: [
-            { label: 'Phone', value: normalizeDisplayValue(individualFormData.phone) },
-            { label: 'Email', value: normalizeDisplayValue(individualFormData.email) },
-            { label: 'Address', value: formatAddressValue(individualFormData) },
+            {
+              label: "Phone",
+              value: normalizeDisplayValue(individualFormData.phone),
+            },
+            {
+              label: "Email",
+              value: normalizeDisplayValue(individualFormData.email),
+            },
+            { label: "Address", value: formatAddressValue(individualFormData) },
           ],
         },
         {
-          title: 'Bank information',
+          title: "Bank information",
           rows: [
             {
-              label: 'Bank',
+              label: "Bank",
               value: formatBankLabel(
                 individualFormData.bankName,
                 individualFormData.bankNameOther,
               ),
             },
             {
-              label: 'Account number',
+              label: "Account number",
               value: normalizeDisplayValue(individualFormData.bankAccountNo),
             },
           ],
         },
         {
-          title: 'Emergency contact',
+          title: "Emergency contact",
           rows: [
             {
-              label: 'Name',
-              value: normalizeDisplayValue(individualFormData.emergencyContactName),
+              label: "Name",
+              value: normalizeDisplayValue(
+                individualFormData.emergencyContactName,
+              ),
             },
             {
-              label: 'Phone',
-              value: normalizeDisplayValue(individualFormData.emergencyContactPhone),
+              label: "Phone",
+              value: normalizeDisplayValue(
+                individualFormData.emergencyContactPhone,
+              ),
             },
             {
-              label: 'Relationship',
+              label: "Relationship",
               value: formatOptionLabel(
-                'emergencyContactRelationship',
+                "emergencyContactRelationship",
                 individualFormData.emergencyContactRelationship,
               ),
             },
           ],
         },
         {
-          title: 'Social media',
+          title: "Social media",
           rows: [
-            { label: 'Instagram', value: normalizeDisplayValue(individualFormData.instagram) },
-            { label: 'TikTok', value: normalizeDisplayValue(individualFormData.tiktok) },
-            { label: 'Facebook', value: normalizeDisplayValue(individualFormData.facebook) },
-            { label: 'LinkedIn', value: normalizeDisplayValue(individualFormData.linkedin) },
-            { label: 'X (Twitter)', value: normalizeDisplayValue(individualFormData.xTwitter) },
+            {
+              label: "Instagram",
+              value: normalizeDisplayValue(individualFormData.instagram),
+            },
+            {
+              label: "TikTok",
+              value: normalizeDisplayValue(individualFormData.tiktok),
+            },
+            {
+              label: "Facebook",
+              value: normalizeDisplayValue(individualFormData.facebook),
+            },
+            {
+              label: "LinkedIn",
+              value: normalizeDisplayValue(individualFormData.linkedin),
+            },
+            {
+              label: "X (Twitter)",
+              value: normalizeDisplayValue(individualFormData.xTwitter),
+            },
           ],
         },
       ];
@@ -525,64 +585,94 @@ export default function OnboardingScreen() {
 
     return [
       {
-        title: 'Company information',
+        title: "Company information",
         rows: [
-          { label: 'Company name', value: normalizeDisplayValue(corporateFormData.companyName) },
           {
-            label: 'SSM registration no',
+            label: "Company name",
+            value: normalizeDisplayValue(corporateFormData.companyName),
+          },
+          {
+            label: "SSM registration no",
             value: normalizeDisplayValue(corporateFormData.ssmRegistrationNo),
           },
           {
-            label: 'Taraf (Bumi status)',
-            value: formatOptionLabel('bumiStatus', corporateFormData.bumiStatus),
+            label: "Taraf (Bumi status)",
+            value: formatOptionLabel(
+              "bumiStatus",
+              corporateFormData.bumiStatus,
+            ),
           },
           {
-            label: 'Nature of business',
+            label: "Nature of business",
             value: normalizeDisplayValue(corporateFormData.natureOfBusiness),
           },
           {
-            label: 'Date of incorporation',
+            label: "Date of incorporation",
             value: formatDate(corporateFormData.dateOfIncorporation),
           },
-          { label: 'Address', value: formatAddressValue(corporateFormData) },
+          { label: "Address", value: formatAddressValue(corporateFormData) },
         ],
       },
       {
-        title: 'Company contact',
+        title: "Company contact",
         rows: [
-          { label: 'Phone', value: normalizeDisplayValue(corporateFormData.companyPhone) },
-          { label: 'Email', value: normalizeDisplayValue(corporateFormData.companyEmail) },
           {
-            label: 'Paid-up capital',
+            label: "Phone",
+            value: normalizeDisplayValue(corporateFormData.companyPhone),
+          },
+          {
+            label: "Email",
+            value: normalizeDisplayValue(corporateFormData.companyEmail),
+          },
+          {
+            label: "Paid-up capital",
             value: formatCurrency(corporateFormData.paidUpCapital),
           },
           {
-            label: 'Employees',
+            label: "Employees",
             value: normalizeDisplayValue(corporateFormData.numberOfEmployees),
           },
         ],
       },
       {
-        title: 'Bank information',
+        title: "Bank information",
         rows: [
           {
-            label: 'Bank',
-            value: formatBankLabel(corporateFormData.bankName, corporateFormData.bankNameOther),
+            label: "Bank",
+            value: formatBankLabel(
+              corporateFormData.bankName,
+              corporateFormData.bankNameOther,
+            ),
           },
           {
-            label: 'Account number',
+            label: "Account number",
             value: normalizeDisplayValue(corporateFormData.bankAccountNo),
           },
         ],
       },
       {
-        title: 'Social media',
+        title: "Social media",
         rows: [
-          { label: 'Instagram', value: normalizeDisplayValue(corporateFormData.instagram) },
-          { label: 'TikTok', value: normalizeDisplayValue(corporateFormData.tiktok) },
-          { label: 'Facebook', value: normalizeDisplayValue(corporateFormData.facebook) },
-          { label: 'LinkedIn', value: normalizeDisplayValue(corporateFormData.linkedin) },
-          { label: 'X (Twitter)', value: normalizeDisplayValue(corporateFormData.xTwitter) },
+          {
+            label: "Instagram",
+            value: normalizeDisplayValue(corporateFormData.instagram),
+          },
+          {
+            label: "TikTok",
+            value: normalizeDisplayValue(corporateFormData.tiktok),
+          },
+          {
+            label: "Facebook",
+            value: normalizeDisplayValue(corporateFormData.facebook),
+          },
+          {
+            label: "LinkedIn",
+            value: normalizeDisplayValue(corporateFormData.linkedin),
+          },
+          {
+            label: "X (Twitter)",
+            value: normalizeDisplayValue(corporateFormData.xTwitter),
+          },
         ],
       },
     ];
@@ -595,7 +685,8 @@ export default function OnboardingScreen() {
         subtitle="Preparing your borrower onboarding flow..."
         showBackButton
         showBottomNav
-        backFallbackHref="/">
+        backFallbackHref="/"
+      >
         <SectionCard title="Loading">
           <View style={styles.centeredState}>
             <ActivityIndicator />
@@ -607,24 +698,157 @@ export default function OnboardingScreen() {
 
   return (
     <PageScreen
-      title={step === 0 ? 'Welcome to your borrower account' : "Let's set up your borrower profile"}
+      title={
+        step === 0
+          ? "Welcome to your borrower account"
+          : "Let's set up your borrower profile"
+      }
       subtitle={
         step === 0
-          ? 'Set up your borrower details so you can use applications, loans, and the rest of the app.'
+          ? "Set up your borrower details so you can use applications, loans, and the rest of the app."
           : "We'll walk you through a few steps. You can save and come back anytime."
       }
       showBackButton
       showBottomNav
       backFallbackHref="/"
-      headerActions={
-        step !== 0 ? (
-          <PageHeaderToolbarButton label="Save & Exit" variant="outline" onPress={handleSaveAndExit} />
-        ) : null
-      }>
+      stickyFooter={
+        step === 0 ? (
+          profileCount > 0 ? (
+            <View style={styles.footerRow}>
+              <View style={styles.footerSecondary}>
+                <ActionButton
+                  label="Back to dashboard"
+                  variant="outline"
+                  onPress={() => router.replace("/")}
+                />
+              </View>
+              <View style={styles.footerPrimary}>
+                <ActionButton
+                  label="Continue"
+                  onPress={() => setStep(resumeStep)}
+                />
+              </View>
+            </View>
+          ) : (
+            <ActionButton
+              label="Continue"
+              onPress={() => setStep(resumeStep)}
+            />
+          )
+        ) : step === 1 ? (
+          profileCount > 0 ? (
+            <View style={styles.footerRow}>
+              <View style={styles.footerSecondary}>
+                <ActionButton
+                  label="Back"
+                  variant="outline"
+                  onPress={() => setStep(0)}
+                />
+              </View>
+              <View style={styles.footerPrimary}>
+                <ActionButton
+                  label="Continue"
+                  disabled={borrowerType === "INDIVIDUAL" && hasIndividual}
+                  onPress={() => {
+                    setBorrowerDetailSubStep(1);
+                    setStep(2);
+                  }}
+                />
+              </View>
+            </View>
+          ) : (
+            <ActionButton
+              label="Continue"
+              disabled={borrowerType === "INDIVIDUAL" && hasIndividual}
+              onPress={() => {
+                setBorrowerDetailSubStep(1);
+                setStep(2);
+              }}
+            />
+          )
+        ) : step === 2 && currentGuide ? (
+          <View style={styles.footerRow}>
+            <View style={styles.footerSecondary}>
+              <ActionButton
+                label="Back"
+                variant="outline"
+                onPress={() => {
+                  if (borrowerDetailSubStep > 1) {
+                    setBorrowerDetailSubStep(
+                      (current) => (current - 1) as BorrowerDetailSubStep,
+                    );
+                  } else {
+                    setStep(1);
+                  }
+                }}
+              />
+            </View>
+            <View style={styles.footerPrimary}>
+              <ActionButton
+                label="Continue"
+                onPress={() => {
+                  const errors =
+                    borrowerType === "INDIVIDUAL"
+                      ? validateIndividualFormStep(
+                          individualFormData,
+                          borrowerDetailSubStep as IndividualSubStep,
+                          noMonthlyIncome,
+                        )
+                      : validateCorporateFormStep(
+                          corporateFormData,
+                          borrowerDetailSubStep as CorporateSubStep,
+                        );
+
+                  if (Object.keys(errors).length > 0) {
+                    setValidationErrors(errors);
+                    Alert.alert(
+                      "Missing required fields",
+                      "Please complete the required fields before continuing.",
+                    );
+                    return;
+                  }
+
+                  setValidationErrors({});
+                  if (borrowerDetailSubStep < totalSubSteps) {
+                    setBorrowerDetailSubStep(
+                      (current) => (current + 1) as BorrowerDetailSubStep,
+                    );
+                  } else {
+                    setStep(3);
+                  }
+                }}
+              />
+            </View>
+          </View>
+        ) : (
+          <View style={styles.footerRow}>
+            <View style={styles.footerSecondary}>
+              <ActionButton
+                label="Back"
+                variant="outline"
+                onPress={() => setStep(2)}
+              />
+            </View>
+            <View style={styles.footerPrimary}>
+              <ActionButton
+                label="Confirm & Create Profile"
+                onPress={handleSubmit}
+                loading={loading}
+              />
+            </View>
+          </View>
+        )
+      }
+    >
       {step !== 0 ? (
         <SectionCard
           title="Onboarding progress"
-          description={draftProgress ? `${draftProgress} saved on this device.` : 'Progress saves automatically as you go.'}>
+          description={
+            draftProgress
+              ? `${draftProgress} saved on this device.`
+              : "Progress saves automatically as you go."
+          }
+        >
           <ProgressBar
             borrowerType={borrowerType}
             step={step}
@@ -635,36 +859,34 @@ export default function OnboardingScreen() {
 
       {step === 0 ? (
         <SectionCard
-          title={profileCount > 0 ? "Let's get your next borrower profile ready" : 'Before you jump in'}
+          title={
+            profileCount > 0
+              ? "Let's get your next borrower profile ready"
+              : "Before you jump in"
+          }
           description={
             profileCount > 0
               ? "We'll guide you through the details needed to create another borrower profile. This part is quick, and we'll walk you through it step by step."
-              : 'You need to complete borrower onboarding before the rest of the app unlocks. It only takes a few minutes, and we will guide you one step at a time.'
-          }>
-          <View style={styles.stack}>
-            <ThemedText type="small" themeColor="textSecondary">
-              We will ask for borrower type, identity or company details, contact information, bank
-              details, and a few optional extras like emergency contact or social profiles.
-            </ThemedText>
-
-            <View style={styles.actionsRow}>
-              {profileCount > 0 ? (
-                <ActionButton label="Back to dashboard" variant="outline" onPress={() => router.replace('/')} />
-              ) : null}
-              <ActionButton label="Continue" onPress={() => setStep(resumeStep)} />
-            </View>
-          </View>
+              : "You need to complete borrower onboarding before the rest of the app unlocks. It only takes a few minutes, and we will guide you one step at a time."
+          }
+        >
+          <ThemedText type="small" themeColor="textSecondary">
+            We will ask for borrower type, identity or company details, contact
+            information, bank details, and a few optional extras like emergency
+            contact or social profiles.
+          </ThemedText>
         </SectionCard>
       ) : null}
 
       {step === 1 ? (
         <SectionCard
           title="What type of borrower are you?"
-          description="Choose individual for personal borrowing or corporate for business needs.">
+          description="Choose individual for personal borrowing or corporate for business needs."
+        >
           <View style={styles.stack}>
             {borrowerTypeCards.map((card) => {
               const selected = borrowerType === card.id;
-              const disabled = card.id === 'INDIVIDUAL' && hasIndividual;
+              const disabled = card.id === "INDIVIDUAL" && hasIndividual;
 
               return (
                 <Pressable
@@ -679,10 +901,13 @@ export default function OnboardingScreen() {
                     styles.typeCard,
                     {
                       borderColor: selected ? theme.primary : theme.border,
-                      backgroundColor: selected ? theme.backgroundSelected : theme.backgroundElement,
+                      backgroundColor: selected
+                        ? theme.backgroundSelected
+                        : theme.backgroundElement,
                       opacity: pressed || disabled ? 0.8 : 1,
                     },
-                  ]}>
+                  ]}
+                >
                   <View style={styles.stackTight}>
                     <ThemedText type="smallBold">{card.title}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">
@@ -697,29 +922,16 @@ export default function OnboardingScreen() {
                 </Pressable>
               );
             })}
-
-            <View style={styles.actionsRow}>
-              {profileCount > 0 ? (
-                <ActionButton label="Back" variant="outline" onPress={() => setStep(0)} />
-              ) : (
-                <View />
-              )}
-              <ActionButton
-                label="Continue"
-                disabled={borrowerType === 'INDIVIDUAL' && hasIndividual}
-                onPress={() => {
-                  setBorrowerDetailSubStep(1);
-                  setStep(2);
-                }}
-              />
-            </View>
           </View>
         </SectionCard>
       ) : null}
 
       {step === 2 && currentGuide ? (
         <>
-          <SectionCard title={currentGuide.title} description={currentGuide.description}>
+          <SectionCard
+            title={currentGuide.title}
+            description={currentGuide.description}
+          >
             <View style={styles.stack}>
               {Object.keys(validationErrors).length > 0 ? (
                 <View
@@ -729,14 +941,15 @@ export default function OnboardingScreen() {
                       borderColor: theme.error,
                       backgroundColor: theme.background,
                     },
-                  ]}>
+                  ]}
+                >
                   <ThemedText type="smallBold" style={{ color: theme.error }}>
                     Please complete the required fields before continuing.
                   </ThemedText>
                 </View>
               ) : null}
 
-              {borrowerType === 'INDIVIDUAL' ? (
+              {borrowerType === "INDIVIDUAL" ? (
                 <>
                   {borrowerDetailSubStep === 1 ? (
                     <>
@@ -744,33 +957,37 @@ export default function OnboardingScreen() {
                         label="Document type"
                         value={individualFormData.documentType}
                         onChange={(value) => {
-                          clearError('documentType');
-                          if (value === 'PASSPORT') {
+                          clearError("documentType");
+                          if (value === "PASSPORT") {
                             setIndividualFormData((current) => ({
                               ...current,
                               documentType: value,
-                              dateOfBirth: '',
-                              gender: '',
+                              dateOfBirth: "",
+                              gender: "",
                             }));
                             return;
                           }
 
-                          const extractedDate = extractDateFromIC(individualFormData.icNumber);
-                          const extractedGender = extractGenderFromIC(individualFormData.icNumber);
+                          const extractedDate = extractDateFromIC(
+                            individualFormData.icNumber,
+                          );
+                          const extractedGender = extractGenderFromIC(
+                            individualFormData.icNumber,
+                          );
 
                           if (extractedDate) {
-                            clearError('dateOfBirth');
+                            clearError("dateOfBirth");
                           }
 
                           if (extractedGender) {
-                            clearError('gender');
+                            clearError("gender");
                           }
 
                           setIndividualFormData((current) => ({
                             ...current,
                             documentType: value,
-                            dateOfBirth: extractedDate || '',
-                            gender: extractedGender || '',
+                            dateOfBirth: extractedDate || "",
+                            gender: extractedGender || "",
                           }));
                         }}
                         options={documentTypeOptions}
@@ -780,8 +997,11 @@ export default function OnboardingScreen() {
                         label="Full name"
                         value={individualFormData.name}
                         onChangeText={(value) => {
-                          clearError('name');
-                          setIndividualFormData((current) => ({ ...current, name: value }));
+                          clearError("name");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            name: value,
+                          }));
                         }}
                         placeholder="As per your document"
                         autoCapitalize="words"
@@ -792,26 +1012,34 @@ export default function OnboardingScreen() {
                         value={individualFormData.icNumber}
                         onChangeText={(value) => {
                           const cleanValue = isIndividualIC
-                            ? value.replace(/\D/g, '').substring(0, 12)
+                            ? value.replace(/\D/g, "").substring(0, 12)
                             : value;
-                          const extractedDate = isIndividualIC ? extractDateFromIC(cleanValue) : null;
-                          const extractedGender = isIndividualIC ? extractGenderFromIC(cleanValue) : null;
+                          const extractedDate = isIndividualIC
+                            ? extractDateFromIC(cleanValue)
+                            : null;
+                          const extractedGender = isIndividualIC
+                            ? extractGenderFromIC(cleanValue)
+                            : null;
 
-                          clearError('icNumber');
+                          clearError("icNumber");
 
                           if (extractedDate) {
-                            clearError('dateOfBirth');
+                            clearError("dateOfBirth");
                           }
 
                           if (extractedGender) {
-                            clearError('gender');
+                            clearError("gender");
                           }
 
                           setIndividualFormData((current) => ({
                             ...current,
                             icNumber: cleanValue,
-                            ...(extractedDate ? { dateOfBirth: extractedDate } : {}),
-                            ...(extractedGender ? { gender: extractedGender } : {}),
+                            ...(extractedDate
+                              ? { dateOfBirth: extractedDate }
+                              : {}),
+                            ...(extractedGender
+                              ? { gender: extractedGender }
+                              : {}),
                           }));
                         }}
                         placeholder="12 digits for IC"
@@ -819,7 +1047,7 @@ export default function OnboardingScreen() {
                         error={validationErrors.icNumber}
                         helperText={
                           isIndividualIC
-                            ? 'Enter a complete 12-digit IC number. Date of birth and gender are auto-extracted.'
+                            ? "Enter a complete 12-digit IC number. Date of birth and gender are auto-extracted."
                             : undefined
                         }
                       />
@@ -827,8 +1055,11 @@ export default function OnboardingScreen() {
                         label="Date of birth"
                         value={dateOfBirthValue}
                         onChangeText={(value) => {
-                          clearError('dateOfBirth');
-                          setIndividualFormData((current) => ({ ...current, dateOfBirth: value }));
+                          clearError("dateOfBirth");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            dateOfBirth: value,
+                          }));
                         }}
                         placeholder="YYYY-MM-DD"
                         autoCapitalize="none"
@@ -839,8 +1070,11 @@ export default function OnboardingScreen() {
                         label="Gender"
                         value={genderValue}
                         onChange={(value) => {
-                          clearError('gender');
-                          setIndividualFormData((current) => ({ ...current, gender: value }));
+                          clearError("gender");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            gender: value,
+                          }));
                         }}
                         options={genderOptions}
                         error={validationErrors.gender}
@@ -850,8 +1084,11 @@ export default function OnboardingScreen() {
                         label="Race"
                         value={individualFormData.race}
                         onChange={(value) => {
-                          clearError('race');
-                          setIndividualFormData((current) => ({ ...current, race: value }));
+                          clearError("race");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            race: value,
+                          }));
                         }}
                         options={raceOptions}
                         placeholder="Select race"
@@ -861,8 +1098,11 @@ export default function OnboardingScreen() {
                         label="Education level"
                         value={individualFormData.educationLevel}
                         onChange={(value) => {
-                          clearError('educationLevel');
-                          setIndividualFormData((current) => ({ ...current, educationLevel: value }));
+                          clearError("educationLevel");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            educationLevel: value,
+                          }));
                         }}
                         options={educationOptions}
                         placeholder="Select education level"
@@ -872,8 +1112,11 @@ export default function OnboardingScreen() {
                         label="Occupation"
                         value={individualFormData.occupation}
                         onChangeText={(value) => {
-                          clearError('occupation');
-                          setIndividualFormData((current) => ({ ...current, occupation: value }));
+                          clearError("occupation");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            occupation: value,
+                          }));
                         }}
                         placeholder="Your job or role"
                         autoCapitalize="words"
@@ -883,7 +1126,7 @@ export default function OnboardingScreen() {
                         label="Employment status"
                         value={individualFormData.employmentStatus}
                         onChange={(value) => {
-                          clearError('employmentStatus');
+                          clearError("employmentStatus");
                           setIndividualFormData((current) => ({
                             ...current,
                             employmentStatus: value,
@@ -898,7 +1141,7 @@ export default function OnboardingScreen() {
                         description="Toggle this if you do not currently earn a monthly income."
                         value={noMonthlyIncome}
                         onValueChange={(value) => {
-                          clearError('monthlyIncome');
+                          clearError("monthlyIncome");
                           setNoMonthlyIncome(value);
                         }}
                       />
@@ -907,8 +1150,11 @@ export default function OnboardingScreen() {
                           label="Monthly income"
                           value={individualFormData.monthlyIncome}
                           onChangeText={(value) => {
-                            clearError('monthlyIncome');
-                            setIndividualFormData((current) => ({ ...current, monthlyIncome: value }));
+                            clearError("monthlyIncome");
+                            setIndividualFormData((current) => ({
+                              ...current,
+                              monthlyIncome: value,
+                            }));
                           }}
                           placeholder="0.00"
                           keyboardType="numeric"
@@ -925,8 +1171,11 @@ export default function OnboardingScreen() {
                         label="Phone number"
                         value={individualFormData.phone}
                         onChangeText={(value) => {
-                          clearError('phone');
-                          setIndividualFormData((current) => ({ ...current, phone: value }));
+                          clearError("phone");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            phone: value,
+                          }));
                         }}
                         placeholder="+60..."
                         keyboardType="phone-pad"
@@ -937,8 +1186,11 @@ export default function OnboardingScreen() {
                         label="Email"
                         value={individualFormData.email}
                         onChangeText={(value) => {
-                          clearError('email');
-                          setIndividualFormData((current) => ({ ...current, email: value }));
+                          clearError("email");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            email: value,
+                          }));
                         }}
                         placeholder="name@email.com"
                         keyboardType="email-address"
@@ -949,8 +1201,11 @@ export default function OnboardingScreen() {
                         label="Address line 1"
                         value={individualFormData.addressLine1}
                         onChangeText={(value) => {
-                          clearError('addressLine1');
-                          setIndividualFormData((current) => ({ ...current, addressLine1: value }));
+                          clearError("addressLine1");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            addressLine1: value,
+                          }));
                         }}
                         placeholder="House / street"
                         error={validationErrors.addressLine1}
@@ -959,7 +1214,10 @@ export default function OnboardingScreen() {
                         label="Address line 2"
                         value={individualFormData.addressLine2}
                         onChangeText={(value) =>
-                          setIndividualFormData((current) => ({ ...current, addressLine2: value }))
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            addressLine2: value,
+                          }))
                         }
                         placeholder="Apartment / unit"
                       />
@@ -967,8 +1225,11 @@ export default function OnboardingScreen() {
                         label="City"
                         value={individualFormData.city}
                         onChangeText={(value) => {
-                          clearError('city');
-                          setIndividualFormData((current) => ({ ...current, city: value }));
+                          clearError("city");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            city: value,
+                          }));
                         }}
                         placeholder="City"
                         error={validationErrors.city}
@@ -977,17 +1238,24 @@ export default function OnboardingScreen() {
                         label="State"
                         value={individualFormData.state}
                         onChange={(value) => {
-                          clearError('state');
-                          setIndividualFormData((current) => ({ ...current, state: value }));
+                          clearError("state");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            state: value,
+                          }));
                         }}
                         options={individualStateOptions}
                         placeholder="Select state"
                         error={validationErrors.state}
-                        disabled={!individualFormData.country || individualStateOptions.length === 0}
+                        disabled={
+                          !individualFormData.country ||
+                          individualStateOptions.length === 0
+                        }
                         searchable
                         helperText={
-                          !individualFormData.country || individualStateOptions.length === 0
-                            ? 'Select a country first.'
+                          !individualFormData.country ||
+                          individualStateOptions.length === 0
+                            ? "Select a country first."
                             : undefined
                         }
                       />
@@ -995,8 +1263,11 @@ export default function OnboardingScreen() {
                         label="Postcode"
                         value={individualFormData.postcode}
                         onChangeText={(value) => {
-                          clearError('postcode');
-                          setIndividualFormData((current) => ({ ...current, postcode: value }));
+                          clearError("postcode");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            postcode: value,
+                          }));
                         }}
                         placeholder="Postcode"
                         keyboardType="numeric"
@@ -1008,14 +1279,16 @@ export default function OnboardingScreen() {
                         value={individualFormData.country}
                         onChange={(value) => {
                           const nextStateOptions = getStateOptions(value);
-                          clearError('country');
-                          clearError('state');
+                          clearError("country");
+                          clearError("state");
                           setIndividualFormData((current) => ({
                             ...current,
                             country: value,
-                            state: nextStateOptions.some((option) => option.value === current.state)
+                            state: nextStateOptions.some(
+                              (option) => option.value === current.state,
+                            )
                               ? current.state
-                              : '',
+                              : "",
                           }));
                         }}
                         options={countryOptions}
@@ -1027,20 +1300,23 @@ export default function OnboardingScreen() {
                         label="Bank"
                         value={individualFormData.bankName}
                         onChange={(value) => {
-                          clearError('bankName');
-                          setIndividualFormData((current) => ({ ...current, bankName: value }));
+                          clearError("bankName");
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            bankName: value,
+                          }));
                         }}
                         options={bankOptions}
                         placeholder="Select bank"
                         error={validationErrors.bankName}
                         searchable
                       />
-                      {individualFormData.bankName === 'OTHER' ? (
+                      {individualFormData.bankName === "OTHER" ? (
                         <Field
                           label="Bank name"
                           value={individualFormData.bankNameOther}
                           onChangeText={(value) => {
-                            clearError('bankNameOther');
+                            clearError("bankNameOther");
                             setIndividualFormData((current) => ({
                               ...current,
                               bankNameOther: value,
@@ -1054,7 +1330,7 @@ export default function OnboardingScreen() {
                         label="Bank account number"
                         value={individualFormData.bankAccountNo}
                         onChangeText={(value) => {
-                          clearError('bankAccountNo');
+                          clearError("bankAccountNo");
                           setIndividualFormData((current) => ({
                             ...current,
                             bankAccountNo: value,
@@ -1110,7 +1386,10 @@ export default function OnboardingScreen() {
                         label="Instagram"
                         value={individualFormData.instagram}
                         onChangeText={(value) =>
-                          setIndividualFormData((current) => ({ ...current, instagram: value }))
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            instagram: value,
+                          }))
                         }
                         placeholder="@handle"
                         autoCapitalize="none"
@@ -1119,7 +1398,10 @@ export default function OnboardingScreen() {
                         label="TikTok"
                         value={individualFormData.tiktok}
                         onChangeText={(value) =>
-                          setIndividualFormData((current) => ({ ...current, tiktok: value }))
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            tiktok: value,
+                          }))
                         }
                         placeholder="@handle"
                         autoCapitalize="none"
@@ -1128,7 +1410,10 @@ export default function OnboardingScreen() {
                         label="Facebook"
                         value={individualFormData.facebook}
                         onChangeText={(value) =>
-                          setIndividualFormData((current) => ({ ...current, facebook: value }))
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            facebook: value,
+                          }))
                         }
                         placeholder="Profile URL or handle"
                         autoCapitalize="none"
@@ -1137,7 +1422,10 @@ export default function OnboardingScreen() {
                         label="LinkedIn"
                         value={individualFormData.linkedin}
                         onChangeText={(value) =>
-                          setIndividualFormData((current) => ({ ...current, linkedin: value }))
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            linkedin: value,
+                          }))
                         }
                         placeholder="Profile URL"
                         autoCapitalize="none"
@@ -1146,7 +1434,10 @@ export default function OnboardingScreen() {
                         label="X (Twitter)"
                         value={individualFormData.xTwitter}
                         onChangeText={(value) =>
-                          setIndividualFormData((current) => ({ ...current, xTwitter: value }))
+                          setIndividualFormData((current) => ({
+                            ...current,
+                            xTwitter: value,
+                          }))
                         }
                         placeholder="@handle"
                         autoCapitalize="none"
@@ -1162,8 +1453,11 @@ export default function OnboardingScreen() {
                         label="Company name"
                         value={corporateFormData.companyName}
                         onChangeText={(value) => {
-                          clearError('companyName');
-                          setCorporateFormData((current) => ({ ...current, companyName: value }));
+                          clearError("companyName");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            companyName: value,
+                          }));
                         }}
                         placeholder="Registered company name"
                         autoCapitalize="words"
@@ -1173,7 +1467,7 @@ export default function OnboardingScreen() {
                         label="SSM registration number"
                         value={corporateFormData.ssmRegistrationNo}
                         onChangeText={(value) => {
-                          clearError('ssmRegistrationNo');
+                          clearError("ssmRegistrationNo");
                           setCorporateFormData((current) => ({
                             ...current,
                             ssmRegistrationNo: value,
@@ -1187,8 +1481,11 @@ export default function OnboardingScreen() {
                         label="Taraf (Bumi status)"
                         value={corporateFormData.bumiStatus}
                         onChange={(value) => {
-                          clearError('bumiStatus');
-                          setCorporateFormData((current) => ({ ...current, bumiStatus: value }));
+                          clearError("bumiStatus");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            bumiStatus: value,
+                          }));
                         }}
                         options={bumiStatusOptions}
                         error={validationErrors.bumiStatus}
@@ -1221,8 +1518,11 @@ export default function OnboardingScreen() {
                         label="Address line 1"
                         value={corporateFormData.addressLine1}
                         onChangeText={(value) => {
-                          clearError('addressLine1');
-                          setCorporateFormData((current) => ({ ...current, addressLine1: value }));
+                          clearError("addressLine1");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            addressLine1: value,
+                          }));
                         }}
                         placeholder="Registered address"
                         error={validationErrors.addressLine1}
@@ -1231,7 +1531,10 @@ export default function OnboardingScreen() {
                         label="Address line 2"
                         value={corporateFormData.addressLine2}
                         onChangeText={(value) =>
-                          setCorporateFormData((current) => ({ ...current, addressLine2: value }))
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            addressLine2: value,
+                          }))
                         }
                         placeholder="Optional"
                       />
@@ -1239,8 +1542,11 @@ export default function OnboardingScreen() {
                         label="City"
                         value={corporateFormData.city}
                         onChangeText={(value) => {
-                          clearError('city');
-                          setCorporateFormData((current) => ({ ...current, city: value }));
+                          clearError("city");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            city: value,
+                          }));
                         }}
                         placeholder="City"
                         error={validationErrors.city}
@@ -1249,17 +1555,24 @@ export default function OnboardingScreen() {
                         label="State"
                         value={corporateFormData.state}
                         onChange={(value) => {
-                          clearError('state');
-                          setCorporateFormData((current) => ({ ...current, state: value }));
+                          clearError("state");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            state: value,
+                          }));
                         }}
                         options={corporateStateOptions}
                         placeholder="Select state"
                         error={validationErrors.state}
-                        disabled={!corporateFormData.country || corporateStateOptions.length === 0}
+                        disabled={
+                          !corporateFormData.country ||
+                          corporateStateOptions.length === 0
+                        }
                         searchable
                         helperText={
-                          !corporateFormData.country || corporateStateOptions.length === 0
-                            ? 'Select a country first.'
+                          !corporateFormData.country ||
+                          corporateStateOptions.length === 0
+                            ? "Select a country first."
                             : undefined
                         }
                       />
@@ -1267,8 +1580,11 @@ export default function OnboardingScreen() {
                         label="Postcode"
                         value={corporateFormData.postcode}
                         onChangeText={(value) => {
-                          clearError('postcode');
-                          setCorporateFormData((current) => ({ ...current, postcode: value }));
+                          clearError("postcode");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            postcode: value,
+                          }));
                         }}
                         placeholder="Postcode"
                         keyboardType="numeric"
@@ -1280,14 +1596,16 @@ export default function OnboardingScreen() {
                         value={corporateFormData.country}
                         onChange={(value) => {
                           const nextStateOptions = getStateOptions(value);
-                          clearError('country');
-                          clearError('state');
+                          clearError("country");
+                          clearError("state");
                           setCorporateFormData((current) => ({
                             ...current,
                             country: value,
-                            state: nextStateOptions.some((option) => option.value === current.state)
+                            state: nextStateOptions.some(
+                              (option) => option.value === current.state,
+                            )
                               ? current.state
-                              : '',
+                              : "",
                           }));
                         }}
                         options={countryOptions}
@@ -1304,8 +1622,11 @@ export default function OnboardingScreen() {
                         label="Company phone"
                         value={corporateFormData.companyPhone}
                         onChangeText={(value) => {
-                          clearError('companyPhone');
-                          setCorporateFormData((current) => ({ ...current, companyPhone: value }));
+                          clearError("companyPhone");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            companyPhone: value,
+                          }));
                         }}
                         placeholder="+60..."
                         keyboardType="phone-pad"
@@ -1316,8 +1637,11 @@ export default function OnboardingScreen() {
                         label="Company email"
                         value={corporateFormData.companyEmail}
                         onChangeText={(value) => {
-                          clearError('companyEmail');
-                          setCorporateFormData((current) => ({ ...current, companyEmail: value }));
+                          clearError("companyEmail");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            companyEmail: value,
+                          }));
                         }}
                         placeholder="accounts@company.com"
                         keyboardType="email-address"
@@ -1328,7 +1652,10 @@ export default function OnboardingScreen() {
                         label="Paid-up capital"
                         value={corporateFormData.paidUpCapital}
                         onChangeText={(value) =>
-                          setCorporateFormData((current) => ({ ...current, paidUpCapital: value }))
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            paidUpCapital: value,
+                          }))
                         }
                         placeholder="Optional"
                         keyboardType="numeric"
@@ -1366,7 +1693,8 @@ export default function OnboardingScreen() {
                               borderColor: theme.border,
                               backgroundColor: theme.background,
                             },
-                          ]}>
+                          ]}
+                        >
                           <View style={styles.rowBetween}>
                             <ThemedText type="smallBold">{`Director ${index + 1}`}</ThemedText>
                             {corporateFormData.directors.length > 1 ? (
@@ -1376,7 +1704,9 @@ export default function OnboardingScreen() {
                                 onPress={() =>
                                   setCorporateFormData((current) => ({
                                     ...current,
-                                    directors: current.directors.filter((_, itemIndex) => itemIndex !== index),
+                                    directors: current.directors.filter(
+                                      (_, itemIndex) => itemIndex !== index,
+                                    ),
                                   }))
                                 }
                               />
@@ -1389,8 +1719,11 @@ export default function OnboardingScreen() {
                               clearError(`directorName_${index}`);
                               setCorporateFormData((current) => ({
                                 ...current,
-                                directors: current.directors.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, name: value } : item,
+                                directors: current.directors.map(
+                                  (item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, name: value }
+                                      : item,
                                 ),
                               }));
                             }}
@@ -1404,8 +1737,11 @@ export default function OnboardingScreen() {
                               clearError(`directorIc_${index}`);
                               setCorporateFormData((current) => ({
                                 ...current,
-                                directors: current.directors.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, icNumber: value } : item,
+                                directors: current.directors.map(
+                                  (item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, icNumber: value }
+                                      : item,
                                 ),
                               }));
                             }}
@@ -1418,8 +1754,11 @@ export default function OnboardingScreen() {
                             onChangeText={(value) =>
                               setCorporateFormData((current) => ({
                                 ...current,
-                                directors: current.directors.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, position: value } : item,
+                                directors: current.directors.map(
+                                  (item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, position: value }
+                                      : item,
                                 ),
                               }))
                             }
@@ -1429,10 +1768,13 @@ export default function OnboardingScreen() {
                             onPress={() =>
                               setCorporateFormData((current) => ({
                                 ...current,
-                                directors: current.directors.map((item, itemIndex) => ({
-                                  ...item,
-                                  isAuthorizedRepresentative: itemIndex === index,
-                                })),
+                                directors: current.directors.map(
+                                  (item, itemIndex) => ({
+                                    ...item,
+                                    isAuthorizedRepresentative:
+                                      itemIndex === index,
+                                  }),
+                                ),
                               }))
                             }
                             style={[
@@ -1441,22 +1783,27 @@ export default function OnboardingScreen() {
                                 borderColor: director.isAuthorizedRepresentative
                                   ? theme.primary
                                   : theme.border,
-                                backgroundColor: director.isAuthorizedRepresentative
-                                  ? theme.backgroundSelected
-                                  : theme.backgroundElement,
+                                backgroundColor:
+                                  director.isAuthorizedRepresentative
+                                    ? theme.backgroundSelected
+                                    : theme.backgroundElement,
                               },
-                            ]}>
+                            ]}
+                          >
                             <ThemedText
                               type="smallBold"
                               style={{
                                 color: director.isAuthorizedRepresentative
                                   ? theme.primary
                                   : theme.text,
-                              }}>
+                              }}
+                            >
                               Authorized representative
                             </ThemedText>
                             <ThemedText type="small" themeColor="textSecondary">
-                              {director.isAuthorizedRepresentative ? 'Selected' : 'Tap to select'}
+                              {director.isAuthorizedRepresentative
+                                ? "Selected"
+                                : "Tap to select"}
                             </ThemedText>
                           </Pressable>
                         </View>
@@ -1470,9 +1817,9 @@ export default function OnboardingScreen() {
                             directors: [
                               ...current.directors,
                               {
-                                name: '',
-                                icNumber: '',
-                                position: '',
+                                name: "",
+                                icNumber: "",
+                                position: "",
                                 isAuthorizedRepresentative: false,
                               } as CorporateDirector,
                             ],
@@ -1488,20 +1835,23 @@ export default function OnboardingScreen() {
                         label="Bank"
                         value={corporateFormData.bankName}
                         onChange={(value) => {
-                          clearError('bankName');
-                          setCorporateFormData((current) => ({ ...current, bankName: value }));
+                          clearError("bankName");
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            bankName: value,
+                          }));
                         }}
                         options={bankOptions}
                         placeholder="Select bank"
                         error={validationErrors.bankName}
                         searchable
                       />
-                      {corporateFormData.bankName === 'OTHER' ? (
+                      {corporateFormData.bankName === "OTHER" ? (
                         <Field
                           label="Bank name"
                           value={corporateFormData.bankNameOther}
                           onChangeText={(value) => {
-                            clearError('bankNameOther');
+                            clearError("bankNameOther");
                             setCorporateFormData((current) => ({
                               ...current,
                               bankNameOther: value,
@@ -1514,7 +1864,7 @@ export default function OnboardingScreen() {
                         label="Bank account number"
                         value={corporateFormData.bankAccountNo}
                         onChangeText={(value) => {
-                          clearError('bankAccountNo');
+                          clearError("bankAccountNo");
                           setCorporateFormData((current) => ({
                             ...current,
                             bankAccountNo: value,
@@ -1533,7 +1883,10 @@ export default function OnboardingScreen() {
                         label="Instagram"
                         value={corporateFormData.instagram}
                         onChangeText={(value) =>
-                          setCorporateFormData((current) => ({ ...current, instagram: value }))
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            instagram: value,
+                          }))
                         }
                         placeholder="@handle"
                         autoCapitalize="none"
@@ -1542,7 +1895,10 @@ export default function OnboardingScreen() {
                         label="TikTok"
                         value={corporateFormData.tiktok}
                         onChangeText={(value) =>
-                          setCorporateFormData((current) => ({ ...current, tiktok: value }))
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            tiktok: value,
+                          }))
                         }
                         placeholder="@handle"
                         autoCapitalize="none"
@@ -1551,7 +1907,10 @@ export default function OnboardingScreen() {
                         label="Facebook"
                         value={corporateFormData.facebook}
                         onChangeText={(value) =>
-                          setCorporateFormData((current) => ({ ...current, facebook: value }))
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            facebook: value,
+                          }))
                         }
                         placeholder="Profile URL or handle"
                         autoCapitalize="none"
@@ -1560,7 +1919,10 @@ export default function OnboardingScreen() {
                         label="LinkedIn"
                         value={corporateFormData.linkedin}
                         onChangeText={(value) =>
-                          setCorporateFormData((current) => ({ ...current, linkedin: value }))
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            linkedin: value,
+                          }))
                         }
                         placeholder="Profile URL"
                         autoCapitalize="none"
@@ -1569,7 +1931,10 @@ export default function OnboardingScreen() {
                         label="X (Twitter)"
                         value={corporateFormData.xTwitter}
                         onChangeText={(value) =>
-                          setCorporateFormData((current) => ({ ...current, xTwitter: value }))
+                          setCorporateFormData((current) => ({
+                            ...current,
+                            xTwitter: value,
+                          }))
                         }
                         placeholder="@handle"
                         autoCapitalize="none"
@@ -1580,52 +1945,6 @@ export default function OnboardingScreen() {
               )}
             </View>
           </SectionCard>
-
-          <View style={styles.actionsRow}>
-            <ActionButton
-              label="Back"
-              variant="outline"
-              onPress={() => {
-                if (borrowerDetailSubStep > 1) {
-                  setBorrowerDetailSubStep((current) => (current - 1) as BorrowerDetailSubStep);
-                } else {
-                  setStep(1);
-                }
-              }}
-            />
-            <ActionButton
-              label="Continue"
-              onPress={() => {
-                const errors =
-                  borrowerType === 'INDIVIDUAL'
-                    ? validateIndividualFormStep(
-                        individualFormData,
-                        borrowerDetailSubStep as IndividualSubStep,
-                        noMonthlyIncome,
-                      )
-                    : validateCorporateFormStep(
-                        corporateFormData,
-                        borrowerDetailSubStep as CorporateSubStep,
-                      );
-
-                if (Object.keys(errors).length > 0) {
-                  setValidationErrors(errors);
-                  Alert.alert(
-                    'Missing required fields',
-                    'Please complete the required fields before continuing.',
-                  );
-                  return;
-                }
-
-                setValidationErrors({});
-                if (borrowerDetailSubStep < totalSubSteps) {
-                  setBorrowerDetailSubStep((current) => (current + 1) as BorrowerDetailSubStep);
-                } else {
-                  setStep(3);
-                }
-              }}
-            />
-          </View>
         </>
       ) : null}
 
@@ -1633,20 +1952,25 @@ export default function OnboardingScreen() {
         <>
           <SectionCard
             title="Review your profile"
-            description="Everything look good? Once you confirm, the borrower profile will be created and linked to this account.">
+            description="Everything look good? Once you confirm, the borrower profile will be created and linked to this account."
+          >
             <View style={styles.stack}>
               {reviewSections.map((section) => (
                 <View key={section.title} style={styles.reviewSection}>
                   <ThemedText type="smallBold">{section.title}</ThemedText>
                   <View style={styles.stackTight}>
                     {section.rows.map((row) => (
-                      <ReviewRow key={`${section.title}-${row.label}`} label={row.label} value={row.value} />
+                      <ReviewRow
+                        key={`${section.title}-${row.label}`}
+                        label={row.label}
+                        value={row.value}
+                      />
                     ))}
                   </View>
                 </View>
               ))}
 
-              {borrowerType === 'CORPORATE' ? (
+              {borrowerType === "CORPORATE" ? (
                 <View style={styles.reviewSection}>
                   <ThemedText type="smallBold">Directors</ThemedText>
                   <View style={styles.stack}>
@@ -1659,14 +1983,26 @@ export default function OnboardingScreen() {
                             borderColor: theme.border,
                             backgroundColor: theme.background,
                           },
-                        ]}>
+                        ]}
+                      >
                         <ThemedText type="smallBold">{`Director ${index + 1}`}</ThemedText>
-                        <ReviewRow label="Name" value={normalizeDisplayValue(director.name)} />
-                        <ReviewRow label="IC" value={normalizeDisplayValue(director.icNumber)} />
-                        <ReviewRow label="Position" value={normalizeDisplayValue(director.position)} />
+                        <ReviewRow
+                          label="Name"
+                          value={normalizeDisplayValue(director.name)}
+                        />
+                        <ReviewRow
+                          label="IC"
+                          value={normalizeDisplayValue(director.icNumber)}
+                        />
+                        <ReviewRow
+                          label="Position"
+                          value={normalizeDisplayValue(director.position)}
+                        />
                         <ReviewRow
                           label="Authorized representative"
-                          value={director.isAuthorizedRepresentative ? 'Yes' : 'No'}
+                          value={
+                            director.isAuthorizedRepresentative ? "Yes" : "No"
+                          }
                         />
                       </View>
                     ))}
@@ -1675,15 +2011,6 @@ export default function OnboardingScreen() {
               ) : null}
             </View>
           </SectionCard>
-
-          <View style={styles.actionsRow}>
-            <ActionButton label="Back" variant="outline" onPress={() => setStep(2)} />
-            <ActionButton
-              label="Confirm & Create Profile"
-              onPress={handleSubmit}
-              loading={loading}
-            />
-          </View>
         </>
       ) : null}
     </PageScreen>
@@ -1693,8 +2020,8 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   centeredState: {
     minHeight: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   progressWrap: {
     gap: Spacing.two,
@@ -1702,10 +2029,10 @@ const styles = StyleSheet.create({
   progressTrack: {
     height: 8,
     borderRadius: 999,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   progressFill: {
-    height: '100%',
+    height: "100%",
     borderRadius: 999,
   },
   button: {
@@ -1714,15 +2041,16 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     borderRadius: 12,
     borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    alignSelf: "stretch",
   },
   rowBetween: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     gap: Spacing.two,
-    flexWrap: 'wrap',
+    flexWrap: "wrap",
   },
   stack: {
     gap: Spacing.three,
@@ -1731,10 +2059,10 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   actionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: Spacing.two,
-    flexWrap: 'wrap',
+    flexWrap: "wrap",
   },
   typeCard: {
     borderRadius: 16,
@@ -1762,14 +2090,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.two,
   },
   modalOverlay: {
     flex: 1,
     padding: Spacing.four,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   selectModal: {
     borderWidth: 1,
@@ -1779,9 +2107,9 @@ const styles = StyleSheet.create({
     maxHeight: 560,
   },
   selectModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: Spacing.two,
   },
   searchInput: {
@@ -1804,13 +2132,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.two,
   },
   chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: Spacing.two,
   },
   chip: {
@@ -1823,9 +2151,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     padding: Spacing.three,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     gap: Spacing.two,
   },
   switchCopy: {
@@ -1849,5 +2177,16 @@ const styles = StyleSheet.create({
   },
   reviewRow: {
     gap: Spacing.one,
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: Spacing.two,
+  },
+  footerSecondary: {
+    minWidth: 100,
+  },
+  footerPrimary: {
+    flex: 1,
   },
 });

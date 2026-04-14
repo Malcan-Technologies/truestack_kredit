@@ -19,6 +19,8 @@ import {
   MAX_DOCUMENT_SIZE,
 } from '../../lib/upload.js';
 import { notifyTruestackKycUpdate } from '../../lib/truestackKycSseHub.js';
+import { getCorporateBorrowerVerificationFromLatestSessions } from '../../lib/verification.js';
+import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
 
 const router = Router();
 
@@ -113,6 +115,74 @@ async function applyApprovedVerification(borrowerId: string, directorId: string 
       verifiedAt: new Date(),
       verifiedBy: 'TRUESTACK_KYC_API',
       verificationStatus: 'FULLY_VERIFIED',
+    },
+  });
+}
+
+async function syncCorporateBorrowerVerificationFromSessions(
+  borrowerId: string,
+  tenantId: string,
+): Promise<void> {
+  const borrower = await prisma.borrower.findUnique({
+    where: { id: borrowerId },
+    select: {
+      borrowerType: true,
+      directors: {
+        select: {
+          id: true,
+          isAuthorizedRepresentative: true,
+        },
+      },
+    },
+  });
+
+  if (!borrower || borrower.borrowerType !== 'CORPORATE') {
+    return;
+  }
+
+  const sessions = await prisma.truestackKycSession.findMany({
+    where: {
+      borrowerId,
+      tenantId,
+      directorId: { not: null },
+    },
+    select: {
+      directorId: true,
+      status: true,
+      result: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  const latestSessions = borrower.directors
+    .map((director) => {
+      const latestSession = pickBestTruestackKycSession(
+        sessions.filter((session) => session.directorId === director.id)
+      );
+      if (!latestSession) return null;
+      return {
+        directorId: director.id,
+        status: latestSession.status,
+        result: latestSession.result,
+        createdAt: latestSession.createdAt,
+        updatedAt: latestSession.updatedAt,
+      };
+    })
+    .filter((session): session is NonNullable<typeof session> => session !== null);
+
+  const summary = getCorporateBorrowerVerificationFromLatestSessions({
+    directors: borrower.directors,
+    sessions: latestSessions,
+  });
+
+  await prisma.borrower.update({
+    where: { id: borrowerId },
+    data: {
+      verificationStatus: summary.verificationStatus,
+      documentVerified: summary.documentVerified,
+      verifiedAt: summary.documentVerified ? new Date() : null,
+      verifiedBy: summary.documentVerified ? 'TRUESTACK_KYC_API' : null,
     },
   });
 }
@@ -335,6 +405,10 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
   };
   notifyTruestackKycUpdate(row.tenantId, ssePayload);
 
+  if (row.directorId) {
+    await syncCorporateBorrowerVerificationFromSessions(row.borrowerId, row.tenantId);
+  }
+
   if (!shouldRefreshFromTrueStack(payload, status)) {
     return;
   }
@@ -355,6 +429,10 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
         lastWebhookAt: new Date(),
       },
     });
+
+    if (row.directorId) {
+      await syncCorporateBorrowerVerificationFromSessions(row.borrowerId, row.tenantId);
+    }
 
     if (finalStatus === 'completed' && finalResult === 'approved') {
       await applyApprovedVerification(row.borrowerId, row.directorId);

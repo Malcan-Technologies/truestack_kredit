@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Activity } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
+import { Skeleton } from "./ui/skeleton";
 import {
   Table,
   TableBody,
@@ -68,7 +69,20 @@ export function AccountLoginActivityCard({ className }: AccountLoginActivityCard
       </CardHeader>
       <CardContent>
         {loading ? (
-          <div className="text-sm text-muted-foreground">Loading...</div>
+          <div className="rounded-md border border-border" role="status" aria-label="Loading login history">
+            <div className="grid grid-cols-3 gap-2 border-b border-border px-3 py-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-4 w-full" />
+              ))}
+            </div>
+            {Array.from({ length: 4 }).map((_, row) => (
+              <div key={row} className="grid grid-cols-3 gap-2 border-b border-border px-3 py-2.5 last:border-b-0">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-6 w-24 rounded-full" />
+                <Skeleton className="h-4 w-28" />
+              </div>
+            ))}
+          </div>
         ) : loginLogs.length > 0 ? (
           <Table>
             <TableHeader>

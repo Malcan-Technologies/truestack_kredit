@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { ChevronsUpDown, User, Building2, Plus } from "lucide-react";
 import { Button } from "./ui/button";
+import { Skeleton } from "./ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -85,7 +86,11 @@ export function BorrowerSwitcher({ className, collapsed }: BorrowerSwitcherProps
       setActiveBorrower(profile);
       dispatchBorrowerProfileSwitched(profile.id);
       toast.success(`Switched to ${getProfileDisplayName(profile)}`);
-      router.refresh();
+      if (pathname !== "/dashboard") {
+        router.replace("/dashboard");
+      } else {
+        router.refresh();
+      }
     } catch {
       toast.error("Failed to switch profile");
     } finally {
@@ -93,18 +98,25 @@ export function BorrowerSwitcher({ className, collapsed }: BorrowerSwitcherProps
     }
   };
 
-  // Loading state
+  // Loading state — mirror loaded trigger layout (icon + name + chevron)
   if (loading) {
     return (
       <div
         className={cn(
-          "flex items-center rounded-lg border border-border bg-card/50 px-3 py-2",
+          "flex w-full items-center gap-2 rounded-lg border border-border bg-card/50 px-3 py-2",
           collapsed && "justify-center px-2",
           className
         )}
+        role="status"
+        aria-busy="true"
+        aria-label="Loading borrower profiles"
       >
+        <Skeleton className="h-4 w-4 shrink-0 rounded-sm" />
         {!collapsed && (
-          <span className="text-sm text-muted-foreground">Loading...</span>
+          <>
+            <Skeleton className="h-4 min-w-0 flex-1 rounded-md" />
+            <Skeleton className="h-4 w-4 shrink-0 rounded-sm" />
+          </>
         )}
       </div>
     );

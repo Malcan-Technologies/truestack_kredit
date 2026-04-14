@@ -87,12 +87,15 @@ export function Breadcrumbs({ className, tenantName }: BreadcrumbsProps) {
           >
             <Building2 className="h-4 w-4 text-foreground" />
             {tenantName && (
-              <span className={cn(
-                "max-w-[150px] truncate",
-                isOnDashboardHome && displayBreadcrumbs.length === 0 
-                  ? "text-foreground font-medium" 
-                  : ""
-              )}>
+              <span
+                className={cn(
+                  "max-w-xs truncate sm:max-w-sm",
+                  isOnDashboardHome && displayBreadcrumbs.length === 0
+                    ? "text-foreground font-medium"
+                    : "",
+                )}
+                title={tenantName}
+              >
                 {tenantName}
               </span>
             )}

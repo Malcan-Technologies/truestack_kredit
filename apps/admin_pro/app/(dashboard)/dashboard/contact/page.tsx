@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Phone, Mail, MessageCircle, HelpCircle, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
 import { CopyField } from "@/components/ui/copy-field";
@@ -13,8 +14,47 @@ const EMAIL = "hello@truestack.my";
 
 const WHATSAPP_BASE = "https://wa.me/60164614919";
 
+function ContactPageSkeleton() {
+  return (
+    <div className="mx-auto w-full min-w-0 max-w-4xl space-y-6 xl:max-w-5xl" role="status" aria-label="Loading contact page">
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-4 w-full max-w-lg" />
+      </div>
+      <Card className="border-dashed">
+        <CardContent className="flex items-center gap-4 py-4">
+          <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-full max-w-md" />
+          </div>
+          <Skeleton className="h-9 w-28 shrink-0" />
+        </CardContent>
+      </Card>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {[0, 1].map((i) => (
+          <Card key={i} className="flex flex-col">
+            <CardHeader className="space-y-2">
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="h-3 w-full max-w-xs" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-10 w-full" />
+            </CardContent>
+            <CardFooter className="mt-auto border-t border-border pt-4">
+              <Skeleton className="h-10 w-full" />
+            </CardFooter>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ContactPage() {
   const [tenantName, setTenantName] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchTenant = async () => {
@@ -26,13 +66,19 @@ export default function ContactPage() {
         }
       } catch {
         // Ignore - will use fallback
+      } finally {
+        setLoading(false);
       }
     };
-    fetchTenant();
+    void fetchTenant();
   }, []);
 
   const whatsappMessage = `Hi, I'm contacting you from TrueKredit. My tenant name is ${tenantName ?? "N/A"}`;
   const whatsappUrl = `${WHATSAPP_BASE}?text=${encodeURIComponent(whatsappMessage)}`;
+
+  if (loading) {
+    return <ContactPageSkeleton />;
+  }
 
   return (
     <div className="w-full min-w-0 max-w-4xl xl:max-w-5xl mx-auto space-y-6">

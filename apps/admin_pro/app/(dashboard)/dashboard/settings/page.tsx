@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TableActionButton } from "@/components/ui/table-action-button";
 import {
   Dialog,
@@ -103,6 +104,117 @@ interface TenantRoleOption {
   isEditable: boolean;
   isDefault: boolean;
   memberCount: number;
+}
+
+function SettingsPageSkeleton() {
+  return (
+    <div className="space-y-6" role="status" aria-label="Loading settings">
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-48 max-w-[90vw]" />
+        <Skeleton className="h-4 w-96 max-w-full" />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Skeleton className="mt-0.5 h-5 w-5 shrink-0 rounded" />
+              <div className="min-w-0 space-y-2">
+                <Skeleton className="h-6 w-52 max-w-full" />
+                <Skeleton className="h-4 w-full max-w-xl" />
+              </div>
+            </div>
+            <Skeleton className="h-9 w-[140px] shrink-0 sm:self-center" />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-start gap-4">
+            <Skeleton className="h-16 w-16 shrink-0 rounded-lg" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-4 w-48 max-w-full" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-4 w-full" />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Skeleton className="mt-0.5 h-5 w-5 shrink-0 rounded" />
+              <div className="min-w-0 space-y-2">
+                <Skeleton className="h-6 w-64 max-w-full" />
+                <Skeleton className="h-4 w-full max-w-2xl" />
+              </div>
+            </div>
+            <Skeleton className="h-9 w-[132px] shrink-0 sm:self-center" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-4 w-full" />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <Skeleton className="mt-0.5 h-5 w-5 shrink-0 rounded" />
+            <div className="min-w-0 space-y-2">
+              <Skeleton className="h-6 w-44 max-w-full" />
+              <Skeleton className="h-3 w-72 max-w-full" />
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+            <Skeleton className="h-9 w-[120px]" />
+            <Skeleton className="h-9 w-[96px]" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border border-border">
+            <div className="grid grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))] gap-2 border-b border-border px-3 py-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-4 w-full" />
+              ))}
+            </div>
+            <div className="divide-y divide-border">
+              {Array.from({ length: 5 }).map((_, row) => (
+                <div
+                  key={row}
+                  className="grid grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))] items-center gap-2 px-3 py-3"
+                >
+                  <div className="min-w-0 space-y-1.5">
+                    <Skeleton className="h-4 w-[70%]" />
+                    <Skeleton className="h-3 w-full" />
+                  </div>
+                  <Skeleton className="h-6 w-20 rounded-full" />
+                  <Skeleton className="h-6 w-16 rounded-full" />
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-4 w-14" />
+                  <Skeleton className="h-8 w-full max-w-[5rem] justify-self-end" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 export default function SettingsPage() {
@@ -515,16 +627,16 @@ export default function SettingsPage() {
     setTransferringOwnership(false);
   };
 
-  if (sessionLoading || loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-muted">Loading...</div>
-      </div>
-    );
+  if (sessionLoading) {
+    return <SettingsPageSkeleton />;
   }
 
   if (!session) {
     return null;
+  }
+
+  if (loading) {
+    return <SettingsPageSkeleton />;
   }
 
   if (!hasTenants) {

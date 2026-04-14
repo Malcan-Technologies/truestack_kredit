@@ -6,7 +6,7 @@ import { Loader2, MessageSquareText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { formatRelativeTime } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 
 export interface StaffNoteDto {
   id: string;
@@ -29,7 +29,7 @@ interface StaffNotesResponse {
 export function InternalStaffNotesPanel({
   apiPath,
   title = "Internal notes",
-  description = "Visible only to your team. Shown in compliance activity as STAFF_NOTE_CREATE.",
+  description = "Visible only to your team.",
   canPost = true,
 }: {
   apiPath: string;
@@ -44,6 +44,8 @@ export function InternalStaffNotesPanel({
   const [loadingMore, setLoadingMore] = useState(false);
   const [composer, setComposer] = useState("");
   const [posting, setPosting] = useState(false);
+  /** Softer styling for the note that was just added (clears after a few seconds). */
+  const [highlightNoteId, setHighlightNoteId] = useState<string | null>(null);
 
   const normalizedPath = apiPath.replace(/^\/+/, "").replace(/^api\//, "");
 
@@ -80,6 +82,12 @@ export function InternalStaffNotesPanel({
     void load(false);
   }, [load]);
 
+  useEffect(() => {
+    if (!highlightNoteId) return;
+    const t = window.setTimeout(() => setHighlightNoteId(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [highlightNoteId]);
+
   const onSubmit = async () => {
     const body = composer.trim();
     if (!body) {
@@ -100,6 +108,7 @@ export function InternalStaffNotesPanel({
       }
       setComposer("");
       setNotes((prev) => [json.data!, ...prev]);
+      setHighlightNoteId(json.data.id);
       toast.success("Note added");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save note");
@@ -162,7 +171,12 @@ export function InternalStaffNotesPanel({
             notes.map((n) => (
               <div
                 key={n.id}
-                className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm space-y-1.5"
+                className={cn(
+                  "rounded-lg border border-border/50 px-3 py-2.5 text-sm space-y-1.5 transition-colors",
+                  highlightNoteId === n.id
+                    ? "bg-muted/5 dark:bg-muted/[0.07]"
+                    : "bg-muted/10 dark:bg-muted/15"
+                )}
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
                   <span className="font-medium text-foreground">{authorLabel(n)}</span>

@@ -9,6 +9,7 @@ import {
   type LenderInfo,
 } from "@borrower_pro/lib/borrower-auth-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@borrower_pro/components/ui/card";
+import { Skeleton } from "@borrower_pro/components/ui/skeleton";
 import { Badge } from "@borrower_pro/components/ui/badge";
 import { PhoneDisplay } from "@borrower_pro/components/ui/phone-display";
 import { APP_VERSION } from "@/lib/version";
@@ -101,6 +102,38 @@ function licenseTypeLabel(type: LenderInfo["type"]): string {
   return "—";
 }
 
+function AboutLenderCardSkeleton() {
+  return (
+    <Card role="status" aria-label="Loading lender information">
+      <CardHeader>
+        <Skeleton className="h-7 w-48 max-w-full" />
+        <Skeleton className="h-4 w-full max-w-xl mt-2" />
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex flex-wrap items-center gap-4 border-b border-border pb-4">
+          <Skeleton className="h-16 w-16 shrink-0 rounded-lg" />
+          <div className="min-w-0 space-y-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-5 w-56 max-w-full" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-4 w-full" />
+            </div>
+          ))}
+          <div className="md:col-span-2 lg:col-span-3 space-y-2">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AboutPage() {
   const [lender, setLender] = useState<LenderInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,9 +165,7 @@ export default function AboutPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <p className="text-sm text-muted-foreground" aria-live="polite">
-          Loading…
-        </p>
+        <AboutLenderCardSkeleton />
         <PoliciesLegalCard />
         <PoweredByTrueStack />
       </div>

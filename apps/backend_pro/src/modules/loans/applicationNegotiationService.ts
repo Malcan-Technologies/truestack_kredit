@@ -85,7 +85,7 @@ export async function borrowerAcceptLatestOffer(params: {
   tenantId: string;
   borrowerId: string;
   applicationId: string;
-}): Promise<void> {
+}): Promise<{ offerId: string; amount: unknown; term: number }> {
   const { tenantId, borrowerId, applicationId } = params;
 
   const app = await prisma.loanApplication.findFirst({
@@ -104,6 +104,12 @@ export async function borrowerAcceptLatestOffer(params: {
     throw new BadRequestError('No pending lender offer to accept');
   }
 
+  const snapshot = {
+    offerId: pending.id,
+    amount: pending.amount,
+    term: pending.term,
+  };
+
   await prisma.$transaction(async (tx) => {
     await tx.loanApplicationOffer.update({
       where: { id: pending.id },
@@ -117,6 +123,8 @@ export async function borrowerAcceptLatestOffer(params: {
       },
     });
   });
+
+  return snapshot;
 }
 
 export async function adminAcceptLatestOffer(params: {

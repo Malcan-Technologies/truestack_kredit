@@ -21,7 +21,7 @@ import { RefreshButton } from "@/components/ui/refresh-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 interface ApplicationCounts {
   submitted: number;
@@ -52,12 +52,17 @@ interface Application {
 
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   DRAFT: "secondary" as "default",
-  SUBMITTED: "default",
+  SUBMITTED: "warning",
   UNDER_REVIEW: "warning",
   APPROVED: "success",
   REJECTED: "destructive",
   CANCELLED: "destructive",
 };
+
+function applicationStatusLabel(status: string): string {
+  if (status === "SUBMITTED") return "REVIEW";
+  return status.replace(/_/g, " ");
+}
 
 function ApplicationsPageContent() {
   const searchParams = useSearchParams();
@@ -374,7 +379,12 @@ function ApplicationsPageContent() {
                   return (
                   <TableRow
                     key={app.id}
-                    className="cursor-pointer transition-colors hover:bg-muted/20"
+                    className={cn(
+                      "cursor-pointer transition-colors hover:bg-muted/20",
+                      app.status === "SUBMITTED"
+                        ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.04]"
+                        : ""
+                    )}
                     onClick={() => router.push(`/dashboard/applications/${app.id}`)}
                   >
                     <TableCell>
@@ -400,7 +410,7 @@ function ApplicationsPageContent() {
                     <TableCell>{app.term} months</TableCell>
                     <TableCell>
                       <Badge variant={statusColors[app.status]}>
-                        {app.status.replace(/_/g, " ")}
+                        {applicationStatusLabel(app.status)}
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDate(app.createdAt)}</TableCell>

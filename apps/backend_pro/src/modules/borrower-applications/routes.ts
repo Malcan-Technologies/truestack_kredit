@@ -412,6 +412,19 @@ router.post('/applications/:applicationId/counter-offer', async (req, res, next)
       amount: body.amount,
       term: body.term,
     });
+    await AuditService.log({
+      tenantId: tenant.id,
+      action: 'BORROWER_COUNTER_OFFER',
+      entityType: 'LoanApplication',
+      entityId: applicationId,
+      newData: {
+        offerId: out.id,
+        fromParty: 'BORROWER',
+        amount: body.amount,
+        term: body.term,
+      },
+      ipAddress: req.ip,
+    });
     res.status(201).json({ success: true, data: out });
   } catch (e) {
     next(e);
@@ -425,10 +438,22 @@ router.post('/applications/:applicationId/accept-offer', async (req, res, next) 
   try {
     const { borrowerId, tenant } = await requireActiveBorrower(req);
     const { applicationId } = req.params;
-    await borrowerAcceptLatestOffer({
+    const accepted = await borrowerAcceptLatestOffer({
       tenantId: tenant.id,
       borrowerId,
       applicationId,
+    });
+    await AuditService.log({
+      tenantId: tenant.id,
+      action: 'BORROWER_ACCEPT_LENDER_OFFER',
+      entityType: 'LoanApplication',
+      entityId: applicationId,
+      newData: {
+        offerId: accepted.offerId,
+        amount: toSafeNumber(accepted.amount),
+        term: accepted.term,
+      },
+      ipAddress: req.ip,
     });
     const updated = await prisma.loanApplication.findFirst({
       where: { id: applicationId, tenantId: tenant.id, borrowerId },
@@ -451,7 +476,18 @@ router.post('/applications/:applicationId/reject-offers', async (req, res, next)
       where: { id: applicationId, tenantId: tenant.id, borrowerId },
     });
     if (!app) throw new NotFoundError('Application');
+    const pendingCount = await prisma.loanApplicationOffer.count({
+      where: { applicationId, status: 'PENDING' },
+    });
     await rejectPendingOffers({ tenantId: tenant.id, applicationId });
+    await AuditService.log({
+      tenantId: tenant.id,
+      action: 'BORROWER_REJECT_OFFERS',
+      entityType: 'LoanApplication',
+      entityId: applicationId,
+      newData: { rejectedCount: pendingCount },
+      ipAddress: req.ip,
+    });
     res.json({ success: true });
   } catch (e) {
     next(e);

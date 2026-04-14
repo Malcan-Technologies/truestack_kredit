@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Shield,
   Download,
@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn, formatDate } from "@/lib/utils";
 
 // ============================================
@@ -98,11 +99,57 @@ const TAB_OPTIONS = [
   { value: "reports" as const, label: "Reports", icon: BarChart3 },
 ];
 
+function CompliancePageSkeleton() {
+  return (
+    <div className="space-y-6" role="status" aria-label="Loading compliance">
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-72 max-w-full" />
+        <Skeleton className="h-4 w-full max-w-2xl" />
+      </div>
+      <div className="space-y-4">
+        <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary p-1">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-8 flex-1 rounded-md" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {[0, 1].map((card) => (
+            <Card key={card} className="flex flex-col">
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-10 w-10 rounded-lg" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-6 w-48 max-w-full" />
+                    <Skeleton className="h-3 w-full max-w-md" />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col space-y-4">
+                <Skeleton className="h-28 w-full rounded-lg" />
+                <Skeleton className="min-h-[120px] w-full rounded-lg" />
+              </CardContent>
+              <CardFooter className="mt-auto flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
+                <Skeleton className="h-4 w-48 max-w-[60%]" />
+                <Skeleton className="h-9 w-36" />
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============================================
 // Main Component
 // ============================================
 
 export default function CompliancePage() {
+  const [shellReady, setShellReady] = useState(false);
+  useEffect(() => {
+    setShellReady(true);
+  }, []);
+
   const currentYear = new Date().getFullYear().toString();
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -243,6 +290,10 @@ export default function CompliancePage() {
   };
 
   // ---- Render ----
+
+  if (!shellReady) {
+    return <CompliancePageSkeleton />;
+  }
 
   return (
     <div className="space-y-6">

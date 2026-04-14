@@ -6,6 +6,7 @@ import { Book, ChevronRight, FileText, List, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,98 @@ interface DocContent {
   title: string;
   content: string;
   frontmatter: Record<string, string>;
+}
+
+function HelpSidebarNavSkeleton() {
+  return (
+    <div className="space-y-3 p-2" role="status" aria-label="Loading documentation list">
+      {Array.from({ length: 4 }).map((_, g) => (
+        <div key={g} className="space-y-2">
+          <Skeleton className="h-4 w-32" />
+          <ul className="space-y-1.5 ml-0">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <li key={i}>
+                <Skeleton className="h-9 w-full rounded-lg" />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HelpWelcomeSkeleton() {
+  return (
+    <div
+      className="flex flex-col items-center justify-center h-full p-8 text-center"
+      role="status"
+      aria-label="Loading help center"
+    >
+      <Skeleton className="h-16 w-16 rounded-lg mb-4" />
+      <Skeleton className="h-8 w-56 max-w-full mb-2" />
+      <Skeleton className="h-4 w-full max-w-md mb-6 mx-auto" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-5xl xl:max-w-6xl">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-[72px] w-full rounded-lg" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HelpDocContentSkeleton() {
+  return (
+    <div
+      className="w-full min-w-0 max-w-5xl xl:max-w-6xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6"
+      role="status"
+      aria-label="Loading article"
+    >
+      <div className="flex items-center gap-2 mb-6">
+        <Skeleton className="h-4 w-12" />
+        <Skeleton className="h-4 w-4 rounded" />
+        <Skeleton className="h-4 w-48 max-w-[70%]" />
+      </div>
+      <Skeleton className="h-10 w-3/4 max-w-2xl" />
+      <div className="space-y-3 pt-2">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-[92%]" />
+      </div>
+      <Skeleton className="h-32 w-full rounded-lg" />
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-4/5 max-w-xl" />
+      </div>
+    </div>
+  );
+}
+
+function HelpPageShellSkeleton() {
+  return (
+    <div className="flex h-[calc(100vh-8rem)]">
+      <aside className="hidden lg:flex h-full w-72 flex-shrink-0 flex-col border-r border-border bg-surface">
+        <div className="border-b border-border p-4 space-y-3">
+          <Skeleton className="h-7 w-36" />
+          <Skeleton className="h-10 w-full rounded-md" />
+        </div>
+        <HelpSidebarNavSkeleton />
+      </aside>
+      <main className="flex flex-1 items-center justify-center overflow-y-auto p-8">
+        <div className="w-full max-w-5xl xl:max-w-6xl space-y-4">
+          <Skeleton className="mx-auto h-16 w-16 rounded-lg" />
+          <Skeleton className="mx-auto h-8 w-64 max-w-full" />
+          <Skeleton className="mx-auto h-4 w-full max-w-md" />
+          <div className="grid grid-cols-1 gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 w-full rounded-lg" />
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
 }
 
 function HelpPageContent() {
@@ -167,7 +260,11 @@ function HelpPageContent() {
           </div>
           <DropdownMenuSeparator />
           {loading ? (
-            <div className="px-2 py-4 text-sm text-muted">Loading...</div>
+            <div className="space-y-2 px-2 py-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full rounded-md" />
+              ))}
+            </div>
           ) : filteredCategories.length === 0 ? (
             <div className="px-2 py-4 text-sm text-muted">No docs found</div>
           ) : (
@@ -223,7 +320,7 @@ function HelpPageContent() {
 
         <nav className="flex-1 overflow-y-auto p-2">
           {loading ? (
-            <div className="p-4 text-muted text-sm">Loading...</div>
+            <HelpSidebarNavSkeleton />
           ) : filteredCategories.length === 0 ? (
             <div className="p-4 text-muted text-sm">No documentation found</div>
           ) : (
@@ -278,9 +375,7 @@ function HelpPageContent() {
       {/* Main content */}
       <main className="flex-1 overflow-y-auto">
         {docLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-muted">Loading...</div>
-          </div>
+          <HelpDocContentSkeleton />
         ) : currentDoc ? (
           <div className="w-full min-w-0 max-w-5xl xl:max-w-6xl mx-auto p-4 sm:p-6 lg:p-8">
             {/* Breadcrumb */}
@@ -330,6 +425,8 @@ function HelpPageContent() {
               )}
             </div>
           </div>
+        ) : loading ? (
+          <HelpWelcomeSkeleton />
         ) : (
           <div className="flex flex-col items-center justify-center h-full p-8 text-center">
             <Book className="h-16 w-16 text-muted mb-4" />
@@ -369,13 +466,7 @@ function HelpPageContent() {
 
 export default function HelpPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-[40vh] flex items-center justify-center text-muted-foreground">
-          Loading...
-        </div>
-      }
-    >
+    <Suspense fallback={<HelpPageShellSkeleton />}>
       <HelpPageContent />
     </Suspense>
   );

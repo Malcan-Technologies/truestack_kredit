@@ -83,7 +83,7 @@ interface LoanCalculation {
 
 function CalculatorPageSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" role="status" aria-label="Loading loan calculator">
       <div className="space-y-2">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-4 w-full max-w-xl" />
@@ -166,7 +166,7 @@ function CalculatorPageSkeleton() {
 // ============================================
 
 export default function CalculatorPage() {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [amount, setAmount] = useState<number | "">(0);

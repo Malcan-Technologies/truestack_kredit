@@ -152,6 +152,9 @@ function applicationTimelineLabel(action: string): string {
     APPLICATION_COUNTER_OFFER: "Counter offer from lender",
     APPLICATION_ACCEPT_BORROWER_OFFER: "Borrower offer accepted",
     APPLICATION_REJECT_OFFERS: "Negotiation offers rejected",
+    BORROWER_COUNTER_OFFER: "Counter offer sent",
+    BORROWER_ACCEPT_LENDER_OFFER: "Lender offer accepted",
+    BORROWER_REJECT_OFFERS: "Pending offers declined",
   };
   if (map[action]) return map[action];
   return action
@@ -325,8 +328,15 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
       case "APPLICATION_COUNTER_OFFER":
         return { icon: Handshake, label: applicationTimelineLabel(action) };
       case "APPLICATION_ACCEPT_BORROWER_OFFER":
+        return { icon: Check, label: applicationTimelineLabel(action) };
       case "APPLICATION_REJECT_OFFERS":
+        return { icon: X, label: applicationTimelineLabel(action) };
+      case "BORROWER_COUNTER_OFFER":
         return { icon: Handshake, label: applicationTimelineLabel(action) };
+      case "BORROWER_ACCEPT_LENDER_OFFER":
+        return { icon: Check, label: applicationTimelineLabel(action) };
+      case "BORROWER_REJECT_OFFERS":
+        return { icon: X, label: applicationTimelineLabel(action) };
       default:
         return { icon: Clock, label: applicationTimelineLabel(action) };
     }

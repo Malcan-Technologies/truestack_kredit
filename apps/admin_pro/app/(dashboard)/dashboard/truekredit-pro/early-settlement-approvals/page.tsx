@@ -28,6 +28,7 @@ import { RefreshCw, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type EarlySettlementItem = {
   id: string;
@@ -63,6 +64,44 @@ function notifyEarlySettlementRequestsChanged() {
 }
 
 type StatusFilter = "all" | "PENDING" | "APPROVED" | "REJECTED";
+
+function EarlySettlementTableSkeleton() {
+  return (
+    <div
+      className="overflow-x-auto rounded-md border border-border"
+      role="status"
+      aria-label="Loading early settlement requests"
+    >
+      <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,1.2fr)] gap-2 border-b border-border px-3 py-2">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <Skeleton key={i} className="h-4 w-full" />
+        ))}
+      </div>
+      <div className="divide-y divide-border">
+        {Array.from({ length: 6 }).map((_, row) => (
+          <div
+            key={row}
+            className="grid grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.7fr)_minmax(0,1.2fr)] items-center gap-2 px-3 py-3"
+          >
+            <Skeleton className="h-4 w-28" />
+            <div className="min-w-0 space-y-1.5">
+              <Skeleton className="h-4 w-[85%]" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-20 justify-self-end" />
+            <Skeleton className="h-4 w-full max-w-[100px]" />
+            <Skeleton className="h-6 w-20 rounded-full" />
+            <div className="flex justify-end gap-2">
+              <Skeleton className="h-8 w-[72px]" />
+              <Skeleton className="h-8 w-[68px]" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function emptyListMessage(filter: StatusFilter): string {
   switch (filter) {
@@ -213,7 +252,7 @@ export default function EarlySettlementApprovalsPage() {
           </div>
 
           {loading && items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <EarlySettlementTableSkeleton />
           ) : items.length === 0 ? (
             <p className="text-sm text-muted-foreground">{emptyListMessage(statusFilter)}</p>
           ) : (

@@ -10,6 +10,7 @@ import {
   setPendingTotpSetup,
 } from "@kredit/shared";
 import { Badge } from "./ui/badge";
+import { Skeleton } from "./ui/skeleton";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import {
@@ -553,9 +554,9 @@ export function AccountSecurityCard() {
             </div>
 
             {loadingStatus ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading passkeys...
+              <div className="space-y-2" role="status" aria-label="Loading passkeys">
+                <Skeleton className="h-[52px] w-full rounded-lg" />
+                <Skeleton className="h-[52px] w-full rounded-lg" />
               </div>
             ) : passkeys.length > 0 ? (
               <div className="space-y-3">

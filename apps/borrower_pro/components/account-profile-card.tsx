@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { UserCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
+import { Skeleton } from "./ui/skeleton";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { useSession, updateUser } from "../lib/auth-client";
@@ -92,8 +93,10 @@ export function AccountProfileCard() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="text-sm text-muted-foreground">Loading...</div>
+        <CardContent className="space-y-3">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-10 w-full max-w-md" />
+          <Skeleton className="h-4 w-40" />
         </CardContent>
       </Card>
     );

@@ -47,6 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
 interface TenantRoleRecord {
@@ -83,6 +84,100 @@ function permissionLabel(permission: TenantPermission): string {
         .join(" ")
     )
     .join(" - ");
+}
+
+function RolesCatalogSkeleton() {
+  return (
+    <div className="space-y-3" role="status" aria-label="Loading roles">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div
+          key={i}
+          className="w-full rounded-lg border border-border p-3"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-[72%] max-w-[200px]" />
+              <Skeleton className="h-3 w-full" />
+            </div>
+            <Skeleton className="h-5 w-8 shrink-0 rounded-full" />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Skeleton className="h-5 w-14 rounded-full" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RoleEditorHeaderSkeleton() {
+  return (
+    <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Skeleton className="h-7 w-44 max-w-full" />
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </div>
+        <Skeleton className="h-4 w-72 max-w-full" />
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Skeleton className="h-9 w-32" />
+        <Skeleton className="h-9 w-28" />
+      </div>
+    </div>
+  );
+}
+
+function RoleEditorBodySkeleton() {
+  return (
+    <div className="space-y-6" role="status" aria-label="Loading role details">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+      <Separator />
+      <div className="space-y-6">
+        {Array.from({ length: 3 }).map((_, g) => (
+          <div key={g} className="space-y-3">
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-3 w-full max-w-lg" />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex gap-3 rounded-lg border border-border p-3"
+                >
+                  <Skeleton className="mt-0.5 h-4 w-4 shrink-0 rounded-sm" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-[88%]" />
+                    <Skeleton className="h-3 w-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <Card className="border-border bg-muted/30">
+        <CardContent className="pt-6">
+          <Skeleton className="h-4 w-full max-w-2xl" />
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 export default function RolesPage() {
@@ -283,12 +378,19 @@ export default function RolesPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => void fetchRoles()}>
+            <Button
+              variant="outline"
+              onClick={() => void fetchRoles()}
+              disabled={loading}
+            >
               <RefreshCcw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
             {canEditRoles && (
-              <Button onClick={() => setShowCreateDialog(true)}>
+              <Button
+                onClick={() => setShowCreateDialog(true)}
+                disabled={loading}
+              >
                 <CopyPlus className="h-4 w-4 mr-2" />
                 New Role
               </Button>
@@ -306,7 +408,7 @@ export default function RolesPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {loading ? (
-                <p className="text-sm text-muted-foreground">Loading roles…</p>
+                <RolesCatalogSkeleton />
               ) : roles.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No roles found for this tenant.</p>
               ) : (
@@ -353,47 +455,53 @@ export default function RolesPage() {
 
           <Card>
             <CardHeader>
-              <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <CardTitle>{selectedRole?.name || "Select a role"}</CardTitle>
-                    {selectedRole?.isSystem && (
-                      <Badge variant="default">
-                        <Shield className="h-3 w-3 mr-1" />
-                        System
-                      </Badge>
-                    )}
-                    {selectedRole?.isDefault && (
-                      <Badge variant="secondary">
-                        <ShieldCheck className="h-3 w-3 mr-1" />
-                        Default
-                      </Badge>
-                    )}
+              {loading ? (
+                <RoleEditorHeaderSkeleton />
+              ) : (
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <CardTitle>{selectedRole?.name || "Select a role"}</CardTitle>
+                      {selectedRole?.isSystem && (
+                        <Badge variant="default">
+                          <Shield className="h-3 w-3 mr-1" />
+                          System
+                        </Badge>
+                      )}
+                      {selectedRole?.isDefault && (
+                        <Badge variant="secondary">
+                          <ShieldCheck className="h-3 w-3 mr-1" />
+                          Default
+                        </Badge>
+                      )}
+                    </div>
+                    <CardDescription>
+                      {selectedRole
+                        ? `${selectedRole.memberCount} member(s) currently use this role.`
+                        : "Choose a role from the left to inspect or edit its access."}
+                    </CardDescription>
                   </div>
-                  <CardDescription>
-                    {selectedRole
-                      ? `${selectedRole.memberCount} member(s) currently use this role.`
-                      : "Choose a role from the left to inspect or edit its access."}
-                  </CardDescription>
+                  {selectedRole && (
+                    <div className="flex items-center gap-2">
+                      {canEditRoles && selectedRole.isEditable && selectedRole.isDefault && (
+                        <Button variant="outline" onClick={handleResetRole} disabled={saving}>
+                          Reset to default
+                        </Button>
+                      )}
+                      {canEditRoles && selectedRole.isEditable && (
+                        <Button onClick={handleSaveRole} disabled={saving}>
+                          Save changes
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {selectedRole && (
-                  <div className="flex items-center gap-2">
-                    {canEditRoles && selectedRole.isEditable && selectedRole.isDefault && (
-                      <Button variant="outline" onClick={handleResetRole} disabled={saving}>
-                        Reset to default
-                      </Button>
-                    )}
-                    {canEditRoles && selectedRole.isEditable && (
-                      <Button onClick={handleSaveRole} disabled={saving}>
-                        Save changes
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-6">
-              {!selectedRole ? (
+              {loading ? (
+                <RoleEditorBodySkeleton />
+              ) : !selectedRole ? (
                 <p className="text-sm text-muted-foreground">
                   Select a role to view its permissions.
                 </p>

@@ -50,6 +50,7 @@ import {
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate, safePercentage, safeSubtract } from "@/lib/utils";
 import { useTenantContext } from "@/components/tenant-context";
+import { useSession } from "@/lib/auth-client";
 
 // ============================================
 // Types
@@ -267,6 +268,7 @@ function formatMonthLabel(month: string): string {
 // ============================================
 
 export default function DashboardPage() {
+  const { data: session } = useSession();
   const { hasTenants } = useTenantContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [tenant, setTenant] = useState<TenantStats | null>(null);
@@ -395,6 +397,11 @@ export default function DashboardPage() {
 
   const dateRangeLabel = DATE_PRESETS.find((p) => p.value === datePreset)?.label ?? "Period";
 
+  const adminGreetingName =
+    session?.user?.name?.trim() ||
+    session?.user?.email?.split("@")[0] ||
+    "there";
+
   const borrowerBankIncomplete =
     !!tenant &&
     (!tenant.lenderBankCode ||
@@ -428,7 +435,7 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-heading font-bold text-gradient">
-              Welcome, {tenant?.name ?? "there"}
+              Welcome, {adminGreetingName}
             </h1>
             <p className="text-muted text-base mt-1">
               Financial overview and portfolio performance

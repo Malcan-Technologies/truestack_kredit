@@ -198,12 +198,17 @@ interface LoanPreview {
 
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
   DRAFT: "secondary" as "default",
-  SUBMITTED: "info",
+  SUBMITTED: "warning",
   UNDER_REVIEW: "warning",
   APPROVED: "success",
   REJECTED: "destructive",
   CANCELLED: "destructive",
 };
+
+function applicationStatusLabel(status: string): string {
+  if (status === "SUBMITTED") return "REVIEW";
+  return status.replace(/_/g, " ");
+}
 
 function supportsInternalScheduleOptions(interestModel: string): boolean {
   return interestModel === "FLAT" || interestModel === "RULE_78";
@@ -294,7 +299,19 @@ function deriveCompliantStructure(params: {
 // Timeline Component
 // ============================================
 
+function getReturnToDraftReason(
+  event: TimelineEvent,
+): string | null {
+  if (event.action !== "RETURN_TO_DRAFT" || !event.newData) return null;
+  const raw = (event.newData as Record<string, unknown>).reason;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function TimelineItem({ event }: { event: TimelineEvent }) {
+  const returnToDraftReason = getReturnToDraftReason(event);
+
   const getActionInfo = (action: string) => {
     switch (action) {
       case "CREATE":
@@ -313,6 +330,32 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
         return { icon: Upload, label: "Document Uploaded" };
       case "DOCUMENT_DELETE":
         return { icon: Trash2, label: "Document Deleted" };
+      case "BORROWER_CREATE_APPLICATION":
+        return { icon: Plus, label: "Application Created" };
+      case "BORROWER_UPDATE_APPLICATION":
+        return { icon: Pencil, label: "Application Updated" };
+      case "BORROWER_SUBMIT_APPLICATION":
+        return { icon: Send, label: "Application Submitted" };
+      case "BORROWER_APPLICATION_DOCUMENT_UPLOAD":
+        return { icon: Upload, label: "Document Uploaded" };
+      case "BORROWER_APPLICATION_DOCUMENT_DELETE":
+        return { icon: Trash2, label: "Document Removed" };
+      case "BORROWER_APPLICATION_STATUS_CHANGE":
+        return { icon: Clock, label: "Status Updated" };
+      case "BORROWER_WITHDRAW_APPLICATION":
+        return { icon: X, label: "Application Withdrawn" };
+      case "APPLICATION_COUNTER_OFFER":
+        return { icon: Handshake, label: "Counter Offer from Lender" };
+      case "APPLICATION_ACCEPT_BORROWER_OFFER":
+        return { icon: Check, label: "Borrower Offer Accepted" };
+      case "APPLICATION_REJECT_OFFERS":
+        return { icon: X, label: "Negotiation Offers Rejected" };
+      case "BORROWER_COUNTER_OFFER":
+        return { icon: Handshake, label: "Counter Offer from Borrower" };
+      case "BORROWER_ACCEPT_LENDER_OFFER":
+        return { icon: Check, label: "Borrower Accepted Lender Offer" };
+      case "BORROWER_REJECT_OFFERS":
+        return { icon: X, label: "Borrower Declined Pending Offers" };
       default:
         return { icon: Clock, label: action };
     }
@@ -346,6 +389,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
             <p className="text-xs text-muted-foreground">
               Uploaded: <span className="font-medium text-foreground">{(event.newData as Record<string, unknown>).originalName as string}</span>
             </p>
+          </div>
+        )}
+        {returnToDraftReason && (
+          <div className="bg-secondary border border-border rounded-lg p-3 mt-2">
+            <p className="text-xs text-muted-foreground mb-1">Note</p>
+            <p className="text-sm text-foreground whitespace-pre-wrap">{returnToDraftReason}</p>
           </div>
         )}
         <p className="text-xs text-muted-foreground mt-2">
@@ -873,7 +922,7 @@ export default function ApplicationDetailPage() {
                 {application.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}
               </Badge>
               <Badge variant={statusColors[application.status]}>
-                {application.status.replace(/_/g, " ")}
+                {applicationStatusLabel(application.status)}
               </Badge>
             </div>
             <p className="text-muted-foreground">
@@ -915,14 +964,6 @@ export default function ApplicationDetailPage() {
                 {actionLoading === "returnToDraft" ? "Returning..." : "Amendments"}
               </Button>
               <Button
-                variant="destructive"
-                onClick={handleRejectClick}
-                disabled={actionLoading === "reject"}
-              >
-                <X className="h-4 w-4 mr-2" />
-                {actionLoading === "reject" ? "Rejecting..." : "Reject"}
-              </Button>
-              <Button
                 variant="outline"
                 onClick={() => {
                   if (!application) return;
@@ -932,7 +973,16 @@ export default function ApplicationDetailPage() {
                 }}
                 disabled={!!actionLoading}
               >
+                <Handshake className="h-4 w-4 mr-2" />
                 Counter offer
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleRejectClick}
+                disabled={actionLoading === "reject"}
+              >
+                <X className="h-4 w-4 mr-2" />
+                {actionLoading === "reject" ? "Rejecting..." : "Reject"}
               </Button>
               {application.offerRounds?.some(
                 (o) => o.status === "PENDING" && o.fromParty === "BORROWER"

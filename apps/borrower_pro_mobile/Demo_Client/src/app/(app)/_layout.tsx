@@ -1,44 +1,24 @@
 import type { BorrowerMeResponse } from '@kredit/borrower';
-import { Stack, usePathname, useRouter } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
 import { useSession } from '@/lib/auth';
 import { borrowerAuthClient } from '@/lib/api/borrower';
 import { BorrowerAccessProvider } from '@/lib/borrower-access';
-import { getOnboardingDismissed } from '@/lib/onboarding';
-
-const ONBOARDING_EXEMPT_PATHS = new Set([
-  '/',
-  '/account',
-  '/app-settings',
-  '/about',
-  '/applications',
-  '/loans',
-  '/onboarding',
-  '/profile',
-  '/borrower-profile',
-  '/settings-menu',
-]);
-
-function isOnboardingExemptPath(pathname: string) {
-  return ONBOARDING_EXEMPT_PATHS.has(pathname) || pathname === '/help' || pathname.startsWith('/help/');
-}
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function BorrowerProfileGate() {
+function BorrowerProfileProviderShell() {
   const { session, isLoading } = useSession();
   const pathname = usePathname();
-  const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [borrowerContext, setBorrowerContext] = useState<BorrowerMeResponse['data'] | null>(null);
   const [switchingProfileId, setSwitchingProfileId] = useState<string | null>(null);
   const [borrowerContextVersion, setBorrowerContextVersion] = useState(0);
   const requestIdRef = useRef(0);
-  const hasLoadedBorrowerContextRef = useRef(false);
 
   const loadBorrowerContext = useCallback(async () => {
     const requestId = ++requestIdRef.current;
@@ -55,7 +35,6 @@ function BorrowerProfileGate() {
     }
 
     setBorrowerContext(nextContext);
-    hasLoadedBorrowerContextRef.current = true;
     setBorrowerContextVersion((current) => current + 1);
     return nextContext;
   }, []);
@@ -91,7 +70,7 @@ function BorrowerProfileGate() {
   useEffect(() => {
     let cancelled = false;
 
-    async function enforceProfileAccess() {
+    async function loadBorrowerMe() {
       if (isLoading || !session) {
         if (!cancelled) {
           setBorrowerContext(null);
@@ -100,29 +79,10 @@ function BorrowerProfileGate() {
         return;
       }
 
+      setChecking(true);
       try {
-        const shouldBlockNavigation = !hasLoadedBorrowerContextRef.current;
-        if (shouldBlockNavigation) {
-          setChecking(true);
-        }
-        const [dismissed, profileContext] = await Promise.all([
-          getOnboardingDismissed(),
-          loadBorrowerContext(),
-        ]);
-
-        if (cancelled) {
-          return;
-        }
-
-        const hasProfiles = Boolean(profileContext && profileContext.profileCount > 0);
-        const isExempt = isOnboardingExemptPath(pathname);
-
-        if (!hasProfiles && !dismissed && !isExempt) {
-          router.replace('/onboarding');
-          return;
-        }
+        await loadBorrowerContext();
       } catch {
-        // Leave navigation usable if the profile guard check fails.
         if (!cancelled) {
           setBorrowerContext(null);
         }
@@ -133,16 +93,16 @@ function BorrowerProfileGate() {
       }
     }
 
-    void enforceProfileAccess();
+    void loadBorrowerMe();
 
     return () => {
       cancelled = true;
     };
-  }, [isLoading, loadBorrowerContext, pathname, router, session]);
+  }, [isLoading, loadBorrowerContext, pathname, session]);
 
   const hasBorrowerProfiles = Boolean(borrowerContext && borrowerContext.profileCount > 0);
 
-  if (isLoading || checking) {
+  if (isLoading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" />
@@ -170,5 +130,5 @@ function BorrowerProfileGate() {
 }
 
 export default function AppShellLayout() {
-  return <BorrowerProfileGate />;
+  return <BorrowerProfileProviderShell />;
 }

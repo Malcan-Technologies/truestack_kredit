@@ -20,8 +20,17 @@ const SETTINGS_CONTEXT_PATHS = new Set([
   '/account',
   '/app-settings',
   '/about',
+  '/help',
   '/onboarding',
 ]);
+
+function isSettingsContextPath(pathname: string) {
+  const p = pathname.replace(/\/+$/, '') || '/';
+  if (SETTINGS_CONTEXT_PATHS.has(p)) {
+    return true;
+  }
+  return p.startsWith('/help/');
+}
 
 export function SubpageBottomNav() {
   const router = useRouter();
@@ -38,7 +47,7 @@ export function SubpageBottomNav() {
 
   function isActive(item: NavItem) {
     if (item.href === '/settings-menu') {
-      return SETTINGS_CONTEXT_PATHS.has(pathname);
+      return isSettingsContextPath(pathname);
     }
 
     return pathname === item.href;

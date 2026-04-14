@@ -86,18 +86,6 @@ export default function DashboardScreen() {
     };
   }, [hasBorrowerProfiles]);
 
-  if (isCheckingBorrowerProfiles) {
-    return (
-      <PageScreen title="Dashboard" subtitle="Preparing your borrower workspace...">
-        <SectionCard title="Loading dashboard">
-          <View style={styles.loading}>
-            <ActivityIndicator />
-          </View>
-        </SectionCard>
-      </PageScreen>
-    );
-  }
-
   if (!hasBorrowerProfiles) {
     return (
       <PageScreen
@@ -106,7 +94,12 @@ export default function DashboardScreen() {
         <SectionCard
           title="Borrower profile required"
           description="This app is intentionally limited until your first borrower profile is completed, so the next step is always clear.">
-          {draftProgress ? (
+          {isCheckingBorrowerProfiles ? (
+            <View style={styles.loading}>
+              <ActivityIndicator />
+            </View>
+          ) : null}
+          {!isCheckingBorrowerProfiles && draftProgress ? (
             <View
               style={[
                 styles.banner,
@@ -120,10 +113,12 @@ export default function DashboardScreen() {
               </ThemedText>
             </View>
           ) : null}
-          <ActionButton
-            label={draftProgress ? 'Continue onboarding' : 'Get started'}
-            onPress={() => router.push('/onboarding')}
-          />
+          {!isCheckingBorrowerProfiles ? (
+            <ActionButton
+              label={draftProgress ? 'Continue onboarding' : 'Get started'}
+              onPress={() => router.push('/onboarding')}
+            />
+          ) : null}
         </SectionCard>
       </PageScreen>
     );

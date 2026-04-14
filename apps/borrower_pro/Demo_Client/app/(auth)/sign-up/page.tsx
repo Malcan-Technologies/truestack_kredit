@@ -8,6 +8,7 @@ import {
   setPendingVerificationEmail,
 } from "@kredit/shared";
 import { Button } from "@borrower_pro/components/ui/button";
+import { Checkbox } from "@borrower_pro/components/ui/checkbox";
 import { Input } from "@borrower_pro/components/ui/input";
 import { Label } from "@borrower_pro/components/ui/label";
 import {
@@ -19,6 +20,7 @@ import {
   CardTitle,
 } from "@borrower_pro/components/ui/card";
 import { toast } from "sonner";
+import { AuthLenderBranding } from "../auth-lender-branding";
 
 const ONBOARDING_NAMESPACE = "borrower";
 
@@ -32,6 +34,7 @@ function SignUpForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -56,10 +59,11 @@ function SignUpForm() {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
-        <CardHeader>
+        <CardHeader className="text-center">
+          <AuthLenderBranding />
           <CardTitle className="text-2xl">Sign up</CardTitle>
           <CardDescription>
-            Create an account to borrow from licensed money lenders
+            Create a borrower account to apply for loans.
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
@@ -100,9 +104,24 @@ function SignUpForm() {
                 autoComplete="new-password"
               />
             </div>
+            <div className="flex items-start space-x-3 rounded-lg border border-border bg-background p-3">
+              <Checkbox
+                id="accept-terms"
+                checked={acceptedTerms}
+                onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                className="mt-1"
+              />
+              <Label htmlFor="accept-terms" className="text-sm leading-6">
+                I agree to the{" "}
+                <Link href="/legal/terms" className="text-primary underline underline-offset-4">
+                  terms and conditions
+                </Link>
+                .
+              </Label>
+            </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !acceptedTerms}>
               {loading ? "Creating account…" : "Sign up"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">

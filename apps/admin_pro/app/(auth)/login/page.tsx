@@ -17,6 +17,7 @@ import {
   ADMIN_ACCESS_REQUIRED_MESSAGE,
   ensureActiveTenantAfterLogin,
 } from "@/lib/finish-login";
+import { AuthTenantBranding } from "@/components/auth-tenant-branding";
 import { BackToTruestackButton, BackToRootButton } from "@/components/powered-by-truestack";
 
 const ONBOARDING_NAMESPACE = "admin-pro";
@@ -122,6 +123,7 @@ export default function LoginPage() {
       </div>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
+          <AuthTenantBranding />
           <CardTitle className="text-2xl text-gradient">Sign In</CardTitle>
           <CardDescription>
             Enter your credentials to access your account

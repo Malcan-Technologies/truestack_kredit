@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@borrower_pro/components/ui/card";
 import { toast } from "sonner";
+import { AuthLenderBranding } from "../auth-lender-branding";
 
 const ONBOARDING_NAMESPACE = "borrower";
 
@@ -92,7 +93,8 @@ function SignInForm() {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
-        <CardHeader>
+        <CardHeader className="text-center">
+          <AuthLenderBranding />
           <CardTitle className="text-2xl">Sign in</CardTitle>
           <CardDescription>
             Enter your email and password to access your account

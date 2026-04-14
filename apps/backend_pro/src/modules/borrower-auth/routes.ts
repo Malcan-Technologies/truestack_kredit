@@ -29,7 +29,6 @@ import {
 } from './borrowerCompanyOrg.js';
 
 const router = Router();
-router.use(requireBorrowerSession);
 
 // Document categories - align with borrowers module
 const INDIVIDUAL_DOCUMENT_CATEGORIES = [
@@ -175,6 +174,8 @@ router.get('/lender', async (req, res, next) => {
     next(e);
   }
 });
+
+router.use(requireBorrowerSession);
 
 /** GET /api/borrower-auth/me - current user, profiles, active borrower */
 router.get('/me', async (req, res, next) => {

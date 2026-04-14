@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { fetchBorrowerMeServer } from "@/lib/borrower-auth-server";
-import { Button } from "@borrower_pro/components/ui/button";
+import { HomePageContent } from "./homepage-content";
 
 export default async function HomePage() {
   const res = await fetchBorrowerMeServer();
@@ -12,20 +11,5 @@ export default async function HomePage() {
     redirect("/onboarding");
   }
 
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-8 p-8">
-      <h1 className="font-heading text-3xl font-bold">Demo Client</h1>
-      <p className="text-muted-foreground text-center max-w-md">
-        TrueKredit Pro — Digital license KPKT borrowing. Sign in or sign up to get started.
-      </p>
-      <div className="flex gap-4">
-        <Button asChild>
-          <Link href="/sign-in">Sign in</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link href="/sign-up">Sign up</Link>
-        </Button>
-      </div>
-    </div>
-  );
+  return <HomePageContent />;
 }

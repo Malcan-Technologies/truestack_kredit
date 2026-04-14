@@ -22,6 +22,7 @@ function isPublicPath(pathname: string): boolean {
     return true;
   // Allow static files and _next
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) return true;
+  if (/\.[a-z0-9]+$/i.test(pathname)) return true;
   return false;
 }
 

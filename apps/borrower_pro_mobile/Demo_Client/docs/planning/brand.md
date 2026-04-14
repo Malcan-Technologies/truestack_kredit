@@ -134,8 +134,8 @@ Defined in `src/constants/theme.ts`:
 
 ### Back Button
 
-- iOS: chevron + "Back" text label, colored with `theme.primary`.
-- Android: left arrow icon only, colored with `theme.primary`.
+- iOS: On **iOS 26+** with Liquid Glass available, the chevron sits in an **`expo-glass-effect` `GlassView`** (`UIGlassEffect`, ~44×44 capsule). Otherwise: SF Symbol `chevron.backward` (or older iOS: `chevron.left` / vector fallback), colored with `theme.primary`.
+- Android / web: Material `arrow-back` only, colored with `theme.primary`.
 
 ---
 

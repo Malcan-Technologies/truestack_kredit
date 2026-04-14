@@ -33,7 +33,7 @@ Sub-screens (detail views, forms, settings pages) push onto a **stack** within e
 
 **Rules:**
 
-- **Back button placement:** Always top-left. iOS: chevron + "Back" text. Android: arrow-back icon.
+- **Back button placement:** Always top-left. iOS: SF Symbol `chevron.backward` (native, minimal style); Android: Material arrow-back (no label).
 - **Stack screens hide the tab bar.** When navigating deeper (e.g. loan detail, profile edit, help article), the tab bar disappears. This signals the user is "inside" a flow.
 - **Never nest tabs inside tabs.** Use a flat list, segmented controls, or filter chips for sub-categorization within a tab.
 - **Deep links** should resolve to the correct stack position with a proper back path to the parent tab.
@@ -88,7 +88,7 @@ Adjust these tokens when changing global header density; avoid one-off top paddi
 
 | Placement | What goes here | Examples |
 |-----------|---------------|----------|
-| **Leading** | Back control | ← Back (stack only) |
+| **Leading** | Back control | Chevron / arrow only (stack only) |
 | **Center** | Page title | Centered on stack; left-aligned large title on root |
 | **Trailing** | Profile switcher (root only), lightweight actions | Avatar, Retry |
 
@@ -288,7 +288,7 @@ Use semantic colors consistently for loan/application status:
 | Large title animation | `PageScreen` with `collapseTitleOnScroll` |
 | Tab bar blur | `blurEffect: 'systemMaterialDark'` on `NativeTabs` |
 | Back gesture | Native swipe-back via React Navigation |
-| Back button style | Chevron + "Back" text label |
+| Back button style | SF Symbol `chevron.backward` (icon only; older iOS: `chevron.left`) |
 | Safe areas | `SafeAreaView` edges on header and tab bar |
 | Haptic feedback | Consider adding for destructive actions and confirmations |
 | Status bar | Match to `background` color for seamless header |
@@ -372,7 +372,7 @@ Use semantic colors consistently for loan/application status:
 ┌──────────────────────────────────┐
 │  SafeArea (top)                  │
 ├──────────────────────────────────┤
-│ [← Back]    Title     [actions?] │  ← Title centered; optional `headerActions` right
+│ [←]         Title     [actions?] │  ← Title centered; optional `headerActions` right
 ├──────────────────────────────────┤
 │  ScrollView …                    │
 └──────────────────────────────────┘
@@ -384,7 +384,7 @@ Use semantic colors consistently for loan/application status:
 ┌──────────────────────────────────┐
 │  SafeArea (top)                  │
 ├──────────────────────────────────┤
-│ [← Back]  Centered title  [ · ] │  ← Back = cancel; title one line, centered
+│ [←]       Centered title  [ · ] │  ← Back = cancel; title one line, centered
 ├──────────────────────────────────┤
 │                                  │
 │  ScrollView content              │

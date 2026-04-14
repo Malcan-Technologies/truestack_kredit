@@ -1,4 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import {
+  GlassView,
+  isGlassEffectAPIAvailable,
+  isLiquidGlassAvailable,
+} from 'expo-glass-effect';
+import { SymbolView } from 'expo-symbols';
 import { type Href, useNavigation, useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
@@ -22,13 +28,82 @@ import { BorrowerContextHeader } from '@/components/borrower-context-header';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useThemePreference } from '@/lib/theme/theme-preference';
 
 const TITLE_MAX = 30;
 const TITLE_MIN = 17;
 const COLLAPSE_RANGE = 52;
 
 /** Fixed width for leading/trailing slots so the title stays visually centered (stack / back-button screens). */
-const COMPACT_NAV_SIDE_WIDTH = Platform.OS === 'ios' ? 88 : 72;
+const COMPACT_NAV_SIDE_WIDTH = Platform.OS === 'ios' ? 64 : 72;
+
+function iosMajorVersion(): number | null {
+  if (Platform.OS !== 'ios') return null;
+  const v = Platform.Version;
+  if (typeof v === 'string') return parseInt(v.split('.')[0] ?? '0', 10) || null;
+  if (typeof v === 'number') return Math.floor(v);
+  return null;
+}
+
+/**
+ * iOS: native SF Symbol (`chevron.backward`, minimal bar); older iOS: `chevron.left`.
+ * Android / web: Material arrow-back (no label).
+ */
+function PageHeaderBackIcon({ tintColor }: { tintColor: string }) {
+  if (Platform.OS !== 'ios') {
+    return <MaterialIcons name="arrow-back" size={22} color={tintColor} />;
+  }
+
+  const major = iosMajorVersion();
+  const name = major != null && major < 14 ? 'chevron.left' : 'chevron.backward';
+
+  return (
+    <SymbolView
+      name={name}
+      size={20}
+      weight="semibold"
+      tintColor={tintColor}
+      fallback={<MaterialIcons name="arrow-back-ios-new" size={22} color={tintColor} />}
+    />
+  );
+}
+
+const BACK_GLASS_SIZE = 44;
+const BACK_GLASS_RADIUS = BACK_GLASS_SIZE / 2;
+
+/**
+ * iOS 26+: `GlassView` applies `UIGlassEffect` (Liquid Glass). Requires both API checks from expo-glass-effect.
+ * Older iOS / Android / web: icon only.
+ */
+function PageHeaderBackControl({
+  tintColor,
+  glassColorScheme,
+}: {
+  tintColor: string;
+  glassColorScheme: 'light' | 'dark' | 'auto';
+}) {
+  const useLiquidGlass =
+    Platform.OS === 'ios' && isGlassEffectAPIAvailable() && isLiquidGlassAvailable();
+
+  const icon = <PageHeaderBackIcon tintColor={tintColor} />;
+
+  if (!useLiquidGlass) {
+    return icon;
+  }
+
+  return (
+    <GlassView
+      glassEffectStyle="regular"
+      isInteractive
+      colorScheme={glassColorScheme}
+      style={styles.backGlassView}
+      // Native prop (see expo-glass-effect GlassEffectModule); omitted from TS defs.
+      // @ts-expect-error borderRadius maps to iOS cornerConfiguration for UIGlassEffect
+      borderRadius={BACK_GLASS_RADIUS}>
+      {icon}
+    </GlassView>
+  );
+}
 
 type ToolbarVariant = 'primary' | 'outline' | 'danger';
 
@@ -140,6 +215,7 @@ export function PageScreen({
   stickyFooter,
 }: PageScreenProps) {
   const theme = useTheme();
+  const { resolvedScheme } = useThemePreference();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const navigation = useNavigation();
@@ -248,16 +324,10 @@ export function PageScreen({
                         opacity: pressed ? 0.75 : 1,
                       },
                     ]}>
-                    <MaterialIcons
-                      name={Platform.OS === 'ios' ? 'arrow-back-ios-new' : 'arrow-back'}
-                      size={20}
-                      color={theme.primary}
+                    <PageHeaderBackControl
+                      glassColorScheme={resolvedScheme}
+                      tintColor={theme.primary}
                     />
-                    {Platform.OS === 'ios' ? (
-                      <ThemedText type="default" style={{ color: theme.primary }}>
-                        Back
-                      </ThemedText>
-                    ) : null}
                   </Pressable>
                 </View>
                 <View style={styles.compactNavTitleWrap} pointerEvents="none">
@@ -465,6 +535,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.one,
     paddingVertical: Spacing.one,
     minHeight: 44,
+  },
+  /** iOS 26+ UIGlassEffect capsule behind the chevron (see `PageHeaderBackControl`). */
+  backGlassView: {
+    width: BACK_GLASS_SIZE,
+    height: BACK_GLASS_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerActionsInnerCompact: {
     flexDirection: 'row',

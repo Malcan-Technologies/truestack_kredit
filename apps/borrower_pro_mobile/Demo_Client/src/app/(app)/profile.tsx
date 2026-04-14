@@ -1,37 +1,35 @@
-import type {
-  BorrowerDetail,
-  CompanyMembersContext,
-  TruestackKycStatusData,
-} from '@kredit/borrower';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, StyleSheet, View } from 'react-native';
+import type { BorrowerDetail, TruestackKycStatusData } from '@kredit/borrower';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { BorrowerDocumentCard } from '@/components/borrower-document-card';
+import { MaterialIcons } from '@expo/vector-icons';
+
+import { BorrowerDocumentListItem } from '@/components/borrower-document-card';
+import { StatusBadge } from '@/components/status-badge';
 import { PageHeaderToolbarButton, PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
 import { ThemedText } from '@/components/themed-text';
+import { CompanyMembersMobileCard } from '@/components/company-members-mobile-card';
+import { ProfileHeroCardSkeleton } from '@/components/profile-hero-skeleton';
+import { DigitalSigningCertCard } from '@/components/digital-signing-cert-card';
 import { TruestackKycMobileCard } from '@/components/truestack-kyc-mobile-card';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { borrowerAuthClient, borrowerClient } from '@/lib/api/borrower';
+import { borrowerClient } from '@/lib/api/borrower';
 import { useBorrowerAccess } from '@/lib/borrower-access';
 import {
   formatAddressValue,
   formatBankLabel,
-  formatBooleanLabel,
   formatBorrowerDocumentLine,
   formatBorrowerTypeLabel,
   formatCurrency,
   formatICForDisplay,
   formatOptionLabel,
   getBorrowerDisplayName,
-  humanizeToken,
   normalizeDisplayValue,
 } from '@/lib/format/borrower';
-import { formatDate, formatDateTime } from '@/lib/format/date';
-
-type Tone = 'primary' | 'success' | 'warning' | 'error' | 'neutral';
+import { formatDate } from '@/lib/format/date';
 
 type InfoItem = {
   label: string;
@@ -40,96 +38,6 @@ type InfoItem = {
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function toneColor(theme: ReturnType<typeof useTheme>, tone: Tone) {
-  if (tone === 'primary') return theme.primary;
-  if (tone === 'success') return theme.success;
-  if (tone === 'warning') return theme.warning;
-  if (tone === 'error') return theme.error;
-  return theme.border;
-}
-
-function getVerificationSummary(
-  borrower: BorrowerDetail,
-  kyc: TruestackKycStatusData | null,
-): { label: string; tone: Tone; hint: string } {
-  const latest = kyc?.latest;
-
-  if (latest?.status === 'completed' && latest.result === 'approved') {
-    return {
-      label: 'Verified',
-      tone: 'success',
-      hint: 'Latest TrueStack verification was approved.',
-    };
-  }
-
-  if (latest?.status === 'completed' && latest.result === 'rejected') {
-    return {
-      label: 'Action needed',
-      tone: 'error',
-      hint: 'Latest TrueStack verification was rejected.',
-    };
-  }
-
-  if (latest?.status === 'processing') {
-    return {
-      label: 'In review',
-      tone: 'warning',
-      hint: 'TrueStack is currently reviewing the latest submission.',
-    };
-  }
-
-  if (latest?.status === 'pending') {
-    return {
-      label: 'Pending',
-      tone: 'warning',
-      hint: 'A verification session exists but has not completed yet.',
-    };
-  }
-
-  if (latest?.status === 'expired' || latest?.status === 'failed') {
-    return {
-      label: humanizeToken(latest.status),
-      tone: 'error',
-      hint: 'Start a fresh verification attempt from the borrower web portal.',
-    };
-  }
-
-  if (borrower.documentVerified) {
-    return {
-      label: 'Verified',
-      tone: 'success',
-      hint: 'Borrower document is currently marked as verified.',
-    };
-  }
-
-  if (borrower.verificationStatus) {
-    return {
-      label: humanizeToken(borrower.verificationStatus),
-      tone: 'warning',
-      hint: 'Document verification is still in progress or awaiting action.',
-    };
-  }
-
-  if (borrower.trueIdentityStatus) {
-    return {
-      label: humanizeToken(borrower.trueIdentityStatus),
-      tone: 'warning',
-      hint: 'TrueStack verification has status updates but is not complete yet.',
-    };
-  }
-
-  return {
-    label: 'Not started',
-    tone: 'neutral',
-    hint: 'Start verification from the borrower web portal when ready.',
-  };
-}
-
-function getLatestKycTimestamp(kyc: TruestackKycStatusData | null): string {
-  const latest = kyc?.latest;
-  return latest?.updatedAt ? formatDateTime(latest.updatedAt) : 'No session yet';
 }
 
 function buildContactLine(borrower: BorrowerDetail): string | null {
@@ -143,26 +51,6 @@ function buildContactLine(borrower: BorrowerDetail): string | null {
     .filter((value): value is string => Boolean(value));
 
   return populated.length > 0 ? populated.join(' • ') : null;
-}
-
-function StatusBadge({ label, tone }: { label: string; tone: Tone }) {
-  const theme = useTheme();
-  const color = toneColor(theme, tone);
-
-  return (
-    <View
-      style={[
-        styles.statusBadge,
-        {
-          borderColor: color,
-          backgroundColor: theme.backgroundSelected,
-        },
-      ]}>
-      <ThemedText type="smallBold" style={{ color }}>
-        {label}
-      </ThemedText>
-    </View>
-  );
 }
 
 function InfoGrid({ items }: { items: InfoItem[] }) {
@@ -199,11 +87,11 @@ function SurfacePanel({ children }: { children: React.ReactNode }) {
 
 export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boolean }) {
   const router = useRouter();
+  const theme = useTheme();
   const { activeBorrowerId, borrowerContextVersion, hasBorrowerProfiles, refreshBorrowerProfiles } =
     useBorrowerAccess();
   const [borrower, setBorrower] = useState<BorrowerDetail | null>(null);
   const [kyc, setKyc] = useState<TruestackKycStatusData | null>(null);
-  const [companyContext, setCompanyContext] = useState<CompanyMembersContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,7 +114,6 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
         if (!hasBorrowerProfiles || !activeBorrowerId) {
           setBorrower(null);
           setKyc(null);
-          setCompanyContext(null);
           return;
         }
 
@@ -239,18 +126,10 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
         }
 
         const borrowerData = borrowerResponse.data;
-        const [kycData, corporateContext] = await Promise.all([
-          borrowerClient
-            .getTruestackKycStatus()
-            .then((response) => response.data)
-            .catch(() => null),
-          borrowerData.borrowerType === 'CORPORATE'
-            ? borrowerAuthClient
-                .fetchCompanyMembersContext()
-                .then((response) => response.data)
-                .catch(() => null)
-            : Promise.resolve(null),
-        ]);
+        const kycData = await borrowerClient
+          .getTruestackKycStatus()
+          .then((response) => response.data)
+          .catch(() => null);
 
         if (requestId !== requestIdRef.current) {
           return;
@@ -258,7 +137,6 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
 
         setBorrower(borrowerData);
         setKyc(kycData);
-        setCompanyContext(corporateContext);
       } catch (loadError) {
         if (requestId !== requestIdRef.current) {
           return;
@@ -358,45 +236,8 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
     [openExternalLink],
   );
 
-  const handleSyncKycSession = useCallback(
-    async (externalSessionId: string) => {
-      try {
-        await borrowerClient.refreshTruestackKycSession(externalSessionId);
-        await loadProfileData('refresh');
-      } catch (syncError) {
-        Alert.alert(
-          'Unable to sync status',
-          syncError instanceof Error ? syncError.message : 'Please try again.',
-        );
-      }
-    },
-    [loadProfileData],
-  );
-
-  const verificationSummary = useMemo(
-    () => (borrower ? getVerificationSummary(borrower, kyc) : null),
-    [borrower, kyc],
-  );
-
-  if (loading) {
-    return (
-      <PageScreen
-        title="Your profile"
-        showBackButton={!embeddedInTab}
-        showBottomNav={!embeddedInTab}
-        backFallbackHref="/settings-menu"
-        showBorrowerContextHeader={embeddedInTab}>
-        <SectionCard title="Loading profile">
-          <View style={styles.centeredState}>
-            <ActivityIndicator />
-            <ThemedText type="small" themeColor="textSecondary">
-              Fetching the active borrower profile...
-            </ThemedText>
-          </View>
-        </SectionCard>
-      </PageScreen>
-    );
-  }
+  /** Hero placeholder while the initial borrower + KYC fetch runs (avoids full-screen spinner). */
+  const showHeroSkeleton = loading && !borrower && !error;
 
   return (
     <PageScreen
@@ -413,8 +254,6 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
             loading={refreshing}
             onPress={handleRefresh}
           />
-        ) : borrower ? (
-          <PageHeaderToolbarButton label="Edit profile" onPress={() => router.push('/profile-edit')} />
         ) : null
       }>
       {error ? (
@@ -425,25 +264,25 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
         </SectionCard>
       ) : null}
 
+      {showHeroSkeleton ? (
+        <SectionCard hideHeader>
+          <ProfileHeroCardSkeleton />
+        </SectionCard>
+      ) : null}
+
       {borrower ? (
         <>
           <SectionCard hideHeader>
             <View style={styles.overviewStack}>
               <View style={styles.overviewHeader}>
                 <View style={styles.overviewCopy}>
-                  <ThemedText type="subtitle">{getBorrowerDisplayName(borrower)}</ThemedText>
                   <View style={styles.badgeRow}>
                     <StatusBadge
                       label={formatBorrowerTypeLabel(borrower.borrowerType)}
                       tone="primary"
                     />
-                    {verificationSummary ? (
-                      <StatusBadge
-                        label={verificationSummary.label}
-                        tone={verificationSummary.tone}
-                      />
-                    ) : null}
                   </View>
+                  <ThemedText type="subtitle">{getBorrowerDisplayName(borrower)}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
                     {formatBorrowerDocumentLine(borrower)}
                   </ThemedText>
@@ -455,41 +294,29 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
                 </View>
               </View>
 
-              {verificationSummary ? (
-                <SurfacePanel>
-                  <ThemedText type="smallBold">Verification status</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {verificationSummary.hint}
-                  </ThemedText>
-                  <InfoGrid
-                    items={[
-                      {
-                        label: 'Latest KYC sync',
-                        value: getLatestKycTimestamp(kyc),
-                      },
-                      {
-                        label: 'Document verified',
-                        value: formatBooleanLabel(borrower.documentVerified),
-                      },
-                      {
-                        label: borrower.borrowerType === 'CORPORATE' ? 'Directors on file' : 'Bank linked',
-                        value:
-                          borrower.borrowerType === 'CORPORATE'
-                            ? `${borrower.directors.length}`
-                            : borrower.bankAccountNo
-                              ? 'Yes'
-                              : 'No',
-                      },
-                      {
-                        label: 'Documents uploaded',
-                        value: `${borrower.documents.length}`,
-                      },
-                    ]}
-                  />
-                </SurfacePanel>
-              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/profile-edit')}
+                style={({ pressed }) => [
+                  styles.editProfileRow,
+                  {
+                    backgroundColor: theme.background,
+                    borderColor: theme.border,
+                    opacity: pressed ? 0.8 : 1,
+                  },
+                ]}>
+                <MaterialIcons name="edit" size={18} color={theme.primary} />
+                <ThemedText type="smallBold" style={{ color: theme.primary, flex: 1 }}>
+                  Edit profile
+                </ThemedText>
+                <MaterialIcons name="chevron-right" size={20} color={theme.textSecondary} />
+              </Pressable>
             </View>
           </SectionCard>
+
+          {borrower.borrowerType === 'CORPORATE' ? (
+            <CompanyMembersMobileCard refreshKey={borrowerContextVersion} />
+          ) : null}
 
           <TruestackKycMobileCard
             borrower={borrower}
@@ -497,8 +324,9 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
             onStartIndividualSession={handleStartIndividualKyc}
             onStartDirectorSession={handleStartDirectorKyc}
             onOpenLink={handleOpenKycLink}
-            onSyncSession={handleSyncKycSession}
           />
+
+          <DigitalSigningCertCard />
 
           {borrower.borrowerType === 'INDIVIDUAL' ? (
             <>
@@ -683,27 +511,6 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
               </SectionCard>
 
               <SectionCard
-                title="Company access"
-                description="Role and permissions inherited from the borrower web organization setup.">
-                <InfoGrid
-                  items={[
-                    {
-                      label: 'Organization role',
-                      value: humanizeToken(companyContext?.role, 'Not available'),
-                    },
-                    {
-                      label: 'Manage members',
-                      value: formatBooleanLabel(companyContext?.canManageMembers),
-                    },
-                    {
-                      label: 'Edit company profile',
-                      value: formatBooleanLabel(companyContext?.canEditCompanyProfile),
-                    },
-                  ]}
-                />
-              </SectionCard>
-
-              <SectionCard
                 title="Company directors"
                 description="These directors are used by the corporate verification flow.">
                 {borrower.directors.length > 0 ? (
@@ -769,17 +576,19 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
 
           <SectionCard
             title="Documents"
-            description="Uploaded borrower documents and their latest timestamps."
-            collapsible
-            collapsedSummary={
+            description={
               borrower.documents.length > 0
-                ? `${borrower.documents.length} file${borrower.documents.length === 1 ? '' : 's'}`
-                : 'No documents yet'
+                ? `${borrower.documents.length} file${borrower.documents.length === 1 ? '' : 's'} attached to your profile.`
+                : 'Uploads from your borrower onboarding and applications appear here.'
             }>
             {borrower.documents.length > 0 ? (
-              <View style={styles.stack}>
-                {borrower.documents.map((document) => (
-                  <BorrowerDocumentCard key={document.id} document={document} />
+              <View>
+                {borrower.documents.map((document, index) => (
+                  <BorrowerDocumentListItem
+                    key={document.id}
+                    document={document}
+                    isLast={index === borrower.documents.length - 1}
+                  />
                 ))}
               </View>
             ) : (
@@ -789,7 +598,7 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
             )}
           </SectionCard>
         </>
-      ) : (
+      ) : showHeroSkeleton ? null : (
         <SectionCard title="No active borrower" description="A borrower profile is required before applications and loans can be used.">
           <ThemedText type="small" themeColor="textSecondary">
             Once a borrower profile exists and is selected, the full mobile profile experience will
@@ -806,12 +615,6 @@ export default function ProfileRoute() {
 }
 
 const styles = StyleSheet.create({
-  centeredState: {
-    gap: Spacing.two,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 120,
-  },
   overviewStack: {
     gap: Spacing.three,
   },
@@ -825,13 +628,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.two,
     flexWrap: 'wrap',
-  },
-  statusBadge: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-    alignSelf: 'flex-start',
   },
   infoGrid: {
     flexDirection: 'row',
@@ -861,5 +657,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.two,
     flexWrap: 'wrap',
+  },
+  editProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two + 2,
+    minHeight: 44,
   },
 });

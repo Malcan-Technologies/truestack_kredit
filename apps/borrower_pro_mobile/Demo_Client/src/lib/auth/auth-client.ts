@@ -8,7 +8,7 @@
  */
 
 import { createAuthClient } from 'better-auth/react';
-import { twoFactorClient } from 'better-auth/client/plugins';
+import { twoFactorClient, organizationClient } from 'better-auth/client/plugins';
 import { expoClient } from '@better-auth/expo/client';
 import * as SecureStore from 'expo-secure-store';
 
@@ -51,6 +51,15 @@ export const authClient = createAuthClient({
       storage: SecureStore,
     }),
     twoFactorClient(),
+    organizationClient({
+      schema: {
+        invitation: {
+          additionalFields: {
+            inviteKind: { type: 'string' },
+          },
+        },
+      },
+    }),
     ...(passkeyPlugin ? [passkeyPlugin] : []),
   ] as const,
 });

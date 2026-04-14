@@ -1,20 +1,14 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
-import { PageHeaderToolbarButton, PageScreen } from '@/components/page-screen';
+import { BottomSheetModal } from '@/components/bottom-sheet-modal';
+import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
+import { StatusBadge } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
-import { Colors, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
   addDevicePasskey,
@@ -47,12 +41,15 @@ function ActionButton({
   variant = 'primary',
   disabled,
   loading,
+  fullWidth,
 }: {
   label: string;
   onPress: () => void | Promise<void>;
   variant?: ButtonVariant;
   disabled?: boolean;
   loading?: boolean;
+  /** Full-width destructive / primary at bottom of screen (thumb reach). */
+  fullWidth?: boolean;
 }) {
   const theme = useTheme();
 
@@ -69,7 +66,7 @@ function ActionButton({
       return {
         backgroundColor: theme.error,
         borderColor: theme.error,
-        textColor: Colors.dark.text,
+        textColor: theme.primaryForeground,
       };
     }
 
@@ -84,6 +81,7 @@ function ActionButton({
     <Pressable
       style={[
         styles.button,
+        fullWidth && styles.buttonFullWidth,
         {
           backgroundColor: buttonStyle.backgroundColor,
           borderColor: buttonStyle.borderColor,
@@ -127,7 +125,7 @@ function FormInput({
       style={[
         styles.input,
         {
-          backgroundColor: theme.background,
+          backgroundColor: theme.backgroundElement,
           borderColor: theme.border,
           color: theme.text,
         },
@@ -146,26 +144,6 @@ function FormInput({
   );
 }
 
-function StatusPill({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: 'success' | 'warning' | 'neutral';
-}) {
-  const theme = useTheme();
-
-  const color = tone === 'success' ? theme.success : tone === 'warning' ? theme.warning : theme.textSecondary;
-
-  return (
-    <View style={[styles.pill, { borderColor: color }]}>
-      <ThemedText type="smallBold" style={{ color }}>
-        {label}
-      </ThemedText>
-    </View>
-  );
-}
-
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.infoRow}>
@@ -177,42 +155,27 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SurfacePanel({ children }: { children: React.ReactNode }) {
-  const theme = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.panel,
-        {
-          borderColor: theme.border,
-          backgroundColor: theme.background,
-        },
-      ]}>
-      {children}
-    </View>
-  );
-}
-
 function getTotpSecret(totpUri: string): string {
   const match = totpUri.match(/[?&]secret=([^&]+)/i);
   return match ? decodeURIComponent(match[1]) : '';
 }
 
-function AccountProfileSection({
-  editing,
-  onEditingChange,
-  toolbarApiRef,
-  onSavingChange,
-}: {
-  editing: boolean;
-  onEditingChange: (next: boolean) => void;
-  toolbarApiRef: React.MutableRefObject<{ save: () => Promise<void>; cancel: () => void } | null>;
-  onSavingChange?: (saving: boolean) => void;
-}) {
+/** Matches server `parseDeviceType` labels (Mobile / Tablet / Desktop / Unknown). */
+function loginActivityDeviceIcon(
+  deviceType: string | null | undefined,
+): 'smartphone' | 'tablet' | 'computer' | 'devices' {
+  const t = (deviceType ?? '').toLowerCase();
+  if (t.includes('tablet')) return 'tablet';
+  if (t.includes('mobile')) return 'smartphone';
+  if (t.includes('desktop')) return 'computer';
+  return 'devices';
+}
+
+function AccountProfileSection() {
   const { user, refresh } = useSession();
   const [account, setAccount] = useState<AccountProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [nameModalOpen, setNameModalOpen] = useState(false);
   const [editName, setEditName] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -256,7 +219,7 @@ function AccountProfileSection({
       await updateUserProfile(trimmedName);
       await refresh();
       await loadAccount();
-      onEditingChange(false);
+      setNameModalOpen(false);
       Alert.alert('Account updated', 'Your account details were saved.');
     } catch (error) {
       Alert.alert(
@@ -266,30 +229,48 @@ function AccountProfileSection({
     } finally {
       setSaving(false);
     }
-  }, [editName, loadAccount, onEditingChange, refresh]);
+  }, [editName, loadAccount, refresh]);
 
-  const cancelEdit = useCallback(() => {
+  const cancelNameEdit = useCallback(() => {
     setEditName(account?.user.name ?? user?.name ?? '');
-    onEditingChange(false);
-  }, [account?.user.name, onEditingChange, user?.name]);
-
-  useLayoutEffect(() => {
-    toolbarApiRef.current = {
-      save: handleSave,
-      cancel: cancelEdit,
-    };
-  }, [cancelEdit, handleSave, toolbarApiRef]);
-
-  useEffect(() => {
-    onSavingChange?.(saving);
-  }, [onSavingChange, saving]);
+    setNameModalOpen(false);
+  }, [account?.user.name, user?.name]);
 
   return (
-    <SectionCard title="My account" description="Manage the personal details attached to your borrower login.">
-      {loading ? (
-        <ActivityIndicator />
-      ) : editing ? (
-        <View style={styles.stack}>
+    <>
+      <SectionCard
+        title="My account"
+        description="Manage login details and security"
+        action={
+          !loading ? (
+            <ActionButton
+              label="Edit"
+              variant="outline"
+              onPress={() => {
+                setEditName(activeUser?.name ?? '');
+                setNameModalOpen(true);
+              }}
+            />
+          ) : null
+        }>
+        {loading ? (
+          <ActivityIndicator />
+        ) : (
+          <View style={styles.stack}>
+            <InfoRow label="Name" value={activeUser?.name ?? '—'} />
+            <InfoRow label="Email" value={activeUser?.email ?? '—'} />
+            <InfoRow label="Member since" value={formatDate(account?.user.createdAt)} />
+          </View>
+        )}
+      </SectionCard>
+
+      <BottomSheetModal
+        visible={nameModalOpen}
+        onClose={cancelNameEdit}
+        title="Edit name"
+        subtitle="Email is changed from Security → Change email."
+        footer={<ActionButton fullWidth label="Save" loading={saving} onPress={handleSave} />}>
+        <View style={{ gap: Spacing.three }}>
           <FormInput
             value={editName}
             onChangeText={setEditName}
@@ -303,21 +284,9 @@ function AccountProfileSection({
             keyboardType="email-address"
             editable={false}
           />
-          <ThemedText type="small" themeColor="textSecondary">
-            Email changes live in the Security section below.
-          </ThemedText>
         </View>
-      ) : (
-        <View style={styles.stack}>
-          <InfoRow label="Name" value={activeUser?.name ?? '—'} />
-          <InfoRow label="Email" value={activeUser?.email ?? '—'} />
-          <InfoRow
-            label="Member since"
-            value={formatDate(account?.user.createdAt)}
-          />
-        </View>
-      )}
-    </SectionCard>
+      </BottomSheetModal>
+    </>
   );
 }
 
@@ -327,8 +296,8 @@ function AccountSecuritySection() {
   const [passkeys, setPasskeys] = useState<RegisteredPasskey[]>([]);
   const [passwordChangedAt, setPasswordChangedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -416,7 +385,7 @@ function AccountSecuritySection() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setShowPasswordForm(false);
+      setPasswordModalOpen(false);
       await refreshSecurity();
       Alert.alert('Password updated', 'Your password has been changed.');
     } catch (error) {
@@ -440,7 +409,7 @@ function AccountSecuritySection() {
     try {
       await changeEmail(trimmedEmail);
       setNewEmail('');
-      setShowEmailForm(false);
+      setEmailModalOpen(false);
       Alert.alert(
         'Check your new inbox',
         'A verification link has been sent to the new email address.',
@@ -577,145 +546,75 @@ function AccountSecuritySection() {
     }
   }
 
+  const cancelEmailModal = useCallback(() => {
+    setNewEmail('');
+    setEmailModalOpen(false);
+  }, []);
+
+  const cancelPasswordModal = useCallback(() => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordModalOpen(false);
+  }, []);
+
   return (
-    <SectionCard
-      title="Security"
-      description="Manage verification, password, passkeys, and the current mobile auth setup.">
+    <>
       {loading ? (
         <ActivityIndicator />
       ) : (
-        <View style={styles.stack}>
-          <SurfacePanel>
-            <View style={styles.rowBetween}>
-              <View style={styles.stackTight}>
-                <ThemedText type="smallBold">Email verification</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {user?.email ?? '—'}
-                </ThemedText>
-              </View>
-              <StatusPill
+        <>
+          <SectionCard
+            title="Email"
+            description={user?.email ?? '—'}
+            action={
+              <StatusBadge
                 label={user?.emailVerified ? 'Verified' : 'Verification required'}
                 tone={user?.emailVerified ? 'success' : 'warning'}
               />
-            </View>
-
-            {!user?.emailVerified ? (
-              <>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Password sign-in stays blocked until this email is verified.
-                </ThemedText>
+            }>
+            <View style={styles.stack}>
+              {!user?.emailVerified ? (
+                <>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Password sign-in stays blocked until this email is verified.
+                  </ThemedText>
+                  <ActionButton
+                    label="Resend verification email"
+                    variant="outline"
+                    onPress={handleResendVerification}
+                    loading={resendingVerification}
+                  />
+                </>
+              ) : (
                 <ActionButton
-                  label="Resend verification email"
+                  label="Change email"
                   variant="outline"
-                  onPress={handleResendVerification}
-                  loading={resendingVerification}
+                  onPress={() => setEmailModalOpen(true)}
                 />
-              </>
-            ) : showEmailForm ? (
-              <View style={styles.stack}>
-                <FormInput
-                  value={newEmail}
-                  onChangeText={setNewEmail}
-                  placeholder="New email address"
-                  keyboardType="email-address"
-                />
-                <ThemedText type="small" themeColor="textSecondary">
-                  The new email address will only replace the current one after verification.
-                </ThemedText>
-                <View style={styles.actionsRow}>
-                  <ActionButton
-                    label="Send change email"
-                    onPress={handleEmailChange}
-                    loading={changingEmailState}
-                  />
-                  <ActionButton
-                    label="Cancel"
-                    variant="outline"
-                    onPress={() => {
-                      setShowEmailForm(false);
-                      setNewEmail('');
-                    }}
-                  />
-                </View>
-              </View>
-            ) : (
-              <ActionButton
-                label="Change email"
-                variant="outline"
-                onPress={() => setShowEmailForm(true)}
-              />
-            )}
-          </SurfacePanel>
-
-          <SurfacePanel>
-            <View style={styles.stackTight}>
-              <ThemedText type="smallBold">Password</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                Last changed {formatDate(passwordChangedAt)}
-              </ThemedText>
+              )}
             </View>
+          </SectionCard>
 
+          <SectionCard
+            title="Password"
+            description={`Last changed ${formatDate(passwordChangedAt)}`}>
             <ActionButton
-              label={showPasswordForm ? 'Hide form' : 'Change password'}
+              label="Change password"
               variant="outline"
-              onPress={() => setShowPasswordForm((current) => !current)}
+              onPress={() => setPasswordModalOpen(true)}
             />
+          </SectionCard>
 
-            {showPasswordForm ? (
-              <View style={styles.stack}>
-                <FormInput
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  placeholder="Current password"
-                  secureTextEntry
-                />
-                <FormInput
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  placeholder="New password"
-                  secureTextEntry
-                />
-                <FormInput
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  placeholder="Confirm new password"
-                  secureTextEntry
-                />
-                <View style={styles.actionsRow}>
-                  <ActionButton
-                    label="Update password"
-                    onPress={handlePasswordChange}
-                    loading={changingPassword}
-                  />
-                  <ActionButton
-                    label="Cancel"
-                    variant="outline"
-                    onPress={() => {
-                      setShowPasswordForm(false);
-                      setCurrentPassword('');
-                      setNewPassword('');
-                      setConfirmPassword('');
-                    }}
-                  />
-                </View>
-              </View>
-            ) : null}
-          </SurfacePanel>
-
-          <SurfacePanel>
-            <View style={styles.rowBetween}>
-              <View style={styles.stackTight}>
-                <ThemedText type="smallBold">Passkeys</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Sign in with the device passkey instead of typing your password.
-                </ThemedText>
-              </View>
-              <StatusPill
+          <SectionCard
+            title="Passkeys"
+            description="Sign in with a device passkey instead of typing your password."
+            action={
+              <StatusBadge
                 label={passkeys.length > 0 ? `${passkeys.length} registered` : 'Not set up'}
                 tone={passkeys.length > 0 ? 'success' : 'neutral'}
               />
-            </View>
-
+            }>
             <View style={styles.stack}>
               <FormInput
                 value={passkeyName}
@@ -731,182 +630,263 @@ function AccountSecuritySection() {
               />
             </View>
 
-            <View style={styles.stack}>
-              {passkeys.length > 0 ? (
-                passkeys.map((passkey) => (
-                  <View key={passkey.id} style={styles.passkeyRow}>
-                    <View style={styles.stackTight}>
-                      <ThemedText type="smallBold">
+            {passkeys.length > 0 ? (
+              <View
+                style={[
+                  styles.compactList,
+                  { borderColor: theme.border, marginTop: Spacing.three },
+                ]}>
+                {passkeys.map((passkey, index) => (
+                  <View
+                    key={passkey.id}
+                    style={[
+                      styles.compactPasskeyRow,
+                      index < passkeys.length - 1 && {
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                        borderBottomColor: theme.border,
+                      },
+                    ]}>
+                    <View
+                      style={[
+                        styles.compactThumb,
+                        { borderColor: theme.border, backgroundColor: theme.background },
+                      ]}>
+                      <MaterialIcons name="vpn-key" size={20} color={theme.textSecondary} />
+                    </View>
+                    <View style={styles.compactRowCopy}>
+                      <ThemedText type="smallBold" numberOfLines={1}>
                         {passkey.name?.trim() || 'Unnamed passkey'}
                       </ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {passkey.deviceType} {passkey.backedUp ? '• synced' : '• local only'}
-                      </ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        Added {formatDate(passkey.createdAt)}
+                      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                        {passkey.deviceType}
+                        {passkey.backedUp ? ' · synced' : ' · local'} · {formatDate(passkey.createdAt)}
                       </ThemedText>
                     </View>
-                    <ActionButton
-                      label="Remove"
-                      variant="outline"
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove passkey"
+                      disabled={removingPasskeyId === passkey.id}
                       onPress={() => handleRemovePasskey(passkey.id)}
-                      loading={removingPasskeyId === passkey.id}
-                    />
+                      hitSlop={8}
+                      style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+                      {removingPasskeyId === passkey.id ? (
+                        <ActivityIndicator size="small" color={theme.error} />
+                      ) : (
+                        <MaterialIcons name="remove-circle-outline" size={22} color={theme.error} />
+                      )}
+                    </Pressable>
                   </View>
-                ))
-              ) : (
-                <ThemedText type="small" themeColor="textSecondary">
-                  No passkeys registered yet.
-                </ThemedText>
-              )}
-            </View>
-          </SurfacePanel>
-
-          <SurfacePanel>
-            <ThemedText type="smallBold">Authenticator app</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Trusted devices skip the extra prompt for 7 days, matching borrower web.
-            </ThemedText>
-            <View style={styles.rowBetween}>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.flexText}>
-                {user?.twoFactorEnabled
-                  ? 'Authenticator protection is enabled for your account.'
-                  : 'Set up an authenticator app such as Google Authenticator or 1Password.'}
+                ))}
+              </View>
+            ) : (
+              <ThemedText type="small" themeColor="textSecondary" style={{ marginTop: Spacing.three }}>
+                No passkeys registered yet.
               </ThemedText>
-              <StatusPill
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="Authenticator app"
+            description="Trusted devices skip the extra prompt for 7 days, matching borrower web."
+            action={
+              <StatusBadge
                 label={user?.twoFactorEnabled ? 'Enabled' : 'Not set up'}
                 tone={user?.twoFactorEnabled ? 'success' : 'neutral'}
               />
+            }>
+            <View style={styles.stack}>
+              {/* <ThemedText type="small" themeColor="textSecondary">
+                {user?.twoFactorEnabled
+                  ? 'Authenticator protection is enabled for your account.'
+                  : 'Set up an authenticator app such as Google Authenticator or 1Password.'}
+              </ThemedText> */}
+              {!user?.twoFactorEnabled ? (
+                <>
+                  <FormInput
+                    value={setupPassword}
+                    onChangeText={setSetupPassword}
+                    placeholder="Current password"
+                    secureTextEntry
+                  />
+                  <ActionButton
+                    label="Set up authenticator app"
+                    onPress={handleStartTwoFactor}
+                    loading={startingTwoFactor}
+                  />
+                </>
+              ) : (
+                <>
+                  <FormInput
+                    value={disablePassword}
+                    onChangeText={setDisablePassword}
+                    placeholder="Current password"
+                    secureTextEntry
+                  />
+                  <ActionButton
+                    label="Disable two-factor"
+                    variant="outline"
+                    onPress={handleDisableTwoFactor}
+                    loading={disablingTwoFactor}
+                  />
+                </>
+              )}
             </View>
+          </SectionCard>
+        </>
+      )}
 
-            {!user?.twoFactorEnabled ? (
-              <View style={styles.stack}>
-                <FormInput
-                  value={setupPassword}
-                  onChangeText={setSetupPassword}
-                  placeholder="Current password"
-                  secureTextEntry
-                />
-                <ActionButton
-                  label="Set up authenticator app"
-                  onPress={handleStartTwoFactor}
-                  loading={startingTwoFactor}
-                />
-              </View>
-            ) : (
-              <View style={styles.stack}>
-                <FormInput
-                  value={disablePassword}
-                  onChangeText={setDisablePassword}
-                  placeholder="Current password"
-                  secureTextEntry
-                />
-                <ActionButton
-                  label="Disable two-factor"
-                  variant="outline"
-                  onPress={handleDisableTwoFactor}
-                  loading={disablingTwoFactor}
-                />
-              </View>
-            )}
-          </SurfacePanel>
+      <BottomSheetModal
+        visible={emailModalOpen}
+        onClose={cancelEmailModal}
+        title="Change email"
+        subtitle="The new address replaces the current one only after you verify it from the email we send."
+        footer={
+          <ActionButton
+            fullWidth
+            label="Send verification"
+            onPress={handleEmailChange}
+            loading={changingEmailState}
+          />
+        }>
+        <FormInput
+          value={newEmail}
+          onChangeText={setNewEmail}
+          placeholder="New email address"
+          keyboardType="email-address"
+        />
+      </BottomSheetModal>
 
-          <Modal
-            transparent
-            animationType="fade"
-            visible={Boolean(setupTotpUri)}
-            onRequestClose={closeTotpSetup}>
-            <View style={styles.modalOverlay}>
-              <Pressable
-                style={StyleSheet.absoluteFillObject}
-                disabled={confirmingTwoFactor}
-                onPress={closeTotpSetup}
-              />
-              <View
-                style={[
-                  styles.modalCard,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.border,
-                  },
-                ]}>
-                <ScrollView contentContainerStyle={styles.modalContent}>
-                  <View style={styles.stack}>
-                    <View style={styles.stackTight}>
-                      <ThemedText type="subtitle">Finish authenticator setup</ThemedText>
+      <BottomSheetModal
+        visible={passwordModalOpen}
+        onClose={cancelPasswordModal}
+        title="Change password"
+        subtitle="Use at least 8 characters. You will stay signed in on this device after updating."
+        scrollable
+        footer={
+          <ActionButton
+            fullWidth
+            label="Update password"
+            onPress={handlePasswordChange}
+            loading={changingPassword}
+          />
+        }>
+        <View style={{ gap: Spacing.three }}>
+          <FormInput
+            value={currentPassword}
+            onChangeText={setCurrentPassword}
+            placeholder="Current password"
+            secureTextEntry
+          />
+          <FormInput
+            value={newPassword}
+            onChangeText={setNewPassword}
+            placeholder="New password"
+            secureTextEntry
+          />
+          <FormInput
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            placeholder="Confirm new password"
+            secureTextEntry
+          />
+        </View>
+      </BottomSheetModal>
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={Boolean(setupTotpUri)}
+        onRequestClose={() => closeTotpSetup(true)}>
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            disabled={confirmingTwoFactor}
+            onPress={() => closeTotpSetup(true)}
+          />
+          <View
+            style={[
+              styles.modalCard,
+              {
+                backgroundColor: theme.backgroundElement,
+                borderColor: theme.border,
+              },
+            ]}>
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              <View style={styles.stack}>
+                <View style={styles.stackTight}>
+                  <ThemedText type="subtitle">Finish authenticator setup</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Scan the QR code with Google Authenticator, 1Password, or another app, then enter
+                    the 6-digit code to verify and enable it.
+                  </ThemedText>
+                </View>
+
+                {setupTotpUri ? (
+                  <>
+                    <View style={styles.qrWrap}>
+                      <QRCode value={setupTotpUri} size={176} backgroundColor="#ffffff" color="#000000" />
+                    </View>
+
+                    <View
+                      style={[
+                        styles.secretCard,
+                        {
+                          backgroundColor: theme.background,
+                          borderColor: theme.border,
+                        },
+                      ]}>
                       <ThemedText type="small" themeColor="textSecondary">
-                        Scan the QR code with Google Authenticator, 1Password, or another app,
-                        then enter the 6-digit code to verify and enable it.
+                        Manual setup key
+                      </ThemedText>
+                      <ThemedText type="smallBold" style={styles.secretValue}>
+                        {getTotpSecret(setupTotpUri) || 'Unavailable'}
                       </ThemedText>
                     </View>
+                  </>
+                ) : null}
 
-                    {setupTotpUri ? (
-                      <>
-                        <View style={styles.qrWrap}>
-                          <QRCode value={setupTotpUri} size={176} backgroundColor="#ffffff" color="#000000" />
-                        </View>
+                <FormInput
+                  value={verificationCode}
+                  onChangeText={setVerificationCode}
+                  placeholder="Enter 6-digit code"
+                  keyboardType="number-pad"
+                />
 
-                        <View
-                          style={[
-                            styles.secretCard,
-                            {
-                              backgroundColor: theme.background,
-                              borderColor: theme.border,
-                            },
-                          ]}>
-                          <ThemedText type="small" themeColor="textSecondary">
-                            Manual setup key
-                          </ThemedText>
-                          <ThemedText type="smallBold" style={styles.secretValue}>
-                            {getTotpSecret(setupTotpUri) || 'Unavailable'}
-                          </ThemedText>
-                        </View>
-                      </>
-                    ) : null}
-
-                    <FormInput
-                      value={verificationCode}
-                      onChangeText={setVerificationCode}
-                      placeholder="Enter 6-digit code"
-                      keyboardType="number-pad"
-                    />
-
-                    <View style={styles.actionsRow}>
-                      <ActionButton
-                        label="Cancel"
-                        variant="outline"
-                        onPress={closeTotpSetup}
-                        disabled={confirmingTwoFactor}
-                      />
-                      <ActionButton
-                        label="Verify and enable"
-                        onPress={handleConfirmTwoFactor}
-                        loading={confirmingTwoFactor}
-                      />
-                    </View>
-                  </View>
-                </ScrollView>
+                <View style={styles.actionsRow}>
+                  <ActionButton
+                    label="Cancel"
+                    variant="outline"
+                    onPress={() => closeTotpSetup(true)}
+                    disabled={confirmingTwoFactor}
+                  />
+                  <ActionButton
+                    label="Verify and enable"
+                    onPress={handleConfirmTwoFactor}
+                    loading={confirmingTwoFactor}
+                  />
+                </View>
               </View>
-            </View>
-          </Modal>
+            </ScrollView>
+          </View>
         </View>
-      )}
-    </SectionCard>
+      </Modal>
+    </>
   );
 }
 
 function AccountLoginActivitySection() {
+  const theme = useTheme();
   const [activity, setActivity] = useState<LoginHistoryEntry[]>([]);
-  const [expanded, setExpanded] = useState(false);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadActivity = useCallback(async () => {
     setLoading(true);
     try {
       const nextActivity = await fetchLoginHistory();
-      setActivity(nextActivity);
-      setHasLoaded(true);
+      const sorted = [...nextActivity].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+      setActivity(sorted.slice(0, 3));
     } catch (error) {
       Alert.alert(
         'Unable to load login activity',
@@ -918,49 +898,60 @@ function AccountLoginActivitySection() {
   }, []);
 
   useEffect(() => {
-    if (!expanded || hasLoaded) {
-      return;
-    }
-
     void loadActivity();
-  }, [expanded, hasLoaded, loadActivity]);
+  }, [loadActivity]);
+
+  const recent = activity;
 
   return (
     <SectionCard
       title="Recent login activity"
-      description="Your latest borrower sign-ins across devices."
-      action={
-        <ActionButton
-          label={expanded ? 'Hide' : 'Show'}
-          variant="outline"
-          onPress={() => setExpanded((current) => !current)}
-        />
-      }>
-      {!expanded ? (
-        <ThemedText type="small" themeColor="textSecondary">
-          {hasLoaded
-            ? activity.length > 0
-              ? `${activity.length} recent sign-in${activity.length === 1 ? '' : 's'} available.`
-              : 'No login history is available yet.'
-            : 'Expand to view your recent borrower sign-ins.'}
-        </ThemedText>
-      ) : loading ? (
+      description="Your last three borrower sign-ins (newest first).">
+      {loading ? (
         <ActivityIndicator />
-      ) : activity.length > 0 ? (
-        <View style={styles.stack}>
-          {activity.map((entry) => (
-            <SurfacePanel key={entry.id}>
-              <InfoRow label="When" value={formatRelativeTime(entry.createdAt)} />
-              <InfoRow label="Date & time" value={formatDateTime(entry.createdAt)} />
-              <InfoRow label="Device" value={entry.deviceType || 'Unknown'} />
-              <InfoRow label="IP address" value={entry.ipAddress || '—'} />
-            </SurfacePanel>
-          ))}
-        </View>
-      ) : (
+      ) : recent.length === 0 ? (
         <ThemedText type="small" themeColor="textSecondary">
           No login history is available yet.
         </ThemedText>
+      ) : (
+        <View>
+          {recent.map((entry, index) => (
+            <View
+              key={entry.id}
+              accessibilityRole="text"
+              accessibilityLabel={`${entry.deviceType || 'Unknown device'}, ${formatDateTime(entry.createdAt)}`}
+              style={[
+                styles.loginActivityListRow,
+                {
+                  borderBottomColor: theme.border,
+                  borderBottomWidth: index === recent.length - 1 ? 0 : StyleSheet.hairlineWidth,
+                },
+              ]}>
+              <View
+                style={[
+                  styles.loginActivityThumb,
+                  { borderColor: theme.border, backgroundColor: theme.backgroundElement },
+                ]}>
+                <MaterialIcons
+                  name={loginActivityDeviceIcon(entry.deviceType)}
+                  size={22}
+                  color={theme.textSecondary}
+                />
+              </View>
+              <View style={styles.loginActivityCopy}>
+                <ThemedText type="smallBold" numberOfLines={1}>
+                  {formatRelativeTime(entry.createdAt)}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
+                  {entry.deviceType || 'Unknown device'}
+                  {' · '}
+                  {formatDateTime(entry.createdAt)}
+                  {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
+                </ThemedText>
+              </View>
+            </View>
+          ))}
+        </View>
       )}
     </SectionCard>
   );
@@ -968,9 +959,6 @@ function AccountLoginActivitySection() {
 
 export default function AccountScreen() {
   const { signOut } = useSession();
-  const [profileEditing, setProfileEditing] = useState(false);
-  const [profileSaving, setProfileSaving] = useState(false);
-  const accountToolbarRef = useRef<{ save: () => Promise<void>; cancel: () => void } | null>(null);
 
   async function handleSignOut() {
     try {
@@ -984,41 +972,13 @@ export default function AccountScreen() {
   }
 
   return (
-    <PageScreen
-      title="My account"
-      subtitle="Manage your login, security, and account information."
-      showBackButton
-      showBottomNav
-      backFallbackHref="/settings-menu"
-      headerActions={
-        <>
-          {profileEditing ? (
-            <>
-              <PageHeaderToolbarButton
-                label="Cancel"
-                variant="outline"
-                onPress={() => accountToolbarRef.current?.cancel()}
-              />
-              <PageHeaderToolbarButton
-                label="Save changes"
-                loading={profileSaving}
-                onPress={() => void accountToolbarRef.current?.save()}
-              />
-            </>
-          ) : (
-            <PageHeaderToolbarButton label="Edit" variant="outline" onPress={() => setProfileEditing(true)} />
-          )}
-          <PageHeaderToolbarButton label="Sign out" variant="danger" onPress={handleSignOut} />
-        </>
-      }>
-      <AccountProfileSection
-        editing={profileEditing}
-        onEditingChange={setProfileEditing}
-        toolbarApiRef={accountToolbarRef}
-        onSavingChange={setProfileSaving}
-      />
+    <PageScreen title="My account" showBackButton showBottomNav backFallbackHref="/settings-menu">
+      <AccountProfileSection />
       <AccountSecuritySection />
       <AccountLoginActivitySection />
+      <View style={styles.signOutSection}>
+        <ActionButton label="Sign out" variant="danger" fullWidth onPress={handleSignOut} />
+      </View>
     </PageScreen>
   );
 }
@@ -1039,6 +999,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
+  buttonFullWidth: {
+    alignSelf: 'stretch',
+    width: '100%',
+  },
   buttonDisabled: {
     opacity: 0.6,
   },
@@ -1052,25 +1016,14 @@ const styles = StyleSheet.create({
   inputDisabled: {
     opacity: 0.7,
   },
-  pill: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-  },
   infoRow: {
     gap: Spacing.one,
-  },
-  panel: {
-    gap: Spacing.two,
-    padding: Spacing.three,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
   },
   actionsRow: {
     flexDirection: 'row',
     gap: Spacing.two,
     flexWrap: 'wrap',
+    justifyContent: 'flex-end',
   },
   rowBetween: {
     flexDirection: 'row',
@@ -1079,8 +1032,61 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     flexWrap: 'wrap',
   },
+  rowBetweenCenter: {
+    alignItems: 'center',
+  },
   flexText: {
     flex: 1,
+  },
+  compactList: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    overflow: 'hidden',
+    alignSelf: 'stretch',
+  },
+  compactPasskeyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingVertical: Spacing.two + 2,
+    paddingHorizontal: Spacing.three,
+    minHeight: 56,
+  },
+  compactThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compactRowCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+    justifyContent: 'center',
+  },
+  /** Flat list like profile → Documents (`BorrowerDocumentListItem`): rows + hairlines, no outer border. */
+  loginActivityListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingVertical: Spacing.two + 2,
+    minHeight: 56,
+  },
+  loginActivityThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loginActivityCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+    justifyContent: 'center',
   },
   passkeyRow: {
     gap: Spacing.two,
@@ -1114,5 +1120,10 @@ const styles = StyleSheet.create({
   },
   secretValue: {
     fontFamily: 'monospace',
+  },
+  signOutSection: {
+    width: '100%',
+    paddingTop: Spacing.five,
+    paddingBottom: Spacing.two,
   },
 });

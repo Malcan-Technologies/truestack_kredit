@@ -8,15 +8,12 @@ import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { SectionCard } from '@/components/section-card';
+import { StatusBadge } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import {
-  getCorporateDirectorsForKyc,
-  isSessionApproved,
-  pickLatestKycSession,
-} from '@/lib/borrower-verification';
-import { formatDateTime } from '@/lib/format/date';
+import { getCorporateDirectorsForKyc, pickLatestKycSession } from '@/lib/borrower-verification';
+import { formatDate } from '@/lib/format/date';
 
 type ButtonVariant = 'primary' | 'outline';
 
@@ -68,39 +65,6 @@ function ActionButton({
   );
 }
 
-function StatusBadge({
-  tone,
-  label,
-}: {
-  tone: 'success' | 'warning' | 'error' | 'neutral';
-  label: string;
-}) {
-  const theme = useTheme();
-  const color =
-    tone === 'success'
-      ? theme.success
-      : tone === 'warning'
-        ? theme.warning
-        : tone === 'error'
-          ? theme.error
-          : theme.textSecondary;
-
-  return (
-    <View
-      style={[
-        styles.badge,
-        {
-          borderColor: color,
-          backgroundColor: theme.background,
-        },
-      ]}>
-      <ThemedText type="smallBold" style={{ color }}>
-        {label}
-      </ThemedText>
-    </View>
-  );
-}
-
 function describeSessionState(session: TruestackKycSessionRow | undefined) {
   if (!session) {
     return {
@@ -110,6 +74,7 @@ function describeSessionState(session: TruestackKycSessionRow | undefined) {
       canOpenExistingLink: false,
       shouldOfferNewSession: true,
       ctaLabel: 'Start e-KYC',
+      ctaVariant: 'primary' as const,
     };
   }
 
@@ -117,10 +82,11 @@ function describeSessionState(session: TruestackKycSessionRow | undefined) {
     return {
       label: 'Verified',
       tone: 'success' as const,
-      description: 'The latest TrueStack verification was approved.',
+      description: 'The latest verification was approved.',
       canOpenExistingLink: false,
       shouldOfferNewSession: true,
       ctaLabel: 'Redo verification',
+      ctaVariant: 'outline' as const,
     };
   }
 
@@ -128,10 +94,11 @@ function describeSessionState(session: TruestackKycSessionRow | undefined) {
     return {
       label: 'Rejected',
       tone: 'error' as const,
-      description: session.rejectMessage || 'The latest TrueStack verification was rejected.',
+      description: session.rejectMessage || 'The latest verification was rejected.',
       canOpenExistingLink: false,
       shouldOfferNewSession: true,
       ctaLabel: 'Retry e-KYC',
+      ctaVariant: 'outline' as const,
     };
   }
 
@@ -143,6 +110,7 @@ function describeSessionState(session: TruestackKycSessionRow | undefined) {
       canOpenExistingLink: false,
       shouldOfferNewSession: true,
       ctaLabel: 'Retry e-KYC',
+      ctaVariant: 'outline' as const,
     };
   }
 
@@ -154,6 +122,7 @@ function describeSessionState(session: TruestackKycSessionRow | undefined) {
       canOpenExistingLink: false,
       shouldOfferNewSession: true,
       ctaLabel: 'Create new link',
+      ctaVariant: 'outline' as const,
     };
   }
 
@@ -161,10 +130,11 @@ function describeSessionState(session: TruestackKycSessionRow | undefined) {
     return {
       label: 'In review',
       tone: 'warning' as const,
-      description: 'TrueStack is reviewing the latest submission.',
+      description: 'Your verification is being reviewed.',
       canOpenExistingLink: Boolean(session.onboardingUrl),
       shouldOfferNewSession: false,
       ctaLabel: 'Open verification link',
+      ctaVariant: 'outline' as const,
     };
   }
 
@@ -175,6 +145,7 @@ function describeSessionState(session: TruestackKycSessionRow | undefined) {
     canOpenExistingLink: Boolean(session.onboardingUrl),
     shouldOfferNewSession: false,
     ctaLabel: 'Open verification link',
+    ctaVariant: 'outline' as const,
   };
 }
 
@@ -183,17 +154,14 @@ function DirectorSessionCard({
   session,
   onStartSession,
   onOpenLink,
-  onSyncSession,
 }: {
   director: BorrowerDirector;
   session: TruestackKycSessionRow | undefined;
   onStartSession: (directorId: string) => Promise<void>;
   onOpenLink: (url: string) => Promise<void>;
-  onSyncSession: (externalSessionId: string) => Promise<void>;
 }) {
   const theme = useTheme();
   const [starting, setStarting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const state = describeSessionState(session);
 
   return (
@@ -223,7 +191,7 @@ function DirectorSessionCard({
 
       {session?.updatedAt ? (
         <ThemedText type="small" themeColor="textSecondary">
-          Last update: {formatDateTime(session.updatedAt)}
+          Updated {formatDate(session.updatedAt)}
         </ThemedText>
       ) : null}
 
@@ -238,6 +206,7 @@ function DirectorSessionCard({
         {state.shouldOfferNewSession ? (
           <ActionButton
             label={state.ctaLabel}
+            variant={state.ctaVariant}
             loading={starting}
             onPress={async () => {
               setStarting(true);
@@ -245,21 +214,6 @@ function DirectorSessionCard({
                 await onStartSession(director.id);
               } finally {
                 setStarting(false);
-              }
-            }}
-          />
-        ) : null}
-        {session?.externalSessionId ? (
-          <ActionButton
-            label="Sync status"
-            variant="outline"
-            loading={syncing}
-            onPress={async () => {
-              setSyncing(true);
-              try {
-                await onSyncSession(session.externalSessionId);
-              } finally {
-                setSyncing(false);
               }
             }}
           />
@@ -275,17 +229,14 @@ export function TruestackKycMobileCard({
   onStartIndividualSession,
   onStartDirectorSession,
   onOpenLink,
-  onSyncSession,
 }: {
   borrower: BorrowerDetail;
   kyc: TruestackKycStatusData | null;
   onStartIndividualSession: () => Promise<void>;
   onStartDirectorSession: (directorId: string) => Promise<void>;
   onOpenLink: (url: string) => Promise<void>;
-  onSyncSession: (externalSessionId: string) => Promise<void>;
 }) {
   const [starting, setStarting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
 
   const individualSession = useMemo(
     () => pickLatestKycSession((kyc?.sessions ?? []).filter((session) => !session.directorId)),
@@ -298,9 +249,7 @@ export function TruestackKycMobileCard({
 
   if (borrower.borrowerType === 'CORPORATE') {
     return (
-      <SectionCard
-        title="TrueStack e-KYC"
-        description="Only the authorized representative needs to complete verification.">
+      <SectionCard title="KYC" description="Authorized representative only.">
         {requiredDirectors.length === 0 ? (
           <ThemedText type="small" themeColor="textSecondary">
             Add an authorized representative in the profile editor to start corporate e-KYC.
@@ -316,7 +265,6 @@ export function TruestackKycMobileCard({
                 )}
                 onStartSession={onStartDirectorSession}
                 onOpenLink={onOpenLink}
-                onSyncSession={onSyncSession}
               />
             ))}
           </View>
@@ -328,24 +276,20 @@ export function TruestackKycMobileCard({
   const state = describeSessionState(individualSession);
 
   return (
-    <SectionCard
-      title="TrueStack e-KYC"
-      description="Verify your identity to keep your borrower profile compliant and ready for signing.">
+    <SectionCard title="KYC" description="Identity verification for your borrower profile.">
       <View style={styles.rowBetween}>
-        <View style={styles.stackTight}>
-          <ThemedText type="smallBold">Current status</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
+        <View style={styles.statusCopy}>
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
             {state.description}
           </ThemedText>
+          {individualSession?.updatedAt ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              Updated {formatDate(individualSession.updatedAt)}
+            </ThemedText>
+          ) : null}
         </View>
         <StatusBadge tone={state.tone} label={state.label} />
       </View>
-
-      {individualSession?.updatedAt ? (
-        <ThemedText type="small" themeColor="textSecondary">
-          Last update: {formatDateTime(individualSession.updatedAt)}
-        </ThemedText>
-      ) : null}
 
       <View style={styles.actionStack}>
         {state.canOpenExistingLink && individualSession?.onboardingUrl ? (
@@ -358,6 +302,7 @@ export function TruestackKycMobileCard({
         {state.shouldOfferNewSession ? (
           <ActionButton
             label={state.ctaLabel}
+            variant={state.ctaVariant}
             loading={starting}
             onPress={async () => {
               setStarting(true);
@@ -369,29 +314,7 @@ export function TruestackKycMobileCard({
             }}
           />
         ) : null}
-        {individualSession?.externalSessionId ? (
-          <ActionButton
-            label="Sync status"
-            variant="outline"
-            loading={syncing}
-            onPress={async () => {
-              setSyncing(true);
-              try {
-                await onSyncSession(individualSession.externalSessionId);
-              } finally {
-                setSyncing(false);
-              }
-            }}
-          />
-        ) : null}
       </View>
-
-      {isSessionApproved(individualSession) ? (
-        <ThemedText type="small" themeColor="textSecondary">
-          Approved e-KYC will lock identity fields during profile editing, matching the borrower web
-          experience.
-        </ThemedText>
-      ) : null}
     </SectionCard>
   );
 }
@@ -404,6 +327,11 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
     flex: 1,
   },
+  statusCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -411,28 +339,22 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     flexWrap: 'wrap',
   },
-  badge: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-  },
   actionStack: {
-    gap: Spacing.two,
+    gap: Spacing.one,
   },
   actionButton: {
-    minHeight: 40,
+    minHeight: 36,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    paddingVertical: Spacing.one + 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sessionCard: {
     borderWidth: 1,
-    borderRadius: 16,
-    padding: Spacing.three,
-    gap: Spacing.two,
+    borderRadius: 12,
+    padding: Spacing.two,
+    gap: Spacing.one,
   },
 });

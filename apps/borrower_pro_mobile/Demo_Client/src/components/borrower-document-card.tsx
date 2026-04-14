@@ -10,17 +10,27 @@ import { useTheme } from '@/hooks/use-theme';
 import { authClient } from '@/lib/auth/auth-client';
 import { getEnv } from '@/lib/config/env';
 import { humanizeToken, normalizeDisplayValue } from '@/lib/format/borrower';
-import { formatDateTime } from '@/lib/format/date';
+import { formatDate } from '@/lib/format/date';
 
 function isImageMime(mimeType: string): boolean {
   return mimeType.startsWith('image/');
 }
 
+const THUMB_SIZE = 44;
+
 const authClientWithCookie = authClient as typeof authClient & {
   getCookie: () => string | null | undefined;
 };
 
-export function BorrowerDocumentCard({ document: doc }: { document: BorrowerDocument }) {
+/** Compact list row: small thumb, filename + category · date. */
+export function BorrowerDocumentListItem({
+  document: doc,
+  isLast,
+}: {
+  document: BorrowerDocument;
+  /** Omit bottom divider (last row in a group). */
+  isLast?: boolean;
+}) {
   const theme = useTheme();
   const uri = `${getEnv().backendUrl}/api/borrower-auth/borrower/documents/${doc.id}/file`;
   const cookie = authClientWithCookie.getCookie?.();
@@ -35,99 +45,76 @@ export function BorrowerDocumentCard({ document: doc }: { document: BorrowerDocu
     };
   }, [uri, doc.mimeType, cookie]);
 
+  const meta = `${humanizeToken(doc.category)} · ${formatDate(doc.uploadedAt)}`;
+
   return (
     <View
+      accessibilityRole="text"
+      accessibilityLabel={`${normalizeDisplayValue(doc.originalName)}, ${meta}`}
       style={[
-        styles.panel,
+        styles.listRow,
         {
-          backgroundColor: theme.background,
-          borderColor: theme.border,
+          borderBottomColor: theme.border,
+          borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
         },
       ]}>
       {imageSource ? (
         <Image
           source={imageSource}
-          style={styles.preview}
-          contentFit="contain"
-          transition={200}
-          accessibilityLabel={normalizeDisplayValue(doc.originalName)}
+          style={[styles.thumbImage, { backgroundColor: theme.backgroundElement }]}
+          contentFit="cover"
+          transition={150}
+          accessibilityIgnoresInvertColors
         />
       ) : (
         <View
           style={[
-            styles.previewPlaceholder,
+            styles.thumbPlaceholder,
             {
               backgroundColor: theme.backgroundElement,
               borderColor: theme.border,
             },
           ]}>
-          <MaterialIcons name="picture-as-pdf" size={40} color={theme.textSecondary} />
-          <ThemedText type="small" themeColor="textSecondary" style={styles.pdfHint}>
-            PDF preview is not shown in the app
-          </ThemedText>
+          <MaterialIcons name="insert-drive-file" size={22} color={theme.textSecondary} />
         </View>
       )}
-      <View style={styles.stackTight}>
-        <ThemedText type="smallBold">{normalizeDisplayValue(doc.originalName)}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {humanizeToken(doc.category)}
+      <View style={styles.listCopy}>
+        <ThemedText type="smallBold" numberOfLines={1} ellipsizeMode="middle">
+          {normalizeDisplayValue(doc.originalName)}
         </ThemedText>
-      </View>
-      <View style={styles.infoGrid}>
-        <View style={styles.infoField}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Filename
-          </ThemedText>
-          <ThemedText type="default">{normalizeDisplayValue(doc.filename)}</ThemedText>
-        </View>
-        <View style={styles.infoField}>
-          <ThemedText type="small" themeColor="textSecondary">
-            Uploaded
-          </ThemedText>
-          <ThemedText type="default">{formatDateTime(doc.uploadedAt)}</ThemedText>
-        </View>
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+          {meta}
+        </ThemedText>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  panel: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: Spacing.three,
-    gap: Spacing.two,
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingVertical: Spacing.two + 2,
+    minHeight: 56,
   },
-  preview: {
-    width: '100%',
-    height: 180,
-    borderRadius: 12,
-    backgroundColor: 'rgba(128,128,128,0.08)',
+  thumbImage: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 8,
   },
-  previewPlaceholder: {
-    width: '100%',
-    minHeight: 120,
-    borderRadius: 12,
+  thumbPlaceholder: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.two,
-    padding: Spacing.three,
   },
-  pdfHint: {
-    textAlign: 'center',
-  },
-  stackTight: {
-    gap: Spacing.one,
-  },
-  infoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  infoField: {
-    flexBasis: 160,
-    flexGrow: 1,
-    gap: Spacing.one,
+  listCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+    justifyContent: 'center',
   },
 });

@@ -9,7 +9,7 @@ import {
   ReadOnlyField,
   SelectField,
 } from '@/components/borrower-form-fields';
-import { PageHeaderToolbarButton, PageScreen } from '@/components/page-screen';
+import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -51,11 +51,13 @@ function ActionButton({
   onPress,
   variant = 'primary',
   loading,
+  disabled,
 }: {
   label: string;
   onPress: () => void | Promise<void>;
   variant?: ButtonVariant;
   loading?: boolean;
+  disabled?: boolean;
 }) {
   const theme = useTheme();
   const palette =
@@ -71,16 +73,18 @@ function ActionButton({
           textColor: theme.primaryForeground,
         };
 
+  const isDisabled = disabled || loading;
+
   return (
     <Pressable
-      disabled={loading}
+      disabled={isDisabled}
       onPress={() => void onPress()}
       style={({ pressed }) => [
         styles.actionButton,
         {
           backgroundColor: palette.backgroundColor,
           borderColor: palette.borderColor,
-          opacity: pressed || loading ? 0.75 : 1,
+          opacity: pressed || loading ? 0.75 : disabled ? 0.45 : 1,
         },
       ]}>
       {loading ? (
@@ -122,6 +126,8 @@ export default function ProfileEditScreen() {
     [corporateFormData?.country],
   );
   const identityLocked = borrower ? isIndividualIdentityLocked(borrower) : false;
+  const profileReady =
+    !loading && borrower !== null && individualFormData !== null && corporateFormData !== null;
   const isIndividual = borrowerType === 'INDIVIDUAL';
   const isIndividualIC = individualFormData?.documentType === 'IC';
   const derivedDateOfBirth =
@@ -174,10 +180,6 @@ export default function ProfileEditScreen() {
       delete next[key];
       return next;
     });
-  }
-
-  function handleCancel() {
-    router.replace('/borrower-profile');
   }
 
   async function handleSave() {
@@ -293,13 +295,23 @@ export default function ProfileEditScreen() {
     });
   }
 
-  if (loading || !borrower || !individualFormData || !corporateFormData) {
-    return (
-      <PageScreen
-        title="Edit profile"
-        subtitle="Loading the latest borrower details."
-        showBackButton
-        backFallbackHref="/borrower-profile">
+  return (
+    <PageScreen
+      title="Edit profile"
+      subtitle="Review and update your profile."
+      showBackButton
+      backFallbackHref="/borrower-profile"
+      stickyFooter={
+        <View style={styles.footerRow}>
+          <ActionButton
+            label="Save changes"
+            loading={saving}
+            disabled={!profileReady}
+            onPress={handleSave}
+          />
+        </View>
+      }>
+      {!profileReady ? (
         <SectionCard title="Loading profile">
           <View style={styles.centeredState}>
             <ActivityIndicator />
@@ -308,22 +320,8 @@ export default function ProfileEditScreen() {
             </ThemedText>
           </View>
         </SectionCard>
-      </PageScreen>
-    );
-  }
-
-  return (
-    <PageScreen
-      title="Edit profile"
-      subtitle={`Update the active ${isIndividual ? 'borrower' : 'company'} profile.`}
-      showBackButton
-      backFallbackHref="/borrower-profile"
-      headerActions={
-        <View style={styles.actionRow}>
-          <PageHeaderToolbarButton label="Cancel" variant="outline" onPress={handleCancel} />
-          <PageHeaderToolbarButton label="Save" loading={saving} onPress={handleSave} />
-        </View>
-      }>
+      ) : (
+        <>
       <SectionCard
         title={getBorrowerDisplayName(borrower)}
         description="Review your changes carefully before saving.">
@@ -341,23 +339,6 @@ export default function ProfileEditScreen() {
             </ThemedText>
           </View>
         ) : null}
-        {identityLocked && isIndividual ? (
-          <View
-            style={[
-              styles.infoBanner,
-              {
-                borderColor: theme.border,
-                backgroundColor: theme.background,
-              },
-            ]}>
-            <ThemedText type="smallBold">Identity details are locked</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Your name, document, IC or passport, date of birth, and gender can no longer be
-              edited after approved e-KYC. Start a new TrueStack KYC session from the profile page
-              if you need to re-verify.
-            </ThemedText>
-          </View>
-        ) : null}
       </SectionCard>
 
       {isIndividual ? (
@@ -365,12 +346,14 @@ export default function ProfileEditScreen() {
           <SectionCard title="Personal information">
             {identityLocked ? (
               <>
-                <ReadOnlyField label="Full name" value={individualFormData.name} />
+                <ReadOnlyField locked label="Full name" value={individualFormData.name} />
                 <ReadOnlyField
+                  locked
                   label="Document type"
                   value={formatOptionLabel('documentType', individualFormData.documentType)}
                 />
                 <ReadOnlyField
+                  locked
                   label="IC / Passport number"
                   value={
                     individualFormData.documentType === 'IC'
@@ -379,10 +362,12 @@ export default function ProfileEditScreen() {
                   }
                 />
                 <ReadOnlyField
+                  locked
                   label="Date of birth"
                   value={individualFormData.dateOfBirth ? formatDate(individualFormData.dateOfBirth) : '—'}
                 />
                 <ReadOnlyField
+                  locked
                   label="Gender"
                   value={formatOptionLabel('gender', individualFormData.gender)}
                 />
@@ -1264,6 +1249,8 @@ export default function ProfileEditScreen() {
           </SectionCard>
         </>
       )}
+        </>
+      )}
     </PageScreen>
   );
 }
@@ -1294,12 +1281,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: Spacing.three,
   },
-  infoBanner: {
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: Spacing.three,
-    gap: Spacing.one,
-  },
   directorCard: {
     borderWidth: 1,
     borderRadius: 16,
@@ -1324,5 +1305,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
+  },
+  footerRow: {
+    gap: Spacing.two,
   },
 });

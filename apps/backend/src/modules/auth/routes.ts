@@ -54,10 +54,23 @@ async function resolveCurrentSession(userId: string, cookieHeader: string | unde
 function parseDeviceType(userAgent: string | undefined): string {
   if (!userAgent) return 'Unknown';
   const ua = userAgent.toLowerCase();
+
+  // React Native / Expo: fetch often uses okhttp (Android) or CFNetwork (iOS) without the word "Mobile".
+  if (
+    /\bokhttp\b/.test(ua) ||
+    /\bcfnetwork\b/.test(ua) ||
+    /\bdalvik\b/.test(ua) ||
+    /react-native|\bexpo\b/.test(ua)
+  ) {
+    if (/ipad|tablet/.test(ua)) return 'Tablet';
+    return 'Mobile';
+  }
+
   if (/mobile|android|iphone|ipad|ipod|blackberry|windows phone/i.test(ua)) {
     if (/ipad|tablet/i.test(ua)) return 'Tablet';
     return 'Mobile';
   }
+
   return 'Desktop';
 }
 

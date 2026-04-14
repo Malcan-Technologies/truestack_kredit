@@ -27,6 +27,9 @@ const TITLE_MAX = 30;
 const TITLE_MIN = 17;
 const COLLAPSE_RANGE = 52;
 
+/** Fixed width for leading/trailing slots so the title stays visually centered (stack / back-button screens). */
+const COMPACT_NAV_SIDE_WIDTH = Platform.OS === 'ios' ? 88 : 72;
+
 type ToolbarVariant = 'primary' | 'outline' | 'danger';
 
 /** Compact pill for `headerActions` (sits next to the profile switcher). */
@@ -103,17 +106,24 @@ const toolbarButtonStyles = StyleSheet.create({
 
 interface PageScreenProps {
   title: string;
+  /** Shown under the title on **root** screens only. Ignored when `showBackButton` is true. */
   subtitle?: string;
   children: React.ReactNode;
   contentStyle?: ViewStyle;
   showBackButton?: boolean;
   showBottomNav?: boolean;
   backFallbackHref?: Href;
+  /**
+   * Borrower profile switcher (avatar). Only for **root** tab screens — omit on stack screens
+   * (`showBackButton: true`), which use the compact centered-title bar instead.
+   */
   showBorrowerContextHeader?: boolean;
-  /** Primary actions (e.g. Edit, Save) — shown to the left of the profile switcher. */
+  /** Lightweight header actions (e.g. Retry). On stack screens, shown on the right of the compact title bar. */
   headerActions?: React.ReactNode;
   /** When false, title stays a fixed size (no scroll shrink). */
   collapseTitleOnScroll?: boolean;
+  /** Fixed action bar anchored to the bottom of the screen, above the safe area. */
+  stickyFooter?: React.ReactNode;
 }
 
 export function PageScreen({
@@ -127,6 +137,7 @@ export function PageScreen({
   showBorrowerContextHeader = false,
   headerActions,
   collapseTitleOnScroll = true,
+  stickyFooter,
 }: PageScreenProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -134,10 +145,11 @@ export function PageScreen({
   const navigation = useNavigation();
   const scrollY = useSharedValue(0);
 
-  const bottomPadding =
-    Spacing.four +
-    insets.bottom +
-    (showBottomNav ? BottomTabInset : Math.max(0, BottomTabInset - insets.bottom));
+  const bottomPadding = stickyFooter
+    ? Spacing.four
+    : Spacing.four +
+      insets.bottom +
+      (showBottomNav ? BottomTabInset : Math.max(0, BottomTabInset - insets.bottom));
 
   const onScroll = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -146,6 +158,9 @@ export function PageScreen({
   });
 
   const titleAnimatedStyle = useAnimatedStyle(() => {
+    if (showBackButton) {
+      return { fontSize: TITLE_MIN, lineHeight: 22 };
+    }
     if (!collapseTitleOnScroll) {
       return { fontSize: TITLE_MAX, lineHeight: 38 };
     }
@@ -167,20 +182,44 @@ export function PageScreen({
   const subtitleAnimatedStyle = useAnimatedStyle(() => {
     const opacity = interpolate(scrollY.value, [0, 20], [1, 0], Extrapolation.CLAMP);
     const maxHeight = interpolate(scrollY.value, [0, 28], [72, 0], Extrapolation.CLAMP);
-    const marginTop = interpolate(scrollY.value, [0, 24], [Spacing.one, 0], Extrapolation.CLAMP);
+    const marginTop = interpolate(scrollY.value, [0, 24], [Spacing.two, 0], Extrapolation.CLAMP);
     return { opacity, maxHeight, overflow: 'hidden' as const, marginTop };
   });
 
-  const headerBorderColor = theme.border;
-  const headerUnderlineStyle = useAnimatedStyle(() => ({
-    borderBottomWidth: interpolate(
-      scrollY.value,
-      [6, 18],
-      [0, StyleSheet.hairlineWidth],
-      Extrapolation.CLAMP,
-    ),
-    borderBottomColor: headerBorderColor,
-  }));
+  /** Full-width hairline under the header (iOS UINavigationBar separator style). */
+  const headerHairlineStyle = useAnimatedStyle(() => {
+    if (showBackButton) {
+      return {
+        opacity: interpolate(scrollY.value, [2, 24], [0, 0.55], Extrapolation.CLAMP),
+      };
+    }
+    if (!collapseTitleOnScroll) {
+      return { opacity: 0 };
+    }
+    /** Slightly soft — similar to iOS separator when content scrolls under the bar. */
+    return {
+      opacity: interpolate(scrollY.value, [2, 24], [0, 0.55], Extrapolation.CLAMP),
+    };
+  });
+
+  const headerToolbarAnimatedStyle = useAnimatedStyle(() => {
+    if (showBackButton) {
+      return {};
+    }
+    if (!collapseTitleOnScroll) {
+      return {
+        alignItems: 'flex-start' as const,
+      };
+    }
+    const collapseT = Math.min(Math.max(scrollY.value / COLLAPSE_RANGE, 0), 1);
+    /** When mostly collapsed, vertically center title with trailing actions (compact nav bar). */
+    const compact = collapseT > 0.78;
+    return {
+      alignItems: (compact ? 'center' : 'flex-start') as 'center' | 'flex-start',
+    };
+  });
+
+  const showProfileSwitcher = Boolean(showBorrowerContextHeader && !showBackButton);
 
   function handleBack() {
     if (navigation.canGoBack()) {
@@ -196,59 +235,100 @@ export function PageScreen({
       <SafeAreaView edges={['top']} style={[styles.stickyHeader, { backgroundColor: theme.background }]}>
         <View style={[styles.headerInner, { paddingHorizontal: Spacing.four, maxWidth: MaxContentWidth }]}>
           {showBackButton ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={handleBack}
-              style={({ pressed }) => [
-                styles.backButton,
-                {
-                  opacity: pressed ? 0.75 : 1,
-                },
-              ]}>
-              <MaterialIcons
-                name={Platform.OS === 'ios' ? 'arrow-back-ios-new' : 'arrow-back'}
-                size={20}
-                color={theme.primary}
-              />
-              {Platform.OS === 'ios' ? (
-                <ThemedText type="default" style={{ color: theme.primary }}>
-                  Back
-                </ThemedText>
-              ) : null}
-            </Pressable>
-          ) : null}
-
-          <Animated.View style={[styles.headerToolbar, headerUnderlineStyle]}>
-            <View style={styles.titleColumn}>
-              <Animated.Text
-                accessibilityRole="header"
-                numberOfLines={2}
-                ellipsizeMode="tail"
-                style={[
-                  styles.titleText,
-                  { color: theme.text, fontWeight: '600' },
-                  collapseTitleOnScroll ? titleAnimatedStyle : undefined,
-                  !collapseTitleOnScroll ? { fontSize: TITLE_MAX, lineHeight: 38 } : undefined,
-                ]}>
-                {title}
-              </Animated.Text>
-              {subtitle ? (
-                <Animated.View style={subtitleAnimatedStyle}>
-                  <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-                    {subtitle}
-                  </ThemedText>
-                </Animated.View>
-              ) : null}
-            </View>
-            {headerActions || showBorrowerContextHeader ? (
-              <View style={styles.headerActionsRow}>
-                {headerActions ? <View style={styles.headerActionsInner}>{headerActions}</View> : null}
-                {showBorrowerContextHeader ? <BorrowerContextHeader /> : null}
+            <>
+              <View style={styles.compactNavBar}>
+                <View style={[styles.compactNavSide, { width: COMPACT_NAV_SIDE_WIDTH }]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
+                    onPress={handleBack}
+                    style={({ pressed }) => [
+                      styles.backButtonInline,
+                      {
+                        opacity: pressed ? 0.75 : 1,
+                      },
+                    ]}>
+                    <MaterialIcons
+                      name={Platform.OS === 'ios' ? 'arrow-back-ios-new' : 'arrow-back'}
+                      size={20}
+                      color={theme.primary}
+                    />
+                    {Platform.OS === 'ios' ? (
+                      <ThemedText type="default" style={{ color: theme.primary }}>
+                        Back
+                      </ThemedText>
+                    ) : null}
+                  </Pressable>
+                </View>
+                <View style={styles.compactNavTitleWrap} pointerEvents="none">
+                  <Animated.Text
+                    accessibilityRole="header"
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={[
+                      styles.compactNavTitleText,
+                      { color: theme.text, fontWeight: '600' },
+                      titleAnimatedStyle,
+                    ]}>
+                    {title}
+                  </Animated.Text>
+                </View>
+                <View
+                  style={[
+                    styles.compactNavSide,
+                    styles.compactNavSideEnd,
+                    { width: COMPACT_NAV_SIDE_WIDTH },
+                  ]}>
+                  {headerActions ? (
+                    <View style={styles.headerActionsInnerCompact}>{headerActions}</View>
+                  ) : (
+                    <View style={styles.compactNavSideSpacer} />
+                  )}
+                </View>
               </View>
-            ) : null}
-          </Animated.View>
+            </>
+          ) : (
+            <Animated.View style={[styles.headerToolbar, headerToolbarAnimatedStyle]}>
+              <View style={styles.titleColumn}>
+                <Animated.Text
+                  accessibilityRole="header"
+                  numberOfLines={2}
+                  ellipsizeMode="tail"
+                  style={[
+                    styles.titleText,
+                    { color: theme.text, fontWeight: '600' },
+                    collapseTitleOnScroll ? titleAnimatedStyle : undefined,
+                    !collapseTitleOnScroll ? { fontSize: TITLE_MAX, lineHeight: 38 } : undefined,
+                  ]}>
+                  {title}
+                </Animated.Text>
+                {subtitle ? (
+                  <Animated.View style={subtitleAnimatedStyle}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
+                      {subtitle}
+                    </ThemedText>
+                  </Animated.View>
+                ) : null}
+              </View>
+              {headerActions || showProfileSwitcher ? (
+                <View style={styles.headerActionsRow}>
+                  {headerActions ? <View style={styles.headerActionsInner}>{headerActions}</View> : null}
+                  {showProfileSwitcher ? <BorrowerContextHeader /> : null}
+                </View>
+              ) : null}
+            </Animated.View>
+          )}
         </View>
+
+        <Animated.View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          style={[
+            styles.headerHairline,
+            { backgroundColor: theme.border },
+            headerHairlineStyle,
+          ]}
+        />
       </SafeAreaView>
 
       <Animated.ScrollView
@@ -269,6 +349,20 @@ export function PageScreen({
         showsVerticalScrollIndicator>
         <View style={[styles.body, contentStyle]}>{children}</View>
       </Animated.ScrollView>
+
+      {stickyFooter ? (
+        <View
+          style={[
+            styles.stickyFooter,
+            {
+              backgroundColor: theme.background,
+              borderTopColor: theme.border,
+              paddingBottom: insets.bottom + Spacing.two,
+            },
+          ]}>
+          <View style={styles.stickyFooterInner}>{stickyFooter}</View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -282,17 +376,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 2,
   },
+  headerHairline: {
+    alignSelf: 'stretch',
+    height: StyleSheet.hairlineWidth,
+  },
   headerInner: {
     width: '100%',
-    paddingTop: Spacing.two,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.two,
   },
   headerToolbar: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: Spacing.two,
-    paddingBottom: Spacing.two,
-    marginTop: Spacing.one,
+    paddingBottom: Spacing.three,
+    marginTop: Spacing.two,
   },
   titleColumn: {
     flex: 1,
@@ -310,7 +409,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexShrink: 0,
     gap: Spacing.two,
-    paddingTop: 2,
+    paddingTop: Spacing.one,
   },
   headerActionsInner: {
     flexDirection: 'row',
@@ -328,14 +427,63 @@ const styles = StyleSheet.create({
   body: {
     gap: Spacing.three,
   },
-  backButton: {
-    minHeight: 32,
-    alignSelf: 'flex-start',
+  compactNavBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 44,
+    paddingBottom: Spacing.three,
+  },
+  compactNavSide: {
+    justifyContent: 'center',
+  },
+  compactNavSideEnd: {
+    alignItems: 'flex-end',
+  },
+  compactNavSideSpacer: {
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
+  compactNavTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.one,
+  },
+  compactNavTitleText: {
+    textAlign: 'center',
+    width: '100%',
+    fontSize: TITLE_MIN,
+    lineHeight: 22,
+  },
+  backButtonInline: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.one,
     marginLeft: -Spacing.one,
     paddingHorizontal: Spacing.one,
     paddingVertical: Spacing.one,
+    minHeight: 44,
+  },
+  headerActionsInnerCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+    maxWidth: '100%',
+  },
+  stickyFooter: {
+    width: '100%',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    alignItems: 'center',
+  },
+  stickyFooterInner: {
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    gap: Spacing.two,
   },
 });

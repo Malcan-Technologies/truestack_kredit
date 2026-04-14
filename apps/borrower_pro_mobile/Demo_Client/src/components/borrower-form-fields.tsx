@@ -111,25 +111,41 @@ export function ReadOnlyField({
   label,
   value,
   helperText,
+  locked = false,
 }: {
   label: string;
   value: string;
   helperText?: string;
+  /** When true, shows a lock affordance and non-editable styling (e.g. verified identity). */
+  locked?: boolean;
 }) {
   const theme = useTheme();
 
   return (
     <View style={styles.fieldWrap}>
-      <ThemedText type="smallBold">{label}</ThemedText>
+      <View style={styles.readOnlyLabelRow}>
+        {locked ? (
+          <MaterialIcons name="lock-outline" size={16} color={theme.textSecondary} />
+        ) : null}
+        <ThemedText type="smallBold">{label}</ThemedText>
+        {locked ? (
+          <ThemedText type="small" themeColor="textSecondary">
+            Read-only
+          </ThemedText>
+        ) : null}
+      </View>
       <View
         style={[
           styles.staticField,
+          locked && styles.staticFieldLocked,
           {
             borderColor: theme.border,
-            backgroundColor: theme.background,
+            backgroundColor: locked ? theme.backgroundElement : theme.background,
           },
         ]}>
-        <ThemedText type="default">{value || '—'}</ThemedText>
+        <ThemedText type="default" style={locked ? { opacity: 0.92 } : undefined}>
+          {value || '—'}
+        </ThemedText>
       </View>
       {helperText ? (
         <ThemedText type="small" themeColor="textSecondary">
@@ -380,6 +396,12 @@ const styles = StyleSheet.create({
   fieldWrap: {
     gap: Spacing.one,
   },
+  readOnlyLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.one,
+  },
   input: {
     borderWidth: 1,
     borderRadius: 14,
@@ -394,6 +416,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     justifyContent: 'center',
+  },
+  staticFieldLocked: {
+    borderStyle: 'dashed',
   },
   chipWrap: {
     flexDirection: 'row',

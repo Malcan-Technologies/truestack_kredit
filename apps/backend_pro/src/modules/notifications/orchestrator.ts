@@ -67,6 +67,12 @@ type GroupedCampaignDeliveryRow = {
   sentCount: number;
 };
 
+function resolvePushChannelId(category: string): string {
+  return category === 'announcements'
+    ? 'borrower-announcements'
+    : 'borrower-alerts';
+}
+
 function summarizeGroupedDeliveryStatus(row: GroupedCampaignDeliveryRow): string {
   const total =
     row.deliveredCount + row.failedCount + row.pendingCount + row.sentCount;
@@ -187,9 +193,11 @@ export class NotificationOrchestrator {
           to: device.token,
           title: input.title,
           body: input.body,
+          channelId: resolvePushChannelId(input.category),
           data: {
             notificationId: notification.id,
             deepLink: input.deepLink ?? null,
+            category: input.category,
             sourceType: input.sourceType ?? null,
             sourceId: input.sourceId ?? null,
           },

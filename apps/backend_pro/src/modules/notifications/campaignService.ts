@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { BadRequestError, NotFoundError } from '../../lib/errors.js';
+import { BadRequestError, ConflictError, NotFoundError } from '../../lib/errors.js';
 import type { NotificationAudienceType } from './catalog.js';
 import { NotificationOrchestrator } from './orchestrator.js';
 
@@ -53,6 +53,15 @@ async function resolveAudienceBorrowerIds(tenantId: string, audienceType: Notifi
   return applications.map((application) => application.borrowerId);
 }
 
+async function findCampaignById(tenantId: string, campaignId: string) {
+  return prisma.notificationCampaign.findFirst({
+    where: {
+      id: campaignId,
+      tenantId,
+    },
+  });
+}
+
 export class NotificationCampaignService {
   static async listCampaigns(tenantId: string) {
     return prisma.notificationCampaign.findMany({
@@ -98,12 +107,7 @@ export class NotificationCampaignService {
     tenantId: string;
     campaignId: string;
   }) {
-    const campaign = await prisma.notificationCampaign.findFirst({
-      where: {
-        id: params.campaignId,
-        tenantId: params.tenantId,
-      },
-    });
+    const campaign = await findCampaignById(params.tenantId, params.campaignId);
 
     if (!campaign) {
       throw new NotFoundError('Notification campaign');
@@ -127,7 +131,52 @@ export class NotificationCampaignService {
       campaignChannels.push('in_app');
     }
 
+    const publishedAt = new Date();
+    const claimResult = await prisma.notificationCampaign.updateMany({
+      where: {
+        id: campaign.id,
+        tenantId: params.tenantId,
+        status: 'DRAFT',
+      },
+      data: {
+        status: 'PUBLISHED',
+        recipientCount: borrowerIds.length,
+        publishedAt,
+      },
+    });
+
+    if (claimResult.count === 0) {
+      const latestCampaign = await findCampaignById(params.tenantId, campaign.id);
+      if (!latestCampaign) {
+        throw new NotFoundError('Notification campaign');
+      }
+
+      if (latestCampaign.status === 'PUBLISHED') {
+        return latestCampaign;
+      }
+
+      if (latestCampaign.status === 'CANCELLED') {
+        throw new BadRequestError('Cancelled campaigns cannot be published.');
+      }
+
+      throw new ConflictError('Notification campaign could not be published. Please retry.');
+    }
+
     for (const borrowerId of borrowerIds) {
+      const existingNotification = await prisma.borrowerNotification.findFirst({
+        where: {
+          tenantId: params.tenantId,
+          borrowerId,
+          sourceType: 'CAMPAIGN',
+          sourceId: campaign.id,
+        },
+        select: { id: true },
+      });
+
+      if (existingNotification) {
+        continue;
+      }
+
       await NotificationOrchestrator.notifyBorrowerEvent({
         tenantId: params.tenantId,
         borrowerId,
@@ -149,14 +198,12 @@ export class NotificationCampaignService {
       });
     }
 
-    return prisma.notificationCampaign.update({
-      where: { id: campaign.id },
-      data: {
-        status: 'PUBLISHED',
-        recipientCount: borrowerIds.length,
-        publishedAt: new Date(),
-      },
-    });
+    const publishedCampaign = await findCampaignById(params.tenantId, campaign.id);
+    if (!publishedCampaign) {
+      throw new NotFoundError('Notification campaign');
+    }
+
+    return publishedCampaign;
   }
 
   static async cancelCampaign(params: {

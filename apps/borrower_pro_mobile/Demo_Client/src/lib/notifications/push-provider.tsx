@@ -9,13 +9,16 @@ import { useBorrowerAccess } from '@/lib/borrower-access';
 import {
   getNotificationData,
   registerBorrowerPushDevice,
+  syncRefreshedBorrowerPushToken,
 } from '@/lib/notifications/push-registration';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
     shouldShowList: true,
-    shouldPlaySound: true,
+    // When the app is already foregrounded, let the OS manage tray/list placement
+    // without duplicating an intrusive sound over the active screen.
+    shouldPlaySound: false,
     shouldSetBadge: false,
   }),
 });
@@ -74,6 +77,15 @@ export function PushNotificationsProvider({
     const subscription = Notifications.addNotificationResponseReceivedListener(
       handleNotificationResponse
     );
+    const tokenSubscription = Notifications.addPushTokenListener((token) => {
+      if (!sessionUserId || !activeBorrowerId) {
+        return;
+      }
+
+      void syncRefreshedBorrowerPushToken(token.data).catch((error) => {
+        console.warn('[notifications] Failed to sync refreshed push token:', error);
+      });
+    });
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (response) {
@@ -83,8 +95,9 @@ export function PushNotificationsProvider({
 
     return () => {
       subscription.remove();
+      tokenSubscription.remove();
     };
-  }, [handleNotificationResponse]);
+  }, [activeBorrowerId, handleNotificationResponse, sessionUserId]);
 
   return <>{children}</>;
 }

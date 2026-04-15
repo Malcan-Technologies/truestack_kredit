@@ -98,9 +98,11 @@ describe('NotificationOrchestrator', () => {
       to: 'ExponentPushToken[test-token]',
       title: 'Notice',
       body: 'System maintenance tonight.',
+      channelId: 'borrower-announcements',
       data: {
         notificationId: 'notification-1',
         deepLink: '/loans',
+        category: 'announcements',
         sourceType: null,
         sourceId: null,
       },

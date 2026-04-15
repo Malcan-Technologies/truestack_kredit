@@ -16,6 +16,50 @@ type NotificationData = {
   deepLink?: string | null;
 };
 
+export const ANDROID_ALERTS_CHANNEL_ID = 'borrower-alerts';
+export const ANDROID_ANNOUNCEMENTS_CHANNEL_ID = 'borrower-announcements';
+
+function hasNotificationAuthorization(
+  permissions: Notifications.NotificationPermissionsStatus
+): boolean {
+  const normalized = permissions as Notifications.NotificationPermissionsStatus & {
+    granted?: boolean;
+    status?: string;
+  };
+  const iosStatus = (permissions as { ios?: { status?: number } }).ios?.status;
+  return (
+    normalized.granted === true ||
+    normalized.status === 'granted' ||
+    iosStatus === Notifications.IosAuthorizationStatus.PROVISIONAL
+  );
+}
+
+async function ensureAndroidNotificationChannels(): Promise<void> {
+  if (Platform.OS !== 'android') {
+    return;
+  }
+
+  await Notifications.setNotificationChannelAsync(ANDROID_ALERTS_CHANNEL_ID, {
+    name: 'Borrower Alerts',
+    description: 'Loan, repayment, and application updates that may require attention.',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#208AEF',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+    sound: 'default',
+  });
+
+  await Notifications.setNotificationChannelAsync(ANDROID_ANNOUNCEMENTS_CHANNEL_ID, {
+    name: 'Announcements',
+    description: 'General account and product announcements.',
+    importance: Notifications.AndroidImportance.DEFAULT,
+    vibrationPattern: [0, 180],
+    lightColor: '#208AEF',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+    sound: 'default',
+  });
+}
+
 function resolveExpoProjectId(): string | undefined {
   const extraProjectId =
     (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
@@ -39,6 +83,16 @@ export function getNotificationData(
   };
 }
 
+async function syncBorrowerPushToken(token: string): Promise<void> {
+  await notificationsClient.registerPushDevice({
+    token,
+    platform: Platform.OS,
+    appId: getEnv().clientId,
+    deviceName: Device.deviceName ?? undefined,
+  });
+  await setStoredPushToken(token);
+}
+
 export async function registerBorrowerPushDevice(): Promise<{
   token: string | null;
   registered: boolean;
@@ -52,18 +106,25 @@ export async function registerBorrowerPushDevice(): Promise<{
     return { token: null, registered: false, reason: 'physical_device_required' };
   }
 
+  await ensureAndroidNotificationChannels();
+
   const currentPermissions = await Notifications.getPermissionsAsync();
-  const permStatus = currentPermissions as { status?: string; granted?: boolean };
-  let finalStatus =
-    permStatus.status ??
-    (permStatus.granted === true ? 'granted' : 'undetermined');
-  if (finalStatus !== 'granted') {
-    const requested = await Notifications.requestPermissionsAsync();
-    const req = requested as { status?: string; granted?: boolean };
-    finalStatus = req.status ?? (req.granted === true ? 'granted' : 'undetermined');
+  let hasAuthorization = hasNotificationAuthorization(currentPermissions);
+
+  if (!hasAuthorization) {
+    const requested = await Notifications.requestPermissionsAsync({
+      ios: {
+        allowAlert: true,
+        allowBadge: false,
+        allowSound: true,
+        allowAnnouncements: false,
+      },
+    });
+    hasAuthorization = hasNotificationAuthorization(requested);
   }
 
-  if (finalStatus !== 'granted') {
+  if (!hasAuthorization) {
+    await revokeStoredBorrowerPushToken();
     return { token: null, registered: false, reason: 'permission_denied' };
   }
 
@@ -77,15 +138,14 @@ export async function registerBorrowerPushDevice(): Promise<{
     return { token: null, registered: false, reason: 'missing_push_token' };
   }
 
-  await notificationsClient.registerPushDevice({
-    token,
-    platform: Platform.OS,
-    appId: getEnv().clientId,
-    deviceName: Device.deviceName ?? undefined,
-  });
-  await setStoredPushToken(token);
+  await syncBorrowerPushToken(token);
 
   return { token, registered: true };
+}
+
+export async function syncRefreshedBorrowerPushToken(token: string): Promise<void> {
+  await ensureAndroidNotificationChannels();
+  await syncBorrowerPushToken(token);
 }
 
 export async function revokeStoredBorrowerPushToken(): Promise<void> {

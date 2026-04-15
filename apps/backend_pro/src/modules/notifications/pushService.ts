@@ -2,6 +2,7 @@ export interface PushMessageInput {
   to: string;
   title: string;
   body: string;
+  channelId?: string;
   data?: Record<string, unknown>;
 }
 
@@ -15,6 +16,14 @@ function isExpoPushToken(token: string): boolean {
   return /^ExponentPushToken\[[^\]]+\]$/.test(token.trim());
 }
 
+function getTransportErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return 'Unknown transport error';
+}
+
 export class PushService {
   static async send(message: PushMessageInput): Promise<PushSendResult> {
     if (!isExpoPushToken(message.to)) {
@@ -24,20 +33,30 @@ export class PushService {
       };
     }
 
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        to: message.to,
-        sound: 'default',
-        title: message.title,
-        body: message.body,
-        data: message.data ?? {},
-      }),
-    });
+    let response: Response;
+
+    try {
+      response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: message.to,
+          sound: 'default',
+          title: message.title,
+          body: message.body,
+          ...(message.channelId ? { channelId: message.channelId } : {}),
+          data: message.data ?? {},
+        }),
+      });
+    } catch (error) {
+      return {
+        success: false,
+        errorMessage: `Expo push request failed: ${getTransportErrorMessage(error)}`,
+      };
+    }
 
     const json = (await response.json().catch(() => null)) as
       | {

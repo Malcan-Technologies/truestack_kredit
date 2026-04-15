@@ -56,7 +56,12 @@ function productEligibleForBorrower(product: Product, borrowerType: string): boo
 }
 
 function borrowerCanModifyApplicationDocuments(status: ApplicationStatus): boolean {
-  return status === 'DRAFT' || status === 'SUBMITTED' || status === 'UNDER_REVIEW';
+  return (
+    status === 'DRAFT' ||
+    status === 'SUBMITTED' ||
+    status === 'UNDER_REVIEW' ||
+    status === 'PENDING_L2_APPROVAL'
+  );
 }
 
 /** After submit, borrowers may add files only for categories that still have no upload; deletions only in draft. */
@@ -298,6 +303,7 @@ router.get('/applications', async (req, res, next) => {
           | 'DRAFT'
           | 'SUBMITTED'
           | 'UNDER_REVIEW'
+          | 'PENDING_L2_APPROVAL'
           | 'APPROVED'
           | 'REJECTED'
           | 'CANCELLED',
@@ -653,7 +659,15 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
 
     const updated = await prisma.loanApplication.update({
       where: { id: applicationId },
-      data: { status: 'SUBMITTED' },
+      data: {
+        status: 'SUBMITTED',
+        l1ReviewedAt: null,
+        l1ReviewedByMemberId: null,
+        l1DecisionNote: null,
+        l2ReviewedAt: null,
+        l2ReviewedByMemberId: null,
+        l2DecisionNote: null,
+      },
     });
 
     await AuditService.log({
@@ -701,7 +715,7 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
 
     if (!borrowerCanModifyApplicationDocuments(application.status)) {
       throw new BadRequestError(
-        'Documents can only be uploaded while the application is draft, submitted, or under review.'
+        'Documents can only be uploaded while the application is draft, submitted, under review, or pending final approval.'
       );
     }
 
@@ -766,7 +780,36 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
 
     let applicationStatusAfter = previousStatus;
     const needsReviewAgain = previousStatus !== 'DRAFT' && replacedExisting;
-    if (needsReviewAgain) {
+    const resetToL1FromL2Queue = previousStatus === 'PENDING_L2_APPROVAL';
+
+    if (resetToL1FromL2Queue) {
+      const updatedApp = await prisma.loanApplication.update({
+        where: { id: applicationId },
+        data: {
+          status: 'SUBMITTED',
+          l1ReviewedAt: null,
+          l1ReviewedByMemberId: null,
+          l1DecisionNote: null,
+          l2ReviewedAt: null,
+          l2ReviewedByMemberId: null,
+          l2DecisionNote: null,
+        },
+        select: { status: true },
+      });
+      applicationStatusAfter = updatedApp.status;
+      await AuditService.log({
+        tenantId: tenant.id,
+        action: 'BORROWER_APPLICATION_STATUS_CHANGE',
+        entityType: 'LoanApplication',
+        entityId: applicationId,
+        previousData: { status: previousStatus },
+        newData: {
+          status: 'SUBMITTED',
+          reason: 'borrower_amendment_reset_to_l1_queue',
+        },
+        ipAddress: req.ip,
+      });
+    } else if (needsReviewAgain) {
       const updatedApp = await prisma.loanApplication.update({
         where: { id: applicationId },
         data: { status: 'UNDER_REVIEW' },
@@ -807,7 +850,7 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
       data: document,
       applicationStatus: applicationStatusAfter,
       message:
-        needsReviewAgain
+        resetToL1FromL2Queue || needsReviewAgain
           ? 'Document saved. Your application is pending admin review again.'
           : undefined,
     });
@@ -935,8 +978,12 @@ router.post('/applications/:applicationId/withdraw', async (req, res, next) => {
       throw new NotFoundError('Application');
     }
 
-    if (application.status !== 'SUBMITTED' && application.status !== 'UNDER_REVIEW') {
-      throw new BadRequestError('Only submitted or under-review applications can be withdrawn');
+    if (
+      application.status !== 'SUBMITTED' &&
+      application.status !== 'UNDER_REVIEW' &&
+      application.status !== 'PENDING_L2_APPROVAL'
+    ) {
+      throw new BadRequestError('Only submitted, under-review, or pending L2 applications can be withdrawn');
     }
 
     const updated = await prisma.loanApplication.update({

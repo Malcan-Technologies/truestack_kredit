@@ -150,7 +150,7 @@ router.get('/loan-center/overview', async (req, res, next) => {
         where: {
           tenantId: tenant.id,
           borrowerId,
-          status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
+          status: { in: ['SUBMITTED', 'UNDER_REVIEW', 'PENDING_L2_APPROVAL'] },
         },
       }),
       prisma.loanApplication.count({

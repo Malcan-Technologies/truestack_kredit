@@ -134,7 +134,9 @@ interface DashboardStats {
     defaultRate: number;
   };
   actionNeeded: {
+    /** L1 queue (submitted + under review), permission-scoped */
     submittedApplications: number;
+    applicationsPendingL2: number;
     loansPendingDisbursement: number;
     loansPendingAttestation: number;
     loansReadyToComplete: number;
@@ -467,6 +469,7 @@ export default function DashboardPage() {
         {/* ============================================ */}
         {stats?.actionNeeded && (
           stats.actionNeeded.submittedApplications > 0 ||
+          (stats.actionNeeded.applicationsPendingL2 ?? 0) > 0 ||
           stats.actionNeeded.loansPendingDisbursement > 0 ||
           (stats.actionNeeded.loansPendingAttestation ?? 0) > 0 ||
           stats.actionNeeded.loansReadyToComplete > 0 ||
@@ -482,11 +485,25 @@ export default function DashboardPage() {
                 stats.actionNeeded.submittedApplications > 0 && (
                   <Link
                     key="submitted"
-                    href="/dashboard/applications?filter=SUBMITTED"
+                    href="/dashboard/applications?filter=L1_QUEUE"
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-amber-500/10 transition-colors"
                   >
                     <ClipboardList className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                    <span className="text-foreground">{stats.actionNeeded.submittedApplications} pending review</span>
+                    <span className="text-foreground">
+                      {stats.actionNeeded.submittedApplications} L1 queue
+                    </span>
+                  </Link>
+                ),
+                (stats.actionNeeded.applicationsPendingL2 ?? 0) > 0 && (
+                  <Link
+                    key="pending-l2"
+                    href="/dashboard/applications?filter=PENDING_L2_APPROVAL"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-amber-500/10 transition-colors"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                    <span className="text-foreground">
+                      {stats.actionNeeded.applicationsPendingL2} pending L2
+                    </span>
                   </Link>
                 ),
                 (stats.actionNeeded.loansPendingAttestation ?? 0) > 0 && (

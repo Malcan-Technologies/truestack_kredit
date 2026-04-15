@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
+import type { TenantPermission } from '@kredit/shared';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, BadRequestError } from '../../lib/errors.js';
+import { NotFoundError, BadRequestError, ForbiddenError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
 import { requireAnyPermission, requirePermission } from '../../middleware/requireRole.js';
@@ -63,6 +64,39 @@ function resolveVerificationStatus(borrower: {
 
 function getRouteParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
+function userHasPermission(req: Request, permission: TenantPermission): boolean {
+  if (req.user?.role === 'OWNER') return true;
+  return (req.user?.permissions ?? []).includes(permission);
+}
+
+function assertL1ApplicationAction(req: Request): void {
+  if (!userHasPermission(req, 'applications.approve_l1')) {
+    throw new ForbiddenError('This action requires L1 (first-line) approval permission');
+  }
+}
+
+function assertL2ApplicationAction(req: Request): void {
+  if (!userHasPermission(req, 'applications.approve_l2')) {
+    throw new ForbiddenError('This action requires L2 (final) approval permission');
+  }
+}
+
+const APPLICATION_STATUS_FILTER = [
+  'DRAFT',
+  'SUBMITTED',
+  'UNDER_REVIEW',
+  'PENDING_L2_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+] as const;
+
+type ApplicationStatusFilter = (typeof APPLICATION_STATUS_FILTER)[number];
+
+function isL1QueueStatus(status: string): boolean {
+  return status === 'SUBMITTED' || status === 'UNDER_REVIEW';
 }
 
 const submitApplicationSchema = z.object({
@@ -339,7 +373,7 @@ router.get('/counts', requireAnyPermission('loans.view', 'loans.disburse', 'atte
 });
 
 /**
- * Get application counts for action-needed badges (SUBMITTED, UNDER_REVIEW)
+ * Get application counts for action-needed badges (permission-scoped).
  * GET /api/loans/applications/counts
  */
 router.get(
@@ -348,17 +382,32 @@ router.get(
   async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const [submitted, underReview] = await Promise.all([
-      prisma.loanApplication.count({
-        where: { tenantId, status: 'SUBMITTED' },
-      }),
-      prisma.loanApplication.count({
-        where: { tenantId, status: 'UNDER_REVIEW' },
-      }),
+    const canL1 = userHasPermission(req, 'applications.approve_l1');
+    const canL2 = userHasPermission(req, 'applications.approve_l2');
+
+    const [submitted, underReview, pendingL2Approval] = await Promise.all([
+      canL1
+        ? prisma.loanApplication.count({ where: { tenantId, status: 'SUBMITTED' } })
+        : Promise.resolve(0),
+      canL1
+        ? prisma.loanApplication.count({ where: { tenantId, status: 'UNDER_REVIEW' } })
+        : Promise.resolve(0),
+      canL2
+        ? prisma.loanApplication.count({ where: { tenantId, status: 'PENDING_L2_APPROVAL' } })
+        : Promise.resolve(0),
     ]);
+
+    const l1QueueCount = submitted + underReview;
     res.json({
       success: true,
-      data: { submitted, underReview },
+      data: {
+        submitted,
+        underReview,
+        pendingL2Approval,
+        l1QueueCount,
+        /** Total items this user should see as actionable on Applications */
+        actionableTotal: l1QueueCount + pendingL2Approval,
+      },
     });
   } catch (error) {
     next(error);
@@ -375,9 +424,15 @@ router.get('/applications', requirePermission('applications.view'), async (req, 
     const skip = (parseInt(page as string) - 1) * parseInt(pageSize as string);
     const take = parseInt(pageSize as string);
 
+    const statusStr = typeof status === 'string' && status.length > 0 ? status : undefined;
+    const l1QueueStatuses: ApplicationStatusFilter[] = ['SUBMITTED', 'UNDER_REVIEW'];
     const where = {
       tenantId: req.tenantId,
-      ...(status && { status: status as 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'CANCELLED' }),
+      ...(statusStr === 'L1_QUEUE'
+        ? { status: { in: l1QueueStatuses } }
+        : statusStr
+          ? { status: statusStr as ApplicationStatusFilter }
+          : {}),
       ...(search && {
         borrower: {
           OR: [
@@ -919,6 +974,12 @@ router.post('/applications/:applicationId/submit', requirePermission('applicatio
         status: 'SUBMITTED',
         actualInterestRate,
         actualTerm,
+        l1ReviewedAt: null,
+        l1ReviewedByMemberId: null,
+        l1DecisionNote: null,
+        l2ReviewedAt: null,
+        l2ReviewedByMemberId: null,
+        l2DecisionNote: null,
       },
     });
 
@@ -951,13 +1012,78 @@ router.post('/applications/:applicationId/submit', requirePermission('applicatio
   }
 });
 
+const sendToL2Schema = z.object({
+  note: z.string().max(8000).optional(),
+});
+
 /**
- * Approve application and create loan with schedule
- * POST /api/loans/applications/:applicationId/approve
+ * L1: send application to L2 queue (no loan created)
+ * POST /api/loans/applications/:applicationId/send-to-l2
  */
-router.post('/applications/:applicationId/approve', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
+router.post('/applications/:applicationId/send-to-l2', requirePermission('applications.approve_l1'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
+    const body = sendToL2Schema.parse(req.body ?? {});
+
+    const application = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: req.tenantId },
+    });
+
+    if (!application) {
+      throw new NotFoundError('Application');
+    }
+
+    if (!isL1QueueStatus(application.status)) {
+      throw new BadRequestError('Can only send to L2 from submitted or under-review applications');
+    }
+
+    await assertNoPendingOffersForApproval(applicationId);
+
+    const previousStatus = application.status;
+    const noteTrim = body.note?.trim() || null;
+
+    const updated = await prisma.loanApplication.update({
+      where: { id: applicationId },
+      data: {
+        status: 'PENDING_L2_APPROVAL',
+        l1ReviewedAt: new Date(),
+        l1ReviewedByMemberId: req.memberId ?? null,
+        l1DecisionNote: noteTrim,
+        l2ReviewedAt: null,
+        l2ReviewedByMemberId: null,
+        l2DecisionNote: null,
+      },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'APPLICATION_SEND_TO_L2',
+      entityType: 'LoanApplication',
+      entityId: application.id,
+      previousData: { status: previousStatus },
+      newData: { status: 'PENDING_L2_APPROVAL', l1DecisionNote: noteTrim },
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const finalApproveSchema = z.object({
+  note: z.string().max(8000).optional(),
+});
+
+/**
+ * L2: approve application and create loan with schedule
+ * POST /api/loans/applications/:applicationId/approve
+ */
+router.post('/applications/:applicationId/approve', requirePermission('applications.approve_l2'), async (req, res, next) => {
+  try {
+    const applicationId = req.params.applicationId as string;
+    const approveBody = finalApproveSchema.parse(req.body ?? {});
     const application = await prisma.loanApplication.findFirst({
       where: {
         id: applicationId,
@@ -990,8 +1116,8 @@ router.post('/applications/:applicationId/approve', requireAnyPermission('applic
       throw new NotFoundError('Application');
     }
 
-    if (application.status !== 'SUBMITTED' && application.status !== 'UNDER_REVIEW') {
-      throw new BadRequestError('Can only approve submitted applications');
+    if (application.status !== 'PENDING_L2_APPROVAL') {
+      throw new BadRequestError('Final approval is only available for applications pending L2 review');
     }
 
     await assertNoPendingOffersForApproval(applicationId);
@@ -1027,12 +1153,19 @@ router.post('/applications/:applicationId/approve', requireAnyPermission('applic
     const initialLoanStatus =
       application.loanChannel === 'ONLINE' ? 'PENDING_ATTESTATION' : 'PENDING_DISBURSEMENT';
 
+    const noteTrim = approveBody.note?.trim() || null;
+
     // Create loan with initial schedule in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Update application status
       await tx.loanApplication.update({
         where: { id: application.id },
-        data: { status: 'APPROVED' },
+        data: {
+          status: 'APPROVED',
+          l2ReviewedAt: new Date(),
+          l2ReviewedByMemberId: req.memberId ?? null,
+          l2DecisionNote: noteTrim,
+        },
       });
 
       // Create loan (copy collateral fields for Jadual K products)
@@ -1082,7 +1215,7 @@ router.post('/applications/:applicationId/approve', requireAnyPermission('applic
       entityType: 'LoanApplication',
       entityId: application.id,
       previousData: { status: previousStatus },
-      newData: { status: 'APPROVED', loanId: result.id },
+      newData: { status: 'APPROVED', loanId: result.id, l2DecisionNote: noteTrim },
       ipAddress: req.ip,
     });
 
@@ -1145,13 +1278,33 @@ router.post('/applications/:applicationId/reject', requirePermission('applicatio
       throw new BadRequestError('Cannot reject this application');
     }
 
+    if (application.status === 'DRAFT' || application.status === 'CANCELLED') {
+      throw new BadRequestError('Cannot reject this application in its current state');
+    }
+
+    if (isL1QueueStatus(application.status)) {
+      assertL1ApplicationAction(req);
+    } else if (application.status === 'PENDING_L2_APPROVAL') {
+      assertL2ApplicationAction(req);
+    } else {
+      throw new BadRequestError('Cannot reject this application in its current state');
+    }
+
     const previousStatus = application.status;
+    const reasonStr = typeof reason === 'string' ? reason : '';
 
     const updated = await prisma.loanApplication.update({
       where: { id: applicationId },
       data: {
         status: 'REJECTED',
-        notes: reason ? `${application.notes || ''}\n\nRejection reason: ${reason}` : application.notes,
+        notes: reasonStr ? `${application.notes || ''}\n\nRejection reason: ${reasonStr}` : application.notes,
+        ...(application.status === 'PENDING_L2_APPROVAL'
+          ? {
+              l2ReviewedAt: new Date(),
+              l2ReviewedByMemberId: req.memberId ?? null,
+              l2DecisionNote: reasonStr.trim() || null,
+            }
+          : {}),
       },
     });
 
@@ -1163,7 +1316,7 @@ router.post('/applications/:applicationId/reject', requirePermission('applicatio
       entityType: 'LoanApplication',
       entityId: application.id,
       previousData: { status: previousStatus },
-      newData: { status: 'REJECTED', reason: reason || null },
+      newData: { status: 'REJECTED', reason: reasonStr || null },
       ipAddress: req.ip,
     });
 
@@ -1189,6 +1342,20 @@ router.post('/applications/:applicationId/counter-offer', requireAnyPermission('
   try {
     const applicationId = req.params.applicationId as string;
     const body = negotiationBodySchema.parse(req.body);
+
+    const appRow = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: req.tenantId },
+      select: { status: true },
+    });
+    if (!appRow) throw new NotFoundError('Application');
+    if (isL1QueueStatus(appRow.status)) {
+      assertL1ApplicationAction(req);
+    } else if (appRow.status === 'PENDING_L2_APPROVAL') {
+      assertL2ApplicationAction(req);
+    } else {
+      throw new BadRequestError('Negotiation is not available for this application status');
+    }
+
     const out = await adminCounterOffer({
       tenantId: req.tenantId!,
       applicationId,
@@ -1217,6 +1384,20 @@ router.post('/applications/:applicationId/counter-offer', requireAnyPermission('
 router.post('/applications/:applicationId/accept-offer', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
+
+    const appRow = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: req.tenantId },
+      select: { status: true },
+    });
+    if (!appRow) throw new NotFoundError('Application');
+    if (isL1QueueStatus(appRow.status)) {
+      assertL1ApplicationAction(req);
+    } else if (appRow.status === 'PENDING_L2_APPROVAL') {
+      assertL2ApplicationAction(req);
+    } else {
+      throw new BadRequestError('Cannot accept offer for this application');
+    }
+
     await adminAcceptLatestOffer({ tenantId: req.tenantId!, applicationId });
     await AuditService.log({
       tenantId: req.tenantId!,
@@ -1243,6 +1424,20 @@ router.post('/applications/:applicationId/accept-offer', requireAnyPermission('a
 router.post('/applications/:applicationId/reject-offers', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
   try {
     const applicationId = req.params.applicationId as string;
+
+    const appRow = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: req.tenantId },
+      select: { status: true },
+    });
+    if (!appRow) throw new NotFoundError('Application');
+    if (isL1QueueStatus(appRow.status)) {
+      assertL1ApplicationAction(req);
+    } else if (appRow.status === 'PENDING_L2_APPROVAL') {
+      assertL2ApplicationAction(req);
+    } else {
+      throw new BadRequestError('Cannot reject offers for this application');
+    }
+
     await rejectPendingOffers({ tenantId: req.tenantId!, applicationId });
     await AuditService.log({
       tenantId: req.tenantId!,
@@ -1278,8 +1473,12 @@ router.post('/applications/:applicationId/return-to-draft', requireAnyPermission
       throw new NotFoundError('Application');
     }
 
-    if (application.status !== 'SUBMITTED' && application.status !== 'UNDER_REVIEW') {
-      throw new BadRequestError('Can only return submitted or under-review applications to draft');
+    if (isL1QueueStatus(application.status)) {
+      assertL1ApplicationAction(req);
+    } else if (application.status === 'PENDING_L2_APPROVAL') {
+      assertL2ApplicationAction(req);
+    } else {
+      throw new BadRequestError('Can only return submitted, under-review, or pending-L2 applications to draft');
     }
 
     const previousStatus = application.status;
@@ -1291,6 +1490,12 @@ router.post('/applications/:applicationId/return-to-draft', requireAnyPermission
         notes: reason
           ? `${application.notes || ''}\n\nReturned for amendments: ${reason}`
           : application.notes,
+        l1ReviewedAt: null,
+        l1ReviewedByMemberId: null,
+        l1DecisionNote: null,
+        l2ReviewedAt: null,
+        l2ReviewedByMemberId: null,
+        l2DecisionNote: null,
       },
     });
 

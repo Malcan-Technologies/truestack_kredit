@@ -11,7 +11,8 @@ import { config } from '../../lib/config.js';
 import { AddOnService } from '../../lib/addOnService.js';
 import { getFile } from '../../lib/storage.js';
 import { safeAdd, safeRound, toSafeNumber } from '../../lib/math.js';
-import { NotificationOrchestrator } from './orchestrator.js';
+import { NotificationOrchestrator, type NotifyBorrowerEventInput } from './orchestrator.js';
+import { getNotificationChannelState } from './settings.js';
 
 // ============================================
 // Types
@@ -44,6 +45,17 @@ interface SendEmailParams {
 interface ResendApiResponse {
   id: string;
 }
+
+interface AutomationEmailResult {
+  delivered: boolean;
+  required: boolean;
+}
+
+const RECURRING_EMAIL_NOTIFICATION_KEYS = new Set([
+  'payment_reminder',
+  'late_payment_notice',
+]);
+const RECURRING_EMAIL_DEDUPE_WINDOW_MS = 18 * 60 * 60 * 1000;
 
 function extractFilenameFromPath(filePath: string): string {
   if (!filePath) return 'document.pdf';
@@ -317,6 +329,89 @@ export class TrueSendService {
     }
   }
 
+  private static async sendAutomationEmail(
+    params: Omit<SendEmailParams, 'recipientEmail'> & {
+      recipientEmail?: string | null;
+      notificationKey: string;
+    }
+  ): Promise<AutomationEmailResult> {
+    const channelState = await getNotificationChannelState(params.tenantId, params.notificationKey);
+    const emailRequired = channelState.email && Boolean(params.recipientEmail);
+    if (!emailRequired || !params.recipientEmail) {
+      return { delivered: false, required: false };
+    }
+
+    const primaryAttachmentPath = params.attachments?.[0]?.path || params.attachmentPath || null;
+    const recentEmailFilter = RECURRING_EMAIL_NOTIFICATION_KEYS.has(params.notificationKey)
+      ? {
+          createdAt: {
+            gte: new Date(Date.now() - RECURRING_EMAIL_DEDUPE_WINDOW_MS),
+          },
+        }
+      : {};
+    const existingEmail = await prisma.emailLog.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        loanId: params.loanId,
+        borrowerId: params.borrowerId,
+        emailType: params.emailType,
+        recipientEmail: params.recipientEmail,
+        subject: params.subject,
+        attachmentPath: primaryAttachmentPath,
+        status: { in: ['sent', 'delivered'] },
+        ...recentEmailFilter,
+      },
+      select: { id: true },
+    });
+
+    if (existingEmail) {
+      return { delivered: true, required: true };
+    }
+
+    const {
+      notificationKey: _notificationKey,
+      recipientEmail,
+      ...emailParams
+    } = params;
+    return {
+      delivered: await this.sendEmail({
+        ...emailParams,
+        recipientEmail,
+      }),
+      required: true,
+    };
+  }
+
+  private static async fanOutBorrowerNotification(
+    input: NotifyBorrowerEventInput,
+    failureMessage: string,
+  ): Promise<boolean> {
+    const existingNotification = await prisma.borrowerNotification.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        borrowerId: input.borrowerId,
+        notificationKey: input.notificationKey,
+        title: input.title,
+        body: input.body,
+        sourceType: input.sourceType ?? null,
+        sourceId: input.sourceId ?? null,
+      },
+      select: { id: true },
+    });
+
+    if (existingNotification) {
+      return true;
+    }
+
+    try {
+      await NotificationOrchestrator.notifyBorrowerEvent(input);
+      return true;
+    } catch (notificationError) {
+      console.error(failureMessage, notificationError);
+      return false;
+    }
+  }
+
   /**
    * Helper to fetch loan + borrower + tenant for email context
    */
@@ -342,7 +437,7 @@ export class TrueSendService {
     tenantId: string;
     loanId: string;
     borrowerId?: string;
-    recipientEmail: string;
+    recipientEmail?: string | null;
     recipientName: string;
     tenant: TenantEmailInfo;
     dueDate: Date;
@@ -388,10 +483,11 @@ export class TrueSendService {
       <p>Thank you.</p>
     `;
 
-    const sent = await this.sendEmail({
+    const emailResult = await this.sendAutomationEmail({
       tenantId,
       loanId,
       borrowerId,
+      notificationKey: 'payment_reminder',
       emailType: 'PAYMENT_REMINDER',
       recipientEmail,
       recipientName,
@@ -399,9 +495,10 @@ export class TrueSendService {
       htmlBody: await buildEmailWrapper(tenant, content),
     });
 
-    if (sent && borrowerId) {
-      try {
-        await NotificationOrchestrator.notifyBorrowerEvent({
+    let borrowerNotificationProcessed = true;
+    if (borrowerId) {
+      borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
+        {
           tenantId,
           borrowerId,
           notificationKey: 'payment_reminder',
@@ -420,13 +517,20 @@ export class TrueSendService {
             daysUntilDue,
             dueDate: dueDate.toISOString(),
           },
-        });
-      } catch (notificationError) {
-        console.error(`[TrueSend] Failed to fan out payment reminder for loan ${loanId}:`, notificationError);
-      }
+        },
+        `[TrueSend] Failed to fan out payment reminder for loan ${loanId}:`,
+      );
     }
 
-    return sent;
+    if (emailResult.required && !emailResult.delivered) {
+      throw new Error(`TrueSend failed to deliver email for payment reminder on loan ${loanId}`);
+    }
+
+    if (!borrowerNotificationProcessed) {
+      throw new Error(`TrueSend failed to deliver borrower notification for payment reminder on loan ${loanId}`);
+    }
+
+    return emailResult.delivered;
   }
 
   static async sendPaymentReminder(
@@ -442,13 +546,13 @@ export class TrueSendService {
     if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+    if (!loan) return false;
 
     return await this.sendPaymentReminderWithContext({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId ?? undefined,
-      recipientEmail: loan.borrower.email,
+      recipientEmail: loan.borrower.email ?? null,
       recipientName: loan.borrower.name,
       tenant: loan.tenant,
       dueDate,
@@ -470,7 +574,7 @@ export class TrueSendService {
     if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+    if (!loan) return false;
 
     const tenantName = loan.tenant.name;
     const totalOverdue = overdueMilestones.reduce((sum, m) => safeAdd(sum, m.amount), 0);
@@ -502,20 +606,20 @@ export class TrueSendService {
       <p>Thank you.</p>
     `;
 
-    const sent = await this.sendEmail({
+    const emailResult = await this.sendAutomationEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
+      notificationKey: 'late_payment_notice',
       emailType: 'LATE_PAYMENT',
-      recipientEmail: loan.borrower.email,
+      recipientEmail: loan.borrower.email ?? null,
       recipientName: loan.borrower.name,
       subject: `Late Payment Notice — ${formatCurrency(safeRound(totalOverdue, 2))} overdue`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
     });
 
-    if (sent) {
-      try {
-        await NotificationOrchestrator.notifyBorrowerEvent({
+    const borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
+      {
           tenantId,
           borrowerId: loan.borrowerId,
           notificationKey: 'late_payment_notice',
@@ -533,13 +637,19 @@ export class TrueSendService {
               daysOverdue: milestone.daysOverdue,
             })),
           },
-        });
-      } catch (notificationError) {
-        console.error(`[TrueSend] Failed to fan out late payment notice for loan ${loanId}:`, notificationError);
-      }
+      },
+      `[TrueSend] Failed to fan out late payment notice for loan ${loanId}:`,
+    );
+
+    if (emailResult.required && !emailResult.delivered) {
+      throw new Error(`TrueSend failed to deliver email for late payment notice on loan ${loanId}`);
     }
 
-    return sent;
+    if (!borrowerNotificationProcessed) {
+      throw new Error(`TrueSend failed to deliver borrower notification for late payment notice on loan ${loanId}`);
+    }
+
+    return emailResult.delivered;
   }
 
   /**
@@ -554,7 +664,7 @@ export class TrueSendService {
     if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+    if (!loan) return false;
 
     const tenantName = loan.tenant.name;
 
@@ -573,12 +683,13 @@ export class TrueSendService {
     // Extract filename from path
     const letterFilename = letterPath.split('/').pop() || 'arrears-letter.pdf';
 
-    const sent = await this.sendEmail({
+    const emailResult = await this.sendAutomationEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
+      notificationKey: 'arrears_notice',
       emailType: 'ARREARS_NOTICE',
-      recipientEmail: loan.borrower.email,
+      recipientEmail: loan.borrower.email ?? null,
       recipientName: loan.borrower.name,
       subject: `Arrears Notice — Immediate Attention Required`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
@@ -587,9 +698,8 @@ export class TrueSendService {
       requireAllAttachments: true,
     });
 
-    if (sent) {
-      try {
-        await NotificationOrchestrator.notifyBorrowerEvent({
+    const borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
+      {
           tenantId,
           borrowerId: loan.borrowerId,
           notificationKey: 'arrears_notice',
@@ -599,13 +709,19 @@ export class TrueSendService {
           deepLink: `/loans/${loanId}`,
           sourceType: 'LOAN',
           sourceId: loanId,
-        });
-      } catch (notificationError) {
-        console.error(`[TrueSend] Failed to fan out arrears notice for loan ${loanId}:`, notificationError);
-      }
+      },
+      `[TrueSend] Failed to fan out arrears notice for loan ${loanId}:`,
+    );
+
+    if (emailResult.required && !emailResult.delivered) {
+      throw new Error(`TrueSend failed to deliver email for arrears notice on loan ${loanId}`);
     }
 
-    return sent;
+    if (!borrowerNotificationProcessed) {
+      throw new Error(`TrueSend failed to deliver borrower notification for arrears notice on loan ${loanId}`);
+    }
+
+    return emailResult.delivered;
   }
 
   /**
@@ -620,7 +736,7 @@ export class TrueSendService {
     if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+    if (!loan) return false;
 
     const tenantName = loan.tenant.name;
 
@@ -637,12 +753,13 @@ export class TrueSendService {
 
     const letterFilename = letterPath.split('/').pop() || 'default-letter.pdf';
 
-    const sent = await this.sendEmail({
+    const emailResult = await this.sendAutomationEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
+      notificationKey: 'default_notice',
       emailType: 'DEFAULT_NOTICE',
-      recipientEmail: loan.borrower.email,
+      recipientEmail: loan.borrower.email ?? null,
       recipientName: loan.borrower.name,
       subject: `Default Notice — Urgent Action Required`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
@@ -651,9 +768,8 @@ export class TrueSendService {
       requireAllAttachments: true,
     });
 
-    if (sent) {
-      try {
-        await NotificationOrchestrator.notifyBorrowerEvent({
+    const borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
+      {
           tenantId,
           borrowerId: loan.borrowerId,
           notificationKey: 'default_notice',
@@ -663,13 +779,19 @@ export class TrueSendService {
           deepLink: `/loans/${loanId}`,
           sourceType: 'LOAN',
           sourceId: loanId,
-        });
-      } catch (notificationError) {
-        console.error(`[TrueSend] Failed to fan out default notice for loan ${loanId}:`, notificationError);
-      }
+      },
+      `[TrueSend] Failed to fan out default notice for loan ${loanId}:`,
+    );
+
+    if (emailResult.required && !emailResult.delivered) {
+      throw new Error(`TrueSend failed to deliver email for default notice on loan ${loanId}`);
     }
 
-    return sent;
+    if (!borrowerNotificationProcessed) {
+      throw new Error(`TrueSend failed to deliver borrower notification for default notice on loan ${loanId}`);
+    }
+
+    return emailResult.delivered;
   }
 
   /**
@@ -684,7 +806,7 @@ export class TrueSendService {
     if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+    if (!loan) return false;
 
     const tenantName = loan.tenant.name;
     const principal = toSafeNumber(loan.principalAmount);
@@ -712,12 +834,13 @@ export class TrueSendService {
       <p>Thank you for your trust.</p>
     `;
 
-    const sent = await this.sendEmail({
+    const emailResult = await this.sendAutomationEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
+      notificationKey: 'loan_disbursed',
       emailType: 'DISBURSEMENT',
-      recipientEmail: loan.borrower.email,
+      recipientEmail: loan.borrower.email ?? null,
       recipientName: loan.borrower.name,
       subject: `Loan Disbursement Confirmation — ${formatCurrency(principal)}`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
@@ -727,9 +850,8 @@ export class TrueSendService {
       } : {}),
     });
 
-    if (sent) {
-      try {
-        await NotificationOrchestrator.notifyBorrowerEvent({
+    const borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
+      {
           tenantId,
           borrowerId: loan.borrowerId,
           notificationKey: 'loan_disbursed',
@@ -739,13 +861,19 @@ export class TrueSendService {
           deepLink: `/loans/${loanId}`,
           sourceType: 'LOAN',
           sourceId: loanId,
-        });
-      } catch (notificationError) {
-        console.error(`[TrueSend] Failed to fan out disbursement notification for loan ${loanId}:`, notificationError);
-      }
+      },
+      `[TrueSend] Failed to fan out disbursement notification for loan ${loanId}:`,
+    );
+
+    if (emailResult.required && !emailResult.delivered) {
+      throw new Error(`TrueSend failed to deliver email for disbursement notification on loan ${loanId}`);
     }
 
-    return sent;
+    if (!borrowerNotificationProcessed) {
+      throw new Error(`TrueSend failed to deliver borrower notification for disbursement notification on loan ${loanId}`);
+    }
+
+    return emailResult.delivered;
   }
 
   /**
@@ -761,7 +889,7 @@ export class TrueSendService {
     if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+    if (!loan) return false;
 
     const tenantName = loan.tenant.name;
     const isEarlySettlement = !!loan.earlySettlementDate;
@@ -779,12 +907,13 @@ export class TrueSendService {
 
     const letterFilename = dischargePath.split('/').pop() || 'discharge-letter.pdf';
 
-    const sent = await this.sendEmail({
+    const emailResult = await this.sendAutomationEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
+      notificationKey: 'loan_completed',
       emailType: 'COMPLETION',
-      recipientEmail: loan.borrower.email,
+      recipientEmail: loan.borrower.email ?? null,
       recipientName: loan.borrower.name,
       subject: `Loan ${isEarlySettlement ? 'Early Settlement' : 'Completion'} — Discharge Letter`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
@@ -793,9 +922,8 @@ export class TrueSendService {
       requireAllAttachments: true,
     });
 
-    if (sent) {
-      try {
-        await NotificationOrchestrator.notifyBorrowerEvent({
+    const borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
+      {
           tenantId,
           borrowerId: loan.borrowerId,
           notificationKey: 'loan_completed',
@@ -807,13 +935,19 @@ export class TrueSendService {
           deepLink: `/loans/${loanId}`,
           sourceType: 'LOAN',
           sourceId: loanId,
-        });
-      } catch (notificationError) {
-        console.error(`[TrueSend] Failed to fan out completion notification for loan ${loanId}:`, notificationError);
-      }
+      },
+      `[TrueSend] Failed to fan out completion notification for loan ${loanId}:`,
+    );
+
+    if (emailResult.required && !emailResult.delivered) {
+      throw new Error(`TrueSend failed to deliver email for completion notification on loan ${loanId}`);
     }
 
-    return sent;
+    if (!borrowerNotificationProcessed) {
+      throw new Error(`TrueSend failed to deliver borrower notification for completion notification on loan ${loanId}`);
+    }
+
+    return emailResult.delivered;
   }
 
   /**
@@ -832,7 +966,7 @@ export class TrueSendService {
     if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+    if (!loan) return false;
 
     const tenantName = loan.tenant.name;
     const amountFormatted = formatCurrency(safeRound(paymentAmount, 2));
@@ -855,12 +989,13 @@ export class TrueSendService {
 
     const receiptFilename = receiptPath.split('/').pop() || `receipt-${receiptNumber}.pdf`;
 
-    const sent = await this.sendEmail({
+    const emailResult = await this.sendAutomationEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
+      notificationKey: 'payment_receipt',
       emailType: 'PAYMENT_RECEIPT',
-      recipientEmail: loan.borrower.email,
+      recipientEmail: loan.borrower.email ?? null,
       recipientName: loan.borrower.name,
       subject: `Payment Receipt — ${amountFormatted} (${receiptNumber})`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
@@ -869,9 +1004,8 @@ export class TrueSendService {
       requireAllAttachments: true,
     });
 
-    if (sent) {
-      try {
-        await NotificationOrchestrator.notifyBorrowerEvent({
+    const borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
+      {
           tenantId,
           borrowerId: loan.borrowerId,
           notificationKey: 'payment_receipt',
@@ -881,13 +1015,19 @@ export class TrueSendService {
           deepLink: `/loans/${loanId}`,
           sourceType: 'PAYMENT_TRANSACTION',
           sourceId: receiptNumber,
-        });
-      } catch (notificationError) {
-        console.error(`[TrueSend] Failed to fan out payment receipt for loan ${loanId}:`, notificationError);
-      }
+      },
+      `[TrueSend] Failed to fan out payment receipt for loan ${loanId}:`,
+    );
+
+    if (emailResult.required && !emailResult.delivered) {
+      throw new Error(`TrueSend failed to deliver email for payment receipt on loan ${loanId}`);
     }
 
-    return sent;
+    if (!borrowerNotificationProcessed) {
+      throw new Error(`TrueSend failed to deliver borrower notification for payment receipt on loan ${loanId}`);
+    }
+
+    return emailResult.delivered;
   }
 
   /**
@@ -903,7 +1043,7 @@ export class TrueSendService {
     if (!isActive) return false;
 
     const loan = await this.getLoanContext(tenantId, loanId);
-    if (!loan || !loan.borrower.email) return false;
+    if (!loan) return false;
 
     const content = `
       <h2>Signed Loan Agreement</h2>
@@ -921,12 +1061,13 @@ export class TrueSendService {
       <p>Thank you.</p>
     `;
 
-    const sent = await this.sendEmail({
+    const emailResult = await this.sendAutomationEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
+      notificationKey: 'signed_agreement_ready',
       emailType: 'SIGNED_AGREEMENT',
-      recipientEmail: loan.borrower.email,
+      recipientEmail: loan.borrower.email ?? null,
       recipientName: loan.borrower.name,
       subject: `Your Signed Loan Agreement`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
@@ -935,9 +1076,8 @@ export class TrueSendService {
       requireAllAttachments: true,
     });
 
-    if (sent) {
-      try {
-        await NotificationOrchestrator.notifyBorrowerEvent({
+    const borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
+      {
           tenantId,
           borrowerId: loan.borrowerId,
           notificationKey: 'signed_agreement_ready',
@@ -947,13 +1087,19 @@ export class TrueSendService {
           deepLink: `/loans/${loanId}`,
           sourceType: 'LOAN',
           sourceId: loanId,
-        });
-      } catch (notificationError) {
-        console.error(`[TrueSend] Failed to fan out signed agreement notification for loan ${loanId}:`, notificationError);
-      }
+      },
+      `[TrueSend] Failed to fan out signed agreement notification for loan ${loanId}:`,
+    );
+
+    if (emailResult.required && !emailResult.delivered) {
+      throw new Error(`TrueSend failed to deliver email for signed agreement on loan ${loanId}`);
     }
 
-    return sent;
+    if (!borrowerNotificationProcessed) {
+      throw new Error(`TrueSend failed to deliver borrower notification for signed agreement on loan ${loanId}`);
+    }
+
+    return emailResult.delivered;
   }
 
   // ============================================

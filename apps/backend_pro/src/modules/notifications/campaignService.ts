@@ -113,10 +113,6 @@ export class NotificationCampaignService {
       throw new NotFoundError('Notification campaign');
     }
 
-    if (campaign.status === 'PUBLISHED') {
-      return campaign;
-    }
-
     if (campaign.status === 'CANCELLED') {
       throw new BadRequestError('Cancelled campaigns cannot be published.');
     }
@@ -131,35 +127,37 @@ export class NotificationCampaignService {
       campaignChannels.push('in_app');
     }
 
-    const publishedAt = new Date();
-    const claimResult = await prisma.notificationCampaign.updateMany({
-      where: {
-        id: campaign.id,
-        tenantId: params.tenantId,
-        status: 'DRAFT',
-      },
-      data: {
-        status: 'PUBLISHED',
-        recipientCount: borrowerIds.length,
-        publishedAt,
-      },
-    });
+    if (campaign.status !== 'PUBLISHED') {
+      const publishedAt = new Date();
+      const claimResult = await prisma.notificationCampaign.updateMany({
+        where: {
+          id: campaign.id,
+          tenantId: params.tenantId,
+          status: 'DRAFT',
+        },
+        data: {
+          status: 'PUBLISHED',
+          recipientCount: borrowerIds.length,
+          publishedAt,
+        },
+      });
 
-    if (claimResult.count === 0) {
-      const latestCampaign = await findCampaignById(params.tenantId, campaign.id);
-      if (!latestCampaign) {
-        throw new NotFoundError('Notification campaign');
+      if (claimResult.count === 0) {
+        const latestCampaign = await findCampaignById(params.tenantId, campaign.id);
+        if (!latestCampaign) {
+          throw new NotFoundError('Notification campaign');
+        }
+
+        if (latestCampaign.status === 'PUBLISHED') {
+          return latestCampaign;
+        }
+
+        if (latestCampaign.status === 'CANCELLED') {
+          throw new BadRequestError('Cancelled campaigns cannot be published.');
+        }
+
+        throw new ConflictError('Notification campaign could not be published. Please retry.');
       }
-
-      if (latestCampaign.status === 'PUBLISHED') {
-        return latestCampaign;
-      }
-
-      if (latestCampaign.status === 'CANCELLED') {
-        throw new BadRequestError('Cancelled campaigns cannot be published.');
-      }
-
-      throw new ConflictError('Notification campaign could not be published. Please retry.');
     }
 
     for (const borrowerId of borrowerIds) {

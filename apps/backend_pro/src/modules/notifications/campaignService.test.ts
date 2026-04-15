@@ -205,6 +205,54 @@ describe('NotificationCampaignService', () => {
     expect(prismaMock.borrowerNotification.findFirst).not.toHaveBeenCalled();
   });
 
+  it('retries missing recipients when republishing an already-published campaign', async () => {
+    prismaMock.notificationCampaign.findFirst
+      .mockResolvedValueOnce({
+        id: 'campaign-3b',
+        tenantId: 'tenant-1',
+        title: 'Retry',
+        body: 'Test',
+        deepLink: null,
+        audienceType: 'ALL_BORROWERS',
+        channels: ['in_app'],
+        status: 'PUBLISHED',
+        recipientCount: 2,
+      })
+      .mockResolvedValueOnce({
+        id: 'campaign-3b',
+        tenantId: 'tenant-1',
+        title: 'Retry',
+        body: 'Test',
+        deepLink: null,
+        audienceType: 'ALL_BORROWERS',
+        channels: ['in_app'],
+        status: 'PUBLISHED',
+        recipientCount: 2,
+      });
+    prismaMock.borrower.findMany.mockResolvedValue([
+      { id: 'borrower-1' },
+      { id: 'borrower-2' },
+    ]);
+    prismaMock.borrowerNotification.findFirst
+      .mockResolvedValueOnce({ id: 'existing-notification' })
+      .mockResolvedValueOnce(null);
+
+    await NotificationCampaignService.publishCampaign({
+      tenantId: 'tenant-1',
+      campaignId: 'campaign-3b',
+    });
+
+    expect(prismaMock.notificationCampaign.updateMany).not.toHaveBeenCalled();
+    expect(notifyBorrowerEventMock).toHaveBeenCalledTimes(1);
+    expect(notifyBorrowerEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        borrowerId: 'borrower-2',
+        sourceType: 'CAMPAIGN',
+        sourceId: 'campaign-3b',
+      })
+    );
+  });
+
   it('skips borrowers already notified for the campaign', async () => {
     prismaMock.notificationCampaign.findFirst
       .mockResolvedValueOnce({

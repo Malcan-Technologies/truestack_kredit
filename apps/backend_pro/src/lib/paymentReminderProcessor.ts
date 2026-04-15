@@ -166,8 +166,6 @@ export class PaymentReminderProcessor {
           }> = [];
 
           for (const loan of loans) {
-            if (!loan.borrower.email) continue;
-
             const latestVersion = loan.scheduleVersions[0];
             if (!latestVersion) continue;
 
@@ -215,7 +213,7 @@ export class PaymentReminderProcessor {
                 tenantId,
                 loanId: loan.id,
                 borrowerId: loan.borrower.id,
-                recipientEmail: loan.borrower.email!,
+                recipientEmail: loan.borrower.email ?? null,
                 recipientName: loan.borrower.name,
                 tenant: loan.tenant,
                 dueDate: repayment.dueDate,

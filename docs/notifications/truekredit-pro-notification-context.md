@@ -44,6 +44,20 @@ This document captures the current unified notification implementation for TrueK
 
 Broadcasts are limited to `in_app` and `push`. They do not use email.
 
+### Email independence and retry behavior
+
+For borrower automations that support `email`, `in_app`, and/or `push`, the channels are now handled independently:
+
+- Disabling `email` for an automation does **not** suppress `in_app` or `push`.
+- A borrower with no email address can still receive `in_app` / `push` for the same automation.
+- If the email leg fails at delivery time, the borrower-facing `in_app` / `push` leg still runs for that event.
+- Retry logic is **channel-aware**:
+  - borrower inbox / push fan-out dedupes against existing `BorrowerNotification` rows for the same event identity
+  - email retries dedupe against `EmailLog`
+  - recurring automations such as payment reminders and late-payment notices only dedupe email within a short retry window, so legitimate future reminder runs are not suppressed
+
+This rule applies to the borrower-facing automations listed in the notification catalog below. It does **not** automatically apply to generic operational emails sent outside the automation catalog.
+
 ## Data Model
 
 Added in `apps/backend_pro/prisma/schema.prisma`:
@@ -150,6 +164,19 @@ That alignment is important after the L1/L2 approval flow from `main`.
 - Sends Expo push for active borrower devices.
 - Supports `channelOverrides` so campaigns can explicitly choose `in_app` and/or `push`.
 - **If `push` is effective, forces `in_app` on** so push is never “alert-only without inbox” (see *Push requires Web + App* above).
+- Does not depend on the email leg. Borrower inbox / push delivery can complete even when email is disabled or fails elsewhere.
+
+### TrueSend borrower automations
+
+`apps/backend_pro/src/modules/notifications/trueSendService.ts`
+
+- Handles the formal email channel for email-capable borrower automations.
+- Resolves tenant channel settings before attempting the email leg.
+- Still fans out borrower `in_app` / `push` notifications even when:
+  - email is disabled for that automation
+  - the borrower has no email address
+  - the email provider request fails
+- Uses retry-safe dedupe so partial failures can be retried without duplicating already-delivered channels.
 
 ### Campaigns
 
@@ -158,6 +185,8 @@ That alignment is important after the L1/L2 approval flow from `main`.
 - Creates draft campaigns.
 - Resolves audience segments.
 - Publishes campaigns by fanning out through the same orchestrator.
+- Claims `DRAFT` campaigns atomically before publish fan-out.
+- Allows later publish attempts to backfill missed recipients on an already `PUBLISHED` campaign without re-sending to borrowers who already received the broadcast.
 - Cancels drafts.
 
 ### Admin API
@@ -198,8 +227,8 @@ Notification fan-out is invoked from multiple modules. The following aligns **ca
 
 | Catalog key | Primary integration |
 |-------------|---------------------|
-| `payment_receipt`, `payment_reminder`, `late_payment_notice`, `arrears_notice`, `default_notice`, `loan_disbursed`, `loan_completed`, `signed_agreement_ready` | `TrueSendService` (email + orchestrated in-app/push where enabled) |
-| `attestation_meeting_reminder` | `attestationCronProcessors.ts` (scheduled reminders) |
+| `payment_receipt`, `payment_reminder`, `late_payment_notice`, `arrears_notice`, `default_notice`, `loan_disbursed`, `loan_completed`, `signed_agreement_ready` | `TrueSendService` (email + orchestrated in-app/push where enabled; email does not gate web/app/push) |
+| `attestation_meeting_reminder` | `attestationCronProcessors.ts` (scheduled reminders; email and borrower notification legs retry independently) |
 | `loan_attestation_complete` | `loans/routes.ts`, `borrower-loans/routes.ts` (attestation step completion) |
 | `loan_kyc_completed` | `webhooks/truestackKycWebhook.ts` (successful KYC) |
 | `loan_signing_certificate_ready` | `loanLifecycleNotify.ts` (certificate detected / enrollment) |
@@ -350,6 +379,13 @@ Focused backend tests:
 
 - `campaignService.test.ts`
   - verifies applicant targeting includes `PENDING_L2_APPROVAL`
+- `trueSendService.test.ts`
+  - verifies borrower notifications still fan out when email is disabled
+  - verifies borrower notifications still fan out when email delivery fails
+  - verifies retry email dedupe for recurring automations is time-bounded
+- `attestationCronProcessors.test.ts`
+  - verifies attestation reminder respects the email toggle
+  - verifies retry behavior does not duplicate borrower notifications and still retries failed email
 - `orchestrator.test.ts`
   - verifies in-app plus push fan-out and borrower scoping
 - `rbac.test.ts`

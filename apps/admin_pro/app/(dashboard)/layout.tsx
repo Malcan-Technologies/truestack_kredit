@@ -235,10 +235,15 @@ export default function DashboardLayout({
       return;
     }
     api
-      .get<{ submitted: number; underReview: number }>("/api/loans/applications/counts")
+      .get<{
+        actionableTotal: number;
+        submitted?: number;
+        underReview?: number;
+        pendingL2Approval?: number;
+      }>("/api/loans/applications/counts")
       .then((res) => {
         if (res.success && res.data) {
-          setApplicationsPendingCount(res.data.submitted + res.data.underReview);
+          setApplicationsPendingCount(res.data.actionableTotal ?? 0);
         }
       })
       .catch(() => setApplicationsPendingCount(0));

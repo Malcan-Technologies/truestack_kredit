@@ -144,6 +144,18 @@ export function canApproveApplications(
   );
 }
 
+export function canApproveApplicationsL1(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "applications.approve_l1");
+}
+
+export function canApproveApplicationsL2(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "applications.approve_l2");
+}
+
 export function canManageProducts(
   permissions: string[] | undefined | null
 ): boolean {

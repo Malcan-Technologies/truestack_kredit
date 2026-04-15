@@ -134,15 +134,33 @@ Current scope note:
 - We have not implemented the dedicated collections workflow yet.
 - Collections will move to its own separate page/flow later so we can enforce `loans.*` and `applications.*` visibility more narrowly first.
 - Until that page exists, collections permissions should not be treated as a reason to unlock the main loans list page by default.
-- We also have not fully implemented a strict two-step L1 to L2 application approval workflow yet.
-- Today, `applications.approve_l1` and `applications.approve_l2` exist as separate permissions, but both currently unlock the same approval controls and backend approval endpoint.
-- The current approval endpoint moves an application straight to `APPROVED` and creates the loan immediately, so there is not yet an enforced handoff where L1 can review/recommend and L2 performs the final approval.
-- Recommended implementation:
-- Add an explicit intermediate approval state for the handoff, such as `PENDING_L2_APPROVAL`, or formalize `UNDER_REVIEW` as the L1-complete waiting-for-L2 state with strict transition rules.
-- Persist approval-stage metadata on the application, for example `l1ReviewedAt`, `l1ReviewedByMemberId`, `l1DecisionNote`, `l2ApprovedAt`, and `l2ApprovedByMemberId`.
-- Split the backend transitions so L1 can only move `SUBMITTED` -> L2 review state, while only L2 can move L2 review state -> `APPROVED` and trigger loan creation.
-- Update the admin UI so L1 sees actions like "Send to L2" or "Recommend approval", while L2 sees the final approval action plus the L1 review summary.
-- Extend audit logs and notifications so the handoff, reviewer identities, timestamps, and decision notes are visible for compliance and dispute review.
+
+### Two-step L1 / L2 application approval (implemented)
+
+| Transition | Permission | From → To |
+|------------|------------|-----------|
+| Send to L2 | `applications.approve_l1` | `SUBMITTED` or `UNDER_REVIEW` → `PENDING_L2_APPROVAL` |
+| Final approve (creates loan) | `applications.approve_l2` | `PENDING_L2_APPROVAL` → `APPROVED` |
+| Reject | `applications.reject` plus stage permission (L1 on L1 queue, L2 on L2 queue) | → `REJECTED` |
+| Return for amendments | `applications.approve_l1` or `applications.approve_l2` (by stage) | → `DRAFT` (clears L1/L2 metadata) |
+| Negotiation (counter / accept / reject offers) | Same as stage: L1 on L1 queue, L2 on `PENDING_L2_APPROVAL` | — |
+
+- `LoanApplication` stores `l1ReviewedAt`, `l1ReviewedByMemberId`, `l1DecisionNote`, `l2ReviewedAt`, `l2ReviewedByMemberId`, `l2DecisionNote` for audit.
+- Audit action `APPLICATION_SEND_TO_L2` records the L1 handoff.
+- Borrower resubmission or document changes while pending L2 reset the application to the L1 queue (`SUBMITTED`) and clear L1/L2 metadata so review starts again at L1.
+- **Online** applications: borrowers submit via the online flow; admin does not show a draft **Submit** on the application detail when `loanChannel === ONLINE`.
+- **Dashboard “Action Needed”** (`GET /api/dashboard/stats` → `actionNeeded`) is permission-scoped:
+  - L1 queue count: only if `applications.approve_l1`
+  - Pending L2 count: only if `applications.approve_l2`
+  - Pending disbursement: `loans.disburse` or `loans.manage`
+  - Pending attestation: `attestation.schedule` or `attestation.witness_sign`
+  - Ready to complete: `loans.manage`
+  - Ready for default: `collections.manage`
+- **Application list filter** `L1_QUEUE` (API `status=L1_QUEUE`) returns `SUBMITTED` and `UNDER_REVIEW` together for the L1 work queue.
+
+### Application counts API
+
+`GET /api/loans/applications/counts` returns permission-scoped `submitted`, `underReview`, `pendingL2Approval`, `l1QueueCount`, and `actionableTotal` for sidebar badges.
 
 ## Roles Page
 

@@ -29,6 +29,8 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 interface ApplicationCounts {
   submitted: number;
   underReview: number;
+  pendingL2Approval: number;
+  l1QueueCount: number;
 }
 
 interface Application {
@@ -58,6 +60,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   DRAFT: "secondary" as "default",
   SUBMITTED: "warning",
   UNDER_REVIEW: "warning",
+  PENDING_L2_APPROVAL: "info",
   APPROVED: "success",
   REJECTED: "destructive",
   CANCELLED: "destructive",
@@ -65,6 +68,7 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 
 function applicationStatusLabel(status: string): string {
   if (status === "SUBMITTED") return "REVIEW";
+  if (status === "PENDING_L2_APPROVAL") return "PENDING L2";
   return status.replace(/_/g, " ");
 }
 
@@ -88,7 +92,12 @@ function ApplicationsPageContent() {
   const [totalPages, setTotalPages] = useState(0);
 
   // Action needed counts
-  const [counts, setCounts] = useState<ApplicationCounts>({ submitted: 0, underReview: 0 });
+  const [counts, setCounts] = useState<ApplicationCounts>({
+    submitted: 0,
+    underReview: 0,
+    pendingL2Approval: 0,
+    l1QueueCount: 0,
+  });
 
   // Sort state
   const [sortField, setSortField] = useState<string | null>(null);
@@ -141,13 +150,18 @@ function ApplicationsPageContent() {
 
   const fetchCounts = useCallback(async () => {
     try {
-      const res = await api.get<{ submitted: number; underReview: number }>(
-        "/api/loans/applications/counts"
-      );
+      const res = await api.get<{
+        submitted: number;
+        underReview: number;
+        pendingL2Approval: number;
+        l1QueueCount: number;
+      }>("/api/loans/applications/counts");
       if (res.success && res.data) {
         setCounts({
           submitted: res.data.submitted,
           underReview: res.data.underReview,
+          pendingL2Approval: res.data.pendingL2Approval ?? 0,
+          l1QueueCount: res.data.l1QueueCount ?? res.data.submitted + res.data.underReview,
         });
       }
     } catch {
@@ -159,6 +173,11 @@ function ApplicationsPageContent() {
     fetchApplications();
     fetchCounts();
   }, [fetchApplications, fetchCounts]);
+
+  useEffect(() => {
+    const q = filter ? `?filter=${encodeURIComponent(filter)}` : "";
+    router.replace(`/dashboard/applications${q}`, { scroll: false });
+  }, [filter, router]);
 
   const handleRefresh = async () => {
     await Promise.all([fetchApplications(), fetchCounts()]);
@@ -225,19 +244,19 @@ function ApplicationsPageContent() {
       </div>
 
       {/* Status Alert Bar */}
-      {(counts.submitted > 0 || counts.underReview > 0) && (
+      {(counts.l1QueueCount > 0 || counts.pendingL2Approval > 0) && (
         <div className="flex items-center gap-4 p-3 rounded-lg border border-border bg-secondary">
           <AlertTriangle className="h-4 w-4 text-foreground shrink-0" />
           <div className="flex items-center gap-2 text-sm flex-wrap">
             {[
-              counts.submitted > 0 && (
-                <span key="submitted" className="text-foreground font-medium">
-                  {counts.submitted} application{counts.submitted !== 1 ? "s" : ""} awaiting review
+              counts.l1QueueCount > 0 && (
+                <span key="l1" className="text-foreground font-medium">
+                  {counts.l1QueueCount} in L1 queue (review / under review)
                 </span>
               ),
-              counts.underReview > 0 && (
-                <span key="review" className="text-foreground font-medium">
-                  {counts.underReview} application{counts.underReview !== 1 ? "s" : ""} under review
+              counts.pendingL2Approval > 0 && (
+                <span key="l2" className="text-foreground font-medium">
+                  {counts.pendingL2Approval} pending L2 final approval
                 </span>
               ),
             ].filter(Boolean).flatMap((item, i, arr) =>
@@ -281,14 +300,26 @@ function ApplicationsPageContent() {
         <span className="border-l border-border mx-1 h-6" />
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Action Needed</span>
         <Button
-          variant={filter === "SUBMITTED" ? "default" : "outline"}
+          variant={filter === "L1_QUEUE" ? "default" : "outline"}
           size="sm"
-          onClick={() => { setFilter("SUBMITTED"); setCurrentPage(1); }}
+          onClick={() => { setFilter("L1_QUEUE"); setCurrentPage(1); }}
         >
-          Pending Review
-          {counts.submitted > 0 && (
+          L1 queue
+          {counts.l1QueueCount > 0 && (
             <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
-              {counts.submitted}
+              {counts.l1QueueCount}
+            </span>
+          )}
+        </Button>
+        <Button
+          variant={filter === "PENDING_L2_APPROVAL" ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setFilter("PENDING_L2_APPROVAL"); setCurrentPage(1); }}
+        >
+          Pending L2
+          {counts.pendingL2Approval > 0 && (
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {counts.pendingL2Approval}
             </span>
           )}
         </Button>
@@ -393,8 +424,11 @@ function ApplicationsPageContent() {
                     key={app.id}
                     className={cn(
                       "cursor-pointer transition-colors hover:bg-muted/20",
-                      app.status === "SUBMITTED"
+                      app.status === "SUBMITTED" || app.status === "UNDER_REVIEW"
                         ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.04]"
+                        : "",
+                      app.status === "PENDING_L2_APPROVAL"
+                        ? "bg-sky-500/[0.04] dark:bg-sky-500/[0.06]"
                         : ""
                     )}
                     onClick={() => router.push(`/dashboard/applications/${app.id}`)}

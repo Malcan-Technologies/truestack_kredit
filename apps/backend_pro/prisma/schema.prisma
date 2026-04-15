@@ -32,6 +32,8 @@ enum ApplicationStatus {
   DRAFT
   SUBMITTED
   UNDER_REVIEW
+  /// L1 approved; awaiting L2 final decision (loan not created until L2 approves)
+  PENDING_L2_APPROVAL
   APPROVED
   REJECTED
   CANCELLED
@@ -819,6 +821,15 @@ model LoanApplication {
   collateralValue Decimal? @db.Decimal(12, 2) // Estimated value of collateral in RM
 
   loanChannel LoanChannel @default(ONLINE)
+
+  /// L1 handoff to L2 (set when status becomes PENDING_L2_APPROVAL)
+  l1ReviewedAt         DateTime?
+  l1ReviewedByMemberId String?
+  l1DecisionNote       String?
+  /// L2 final credit decision timestamp (approve or reject from L2 queue)
+  l2ReviewedAt         DateTime?
+  l2ReviewedByMemberId String?
+  l2DecisionNote       String?
 
   // Relations
   tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)

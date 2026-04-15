@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import type { TenantPermission } from '@kredit/shared';
 import { prisma } from '../../lib/prisma.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireActiveSubscription } from '../../middleware/billingGuard.js';
@@ -7,6 +8,11 @@ import { safeRound, safeAdd, safeSubtract, safeMultiply, safeDivide, safePercent
 import { calculateDaysOverdueMalaysia, getMalaysiaEndOfDay } from '../../lib/malaysiaTime.js';
 
 const router = Router();
+
+function userHasPermission(req: Request, permission: TenantPermission): boolean {
+  if (req.user?.role === 'OWNER') return true;
+  return (req.user?.permissions ?? []).includes(permission);
+}
 
 // All dashboard routes require authentication + active subscription
 router.use(authenticateToken);
@@ -57,6 +63,7 @@ router.get('/stats', async (req, res, next) => {
       loansPendingDisbursement,
       loansPendingAttestation,
       loansReadyForDefault,
+      pendingL2ApprovalTotal,
       tenantForAll,
     ] = await Promise.all([
       prisma.borrower.count({ where: { tenantId } }),
@@ -89,6 +96,9 @@ router.get('/stats', async (req, res, next) => {
       }),
       prisma.loan.count({
         where: { tenantId, readyForDefault: true, status: { not: 'DEFAULTED' } },
+      }),
+      prisma.loanApplication.count({
+        where: { tenantId, status: 'PENDING_L2_APPROVAL' },
       }),
       presetAll
         ? prisma.tenant.findUnique({
@@ -587,6 +597,19 @@ router.get('/stats', async (req, res, next) => {
     // ========================================
     // Build response
     // ========================================
+    const canL1Apps = userHasPermission(req, 'applications.approve_l1');
+    const canL2Apps = userHasPermission(req, 'applications.approve_l2');
+    const canDisburseOrManageLoans =
+      userHasPermission(req, 'loans.disburse') || userHasPermission(req, 'loans.manage');
+    const canAttest =
+      userHasPermission(req, 'attestation.schedule') ||
+      userHasPermission(req, 'attestation.witness_sign');
+    const canManageLoans = userHasPermission(req, 'loans.manage');
+    const canManageCollections = userHasPermission(req, 'collections.manage');
+
+    /** All in-flight application review stages (L1 queue + L2 queue) for portfolio KPIs */
+    const pendingApplicationsKpi = pendingApplications + pendingL2ApprovalTotal;
+
     res.json({
       success: true,
       data: {
@@ -610,7 +633,7 @@ router.get('/stats', async (req, res, next) => {
           activeLoansInRange,
           loansInArrearsInRange,
           loansInArrears,
-          pendingApplications,
+          pendingApplications: pendingApplicationsKpi,
         },
         loansByStatus,
         disbursementTrend,
@@ -621,11 +644,14 @@ router.get('/stats', async (req, res, next) => {
         recentApplications,
         portfolioAtRisk,
         actionNeeded: {
-          submittedApplications,
-          loansPendingDisbursement,
-          loansPendingAttestation,
-          loansReadyToComplete,
-          loansReadyForDefault,
+          /** L1 queue (SUBMITTED + UNDER_REVIEW); only non-zero for users with applications.approve_l1 */
+          submittedApplications: canL1Apps ? pendingApplications : 0,
+          /** PENDING_L2_APPROVAL count; only non-zero for users with applications.approve_l2 */
+          applicationsPendingL2: canL2Apps ? pendingL2ApprovalTotal : 0,
+          loansPendingDisbursement: canDisburseOrManageLoans ? loansPendingDisbursement : 0,
+          loansPendingAttestation: canAttest ? loansPendingAttestation : 0,
+          loansReadyToComplete: canManageLoans ? loansReadyToComplete : 0,
+          loansReadyForDefault: canManageCollections ? loansReadyForDefault : 0,
         },
         dateRange: {
           from: fromDate.toISOString(),

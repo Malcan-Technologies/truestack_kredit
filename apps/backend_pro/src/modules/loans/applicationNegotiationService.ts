@@ -25,8 +25,12 @@ export async function adminCounterOffer(params: {
     where: { id: applicationId, tenantId },
   });
   if (!app) throw new NotFoundError('Application');
-  if (app.status !== 'SUBMITTED' && app.status !== 'UNDER_REVIEW') {
-    throw new BadRequestError('Negotiation is only available for submitted applications');
+  if (
+    app.status !== 'SUBMITTED' &&
+    app.status !== 'UNDER_REVIEW' &&
+    app.status !== 'PENDING_L2_APPROVAL'
+  ) {
+    throw new BadRequestError('Negotiation is only available for submitted or pending L2 applications');
   }
 
   return prisma.$transaction(async (tx) => {
@@ -61,8 +65,12 @@ export async function borrowerCounterOffer(params: {
     where: { id: applicationId, tenantId, borrowerId },
   });
   if (!app) throw new NotFoundError('Application');
-  if (app.status !== 'SUBMITTED' && app.status !== 'UNDER_REVIEW') {
-    throw new BadRequestError('Negotiation is only available for submitted applications');
+  if (
+    app.status !== 'SUBMITTED' &&
+    app.status !== 'UNDER_REVIEW' &&
+    app.status !== 'PENDING_L2_APPROVAL'
+  ) {
+    throw new BadRequestError('Negotiation is only available for submitted or pending L2 applications');
   }
 
   return prisma.$transaction(async (tx) => {
@@ -92,7 +100,11 @@ export async function borrowerAcceptLatestOffer(params: {
     where: { id: applicationId, tenantId, borrowerId },
   });
   if (!app) throw new NotFoundError('Application');
-  if (app.status !== 'SUBMITTED' && app.status !== 'UNDER_REVIEW') {
+  if (
+    app.status !== 'SUBMITTED' &&
+    app.status !== 'UNDER_REVIEW' &&
+    app.status !== 'PENDING_L2_APPROVAL'
+  ) {
     throw new BadRequestError('Cannot accept offer for this application');
   }
 
@@ -137,7 +149,11 @@ export async function adminAcceptLatestOffer(params: {
     where: { id: applicationId, tenantId },
   });
   if (!app) throw new NotFoundError('Application');
-  if (app.status !== 'SUBMITTED' && app.status !== 'UNDER_REVIEW') {
+  if (
+    app.status !== 'SUBMITTED' &&
+    app.status !== 'UNDER_REVIEW' &&
+    app.status !== 'PENDING_L2_APPROVAL'
+  ) {
     throw new BadRequestError('Cannot accept offer for this application');
   }
 

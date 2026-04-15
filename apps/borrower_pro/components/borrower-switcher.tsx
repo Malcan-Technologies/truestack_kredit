@@ -122,6 +122,33 @@ export function BorrowerSwitcher({ className, collapsed }: BorrowerSwitcherProps
     );
   }
 
+  // Adding another profile: same route as first-time onboarding — keep shell focused (see dashboard layout).
+  if (pathname === "/onboarding" && profiles.length > 0) {
+    return (
+      <div
+        className={cn(
+          "w-full rounded-lg border border-dashed border-primary/35 bg-primary/5 px-3 py-2 text-left",
+          collapsed && "px-2 py-2 flex justify-center",
+          className
+        )}
+        role="status"
+        aria-label="Adding a new borrower profile"
+      >
+        <div className={cn("flex items-start gap-2", collapsed && "justify-center")}>
+          <Plus className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+          {!collapsed && (
+            <div className="min-w-0">
+              <p className="text-sm font-medium leading-tight">Adding a new profile</p>
+              <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
+                Existing profiles stay as they are until you finish.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // No profiles — show create CTA (layout redirects to onboarding when 0 profiles)
   if (profiles.length === 0) {
     return (

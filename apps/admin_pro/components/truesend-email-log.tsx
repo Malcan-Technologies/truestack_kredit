@@ -66,7 +66,6 @@ const PAGE_SIZE = 3;
 export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) {
   const [emails, setEmails] = useState<EmailLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [resending, setResending] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [trueSendActive, setTrueSendActive] = useState<boolean | null>(null); // null = loading
 
@@ -127,44 +126,6 @@ export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) 
   const handleManualRefresh = async () => {
     await fetchEmails();
     toast.success("Email log refreshed");
-  };
-
-  const handleResend = async (emailLogId: string) => {
-    setResending(emailLogId);
-    try {
-      const res = await api.post<{ message: string }>(
-        `/api/notifications/truesend/${emailLogId}/resend`,
-        {}
-      );
-      if (res.success) {
-        toast.success(res.data?.message || "Email resent successfully");
-        fetchEmails();
-      } else {
-        toast.error(res.error || "Failed to resend email");
-      }
-    } catch {
-      toast.error("Failed to resend email");
-    } finally {
-      setResending(null);
-    }
-  };
-
-  // Check if resend is possible for a given email
-  const canResend = (email: EmailLogEntry): boolean => {
-    const resendableStatuses = ["failed", "bounced", "complained"];
-    if (!resendableStatuses.includes(email.status)) return false;
-
-    // Check 1x per day limit (simple check — server enforces properly)
-    if (email.resentAt) {
-      const lastResent = new Date(email.resentAt);
-      const now = new Date();
-      const isSameDay =
-        lastResent.toISOString().split("T")[0] ===
-        now.toISOString().split("T")[0];
-      if (isSameDay) return false;
-    }
-
-    return true;
   };
 
   const handleLoadMore = () => {
@@ -269,7 +230,7 @@ export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) 
                     </p>
                   </div>
 
-                  {/* Right: status + action */}
+                  {/* Right: status */}
                   <div className="flex items-center gap-2 shrink-0">
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -283,23 +244,6 @@ export function TrueSendEmailLog({ loanId, refreshKey }: TrueSendEmailLogProps) 
                         </TooltipContent>
                       )}
                     </Tooltip>
-
-                    {canResend(email) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        disabled={resending === email.id}
-                        onClick={() => handleResend(email.id)}
-                      >
-                        <RefreshCw
-                          className={`h-3 w-3 mr-1 ${
-                            resending === email.id ? "animate-spin" : ""
-                          }`}
-                        />
-                        Resend
-                      </Button>
-                    )}
                   </div>
                 </div>
               ))}

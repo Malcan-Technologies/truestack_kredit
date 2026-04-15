@@ -208,7 +208,8 @@ The primary content container is `SectionCard` — a bordered, rounded card.
 | Full page load | Centered `ActivityIndicator` on `background` |
 | Inline / card refresh | Small spinner inside the card or replacing content |
 | Button action | Spinner replaces button label (keep button width stable) |
-| Pull to refresh | Native refresh control on ScrollView |
+| Pull to refresh | Native refresh control on ScrollView or `FlatList` (see §17 for paginated lists) |
+| Load more (pagination) | Footer spinner on `FlatList` while the next page loads (§17) |
 
 ### Empty States
 
@@ -438,6 +439,44 @@ For future implementation:
 
 ---
 
+## 16) Notification inbox (stack screen)
+
+The notification center is a **data list** opened from the **header bell** on root tab screens. It is **not** listed under Settings — duplicate entry points compete with the bell and clutter the settings hierarchy.
+
+| Concern | Pattern |
+|--------|---------|
+| **Entry** | Bell only (`NotificationHeaderButton`). Do not add a second row in Settings for the same inbox. |
+| **Reload** | **Pull-to-refresh** via `PageScreen`’s `refreshControl` prop (`RefreshControl`). Omit a separate **Refresh** button — it duplicates PTR and clutters the layout. |
+| **Unread summary** | State the count in the **SectionCard `description`** (e.g. “3 unread notifications…” or “You’re all caught up…”), not as a third chip in a horizontal toolbar beside actions. |
+| **Mark all read** | **Secondary** action: `SectionCard` **`action`** slot, `PageHeaderToolbarButton` with **`variant="outline"`**. Show only when `unreadCount > 0`; use **`loading` / `disabled`** while the mutation runs. This matches “section edit” placement (Section 3). |
+| **Back fallback** | Use a sensible root when the stack has no history (e.g. `backFallbackHref="/"`), not Settings, since the user did not arrive via Settings. |
+| **Initial load** | Omit `refreshControl` while the first fetch shows a skeleton (or gate PTR) so users do not trigger overlapping reloads during the initial request. |
+| **Pagination** | **Infinite scroll**: `Animated.FlatList` via `PageScreen` **`scrollableOverride`**; first page on load; **pull-to-refresh** reloads page 1; **`onEndReached`** loads the next page. Footer **`ActivityIndicator`** while fetching more. Use a **ref guard** so `onEndReached` does not fire duplicate requests. See §17. |
+
+**Header bell badge** (if implemented) stays on the bell control; the inbox screen reinforces count in the card description so the page does not duplicate a competing badge row.
+
+---
+
+## 17) Dynamic lists (default for API-backed feeds)
+
+Any screen that loads **many rows from an API** (notifications, activity feeds, transaction history, long directories) should use this pattern unless there is a strong reason not to (e.g. a tiny fixed list).
+
+| Topic | Convention |
+|-------|--------------|
+| **Scroll container** | **`PageScreen` + `scrollableOverride`** with Reanimated **`Animated.FlatList`** — **not** `ScrollView` wrapping a mapped list. Nesting a `FlatList` inside `PageScreen`’s default `ScrollView` breaks virtualization and scroll performance. |
+| **Page size** | Match the API default (e.g. **20**) or a documented `pageSize`; keep it consistent per resource. |
+| **Initial load** | Fetch **page 1**, show skeleton or spinner in **`ListHeaderComponent`** (or a dedicated placeholder) until the first response returns. |
+| **Pull to refresh** | Reset to **page 1** and **replace** the list (same as first load). Reuse the same fetch helper as initial load. |
+| **Load more** | **`onEndReached`** + **`onEndReachedThreshold`** (~**0.35**–**0.4**). Only fire when there are items, **`hasMore`** is true (from API `pagination`), and not already loading. |
+| **Loading more** | **`ListFooterComponent`**: small centered **`ActivityIndicator`**. Optionally **`loadingMoreRef`** (or equivalent) to block overlapping append requests. |
+| **Append** | **Concatenate** new rows; **dedupe by stable id** if the client can ever receive overlaps. Update local pagination state from **`response.pagination`**. |
+| **Empty** | After the first successful fetch with zero rows, show an **empty state** in the header area (or list empty component), not an infinite spinner. |
+| **Platform** | **`removeClippedSubviews`** on Android can help performance; test scroll position and headers. |
+
+**Reference implementation:** `src/app/(app)/notifications.tsx`.
+
+---
+
 ## Summary Checklist
 
 When building new screens, verify:
@@ -459,3 +498,5 @@ When building new screens, verify:
 - [ ] Touch targets ≥44pt
 - [ ] `accessibilityRole` and `accessibilityLabel` on interactive elements
 - [ ] Colors from `useTheme()`, never hardcoded
+- [ ] **Notification inbox:** bell-only entry (no duplicate Settings row); PTR for reload; unread copy in `SectionCard` description; “Mark all read” as outline card action when applicable (`src/app/(app)/notifications.tsx`)
+- [ ] **Dynamic / long lists:** `PageScreen` `scrollableOverride` + `Animated.FlatList`; paginated fetch; PTR = page 1; `onEndReached` = next page; footer loading indicator (§17)

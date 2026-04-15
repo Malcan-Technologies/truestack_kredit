@@ -1471,7 +1471,7 @@ model BorrowerPushDevice {
   tenantId   String
   borrowerId String
   userId     String?
-  token      String   @unique
+  token      String
   platform   String
   provider   String   @default("expo")
   appId      String?
@@ -1486,6 +1486,7 @@ model BorrowerPushDevice {
   borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
   user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@unique([tenantId, token])
   @@index([tenantId, borrowerId])
   @@index([tenantId, isActive])
   @@index([borrowerId, isActive])

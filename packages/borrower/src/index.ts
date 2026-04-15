@@ -17,6 +17,13 @@ export * from './schemas/signing';
 export type { FetchFn } from './api/shared';
 export { parseJson } from './api/shared';
 
+// Notification category helpers (UI mapping)
+export {
+  borrowerNotificationCategoryLabel,
+  resolveBorrowerNotificationCategoryKind,
+  type BorrowerNotificationCategoryKind,
+} from './lib/borrower-notification-category';
+
 // API factories
 export { createBorrowerApiClient } from './api/borrower-client';
 export { createApplicationsApiClient } from './api/applications-client';

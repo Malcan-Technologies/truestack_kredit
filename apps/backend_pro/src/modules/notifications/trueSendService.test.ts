@@ -5,6 +5,7 @@ const {
   getNotificationChannelStateMock,
   notifyBorrowerEventMock,
   fetchMock,
+  hasActiveAddOnMock,
 } = vi.hoisted(() => ({
   prismaMock: {
     emailLog: {
@@ -22,6 +23,7 @@ const {
   getNotificationChannelStateMock: vi.fn(),
   notifyBorrowerEventMock: vi.fn(),
   fetchMock: vi.fn(),
+  hasActiveAddOnMock: vi.fn(),
 }));
 
 vi.mock('../../lib/prisma.js', () => ({
@@ -48,6 +50,12 @@ vi.mock('../../lib/storage.js', () => ({
   getFile: vi.fn(),
 }));
 
+vi.mock('../../lib/addOnService.js', () => ({
+  AddOnService: {
+    hasActiveAddOn: hasActiveAddOnMock,
+  },
+}));
+
 vi.mock('./settings.js', () => ({
   getNotificationChannelState: getNotificationChannelStateMock,
 }));
@@ -65,6 +73,7 @@ describe('TrueSendService', () => {
     vi.clearAllMocks();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
+    hasActiveAddOnMock.mockResolvedValue(true);
     prismaMock.emailLog.create.mockResolvedValue({ id: 'email-log-1' });
     prismaMock.emailLog.update.mockResolvedValue(undefined);
   });
@@ -200,5 +209,48 @@ describe('TrueSendService', () => {
         }),
       })
     );
+  });
+
+  it('limits recurring borrower-notification dedupe to recent late notices only', async () => {
+    getNotificationChannelStateMock.mockResolvedValue({
+      email: false,
+      in_app: true,
+      push: false,
+    });
+    prismaMock.loan.findFirst.mockResolvedValue({
+      id: 'loan-1',
+      borrowerId: 'borrower-1',
+      borrower: {
+        id: 'borrower-1',
+        name: 'Borrower',
+        email: 'borrower@example.com',
+      },
+      tenant: {
+        name: 'Tenant One',
+      },
+    });
+    prismaMock.borrowerNotification.findFirst.mockResolvedValue({ id: 'borrower-notification-1' });
+
+    const result = await TrueSendService.sendLatePaymentNotice('tenant-1', 'loan-1', [
+      {
+        milestoneNumber: 1,
+        dueDate: new Date('2026-04-01T00:00:00.000Z'),
+        amount: 150,
+        daysOverdue: 7,
+      },
+    ]);
+
+    expect(result).toBe(false);
+    expect(prismaMock.borrowerNotification.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          notificationKey: 'late_payment_notice',
+          createdAt: expect.objectContaining({
+            gte: expect.any(Date),
+          }),
+        }),
+      })
+    );
+    expect(notifyBorrowerEventMock).not.toHaveBeenCalled();
   });
 });

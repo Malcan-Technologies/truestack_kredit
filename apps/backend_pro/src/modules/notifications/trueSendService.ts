@@ -51,11 +51,11 @@ interface AutomationEmailResult {
   required: boolean;
 }
 
-const RECURRING_EMAIL_NOTIFICATION_KEYS = new Set([
+const RECURRING_NOTIFICATION_KEYS = new Set([
   'payment_reminder',
   'late_payment_notice',
 ]);
-const RECURRING_EMAIL_DEDUPE_WINDOW_MS = 18 * 60 * 60 * 1000;
+const RECURRING_NOTIFICATION_DEDUPE_WINDOW_MS = 18 * 60 * 60 * 1000;
 
 function extractFilenameFromPath(filePath: string): string {
   if (!filePath) return 'document.pdf';
@@ -342,10 +342,10 @@ export class TrueSendService {
     }
 
     const primaryAttachmentPath = params.attachments?.[0]?.path || params.attachmentPath || null;
-    const recentEmailFilter = RECURRING_EMAIL_NOTIFICATION_KEYS.has(params.notificationKey)
+    const recentEmailFilter = RECURRING_NOTIFICATION_KEYS.has(params.notificationKey)
       ? {
           createdAt: {
-            gte: new Date(Date.now() - RECURRING_EMAIL_DEDUPE_WINDOW_MS),
+            gte: new Date(Date.now() - RECURRING_NOTIFICATION_DEDUPE_WINDOW_MS),
           },
         }
       : {};
@@ -386,6 +386,13 @@ export class TrueSendService {
     input: NotifyBorrowerEventInput,
     failureMessage: string,
   ): Promise<boolean> {
+    const recentNotificationFilter = RECURRING_NOTIFICATION_KEYS.has(input.notificationKey)
+      ? {
+          createdAt: {
+            gte: new Date(Date.now() - RECURRING_NOTIFICATION_DEDUPE_WINDOW_MS),
+          },
+        }
+      : {};
     const existingNotification = await prisma.borrowerNotification.findFirst({
       where: {
         tenantId: input.tenantId,
@@ -395,6 +402,7 @@ export class TrueSendService {
         body: input.body,
         sourceType: input.sourceType ?? null,
         sourceId: input.sourceId ?? null,
+        ...recentNotificationFilter,
       },
       select: { id: true },
     });

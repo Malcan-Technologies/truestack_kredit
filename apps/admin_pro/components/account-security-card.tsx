@@ -267,12 +267,27 @@ export function AccountSecurityCard({
     setStartingTwoFactor(true);
     try {
       const enableResult = await enableTwoFactor({ password: setupPassword });
-      if (enableResult.error) {
-        throw new Error(enableResult.error.message || "Unable to start two-factor setup");
+      const enableErrorMessage = enableResult.error?.message || "";
+      const enableErrorMessageLower = enableErrorMessage.toLowerCase();
+      const canRecoverWithExistingSetup =
+        enableErrorMessageLower.includes("already") ||
+        enableErrorMessageLower.includes("enabled") ||
+        enableErrorMessageLower.includes("exists");
+
+      let totpURI =
+        typeof (enableResult.data as { totpURI?: unknown } | null | undefined)?.totpURI === "string"
+          ? ((enableResult.data as { totpURI?: string }).totpURI ?? "")
+          : "";
+
+      if (!totpURI) {
+        if (enableResult.error && !canRecoverWithExistingSetup) {
+          throw new Error(enableErrorMessage || "Unable to start two-factor setup");
+        }
+
+        const qrResult = await getTotpUri({ password: setupPassword });
+        totpURI = qrResult.totpURI || "";
       }
 
-      const qrResult = await getTotpUri({ password: setupPassword });
-      const totpURI = qrResult.totpURI;
       if (!totpURI) {
         throw new Error("Missing authenticator setup details");
       }

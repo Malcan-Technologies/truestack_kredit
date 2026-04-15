@@ -140,7 +140,7 @@ const navigationSections: NavSection[] = [
         href: "/dashboard/truekredit-pro/agreements",
         icon: FileText,
       },
-      { name: "TrueSend™", href: "/dashboard/modules/truesend", icon: Send },
+      { name: "Notifications", href: "/dashboard/modules/notifications", icon: Send },
     ],
   },
   {

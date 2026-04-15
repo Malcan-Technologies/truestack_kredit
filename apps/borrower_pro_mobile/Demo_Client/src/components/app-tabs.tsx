@@ -99,6 +99,14 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="notifications" {...tabTriggerNative}>
+        <NativeTabs.Trigger.Label>Notifications</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          sf="bell"
+          md="notifications"
+        />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="loans" {...tabTriggerNative}>
         <NativeTabs.Trigger.Label>Loans</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

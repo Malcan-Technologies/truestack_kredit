@@ -72,6 +72,27 @@ export function initCronJobs(): void {
 
   console.log('  ✓ TrueSend payment reminders: 9:00 AM MYT daily');
 
+  // TrueSend late payment notices: 9:15 AM Malaysia Time daily
+  cron.schedule('15 9 * * *', async () => {
+    console.log('[CRON] Starting TrueSend late payment notices...');
+    try {
+      const result = await LatePaymentNoticeProcessor.processNotices();
+      console.log(
+        `[CRON] Late payment notices complete: ` +
+        `${result.tenantsChecked} tenants, ${result.noticesSent} notices sent`
+      );
+      if (result.errors.length > 0) {
+        console.error(`[CRON] Late payment notice errors:`, result.errors);
+      }
+    } catch (error) {
+      console.error('[CRON] Late payment notices failed:', error);
+    }
+  }, {
+    timezone: 'Asia/Kuala_Lumpur',
+  });
+
+  console.log('  ✓ TrueSend late payment notices: 9:15 AM MYT daily');
+
   // Attestation: expire pending proposals every 15 minutes
   cron.schedule('*/15 * * * *', async () => {
     try {

@@ -188,6 +188,11 @@ model Tenant {
   paymentTransactions  PaymentTransaction[] // Payment transactions with receipts
   lateFeeEntries       LateFeeEntry[] // Daily late fee accrual entries
   emailLogs            EmailLog[] // TrueSend email delivery logs
+  tenantNotificationSettings TenantNotificationSetting[]
+  borrowerNotifications      BorrowerNotification[]
+  borrowerNotificationDeliveries BorrowerNotificationDelivery[]
+  borrowerPushDevices        BorrowerPushDevice[]
+  notificationCampaigns      NotificationCampaign[]
   borrowerPerformanceProjections BorrowerPerformanceProjection[]
   trueIdentitySessions TrueIdentitySession[]
   trueIdentityWebhookEvents TrueIdentityWebhookEvent[]
@@ -268,6 +273,7 @@ model User {
   // PKI signing profile and internal signatures
   staffSigningProfiles  StaffSigningProfile[]
   loanInternalSignatures LoanInternalSignature[]
+  borrowerPushDevices    BorrowerPushDevice[]
 
   @@index([email])
   @@index([referralCode])
@@ -657,6 +663,9 @@ model Borrower {
   documents    BorrowerDocument[]
   directors    BorrowerDirector[]
   emailLogs    EmailLog[] // TrueSend email delivery logs
+  notifications BorrowerNotification[]
+  notificationDeliveries BorrowerNotificationDelivery[]
+  pushDevices   BorrowerPushDevice[]
   performanceProjection BorrowerPerformanceProjection?
   trueIdentitySessions TrueIdentitySession[]
   truestackKycSessions TruestackKycSession[]
@@ -1387,6 +1396,121 @@ model Notification {
 
   @@index([tenantId])
   @@index([status])
+}
+
+model TenantNotificationSetting {
+  id                String   @id @default(cuid())
+  tenantId          String
+  notificationKey   String
+  channel           String   // email, in_app, push
+  enabled           Boolean  @default(true)
+  updatedByMemberId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, notificationKey, channel])
+  @@index([tenantId, notificationKey])
+}
+
+model BorrowerNotification {
+  id              String   @id @default(cuid())
+  tenantId        String
+  borrowerId      String
+  category        String
+  notificationKey String
+  title           String
+  body            String
+  deepLink        String?
+  sourceType      String?
+  sourceId        String?
+  metadata        Json?
+  readAt          DateTime?
+  archivedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant     Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower   Borrower                      @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  deliveries BorrowerNotificationDelivery[]
+
+  @@index([tenantId, borrowerId, createdAt(sort: Desc)])
+  @@index([tenantId, sourceType, sourceId])
+  @@index([borrowerId, readAt])
+}
+
+model BorrowerNotificationDelivery {
+  id                     String   @id @default(cuid())
+  tenantId               String
+  borrowerId             String?
+  borrowerNotificationId String?
+  channel                String   // email, in_app, push
+  provider               String?
+  providerMessageId      String?
+  tokenSnapshot          String?
+  status                 String   @default("pending")
+  errorMessage           String?
+  sentAt                 DateTime?
+  deliveredAt            DateTime?
+  openedAt               DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower             Borrower?             @relation(fields: [borrowerId], references: [id], onDelete: SetNull)
+  borrowerNotification BorrowerNotification? @relation(fields: [borrowerNotificationId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, channel, status, createdAt(sort: Desc)])
+  @@index([borrowerNotificationId])
+  @@index([borrowerId, createdAt(sort: Desc)])
+}
+
+model BorrowerPushDevice {
+  id         String   @id @default(cuid())
+  tenantId   String
+  borrowerId String
+  userId     String?
+  token      String   @unique
+  platform   String
+  provider   String   @default("expo")
+  appId      String?
+  deviceName String?
+  isActive   Boolean  @default(true)
+  lastSeenAt DateTime @default(now())
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, borrowerId])
+  @@index([tenantId, isActive])
+  @@index([borrowerId, isActive])
+}
+
+model NotificationCampaign {
+  id                String   @id @default(cuid())
+  tenantId          String
+  title             String
+  body              String
+  deepLink          String?
+  audienceType      String
+  channels          String[] @default([])
+  status            String   @default("DRAFT")
+  recipientCount    Int      @default(0)
+  scheduledAt       DateTime?
+  publishedAt       DateTime?
+  createdByMemberId String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status, createdAt(sort: Desc)])
 }
 
 // ============================================

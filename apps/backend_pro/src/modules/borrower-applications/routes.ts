@@ -9,6 +9,7 @@ import { requireActiveBorrower } from '../borrower-auth/borrowerContext.js';
 import { computeLoanApplicationPreview } from '../loans/loanApplicationPreviewService.js';
 import { parseDocumentUpload, saveDocumentFile, deleteDocumentFile, ensureDocumentsDir } from '../../lib/upload.js';
 import { AuditService } from '../compliance/auditService.js';
+import { NotificationOrchestrator } from '../notifications/orchestrator.js';
 import { toSafeNumber } from '../../lib/math.js';
 import {
   borrowerAcceptLatestOffer,
@@ -682,6 +683,22 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
       },
       ipAddress: req.ip,
     });
+
+    try {
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: tenant.id,
+        borrowerId,
+        notificationKey: 'application_submitted',
+        category: 'applications',
+        title: 'Application submitted',
+        body: 'Your application has been submitted successfully.',
+        deepLink: `/applications/${applicationId}`,
+        sourceType: 'LOAN_APPLICATION',
+        sourceId: applicationId,
+      });
+    } catch (notificationError) {
+      console.error(`[Notifications] Failed to fan out borrower submission ${applicationId}:`, notificationError);
+    }
 
     res.json({
       success: true,

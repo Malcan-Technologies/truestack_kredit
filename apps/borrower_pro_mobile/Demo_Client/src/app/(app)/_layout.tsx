@@ -6,6 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { useSession } from '@/lib/auth';
 import { borrowerAuthClient } from '@/lib/api/borrower';
 import { BorrowerAccessProvider } from '@/lib/borrower-access';
+import { PushNotificationsProvider } from '@/lib/notifications/push-provider';
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -124,7 +125,9 @@ function BorrowerProfileProviderShell() {
         refreshBorrowerProfiles,
         switchBorrowerProfile: handleSwitchBorrowerProfile,
       }}>
-      <Stack screenOptions={{ headerShown: false }} />
+      <PushNotificationsProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </PushNotificationsProvider>
     </BorrowerAccessProvider>
   );
 }

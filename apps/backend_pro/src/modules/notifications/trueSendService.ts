@@ -11,6 +11,7 @@ import { config } from '../../lib/config.js';
 import { AddOnService } from '../../lib/addOnService.js';
 import { getFile } from '../../lib/storage.js';
 import { safeAdd, safeRound, toSafeNumber } from '../../lib/math.js';
+import { NotificationOrchestrator } from './orchestrator.js';
 
 // ============================================
 // Types
@@ -387,7 +388,7 @@ export class TrueSendService {
       <p>Thank you.</p>
     `;
 
-    return await this.sendEmail({
+    const sent = await this.sendEmail({
       tenantId,
       loanId,
       borrowerId,
@@ -397,6 +398,35 @@ export class TrueSendService {
       subject: `Payment Reminder — ${amountFormatted} due ${dueDateFormatted}`,
       htmlBody: await buildEmailWrapper(tenant, content),
     });
+
+    if (sent && borrowerId) {
+      try {
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId,
+          borrowerId,
+          notificationKey: 'payment_reminder',
+          category: 'payments',
+          title: daysUntilDue === 0 ? 'Payment due today' : 'Upcoming payment reminder',
+          body:
+            daysUntilDue === 0
+              ? `${amountFormatted} is due today for repayment #${milestoneNumber}.`
+              : `${amountFormatted} is due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'} for repayment #${milestoneNumber}.`,
+          deepLink: `/loans/${loanId}`,
+          sourceType: 'LOAN',
+          sourceId: loanId,
+          metadata: {
+            amount,
+            milestoneNumber,
+            daysUntilDue,
+            dueDate: dueDate.toISOString(),
+          },
+        });
+      } catch (notificationError) {
+        console.error(`[TrueSend] Failed to fan out payment reminder for loan ${loanId}:`, notificationError);
+      }
+    }
+
+    return sent;
   }
 
   static async sendPaymentReminder(
@@ -472,7 +502,7 @@ export class TrueSendService {
       <p>Thank you.</p>
     `;
 
-    return await this.sendEmail({
+    const sent = await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -482,6 +512,34 @@ export class TrueSendService {
       subject: `Late Payment Notice — ${formatCurrency(safeRound(totalOverdue, 2))} overdue`,
       htmlBody: await buildEmailWrapper(loan.tenant, content),
     });
+
+    if (sent) {
+      try {
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId,
+          borrowerId: loan.borrowerId,
+          notificationKey: 'late_payment_notice',
+          category: 'collections',
+          title: 'Late payment notice',
+          body: `${formatCurrency(safeRound(totalOverdue, 2))} is overdue on your loan account.`,
+          deepLink: `/loans/${loanId}`,
+          sourceType: 'LOAN',
+          sourceId: loanId,
+          metadata: {
+            overdueMilestones: overdueMilestones.map((milestone) => ({
+              milestoneNumber: milestone.milestoneNumber,
+              dueDate: milestone.dueDate.toISOString(),
+              amount: milestone.amount,
+              daysOverdue: milestone.daysOverdue,
+            })),
+          },
+        });
+      } catch (notificationError) {
+        console.error(`[TrueSend] Failed to fan out late payment notice for loan ${loanId}:`, notificationError);
+      }
+    }
+
+    return sent;
   }
 
   /**
@@ -515,7 +573,7 @@ export class TrueSendService {
     // Extract filename from path
     const letterFilename = letterPath.split('/').pop() || 'arrears-letter.pdf';
 
-    return await this.sendEmail({
+    const sent = await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -528,6 +586,26 @@ export class TrueSendService {
       attachmentFilename: letterFilename,
       requireAllAttachments: true,
     });
+
+    if (sent) {
+      try {
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId,
+          borrowerId: loan.borrowerId,
+          notificationKey: 'arrears_notice',
+          category: 'collections',
+          title: 'Arrears notice issued',
+          body: 'Your loan has entered arrears. Review the notice and contact your lender promptly.',
+          deepLink: `/loans/${loanId}`,
+          sourceType: 'LOAN',
+          sourceId: loanId,
+        });
+      } catch (notificationError) {
+        console.error(`[TrueSend] Failed to fan out arrears notice for loan ${loanId}:`, notificationError);
+      }
+    }
+
+    return sent;
   }
 
   /**
@@ -559,7 +637,7 @@ export class TrueSendService {
 
     const letterFilename = letterPath.split('/').pop() || 'default-letter.pdf';
 
-    return await this.sendEmail({
+    const sent = await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -572,6 +650,26 @@ export class TrueSendService {
       attachmentFilename: letterFilename,
       requireAllAttachments: true,
     });
+
+    if (sent) {
+      try {
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId,
+          borrowerId: loan.borrowerId,
+          notificationKey: 'default_notice',
+          category: 'collections',
+          title: 'Default notice issued',
+          body: 'Your loan has been marked as defaulted. Review the formal notice immediately.',
+          deepLink: `/loans/${loanId}`,
+          sourceType: 'LOAN',
+          sourceId: loanId,
+        });
+      } catch (notificationError) {
+        console.error(`[TrueSend] Failed to fan out default notice for loan ${loanId}:`, notificationError);
+      }
+    }
+
+    return sent;
   }
 
   /**
@@ -614,7 +712,7 @@ export class TrueSendService {
       <p>Thank you for your trust.</p>
     `;
 
-    return await this.sendEmail({
+    const sent = await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -628,6 +726,26 @@ export class TrueSendService {
         attachmentFilename: loan.agreementOriginalName || 'signed-loan-agreement.pdf',
       } : {}),
     });
+
+    if (sent) {
+      try {
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId,
+          borrowerId: loan.borrowerId,
+          notificationKey: 'loan_disbursed',
+          category: 'loan_lifecycle',
+          title: 'Loan disbursed',
+          body: `${formatCurrency(principal)} has been disbursed to you.`,
+          deepLink: `/loans/${loanId}`,
+          sourceType: 'LOAN',
+          sourceId: loanId,
+        });
+      } catch (notificationError) {
+        console.error(`[TrueSend] Failed to fan out disbursement notification for loan ${loanId}:`, notificationError);
+      }
+    }
+
+    return sent;
   }
 
   /**
@@ -661,7 +779,7 @@ export class TrueSendService {
 
     const letterFilename = dischargePath.split('/').pop() || 'discharge-letter.pdf';
 
-    return await this.sendEmail({
+    const sent = await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -674,6 +792,28 @@ export class TrueSendService {
       attachmentFilename: letterFilename,
       requireAllAttachments: true,
     });
+
+    if (sent) {
+      try {
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId,
+          borrowerId: loan.borrowerId,
+          notificationKey: 'loan_completed',
+          category: 'loan_lifecycle',
+          title: isEarlySettlement ? 'Loan early-settled' : 'Loan completed',
+          body: isEarlySettlement
+            ? 'Your loan has been fully settled early.'
+            : 'Your loan has been fully completed.',
+          deepLink: `/loans/${loanId}`,
+          sourceType: 'LOAN',
+          sourceId: loanId,
+        });
+      } catch (notificationError) {
+        console.error(`[TrueSend] Failed to fan out completion notification for loan ${loanId}:`, notificationError);
+      }
+    }
+
+    return sent;
   }
 
   /**
@@ -715,7 +855,7 @@ export class TrueSendService {
 
     const receiptFilename = receiptPath.split('/').pop() || `receipt-${receiptNumber}.pdf`;
 
-    return await this.sendEmail({
+    const sent = await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -728,6 +868,26 @@ export class TrueSendService {
       attachmentFilename: receiptFilename,
       requireAllAttachments: true,
     });
+
+    if (sent) {
+      try {
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId,
+          borrowerId: loan.borrowerId,
+          notificationKey: 'payment_receipt',
+          category: 'payments',
+          title: isEarlySettlement ? 'Settlement receipt available' : 'Payment recorded',
+          body: `${amountFormatted} has been recorded successfully.`,
+          deepLink: `/loans/${loanId}`,
+          sourceType: 'PAYMENT_TRANSACTION',
+          sourceId: receiptNumber,
+        });
+      } catch (notificationError) {
+        console.error(`[TrueSend] Failed to fan out payment receipt for loan ${loanId}:`, notificationError);
+      }
+    }
+
+    return sent;
   }
 
   /**
@@ -761,7 +921,7 @@ export class TrueSendService {
       <p>Thank you.</p>
     `;
 
-    return await this.sendEmail({
+    const sent = await this.sendEmail({
       tenantId,
       loanId,
       borrowerId: loan.borrowerId,
@@ -774,6 +934,26 @@ export class TrueSendService {
       attachmentFilename: agreementFilename,
       requireAllAttachments: true,
     });
+
+    if (sent) {
+      try {
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId,
+          borrowerId: loan.borrowerId,
+          notificationKey: 'signed_agreement_ready',
+          category: 'loan_lifecycle',
+          title: 'Signed agreement ready',
+          body: 'Your signed loan agreement is now available.',
+          deepLink: `/loans/${loanId}`,
+          sourceType: 'LOAN',
+          sourceId: loanId,
+        });
+      } catch (notificationError) {
+        console.error(`[TrueSend] Failed to fan out signed agreement notification for loan ${loanId}:`, notificationError);
+      }
+    }
+
+    return sent;
   }
 
   // ============================================

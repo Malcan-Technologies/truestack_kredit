@@ -12,6 +12,7 @@ import {
   createBorrowerApiClient,
   createBorrowerAuthApiClient,
   createLoansApiClient,
+  createNotificationsApiClient,
   createSigningApiClient,
 } from '@kredit/borrower';
 import { getEnv } from '@/lib/config/env';
@@ -23,4 +24,5 @@ export const borrowerClient = createBorrowerApiClient(BASE, sessionFetch);
 export const applicationsClient = createApplicationsApiClient(BASE, sessionFetch);
 export const loansClient = createLoansApiClient(BASE, sessionFetch);
 export const borrowerAuthClient = createBorrowerAuthApiClient(BASE, sessionFetch);
+export const notificationsClient = createNotificationsApiClient(BASE, sessionFetch);
 export const signingClient = createSigningApiClient(`${BASE}/signing`, sessionFetch);

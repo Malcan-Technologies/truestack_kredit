@@ -60,6 +60,14 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     plugins: [
       'expo-router',
       [
+        'expo-notifications',
+        {
+          icon: './assets/images/android-icon-monochrome.png',
+          color: '#208AEF',
+          sounds: [],
+        },
+      ],
+      [
         'expo-splash-screen',
         {
           backgroundColor: '#208AEF',

@@ -30,6 +30,7 @@ import {
 } from '../../lib/attestationBookingService.js';
 import { isPreDisbursementLoanStatus } from '../../lib/loanStatusHelpers.js';
 import { getEarlySettlementQuoteForLoan } from '../loans/earlySettlementQuoteService.js';
+import { NotificationOrchestrator } from '../notifications/orchestrator.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -1453,6 +1454,22 @@ router.post('/loans/:loanId/attestation/proceed-to-signing', async (req, res, ne
       },
       ipAddress: req.ip,
     });
+
+    try {
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: tenant.id,
+        borrowerId,
+        notificationKey: 'loan_attestation_complete',
+        category: 'loan_lifecycle',
+        title: 'Attestation complete',
+        body: 'Attestation is complete. Continue with identity verification, your digital signing certificate, then agreement signing.',
+        deepLink: `/loans/${loanId}`,
+        sourceType: 'LOAN',
+        sourceId: loanId,
+      });
+    } catch (notificationError) {
+      console.error(`[Notifications] Failed attestation complete notify ${loanId}:`, notificationError);
+    }
 
     res.json({ success: true, data: updated });
   } catch (e) {

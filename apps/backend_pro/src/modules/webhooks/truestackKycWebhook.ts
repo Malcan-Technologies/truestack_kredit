@@ -21,6 +21,11 @@ import {
 import { notifyTruestackKycUpdate } from '../../lib/truestackKycSseHub.js';
 import { getCorporateBorrowerVerificationFromLatestSessions } from '../../lib/verification.js';
 import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
+import { NotificationOrchestrator } from '../notifications/orchestrator.js';
+import {
+  borrowerIdentityGateSatisfied,
+  resolvePreDisbursementLoanDeepLink,
+} from '../notifications/loanLifecycleNotify.js';
 
 const router = Router();
 
@@ -413,6 +418,11 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
     return;
   }
 
+  const borrowerBefore = await prisma.borrower.findUnique({
+    where: { id: row.borrowerId },
+    select: { verificationStatus: true, documentVerified: true, borrowerType: true },
+  });
+
   try {
     const refreshed = await refreshKycSession(externalId);
     const finalStatus = refreshed.status || status;
@@ -466,6 +476,33 @@ async function processPayloadAsync(payload: KycWebhookPayload): Promise<void> {
           verifiedBy: null,
         },
       }).catch(() => { /* borrower may be gone in rare race */ });
+    }
+
+    const borrowerAfter = await prisma.borrower.findUnique({
+      where: { id: row.borrowerId },
+      select: { verificationStatus: true, documentVerified: true, borrowerType: true },
+    });
+    if (
+      !borrowerIdentityGateSatisfied(borrowerBefore) &&
+      borrowerIdentityGateSatisfied(borrowerAfter)
+    ) {
+      try {
+        const deepLink =
+          (await resolvePreDisbursementLoanDeepLink(row.tenantId, row.borrowerId)) ?? '/loans';
+        await NotificationOrchestrator.notifyBorrowerEvent({
+          tenantId: row.tenantId,
+          borrowerId: row.borrowerId,
+          notificationKey: 'loan_kyc_completed',
+          category: 'loan_lifecycle',
+          title: 'Identity verification complete',
+          body: 'Your KYC verification is complete. Continue with your digital certificate and agreement signing when you are ready.',
+          deepLink,
+          sourceType: 'TRUESTACK_KYC_SESSION',
+          sourceId: row.id,
+        });
+      } catch (notificationError) {
+        console.error('[Webhook/TruestackKyc] Failed to notify KYC completion:', notificationError);
+      }
     }
   } catch (err) {
     console.error('[Webhook/TruestackKyc] Refresh after webhook failed:', err);

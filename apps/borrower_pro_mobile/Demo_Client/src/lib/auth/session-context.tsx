@@ -7,7 +7,7 @@
 
 import React, { createContext, useCallback, useContext } from 'react';
 import { authClient } from './auth-client';
-import type { AuthUser, GetSessionResult } from './auth-api';
+import { signOut as performSignOut, type AuthUser, type GetSessionResult } from './auth-api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,7 +44,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const { data, isPending, refetch } = authClient.useSession();
 
   const handleSignOut = useCallback(async () => {
-    await authClient.signOut();
+    await performSignOut();
   }, []);
 
   const refresh = useCallback(async () => {

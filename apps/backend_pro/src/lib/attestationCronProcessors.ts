@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { expirePendingProposals } from './attestationBookingService.js';
 import { NotificationService } from '../modules/notifications/service.js';
+import { NotificationOrchestrator } from '../modules/notifications/orchestrator.js';
 import { AuditService } from '../modules/compliance/auditService.js';
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -58,6 +59,21 @@ export async function processAttestationMeetingReminders(): Promise<{ sent: numb
         recipient: b.email,
         subject: 'Reminder: attestation meeting in 24 hours',
         body: `Your attestation meeting is scheduled at ${loan.attestationMeetingStartAt?.toISOString() ?? ''}. Join: ${loan.attestationMeetingLink}`,
+      });
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: loan.tenantId,
+        borrowerId: loan.borrowerId,
+        notificationKey: 'attestation_meeting_reminder',
+        category: 'loan_lifecycle',
+        title: 'Attestation meeting reminder',
+        body: 'Your attestation meeting starts in about 24 hours.',
+        deepLink: `/loans/${loan.id}`,
+        sourceType: 'LOAN',
+        sourceId: loan.id,
+        metadata: {
+          meetingStartAt: loan.attestationMeetingStartAt?.toISOString() ?? null,
+          meetingLink: loan.attestationMeetingLink,
+        },
       });
       await prisma.loan.update({
         where: { id: loan.id },

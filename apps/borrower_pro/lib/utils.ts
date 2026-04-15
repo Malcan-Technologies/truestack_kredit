@@ -80,3 +80,49 @@ export function formatCurrency(amount: number | string): string {
     maximumFractionDigits: 2,
   }).format(numberValue);
 }
+
+export function formatDateTime(value: string | Date | null | undefined): string {
+  if (!value) return "-";
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-MY", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kuala_Lumpur",
+  }).format(date);
+}
+
+export function formatRelativeTime(value: string | Date | null | undefined): string {
+  if (!value) return "-";
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const diffMs = date.getTime() - Date.now();
+  const diffMinutes = Math.round(diffMs / (1000 * 60));
+
+  if (Math.abs(diffMinutes) < 1) {
+    return "just now";
+  }
+
+  if (Math.abs(diffMinutes) < 60) {
+    return `${Math.abs(diffMinutes)} min${Math.abs(diffMinutes) === 1 ? "" : "s"} ${
+      diffMinutes < 0 ? "ago" : "from now"
+    }`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (Math.abs(diffHours) < 24) {
+    return `${Math.abs(diffHours)} hr${Math.abs(diffHours) === 1 ? "" : "s"} ${
+      diffHours < 0 ? "ago" : "from now"
+    }`;
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  if (Math.abs(diffDays) < 7) {
+    return `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? "" : "s"} ${
+      diffDays < 0 ? "ago" : "from now"
+    }`;
+  }
+
+  return formatDateTime(date);
+}

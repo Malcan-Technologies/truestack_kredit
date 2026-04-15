@@ -1,4 +1,3 @@
-import { PrismaClient } from "@prisma/client";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
@@ -17,8 +16,7 @@ import {
   splitOrigins,
 } from "@kredit/shared";
 import { sendEmail } from "./sendEmail";
-
-const prisma = new PrismaClient();
+import { prisma } from "./prisma";
 
 const APP_NAME = "TrueKredit Borrower";
 const appUrl = resolveAuthBaseUrl(
@@ -281,21 +279,22 @@ export const auth = betterAuth({
       if (ctx.path === "/passkey/verify-registration") {
         try {
           const returned = ctx.context.returned;
-          if (!returned) return;
-          let data: Record<string, unknown> | null = null;
-          if (returned instanceof Response) {
-            if (returned.status === 200) {
-              data = await returned.clone().json();
+          if (returned) {
+            let data: Record<string, unknown> | null = null;
+            if (returned instanceof Response) {
+              if (returned.status === 200) {
+                data = await returned.clone().json();
+              }
+            } else if (typeof returned === "object" && !("stack" in (returned as object))) {
+              data = returned as Record<string, unknown>;
             }
-          } else if (typeof returned === "object" && !("stack" in (returned as object))) {
-            data = returned as Record<string, unknown>;
-          }
-          const id = data?.id as string | undefined;
-          if (id) {
-            await prisma.passkey.update({
-              where: { id },
-              data: { rpId: passkeyRpId },
-            });
+            const id = data?.id as string | undefined;
+            if (id) {
+              await prisma.passkey.update({
+                where: { id },
+                data: { rpId: passkeyRpId },
+              });
+            }
           }
         } catch (err) {
           console.error("[auth] Failed to stamp rpId on passkey:", err);

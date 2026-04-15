@@ -26,7 +26,28 @@ const PAGE_ACCESS_RULES: Array<{
     ],
   },
   { prefix: "/dashboard/admin-logs", anyOf: ["audit_logs.view"] },
-  { prefix: "/dashboard/modules/truesend", anyOf: ["truesend.view", "truesend.manage"] },
+  {
+    prefix: "/dashboard/modules/notifications",
+    anyOf: [
+      "notifications.view",
+      "notifications.manage_settings",
+      "notifications.send_broadcast",
+      "notifications.view_logs",
+      "truesend.view",
+      "truesend.manage",
+    ],
+  },
+  {
+    prefix: "/dashboard/modules/truesend",
+    anyOf: [
+      "notifications.view",
+      "notifications.manage_settings",
+      "notifications.send_broadcast",
+      "notifications.view_logs",
+      "truesend.view",
+      "truesend.manage",
+    ],
+  },
   { prefix: "/dashboard/modules/trueidentity", anyOf: ["trueidentity.view", "trueidentity.manage"] },
   {
     prefix: "/dashboard/borrowers",
@@ -247,7 +268,21 @@ export function canManageAvailability(
 export function canManageTrueSend(
   permissions: string[] | undefined | null
 ): boolean {
-  return hasPermission(permissions, "truesend.manage");
+  return hasAnyPermission(
+    permissions,
+    "truesend.manage",
+    "notifications.manage_settings"
+  );
+}
+
+export function canManageNotifications(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(
+    permissions,
+    "notifications.manage_settings",
+    "notifications.send_broadcast"
+  );
 }
 
 export function canManageTrueIdentity(

@@ -16,6 +16,7 @@ import { createHash } from 'crypto';
 import { LateFeeProcessor } from '../../lib/lateFeeProcessor.js';
 import { generateDischargeLetter, generateDefaultLetter, generateArrearsLetter } from '../../lib/letterService.js';
 import { TrueSendService } from '../notifications/trueSendService.js';
+import { NotificationOrchestrator } from '../notifications/orchestrator.js';
 import { calculateDaysOverdueMalaysia } from '../../lib/malaysiaTime.js';
 import { recalculateBorrowerPerformanceProjection } from '../borrowers/performanceProjectionService.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
@@ -1246,6 +1247,22 @@ router.post('/applications/:applicationId/approve', requirePermission('applicati
     });
 
     try {
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: req.tenantId!,
+        borrowerId: application.borrowerId,
+        notificationKey: 'application_approved',
+        category: 'applications',
+        title: 'Application approved',
+        body: 'Your application has been approved and moved into the loan setup stage.',
+        deepLink: `/applications/${application.id}`,
+        sourceType: 'LOAN_APPLICATION',
+        sourceId: application.id,
+      });
+    } catch (notificationError) {
+      console.error(`[Notifications] Failed to fan out application approval ${application.id}:`, notificationError);
+    }
+
+    try {
       await recalculateBorrowerPerformanceProjection(req.tenantId!, application.borrowerId);
     } catch (projectionError) {
       console.error(`[BorrowerPerformance] Projection refresh failed for borrower ${application.borrowerId}:`, projectionError);
@@ -1326,6 +1343,24 @@ router.post('/applications/:applicationId/reject', requirePermission('applicatio
       ipAddress: req.ip,
     });
 
+    try {
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: req.tenantId!,
+        borrowerId: application.borrowerId,
+        notificationKey: 'application_rejected',
+        category: 'applications',
+        title: 'Application rejected',
+        body: reason?.trim()
+          ? `Your application was rejected. Reason: ${reason.trim()}`
+          : 'Your application was rejected.',
+        deepLink: `/applications/${application.id}`,
+        sourceType: 'LOAN_APPLICATION',
+        sourceId: application.id,
+      });
+    } catch (notificationError) {
+      console.error(`[Notifications] Failed to fan out application rejection ${application.id}:`, notificationError);
+    }
+
     res.json({
       success: true,
       data: updated,
@@ -1351,7 +1386,7 @@ router.post('/applications/:applicationId/counter-offer', requireAnyPermission('
 
     const appRow = await prisma.loanApplication.findFirst({
       where: { id: applicationId, tenantId: req.tenantId },
-      select: { status: true },
+      select: { status: true, borrowerId: true },
     });
     if (!appRow) throw new NotFoundError('Application');
     if (isL1QueueStatus(appRow.status)) {
@@ -1377,6 +1412,31 @@ router.post('/applications/:applicationId/counter-offer', requireAnyPermission('
       newData: { offerId: out.id, fromParty: 'ADMIN', amount: body.amount, term: body.term },
       ipAddress: req.ip,
     });
+
+    try {
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: req.tenantId!,
+        borrowerId: appRow.borrowerId,
+        notificationKey: 'application_counter_offer',
+        category: 'applications',
+        title: 'Counter offer from your lender',
+        body: `The lender proposed RM ${safeRound(body.amount, 2).toFixed(2)} over ${body.term} months. Review and respond in your application.`,
+        deepLink: `/applications/${applicationId}`,
+        sourceType: 'LOAN_APPLICATION',
+        sourceId: applicationId,
+        metadata: {
+          offerId: out.id,
+          amount: body.amount,
+          term: body.term,
+        },
+      });
+    } catch (notificationError) {
+      console.error(
+        `[Notifications] Failed to fan out lender counter-offer for application ${applicationId}:`,
+        notificationError
+      );
+    }
+
     res.status(201).json({ success: true, data: out });
   } catch (error) {
     next(error);
@@ -1516,6 +1576,29 @@ router.post('/applications/:applicationId/return-to-draft', requireAnyPermission
       newData: { status: 'DRAFT', reason: reason || null },
       ipAddress: req.ip,
     });
+
+    const reasonStr = typeof reason === 'string' ? reason.trim() : '';
+    try {
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: req.tenantId!,
+        borrowerId: application.borrowerId,
+        notificationKey: 'application_returned_for_amendments',
+        category: 'applications',
+        title: 'Application returned for amendments',
+        body: reasonStr
+          ? `Your lender returned this application to draft. ${reasonStr.length > 400 ? `${reasonStr.slice(0, 400)}…` : reasonStr}`
+          : 'Your lender returned your application to draft so you can make updates.',
+        deepLink: `/applications/${applicationId}`,
+        sourceType: 'LOAN_APPLICATION',
+        sourceId: applicationId,
+        metadata: { previousStatus, reason: reasonStr || null },
+      });
+    } catch (notificationError) {
+      console.error(
+        `[Notifications] Failed to fan out return-to-draft for application ${applicationId}:`,
+        notificationError
+      );
+    }
 
     res.json({
       success: true,
@@ -2456,6 +2539,7 @@ router.post(
         status: true,
         attestationStatus: true,
         attestationCompletedAt: true,
+        borrowerId: true,
       },
     });
     if (!loan) {
@@ -2495,6 +2579,22 @@ router.post(
       },
       ipAddress: req.ip,
     });
+
+    try {
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId,
+        borrowerId: loan.borrowerId,
+        notificationKey: 'loan_attestation_complete',
+        category: 'loan_lifecycle',
+        title: 'Attestation complete',
+        body: 'Your attestation meeting is complete. Continue with identity verification, your digital signing certificate, then agreement signing.',
+        deepLink: `/loans/${loanId}`,
+        sourceType: 'LOAN',
+        sourceId: loanId,
+      });
+    } catch (notificationError) {
+      console.error(`[Notifications] Failed admin attestation complete notify ${loanId}:`, notificationError);
+    }
 
     res.json({ success: true, data: updated });
   } catch (e) {

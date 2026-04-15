@@ -10,6 +10,7 @@ import {
 import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
 import Link from "next/link";
 import {
+  Bell,
   Building2,
   CircleHelp,
   ChevronDown,
@@ -42,6 +43,7 @@ import {
   TooltipTrigger,
 } from "@borrower_pro/components/ui/tooltip";
 import { cn } from "@borrower_pro/lib/utils";
+import { BorrowerNotificationBell } from "@borrower_pro/components/borrower-notification-bell";
 import { SecuritySetupBanner } from "@borrower_pro/components/security-setup-banner";
 import { APP_VERSION } from "@/lib/version";
 import { ONBOARDING_DISMISSED_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
@@ -51,10 +53,11 @@ const navItems = [
   { name: "Applications", href: "/applications", icon: ClipboardList },
   { name: "Loans", href: "/loans", icon: Landmark },
   { name: "Your Profile", href: "/profile", icon: UserCircle },
+  { name: "Notifications", href: "/notifications", icon: Bell },
   { name: "Help", href: "/help", icon: CircleHelp },
 ];
 
-const PROFILE_REQUIRED_NAV_PATHS = new Set(["/applications", "/loans", "/profile"]);
+const PROFILE_REQUIRED_NAV_PATHS = new Set(["/notifications", "/applications", "/loans", "/profile"]);
 
 function isOnboardingExemptPath(pathname: string): boolean {
   return (
@@ -486,6 +489,8 @@ export default function DashboardLayout({
                   ? "Your Profile"
                   : pathname === "/account"
                   ? "My account"
+                  : pathname === "/notifications"
+                  ? "Notifications"
                   : pathname === "/applications"
                   ? "Applications"
                   : pathname === "/loans"
@@ -499,7 +504,10 @@ export default function DashboardLayout({
                   : "Demo Client"}
               </h1>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-1 sm:gap-2">
+              <BorrowerNotificationBell disabled={hasBorrowerProfiles === false} />
+              <ThemeToggle />
+            </div>
           </div>
         </header>
 

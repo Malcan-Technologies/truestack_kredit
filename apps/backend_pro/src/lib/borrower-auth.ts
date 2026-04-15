@@ -206,32 +206,30 @@ export const borrowerAuth = betterAuth({
 
   hooks: {
     after: createAuthMiddleware(async (ctx) => {
-      if (ctx.path !== '/passkey/verify-registration') {
-        return;
-      }
+      if (ctx.path === '/passkey/verify-registration') {
+        try {
+          const returned = ctx.context.returned;
+          if (returned) {
+            let data: Record<string, unknown> | null = null;
+            if (returned instanceof Response) {
+              if (returned.status === 200) {
+                data = (await returned.clone().json()) as Record<string, unknown>;
+              }
+            } else if (typeof returned === 'object' && !('stack' in (returned as object))) {
+              data = returned as Record<string, unknown>;
+            }
 
-      try {
-        const returned = ctx.context.returned;
-        if (!returned) return;
-
-        let data: Record<string, unknown> | null = null;
-        if (returned instanceof Response) {
-          if (returned.status === 200) {
-            data = (await returned.clone().json()) as Record<string, unknown>;
+            const id = data?.id as string | undefined;
+            if (id) {
+              await prisma.passkey.update({
+                where: { id },
+                data: { rpId: passkeyRpId },
+              });
+            }
           }
-        } else if (typeof returned === 'object' && !('stack' in (returned as object))) {
-          data = returned as Record<string, unknown>;
+        } catch (error) {
+          console.error('[borrower-auth] Failed to stamp rpId on passkey:', error);
         }
-
-        const id = data?.id as string | undefined;
-        if (!id) return;
-
-        await prisma.passkey.update({
-          where: { id },
-          data: { rpId: passkeyRpId },
-        });
-      } catch (error) {
-        console.error('[borrower-auth] Failed to stamp rpId on passkey:', error);
       }
     }),
   },

@@ -10,6 +10,7 @@ import {
 import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
 import Link from "next/link";
 import {
+  Bell,
   Building2,
   CircleHelp,
   ChevronDown,
@@ -42,6 +43,7 @@ import {
   TooltipTrigger,
 } from "@borrower_pro/components/ui/tooltip";
 import { cn } from "@borrower_pro/lib/utils";
+import { BorrowerNotificationBell } from "@borrower_pro/components/borrower-notification-bell";
 import { SecuritySetupBanner } from "@borrower_pro/components/security-setup-banner";
 import { APP_VERSION } from "@/lib/version";
 import { ONBOARDING_DISMISSED_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
@@ -51,10 +53,14 @@ const navItems = [
   { name: "Applications", href: "/applications", icon: ClipboardList },
   { name: "Loans", href: "/loans", icon: Landmark },
   { name: "Your Profile", href: "/profile", icon: UserCircle },
+  { name: "Notifications", href: "/notifications", icon: Bell },
   { name: "Help", href: "/help", icon: CircleHelp },
 ];
 
-const PROFILE_REQUIRED_NAV_PATHS = new Set(["/applications", "/loans", "/profile"]);
+const PROFILE_REQUIRED_NAV_PATHS = new Set(["/notifications", "/applications", "/loans", "/profile"]);
+
+/** While adding another borrower profile, keep the user focused like first-time setup: only Dashboard + Help escape hatches. */
+const NAV_ALLOWED_DURING_ADD_PROFILE = new Set(["/dashboard", "/help"]);
 
 function isOnboardingExemptPath(pathname: string): boolean {
   return (
@@ -219,6 +225,9 @@ export default function DashboardLayout({
   const showSecurityBanner =
     securityStatus === "incomplete" || securityStatus === "error";
 
+  const isAdditionalProfileOnboarding =
+    pathname === "/onboarding" && hasBorrowerProfiles === true;
+
   return (
     <div className="min-h-screen bg-background">
       {sidebarOpen && (
@@ -230,7 +239,10 @@ export default function DashboardLayout({
 
       <aside
         className={cn(
-          "fixed top-0 left-0 z-50 h-full bg-card border-r border-border transform transition-all duration-200 ease-in-out lg:translate-x-0",
+          "fixed top-0 left-0 z-50 h-full bg-card border-r transform transition-all duration-200 ease-in-out lg:translate-x-0",
+          isAdditionalProfileOnboarding
+            ? "border-primary/25 shadow-[inset_3px_0_0_0_hsl(var(--primary)/0.35)]"
+            : "border-border",
           sidebarCollapsed ? "w-16" : "w-64",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
@@ -257,7 +269,11 @@ export default function DashboardLayout({
                 const isActive =
                   pathname === item.href ||
                   (item.href !== "/dashboard" && pathname.startsWith(item.href));
-                const isDisabled = hasBorrowerProfiles === false && PROFILE_REQUIRED_NAV_PATHS.has(item.href);
+                const isDisabled =
+                  (hasBorrowerProfiles === false &&
+                    PROFILE_REQUIRED_NAV_PATHS.has(item.href)) ||
+                  (isAdditionalProfileOnboarding &&
+                    !NAV_ALLOWED_DURING_ADD_PROFILE.has(item.href));
                 const itemClasses = cn(
                   "flex items-center rounded-lg text-sm font-medium transition-colors",
                   sidebarCollapsed
@@ -273,7 +289,11 @@ export default function DashboardLayout({
                   <div
                     aria-disabled="true"
                     className={itemClasses}
-                    title="Complete onboarding to unlock this page."
+                    title={
+                      isAdditionalProfileOnboarding
+                        ? "Finish adding your profile, or use Dashboard to exit."
+                        : "Complete onboarding to unlock this page."
+                    }
                   >
                     <item.icon className="h-5 w-5 shrink-0" />
                     {!sidebarCollapsed && (
@@ -335,7 +355,9 @@ export default function DashboardLayout({
                         <p>{item.name}</p>
                         {isDisabled ? (
                           <p className="opacity-70 text-xs mt-1">
-                            Complete onboarding to unlock this page.
+                            {isAdditionalProfileOnboarding
+                              ? "Finish adding your profile, or open Dashboard to exit."
+                              : "Complete onboarding to unlock this page."}
                           </p>
                         ) : null}
                       </TooltipContent>
@@ -486,6 +508,8 @@ export default function DashboardLayout({
                   ? "Your Profile"
                   : pathname === "/account"
                   ? "My account"
+                  : pathname === "/notifications"
+                  ? "Notifications"
                   : pathname === "/applications"
                   ? "Applications"
                   : pathname === "/loans"
@@ -495,11 +519,18 @@ export default function DashboardLayout({
                   : pathname.startsWith("/help")
                   ? "Help Center"
                   : pathname === "/onboarding"
-                  ? "Onboarding"
+                  ? isAdditionalProfileOnboarding
+                    ? "Add borrower profile"
+                    : "Onboarding"
                   : "Demo Client"}
               </h1>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-1 sm:gap-2">
+              <BorrowerNotificationBell
+                disabled={hasBorrowerProfiles === false || isAdditionalProfileOnboarding}
+              />
+              <ThemeToggle />
+            </div>
           </div>
         </header>
 

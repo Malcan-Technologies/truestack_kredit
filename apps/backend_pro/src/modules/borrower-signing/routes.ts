@@ -23,6 +23,7 @@ import {
   mtsaRequestUsesPassportIdType,
   storedDocumentTypeIsPassport,
 } from '../../lib/mtsaIdentity.js';
+import { notifySigningCertificateReadyIfNew } from '../notifications/loanLifecycleNotify.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -126,6 +127,25 @@ router.post('/cert-status', async (req, res, next) => {
     const userId = requireMtsaUserId(borrower, 'Borrower IC number is required for certificate check');
     const result = await getCertInfo(userId);
     const hasCert = result.success && result.certStatus === 'Valid';
+
+    if (hasCert) {
+      const pipelineLoan = await prisma.loan.findFirst({
+        where: {
+          tenantId: tenant.id,
+          borrowerId,
+          status: { in: ['PENDING_DISBURSEMENT', 'PENDING_ATTESTATION'] },
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true },
+      });
+      if (pipelineLoan) {
+        await notifySigningCertificateReadyIfNew({
+          tenantId: tenant.id,
+          borrowerId,
+          loanId: pipelineLoan.id,
+        });
+      }
+    }
 
     res.json({
       success: true,
@@ -286,6 +306,10 @@ router.post('/enroll', async (req, res, next) => {
       ...(isPassport ? { PassportImage: passportImage } : {}),
       SelfieImage: selfie,
     });
+
+    if (result.success) {
+      await notifySigningCertificateReadyIfNew({ tenantId: tenant.id, borrowerId });
+    }
 
     res.json({
       success: result.success,

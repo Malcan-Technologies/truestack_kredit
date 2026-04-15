@@ -10,6 +10,7 @@
 import { authClient } from './auth-client';
 import { getEnv } from '@/lib/config/env';
 import { sessionFetch } from './session-fetch';
+import { revokeStoredBorrowerPushToken } from '@/lib/notifications/push-registration';
 import {
   getPasskeyRpId,
   getPasskeySupportMessage,
@@ -262,6 +263,7 @@ export async function deleteDevicePasskey(id: string): Promise<void> {
  * Sign out. Clears local SecureStore token and notifies the server.
  */
 export async function signOut(): Promise<void> {
+  await revokeStoredBorrowerPushToken();
   await authClient.signOut();
 }
 

@@ -25,6 +25,7 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BorrowerContextHeader } from '@/components/borrower-context-header';
+import { NotificationHeaderButton } from '@/components/notification-header-button';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -185,6 +186,14 @@ interface PageScreenProps {
   subtitle?: string;
   children: React.ReactNode;
   contentStyle?: ViewStyle;
+  /** Native pull-to-refresh on the main scroll (e.g. `RefreshControl`). */
+  refreshControl?: React.ReactElement;
+  /**
+   * Replaces the main `Animated.ScrollView` with this scrollable (typically Reanimated `Animated.FlatList`).
+   * Use for paginated / infinite lists. **`children` are ignored** when set — build the screen body inside
+   * the list (`ListHeaderComponent`, `renderItem`, etc.).
+   */
+  scrollableOverride?: React.ReactElement;
   showBackButton?: boolean;
   showBottomNav?: boolean;
   backFallbackHref?: Href;
@@ -206,6 +215,8 @@ export function PageScreen({
   subtitle,
   children,
   contentStyle,
+  refreshControl,
+  scrollableOverride,
   showBackButton = false,
   showBottomNav = false,
   backFallbackHref = '/',
@@ -296,6 +307,8 @@ export function PageScreen({
   });
 
   const showProfileSwitcher = Boolean(showBorrowerContextHeader && !showBackButton);
+  /** Bell + profile switcher only on root tab screens (not stack / not onboarding-only without profiles). */
+  const showNotificationBell = showProfileSwitcher;
 
   function handleBack() {
     if (navigation.canGoBack()) {
@@ -380,9 +393,10 @@ export function PageScreen({
                   </Animated.View>
                 ) : null}
               </View>
-              {headerActions || showProfileSwitcher ? (
+              {headerActions || showNotificationBell || showProfileSwitcher ? (
                 <View style={styles.headerActionsRow}>
                   {headerActions ? <View style={styles.headerActionsInner}>{headerActions}</View> : null}
+                  {showNotificationBell ? <NotificationHeaderButton /> : null}
                   {showProfileSwitcher ? <BorrowerContextHeader /> : null}
                 </View>
               ) : null}
@@ -401,24 +415,48 @@ export function PageScreen({
         />
       </SafeAreaView>
 
-      <Animated.ScrollView
-        style={[styles.scroll, { backgroundColor: theme.background }]}
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            paddingBottom: bottomPadding,
-            paddingHorizontal: Spacing.four,
-            maxWidth: MaxContentWidth,
-            alignSelf: 'center',
-            width: '100%',
-          },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator>
-        <View style={[styles.body, contentStyle]}>{children}</View>
-      </Animated.ScrollView>
+      {scrollableOverride ? (
+        React.cloneElement(scrollableOverride, {
+          onScroll,
+          scrollEventThrottle: 16,
+          keyboardShouldPersistTaps: 'handled',
+          style: [styles.scroll, { backgroundColor: theme.background }, scrollableOverride.props.style],
+          contentContainerStyle: [
+            styles.scrollContent,
+            {
+              paddingBottom: bottomPadding,
+              paddingHorizontal: Spacing.four,
+              maxWidth: MaxContentWidth,
+              alignSelf: 'center',
+              width: '100%',
+            },
+            scrollableOverride.props.contentContainerStyle,
+          ],
+          refreshControl: refreshControl ?? scrollableOverride.props.refreshControl,
+          showsVerticalScrollIndicator:
+            scrollableOverride.props.showsVerticalScrollIndicator ?? true,
+        } as never)
+      ) : (
+        <Animated.ScrollView
+          style={[styles.scroll, { backgroundColor: theme.background }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingBottom: bottomPadding,
+              paddingHorizontal: Spacing.four,
+              maxWidth: MaxContentWidth,
+              alignSelf: 'center',
+              width: '100%',
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          onScroll={onScroll}
+          refreshControl={refreshControl}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator>
+          <View style={[styles.body, contentStyle]}>{children}</View>
+        </Animated.ScrollView>
+      )}
 
       {stickyFooter ? (
         <View

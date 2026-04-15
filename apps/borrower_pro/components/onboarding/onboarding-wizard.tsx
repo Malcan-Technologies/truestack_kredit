@@ -309,12 +309,15 @@ export function OnboardingWizard() {
   };
 
   const handleSaveAndExit = useCallback(() => {
-    try {
-      localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    } catch {}
+    // Only the "no profiles yet" flow uses dismissed-key to allow dashboard without completing wizard.
+    if (profileCount === 0) {
+      try {
+        localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+      } catch {}
+    }
     toast.success("Your progress has been saved. Continue anytime.");
     router.push("/dashboard");
-  }, [router]);
+  }, [router, profileCount]);
 
   const buildPayload = (): OnboardingPayload => {
     if (borrowerType === "INDIVIDUAL") {
@@ -508,12 +511,16 @@ export function OnboardingWizard() {
         <div>
           <h1 className="text-2xl font-heading font-bold text-gradient">
             {isIntroStep
-              ? "Welcome to your borrower account"
+              ? profileCount > 0
+                ? "Add another borrower profile"
+                : "Welcome to your borrower account"
               : "Let's set up your borrower profile"}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isIntroStep
-              ? "A quick onboarding is all it takes before you can start using everything in the app."
+              ? profileCount > 0
+                ? "You're in a focused setup flow — the sidebar only opens Dashboard and Help until you're done."
+                : "A quick onboarding is all it takes before you can start using everything in the app."
               : "We'll walk you through a few steps. You can save and come back anytime."}
           </p>
         </div>

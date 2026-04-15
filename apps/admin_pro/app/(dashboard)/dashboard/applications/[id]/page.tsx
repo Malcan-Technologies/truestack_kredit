@@ -55,6 +55,12 @@ import { AccessDeniedCard } from "@/components/role-gate";
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { PhoneDisplay } from "@/components/ui/phone-display";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import {
   formatCurrency,
@@ -971,6 +977,14 @@ export default function ApplicationDetailPage() {
     canRejectApplication &&
     ((isL1Queue && canApproveL1) || (isL2Queue && canApproveL2));
 
+  /** Any pending counter-offer round blocks reject / advance queue / final approve until resolved (matches backend guard). */
+  const queueBlockedByNegotiation =
+    (isL1Queue || isL2Queue) &&
+    (application.offerRounds ?? []).some((o) => o.status === "PENDING");
+
+  const negotiationQueueBlockTooltip =
+    "Finish or wait for offer negotiation (counter-offer or borrower response) before rejecting, sending to L2, or final approval.";
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1018,6 +1032,7 @@ export default function ApplicationDetailPage() {
         </div>
 
         {/* Action Buttons */}
+        <TooltipProvider delayDuration={300}>
         <div className="flex gap-2 flex-wrap justify-end">
           <RefreshButton
             onRefresh={async () => {
@@ -1062,16 +1077,31 @@ export default function ApplicationDetailPage() {
                 <Handshake className="h-4 w-4 mr-2" />
                 Counter offer
               </Button>
-              {canRejectThisStage && (
-                <Button
-                  variant="destructive"
-                  onClick={handleRejectClick}
-                  disabled={actionLoading === "reject"}
-                >
-                  <X className="h-4 w-4 mr-2" />
-                  {actionLoading === "reject" ? "Rejecting..." : "Reject"}
-                </Button>
-              )}
+              {canRejectThisStage &&
+                (queueBlockedByNegotiation ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <Button variant="destructive" disabled>
+                          <X className="h-4 w-4 mr-2" />
+                          Reject
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p>{negotiationQueueBlockTooltip}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    onClick={handleRejectClick}
+                    disabled={actionLoading === "reject"}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    {actionLoading === "reject" ? "Rejecting..." : "Reject"}
+                  </Button>
+                ))}
               {application.offerRounds?.some(
                 (o) => o.status === "PENDING" && o.fromParty === "BORROWER"
               ) && (
@@ -1083,14 +1113,30 @@ export default function ApplicationDetailPage() {
                   {actionLoading === "acceptBorrowerOffer" ? "Accepting…" : "Accept borrower offer"}
                 </Button>
               )}
-              <Button
-                onClick={handleSendToL2Click}
-                disabled={actionLoading === "sendToL2"}
-                className="bg-sky-600 hover:bg-sky-700"
-              >
-                <ArrowUpRight className="h-4 w-4 mr-2" />
-                {actionLoading === "sendToL2" ? "Sending..." : "Send to L2 Review"}
-              </Button>
+              {queueBlockedByNegotiation ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button disabled className="bg-sky-600 hover:bg-sky-700">
+                        <ArrowUpRight className="h-4 w-4 mr-2" />
+                        Send to L2 Review
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>{negotiationQueueBlockTooltip}</p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button
+                  onClick={handleSendToL2Click}
+                  disabled={actionLoading === "sendToL2"}
+                  className="bg-sky-600 hover:bg-sky-700"
+                >
+                  <ArrowUpRight className="h-4 w-4 mr-2" />
+                  {actionLoading === "sendToL2" ? "Sending..." : "Send to L2 Review"}
+                </Button>
+              )}
             </>
           )}
           {isL2Queue && canApproveL2 && (
@@ -1116,16 +1162,31 @@ export default function ApplicationDetailPage() {
                 <Handshake className="h-4 w-4 mr-2" />
                 Counter offer
               </Button>
-              {canRejectThisStage && (
-                <Button
-                  variant="destructive"
-                  onClick={handleRejectClick}
-                  disabled={actionLoading === "reject"}
-                >
-                  <X className="h-4 w-4 mr-2" />
-                  {actionLoading === "reject" ? "Rejecting..." : "Reject"}
-                </Button>
-              )}
+              {canRejectThisStage &&
+                (queueBlockedByNegotiation ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <Button variant="destructive" disabled>
+                          <X className="h-4 w-4 mr-2" />
+                          Reject
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p>{negotiationQueueBlockTooltip}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    onClick={handleRejectClick}
+                    disabled={actionLoading === "reject"}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    {actionLoading === "reject" ? "Rejecting..." : "Reject"}
+                  </Button>
+                ))}
               {application.offerRounds?.some(
                 (o) => o.status === "PENDING" && o.fromParty === "BORROWER"
               ) && (
@@ -1137,10 +1198,26 @@ export default function ApplicationDetailPage() {
                   {actionLoading === "acceptBorrowerOffer" ? "Accepting…" : "Accept borrower offer"}
                 </Button>
               )}
-              <Button onClick={handleApproveClick} disabled={actionLoading === "approve"} className="bg-emerald-600 hover:bg-emerald-700">
-                <Check className="h-4 w-4 mr-2" />
-                {actionLoading === "approve" ? "Approving..." : "Final approve"}
-              </Button>
+              {queueBlockedByNegotiation ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button disabled className="bg-emerald-600 hover:bg-emerald-700">
+                        <Check className="h-4 w-4 mr-2" />
+                        Final approve
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>{negotiationQueueBlockTooltip}</p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button onClick={handleApproveClick} disabled={actionLoading === "approve"} className="bg-emerald-600 hover:bg-emerald-700">
+                  <Check className="h-4 w-4 mr-2" />
+                  {actionLoading === "approve" ? "Approving..." : "Final approve"}
+                </Button>
+              )}
             </>
           )}
           {application.loan && (
@@ -1150,6 +1227,7 @@ export default function ApplicationDetailPage() {
             </Button>
           )}
         </div>
+        </TooltipProvider>
       </div>
 
       {/* Missing Documents Warning */}

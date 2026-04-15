@@ -4,6 +4,7 @@ export * from './types/application';
 export * from './types/loan';
 export * from './types/auth';
 export * from './types/signing';
+export * from './types/notifications';
 
 // Schemas
 export * from './schemas/borrower';
@@ -16,12 +17,20 @@ export * from './schemas/signing';
 export type { FetchFn } from './api/shared';
 export { parseJson } from './api/shared';
 
+// Notification category helpers (UI mapping)
+export {
+  borrowerNotificationCategoryLabel,
+  resolveBorrowerNotificationCategoryKind,
+  type BorrowerNotificationCategoryKind,
+} from './lib/borrower-notification-category';
+
 // API factories
 export { createBorrowerApiClient } from './api/borrower-client';
 export { createApplicationsApiClient } from './api/applications-client';
 export { createLoansApiClient } from './api/loans-client';
 export { createBorrowerAuthApiClient } from './api/borrower-auth-client';
 export { createSigningApiClient } from './api/signing-client';
+export { createNotificationsApiClient } from './api/notifications-client';
 
 // URL helpers
 export {

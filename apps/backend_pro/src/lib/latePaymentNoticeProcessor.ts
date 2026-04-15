@@ -210,7 +210,6 @@ export class LatePaymentNoticeProcessor {
           }> = [];
 
           for (const loan of loans) {
-            if (!loan.borrower.email) continue;
             const latestVersion = loan.scheduleVersions[0];
             if (!latestVersion) continue;
             const triggeredNoticeTypes = triggeredNoticeTypesByLoanId.get(loan.id);
@@ -266,10 +265,7 @@ export class LatePaymentNoticeProcessor {
             if (!hasNewDispatch) return;
 
             try {
-              const sent = await TrueSendService.sendLatePaymentNotice(tenantId, job.loanId, job.overdueMilestones);
-              if (!sent) {
-                throw new Error('TrueSend failed to deliver late payment notice');
-              }
+              await TrueSendService.sendLatePaymentNotice(tenantId, job.loanId, job.overdueMilestones);
               noticesSent++;
             } catch (error) {
               if (createdDispatchIds.length > 0) {

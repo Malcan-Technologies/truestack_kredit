@@ -945,6 +945,12 @@ router.post('/applications/:applicationId/submit', requirePermission('applicatio
       throw new BadRequestError('Can only submit draft applications');
     }
 
+    if (application.loanChannel !== 'PHYSICAL') {
+      throw new BadRequestError(
+        'Online applications must be submitted by the borrower. Admin submit is only for physical (in-branch) applications.',
+      );
+    }
+
     let actualInterestRate: number | null = null;
     let actualTerm: number | null = null;
 

@@ -607,6 +607,9 @@ router.get('/stats', async (req, res, next) => {
     const canManageLoans = userHasPermission(req, 'loans.manage');
     const canManageCollections = userHasPermission(req, 'collections.manage');
 
+    /** All in-flight application review stages (L1 queue + L2 queue) for portfolio KPIs */
+    const pendingApplicationsKpi = pendingApplications + pendingL2ApprovalTotal;
+
     res.json({
       success: true,
       data: {
@@ -630,7 +633,7 @@ router.get('/stats', async (req, res, next) => {
           activeLoansInRange,
           loansInArrearsInRange,
           loansInArrears,
-          pendingApplications,
+          pendingApplications: pendingApplicationsKpi,
         },
         loansByStatus,
         disbursementTrend,

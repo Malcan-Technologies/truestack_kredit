@@ -93,6 +93,15 @@ async function syncBorrowerPushToken(token: string): Promise<void> {
   await setStoredPushToken(token);
 }
 
+async function getCurrentExpoPushToken(): Promise<string | null> {
+  const projectId = resolveExpoProjectId();
+  const tokenResponse = projectId
+    ? await Notifications.getExpoPushTokenAsync({ projectId })
+    : await Notifications.getExpoPushTokenAsync();
+
+  return tokenResponse.data || null;
+}
+
 export async function registerBorrowerPushDevice(): Promise<{
   token: string | null;
   registered: boolean;
@@ -128,11 +137,7 @@ export async function registerBorrowerPushDevice(): Promise<{
     return { token: null, registered: false, reason: 'permission_denied' };
   }
 
-  const projectId = resolveExpoProjectId();
-  const tokenResponse = projectId
-    ? await Notifications.getExpoPushTokenAsync({ projectId })
-    : await Notifications.getExpoPushTokenAsync();
-  const token = tokenResponse.data;
+  const token = await getCurrentExpoPushToken();
 
   if (!token) {
     return { token: null, registered: false, reason: 'missing_push_token' };
@@ -143,9 +148,14 @@ export async function registerBorrowerPushDevice(): Promise<{
   return { token, registered: true };
 }
 
-export async function syncRefreshedBorrowerPushToken(token: string): Promise<void> {
+export async function syncRefreshedBorrowerPushToken(): Promise<void> {
   await ensureAndroidNotificationChannels();
-  await syncBorrowerPushToken(token);
+  const refreshedExpoToken = await getCurrentExpoPushToken();
+  if (!refreshedExpoToken) {
+    throw new Error('missing_push_token');
+  }
+
+  await syncBorrowerPushToken(refreshedExpoToken);
 }
 
 export async function revokeStoredBorrowerPushToken(): Promise<void> {

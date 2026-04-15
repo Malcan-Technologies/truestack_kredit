@@ -3,20 +3,25 @@ import { z } from 'zod';
 import { requireBorrowerSession } from '../../middleware/authenticateBorrower.js';
 import { requireActiveBorrower } from '../borrower-auth/borrowerContext.js';
 import { NotificationOrchestrator } from '../notifications/orchestrator.js';
+import { isExpoPushToken } from '../notifications/pushService.js';
 
 const router = Router();
 
 router.use(requireBorrowerSession);
 
 const registerPushDeviceSchema = z.object({
-  token: z.string().min(1),
+  token: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((token) => isExpoPushToken(token), 'Invalid Expo push token'),
   platform: z.string().min(1),
   appId: z.string().trim().optional().or(z.literal('')),
   deviceName: z.string().trim().optional().or(z.literal('')),
 });
 
 const revokePushDeviceSchema = z.object({
-  token: z.string().min(1),
+  token: z.string().trim().min(1),
 });
 
 router.get('/notifications', async (req, res, next) => {

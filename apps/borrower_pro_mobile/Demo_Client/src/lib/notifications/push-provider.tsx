@@ -77,12 +77,12 @@ export function PushNotificationsProvider({
     const subscription = Notifications.addNotificationResponseReceivedListener(
       handleNotificationResponse
     );
-    const tokenSubscription = Notifications.addPushTokenListener((token) => {
+    const tokenSubscription = Notifications.addPushTokenListener(() => {
       if (!sessionUserId || !activeBorrowerId) {
         return;
       }
 
-      void syncRefreshedBorrowerPushToken(token.data).catch((error) => {
+      void syncRefreshedBorrowerPushToken().catch((error) => {
         console.warn('[notifications] Failed to sync refreshed push token:', error);
       });
     });

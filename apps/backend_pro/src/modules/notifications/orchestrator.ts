@@ -203,6 +203,20 @@ export class NotificationOrchestrator {
           },
         });
 
+        if (
+          !result.success &&
+          (result.errorCode === 'DeviceNotRegistered' ||
+            result.errorCode === 'InvalidPushTokenFormat')
+        ) {
+          await prisma.borrowerPushDevice.update({
+            where: { id: device.id },
+            data: {
+              isActive: false,
+              revokedAt: new Date(),
+            },
+          });
+        }
+
         await prisma.borrowerNotificationDelivery.create({
           data: {
             tenantId: input.tenantId,
@@ -336,11 +350,13 @@ export class NotificationOrchestrator {
     appId?: string | null;
     deviceName?: string | null;
   }) {
+    const normalizedToken = params.token.trim();
+
     return prisma.borrowerPushDevice.upsert({
       where: {
         tenantId_token: {
           tenantId: params.tenantId,
-          token: params.token,
+          token: normalizedToken,
         },
       },
       update: {
@@ -357,7 +373,7 @@ export class NotificationOrchestrator {
         tenantId: params.tenantId,
         borrowerId: params.borrowerId,
         userId: params.userId,
-        token: params.token,
+        token: normalizedToken,
         platform: params.platform,
         appId: params.appId ?? null,
         deviceName: params.deviceName ?? null,
@@ -398,11 +414,13 @@ export class NotificationOrchestrator {
     borrowerId: string;
     token?: string | null;
   }) {
+    const normalizedToken = params.token?.trim();
+
     await prisma.borrowerPushDevice.updateMany({
       where: {
         tenantId: params.tenantId,
         borrowerId: params.borrowerId,
-        ...(params.token ? { token: params.token } : {}),
+        ...(normalizedToken ? { token: normalizedToken } : {}),
         revokedAt: null,
       },
       data: {

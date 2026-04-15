@@ -150,6 +150,55 @@ describe('NotificationOrchestrator', () => {
     );
   });
 
+  it('revokes stale or invalid Expo tokens after push send failure', async () => {
+    getNotificationChannelStateMock.mockResolvedValue({
+      email: false,
+      in_app: true,
+      push: true,
+    });
+    prismaMock.borrowerNotification.create.mockResolvedValue({
+      id: 'notification-stale-token',
+    });
+    prismaMock.borrowerPushDevice.findMany.mockResolvedValue([
+      {
+        id: 'device-stale',
+        token: 'ExpoPushToken[stale-token]',
+        provider: 'expo',
+      },
+    ]);
+    pushSendMock.mockResolvedValue({
+      success: false,
+      errorCode: 'DeviceNotRegistered',
+      errorMessage: 'DeviceNotRegistered',
+    });
+
+    await NotificationOrchestrator.notifyBorrowerEvent({
+      tenantId: 'tenant-1',
+      borrowerId: 'borrower-1',
+      notificationKey: 'announcement_broadcast',
+      category: 'announcements',
+      title: 'Notice',
+      body: 'Token expired.',
+    });
+
+    expect(prismaMock.borrowerPushDevice.update).toHaveBeenCalledWith({
+      where: { id: 'device-stale' },
+      data: {
+        isActive: false,
+        revokedAt: expect.any(Date),
+      },
+    });
+    expect(prismaMock.borrowerNotificationDelivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          channel: 'push',
+          status: 'failed',
+          errorMessage: 'DeviceNotRegistered',
+        }),
+      }),
+    );
+  });
+
   it('scopes borrower notification listing by tenant and borrower', async () => {
     prismaMock.borrowerNotification.findMany.mockResolvedValue([]);
     prismaMock.borrowerNotification.count

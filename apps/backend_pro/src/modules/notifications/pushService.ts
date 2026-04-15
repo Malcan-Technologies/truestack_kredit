@@ -10,10 +10,11 @@ export interface PushSendResult {
   success: boolean;
   providerMessageId?: string;
   errorMessage?: string;
+  errorCode?: string;
 }
 
-function isExpoPushToken(token: string): boolean {
-  return /^ExponentPushToken\[[^\]]+\]$/.test(token.trim());
+export function isExpoPushToken(token: string): boolean {
+  return /^Expo(?:nent)?PushToken\[[^\]]+\]$/.test(token.trim());
 }
 
 function getTransportErrorMessage(error: unknown): string {
@@ -29,6 +30,7 @@ export class PushService {
     if (!isExpoPushToken(message.to)) {
       return {
         success: false,
+        errorCode: 'InvalidPushTokenFormat',
         errorMessage: 'Unsupported push token format',
       };
     }
@@ -73,6 +75,7 @@ export class PushService {
     if (!response.ok || json?.data?.status === 'error') {
       return {
         success: false,
+        errorCode: json?.data?.details?.error,
         errorMessage:
           json?.data?.message ||
           json?.data?.details?.error ||

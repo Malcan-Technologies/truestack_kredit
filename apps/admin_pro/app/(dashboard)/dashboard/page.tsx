@@ -134,7 +134,7 @@ interface DashboardStats {
     defaultRate: number;
   };
   actionNeeded: {
-    /** L1 queue (submitted + under review), permission-scoped */
+    /** L1 Review pipeline (submitted + under review), permission-scoped */
     submittedApplications: number;
     applicationsPendingL2: number;
     loansPendingDisbursement: number;
@@ -234,6 +234,7 @@ const STATUS_COLORS: Record<string, string> = {
   DRAFT: "hsl(0, 0%, 65%)",
   SUBMITTED: "hsl(217, 91%, 60%)",
   UNDER_REVIEW: "hsl(38, 92%, 50%)",
+  PENDING_L2_APPROVAL: "hsl(199, 89%, 48%)",
   APPROVED: "hsl(142, 71%, 45%)",
   REJECTED: "hsl(0, 84%, 60%)",
   CANCELLED: "hsl(0, 0%, 50%)",
@@ -248,8 +249,9 @@ const STATUS_LABELS: Record<string, string> = {
   PENDING_ATTESTATION: "Pending Attestation",
   PENDING_DISBURSEMENT: "Pending Disbursement",
   DRAFT: "Draft",
-  SUBMITTED: "Submitted",
-  UNDER_REVIEW: "Under Review",
+  SUBMITTED: "L1 Review",
+  UNDER_REVIEW: "L1 Review",
+  PENDING_L2_APPROVAL: "L2 Review",
   APPROVED: "Approved",
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
@@ -490,7 +492,7 @@ export default function DashboardPage() {
                   >
                     <ClipboardList className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                     <span className="text-foreground">
-                      {stats.actionNeeded.submittedApplications} L1 queue
+                      {stats.actionNeeded.submittedApplications} L1 Review
                     </span>
                   </Link>
                 ),
@@ -502,7 +504,7 @@ export default function DashboardPage() {
                   >
                     <ClipboardList className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
                     <span className="text-foreground">
-                      {stats.actionNeeded.applicationsPendingL2} pending L2
+                      {stats.actionNeeded.applicationsPendingL2} L2 Review
                     </span>
                   </Link>
                 ),
@@ -1406,6 +1408,7 @@ function ApplicationStatusBadge({ status }: { status: string }) {
     DRAFT: "secondary",
     SUBMITTED: "default",
     UNDER_REVIEW: "warning",
+    PENDING_L2_APPROVAL: "info",
     APPROVED: "success",
     REJECTED: "destructive",
     CANCELLED: "secondary",

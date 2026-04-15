@@ -67,8 +67,8 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 };
 
 function applicationStatusLabel(status: string): string {
-  if (status === "SUBMITTED") return "REVIEW";
-  if (status === "PENDING_L2_APPROVAL") return "PENDING L2";
+  if (status === "SUBMITTED" || status === "UNDER_REVIEW") return "L1 Review";
+  if (status === "PENDING_L2_APPROVAL") return "L2 Review";
   return status.replace(/_/g, " ");
 }
 
@@ -251,12 +251,12 @@ function ApplicationsPageContent() {
             {[
               counts.l1QueueCount > 0 && (
                 <span key="l1" className="text-foreground font-medium">
-                  {counts.l1QueueCount} in L1 queue (review / under review)
+                  {counts.l1QueueCount} in L1 Review
                 </span>
               ),
               counts.pendingL2Approval > 0 && (
                 <span key="l2" className="text-foreground font-medium">
-                  {counts.pendingL2Approval} pending L2 final approval
+                  {counts.pendingL2Approval} in L2 Review
                 </span>
               ),
             ].filter(Boolean).flatMap((item, i, arr) =>
@@ -304,7 +304,7 @@ function ApplicationsPageContent() {
           size="sm"
           onClick={() => { setFilter("L1_QUEUE"); setCurrentPage(1); }}
         >
-          L1 queue
+          L1 Review
           {counts.l1QueueCount > 0 && (
             <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {counts.l1QueueCount}
@@ -316,7 +316,7 @@ function ApplicationsPageContent() {
           size="sm"
           onClick={() => { setFilter("PENDING_L2_APPROVAL"); setCurrentPage(1); }}
         >
-          Pending L2
+          L2 Review
           {counts.pendingL2Approval > 0 && (
             <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
               {counts.pendingL2Approval}

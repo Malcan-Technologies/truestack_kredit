@@ -219,8 +219,8 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
 };
 
 function applicationStatusLabel(status: string): string {
-  if (status === "SUBMITTED") return "REVIEW";
-  if (status === "PENDING_L2_APPROVAL") return "PENDING L2";
+  if (status === "SUBMITTED" || status === "UNDER_REVIEW") return "L1 Review";
+  if (status === "PENDING_L2_APPROVAL") return "L2 Review";
   return status.replace(/_/g, " ");
 }
 
@@ -335,7 +335,7 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
       case "SUBMIT":
         return { icon: Send, label: "Submitted" };
       case "APPLICATION_SEND_TO_L2":
-        return { icon: ArrowUpRight, label: "Sent to L2" };
+        return { icon: ArrowUpRight, label: "Sent to L2 Review" };
       case "APPROVE":
         return { icon: Check, label: "Approved" };
       case "REJECT":
@@ -683,12 +683,12 @@ export default function ApplicationDetailPage() {
       note: sendToL2Note.trim() || undefined,
     });
     if (res.success) {
-      toast.success("Application sent to L2 for final review");
+      toast.success("Application moved to L2 Review");
       fetchApplication();
       fetchTimeline();
       window.dispatchEvent(new CustomEvent("applications-count-changed"));
     } else {
-      toast.error(res.error || "Failed to send application to L2");
+      toast.error(res.error || "Failed to move application to L2 Review");
     }
     setActionLoading(null);
   };
@@ -999,13 +999,13 @@ export default function ApplicationDetailPage() {
             </p>
             {isL1Queue && (
               <p className="text-xs text-muted-foreground mt-1">
-                L1 queue — first-line review. Send to L2 when ready for final approval (no loan is created until L2
+                L1 Review — first-line review. Move to L2 Review when ready for final approval (no loan is created until L2
                 approves).
               </p>
             )}
             {isL2Queue && (
               <p className="text-xs text-muted-foreground mt-1">
-                L2 queue — final credit decision. Approving will create the loan and schedule.
+                L2 Review — final credit decision. Approving will create the loan and schedule.
               </p>
             )}
             {application.l1ReviewedAt && (
@@ -1089,7 +1089,7 @@ export default function ApplicationDetailPage() {
                 className="bg-sky-600 hover:bg-sky-700"
               >
                 <ArrowUpRight className="h-4 w-4 mr-2" />
-                {actionLoading === "sendToL2" ? "Sending..." : "Send to L2"}
+                {actionLoading === "sendToL2" ? "Sending..." : "Send to L2 Review"}
               </Button>
             </>
           )}
@@ -1311,7 +1311,7 @@ export default function ApplicationDetailPage() {
                     applicable.
                     {application.status === "PENDING_L2_APPROVAL" && (
                       <span className="block mt-1">
-                        At L2 stage, final approval creates the loan only after negotiation is settled.
+                        At L2 Review, final approval creates the loan only after negotiation is settled.
                       </span>
                     )}
                   </p>
@@ -2007,18 +2007,17 @@ export default function ApplicationDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Send to L2 */}
+      {/* Send to L2 Review */}
       <Dialog open={showSendToL2Dialog} onOpenChange={setShowSendToL2Dialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Send to L2</DialogTitle>
+            <DialogTitle>Send to L2 Review</DialogTitle>
             <DialogDescription>
-              Move this application to the L2 queue for final approval. No loan is created until an L2 approver
-              confirms.
+              Move this application to L2 Review for final approval. No loan is created until an L2 approver confirms.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
-            <Label htmlFor="send-l2-note">Note for L2 (optional)</Label>
+            <Label htmlFor="send-l2-note">Note for L2 Review (optional)</Label>
             <Textarea
               id="send-l2-note"
               value={sendToL2Note}
@@ -2033,7 +2032,7 @@ export default function ApplicationDetailPage() {
             </Button>
             <Button onClick={() => void handleSendToL2Confirm()} className="bg-sky-600 hover:bg-sky-700">
               <ArrowUpRight className="h-4 w-4 mr-2" />
-              Send to L2
+              Send to L2 Review
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2043,10 +2042,10 @@ export default function ApplicationDetailPage() {
       <Dialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Final approval (L2)</DialogTitle>
+            <DialogTitle>Final approval (L2 Review)</DialogTitle>
             <DialogDescription>
-              Approve this application to create the loan and generate the repayment schedule. This action requires L2
-              permission.
+              Approve this application to create the loan and generate the repayment schedule. Only an L2 approver can
+              complete this step.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">

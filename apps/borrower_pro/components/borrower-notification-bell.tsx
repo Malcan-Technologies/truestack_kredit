@@ -22,18 +22,12 @@ import {
   markBorrowerNotificationRead,
   type BorrowerNotificationItem,
 } from "@borrower_pro/lib/borrower-notifications-client";
+import { normalizeBorrowerNotificationHref } from "@borrower_pro/lib/borrower-notification-href";
 import { BorrowerNotificationCategoryIcon } from "@borrower_pro/lib/borrower-notification-category-icon";
 import { borrowerNotificationCategoryLabel } from "@kredit/borrower";
 import { cn, formatDateTime, formatRelativeTime } from "@borrower_pro/lib/utils";
 
 const PAGE_SIZE = 10;
-
-function notificationHref(n: BorrowerNotificationItem): string {
-  if (n.deepLink && n.deepLink.startsWith("/")) {
-    return n.deepLink;
-  }
-  return "/notifications";
-}
 
 interface BorrowerNotificationBellProps {
   /** When false (onboarding incomplete), bell is disabled like sidebar nav. */
@@ -246,7 +240,7 @@ export function BorrowerNotificationBell({ disabled = false }: BorrowerNotificat
           ) : (
             <ul className="py-1">
               {items.map((n) => {
-                const href = notificationHref(n);
+                const href = normalizeBorrowerNotificationHref(n.deepLink) ?? "/notifications";
                 const isUnread = !n.readAt;
                 return (
                   <li key={n.id} className="border-b border-border last:border-b-0">

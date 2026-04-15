@@ -23,6 +23,7 @@ import {
   notifyBorrowerNotificationsInboxUpdated,
   type BorrowerNotificationItem,
 } from "@borrower_pro/lib/borrower-notifications-client";
+import { normalizeBorrowerNotificationHref } from "@borrower_pro/lib/borrower-notification-href";
 import { formatDateTime, formatRelativeTime } from "@borrower_pro/lib/utils";
 import { cn } from "@borrower_pro/lib/utils";
 import { toast } from "sonner";
@@ -175,6 +176,7 @@ export default function BorrowerNotificationsPage() {
           ),
         ];
         const isUnread = !notification.readAt;
+        const openHref = normalizeBorrowerNotificationHref(notification.deepLink);
 
         return (
           <Card
@@ -223,23 +225,23 @@ export default function BorrowerNotificationsPage() {
                   <div
                     className={cn(
                       "flex flex-wrap items-center gap-x-3 gap-y-2",
-                      notification.deepLink || isUnread ? "justify-between" : ""
+                      openHref || isUnread ? "justify-between" : ""
                     )}
                   >
                     <p
                       className={cn(
                         "text-xs text-muted-foreground tabular-nums",
-                        notification.deepLink || isUnread ? "min-w-0 flex-1" : ""
+                        openHref || isUnread ? "min-w-0 flex-1" : ""
                       )}
                       title={formatDateTime(notification.createdAt)}
                     >
                       {formatRelativeTime(notification.createdAt)}
                     </p>
-                    {notification.deepLink || isUnread ? (
+                    {openHref || isUnread ? (
                       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                        {notification.deepLink ? (
+                        {openHref ? (
                           <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                            <Link href={notification.deepLink}>
+                            <Link href={openHref}>
                               Open
                               <ChevronRight className="h-3.5 w-3.5" />
                             </Link>

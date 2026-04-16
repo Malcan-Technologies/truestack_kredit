@@ -1,8 +1,12 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, TenantType } from '@prisma/client';
 // @ts-ignore - better-auth crypto module
 import { hashPassword } from 'better-auth/crypto';
 
 const prisma = new PrismaClient();
+
+function getTenantType(value: string | undefined): TenantType {
+  return value === 'PPG' ? TenantType.PPG : TenantType.PPW;
+}
 
 /**
  * Production seed:
@@ -13,33 +17,42 @@ async function main() {
   console.log('Seeding production baseline data...');
 
   const now = new Date();
-  const ownerEmail = process.env.PROD_DEMO_OWNER_EMAIL || 'admin@demo.com';
-  const ownerName = process.env.PROD_DEMO_OWNER_NAME || 'Demo Owner';
+  const tenantSlug = process.env.PRO_TENANT_SLUG || 'demo-company';
+  const tenantName = process.env.PRO_TENANT_NAME || 'Demo Company Sdn Bhd';
+  const tenantType = getTenantType(process.env.PRO_TENANT_TYPE);
+  const tenantLicenseNumber = process.env.PRO_TENANT_LICENSE_NUMBER || 'PPW/KL/2024/001';
+  const tenantRegistrationNumber = process.env.PRO_TENANT_REGISTRATION_NUMBER || '202401012345';
+  const tenantEmail = process.env.PRO_TENANT_EMAIL || 'info@demo-company.com';
+  const tenantContactNumber = process.env.PRO_TENANT_CONTACT_NUMBER || '+60312345678';
+  const tenantBusinessAddress =
+    process.env.PRO_TENANT_BUSINESS_ADDRESS || '123 Jalan Demo, 50000 Kuala Lumpur';
+  const ownerEmail = process.env.PRO_SEED_OWNER_EMAIL || process.env.PROD_DEMO_OWNER_EMAIL || 'admin@demo.com';
+  const ownerName = process.env.PRO_SEED_OWNER_NAME || process.env.PROD_DEMO_OWNER_NAME || 'Demo Owner';
   const ownerPassword = 'Demo@123';
   const passwordHash = await hashPassword(ownerPassword);
 
   const tenant = await prisma.tenant.upsert({
-    where: { slug: 'demo-company' },
+    where: { slug: tenantSlug },
     update: {
-      name: 'Demo Company Sdn Bhd',
-      type: 'PPW',
-      licenseNumber: 'PPW/KL/2024/001',
-      registrationNumber: '202401012345',
-      email: 'info@demo-company.com',
-      contactNumber: '+60312345678',
-      businessAddress: '123 Jalan Demo, 50000 Kuala Lumpur',
+      name: tenantName,
+      type: tenantType,
+      licenseNumber: tenantLicenseNumber,
+      registrationNumber: tenantRegistrationNumber,
+      email: tenantEmail,
+      contactNumber: tenantContactNumber,
+      businessAddress: tenantBusinessAddress,
       status: 'ACTIVE',
       proLicenseActivatedAt: now,
     },
     create: {
-      name: 'Demo Company Sdn Bhd',
-      slug: 'demo-company',
-      type: 'PPW',
-      licenseNumber: 'PPW/KL/2024/001',
-      registrationNumber: '202401012345',
-      email: 'info@demo-company.com',
-      contactNumber: '+60312345678',
-      businessAddress: '123 Jalan Demo, 50000 Kuala Lumpur',
+      name: tenantName,
+      slug: tenantSlug,
+      type: tenantType,
+      licenseNumber: tenantLicenseNumber,
+      registrationNumber: tenantRegistrationNumber,
+      email: tenantEmail,
+      contactNumber: tenantContactNumber,
+      businessAddress: tenantBusinessAddress,
       status: 'ACTIVE',
       proLicenseActivatedAt: now,
     },

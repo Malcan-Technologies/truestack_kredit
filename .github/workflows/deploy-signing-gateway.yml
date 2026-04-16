@@ -15,6 +15,10 @@ on:
         required: true
         default: "demo-client"
         type: string
+      platform_version:
+        description: "Semantic version for the shared Pro platform (for example 1.2.3)"
+        required: false
+        type: string
       action:
         description: "What to do"
         required: true
@@ -39,6 +43,7 @@ jobs:
       ecr_signing_gateway: ${{ steps.config.outputs.ecr_signing_gateway }}
       signing_ssh_host: ${{ steps.config.outputs.signing_ssh_host }}
       signing_mtsa_env: ${{ steps.config.outputs.signing_mtsa_env }}
+      platform_release_default: ${{ steps.config.outputs.platform_release_default }}
 
     steps:
       - name: Checkout code
@@ -64,6 +69,7 @@ jobs:
               "ecr_signing_gateway" => cfg.dig("signing", "ecr_repository"),
               "signing_ssh_host" => cfg.dig("signing", "ssh_host"),
               "signing_mtsa_env" => cfg.dig("signing", "mtsa_env"),
+              "platform_release_default" => cfg.dig("deploy", "platform_release"),
             }
 
             File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |f|
@@ -74,10 +80,68 @@ jobs:
             end
           '
 
+  resolve-release:
+    name: Resolve Release
+    runs-on: ubuntu-latest
+    needs: load-config
+
+    outputs:
+      release_version: ${{ steps.resolve.outputs.release_version }}
+      checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
+      use_semver: ${{ steps.resolve.outputs.use_semver }}
+
+    steps:
+      - name: Resolve release ref
+        id: resolve
+        env:
+          PLATFORM_INPUT: ${{ github.event.inputs.platform_version }}
+          PLATFORM_DEFAULT: ${{ needs.load-config.outputs.platform_release_default }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "release_version=main" >> "$GITHUB_OUTPUT"
+            echo "checkout_ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "use_semver=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          RELEASE_VERSION="$PLATFORM_INPUT"
+          if [ -z "$RELEASE_VERSION" ]; then
+            RELEASE_VERSION="$PLATFORM_DEFAULT"
+          fi
+
+          if [ -z "$RELEASE_VERSION" ]; then
+            echo "platform_version is required either as workflow input or config/clients/<client>.yaml deploy.platform_release"
+            exit 1
+          fi
+
+          if [ "$RELEASE_VERSION" = "latest" ]; then
+            echo "release_version=latest" >> "$GITHUB_OUTPUT"
+            echo "checkout_ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=latest" >> "$GITHUB_OUTPUT"
+            echo "use_semver=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! [[ "$RELEASE_VERSION" =~ $SEMVER_REGEX ]]; then
+            echo "Invalid platform_version: $RELEASE_VERSION"
+            echo "Expected semantic version like 1.2.3 or 1.2.3-rc.1"
+            exit 1
+          fi
+
+          echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=refs/tags/pro-platform-v$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "use_semver=true" >> "$GITHUB_OUTPUT"
+
   build-and-push:
     name: Build and Push Signing Gateway
     runs-on: ubuntu-latest
-    needs: load-config
+    needs: [load-config, resolve-release]
     environment: ${{ needs.load-config.outputs.github_environment }}
     if: github.event.inputs.action != 'deploy-only'
 
@@ -96,6 +160,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-release.outputs.checkout_ref }}
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -111,23 +178,36 @@ jobs:
         id: build
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ needs.resolve-release.outputs.image_tag }}
+          USE_SEMVER: ${{ needs.resolve-release.outputs.use_semver }}
         run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
           docker build -f apps/signing-gateway/Dockerfile \
             -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
-            -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" .
+            .
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+          if [ "$USE_SEMVER" = "true" ]; then
+            docker tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+              "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-$SHORT_SHA"
+            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-$SHORT_SHA"
+          else
+            docker tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+              "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          fi
+
           echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
   deploy-to-onprem:
     name: Deploy to On-Prem Server
     runs-on: ubuntu-latest
-    needs: [load-config, build-and-push]
+    needs: [load-config, resolve-release, build-and-push]
     environment: ${{ needs.load-config.outputs.github_environment }}
     if: |
       always() &&
       needs.load-config.result == 'success' &&
+      needs.resolve-release.result == 'success' &&
       (needs.build-and-push.result == 'success' || github.event.inputs.action == 'deploy-only') &&
       github.event.inputs.action != 'build-only'
 
@@ -163,9 +243,9 @@ jobs:
         id: tag
         run: |
           if [ "${{ github.event.inputs.action }}" = "deploy-only" ]; then
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ needs.resolve-release.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${{ needs.build-and-push.outputs.image_tag || github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ needs.build-and-push.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Derive MTSA WSDL path
@@ -239,7 +319,7 @@ jobs:
   summary:
     name: Deployment Summary
     runs-on: ubuntu-latest
-    needs: [load-config, build-and-push, deploy-to-onprem]
+    needs: [load-config, resolve-release, build-and-push, deploy-to-onprem]
     if: always()
 
     steps:
@@ -247,6 +327,7 @@ jobs:
         run: |
           echo "Trigger: ${{ github.event_name }}"
           echo "Client: ${{ github.event.inputs.client_id || 'demo-client' }}"
+          echo "Release: ${{ needs.resolve-release.outputs.release_version }}"
           echo "Action: ${{ github.event.inputs.action || 'auto (full)' }}"
           echo "Build: ${{ needs.build-and-push.result }}"
           echo "Deploy: ${{ needs.deploy-to-onprem.result }}"

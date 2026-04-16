@@ -1,5 +1,7 @@
 # Pro Client Deployment Guide
 
+This is the canonical combined reference for Pro deployment planning, demo-client rollout behavior, and external-client onboarding/checklist work.
+
 ## Purpose
 
 This guide explains how to:
@@ -20,6 +22,24 @@ For each Pro client, the deployable unit is:
 ```txt
 admin_pro + backend_pro + borrower_pro/<client>
 ```
+
+Important isolation rule:
+
+- only the **codebase** is shared across Pro clients
+- the **runtime is not shared**
+- every client gets its own deployed `admin_pro`
+- every client gets its own deployed `backend_pro`
+- every client gets its own borrower app deployment
+- every client gets its own database
+- every client gets its own secrets, domains, storage, and infrastructure boundary
+
+If signing is enabled for a client, that client also gets its own on-prem signing stack:
+
+- one dedicated Signing Gateway deployment for that client
+- one dedicated MTSA deployment for that client
+- one dedicated on-prem server / VM / hardware footprint for that client
+
+The Signing Gateway source code in the repo is shared. The MTSA container/image is a proprietary on-prem component and should be treated as a separate per-client deployment artifact, not a shared monorepo service runtime.
 
 For `demo-client`, that means:
 
@@ -84,7 +104,8 @@ The `demo-client` workflow only runs on pushes to `main` when the changed files 
 
 - `apps/admin_pro/**`
 - `apps/backend_pro/**`
-- `apps/borrower_pro/**`
+- `apps/borrower_pro/Demo_Client/**`
+- shared borrower layers consumed by `Demo_Client` such as `apps/borrower_pro/components/**`, `apps/borrower_pro/lib/**`, `apps/borrower_pro/help-docs/**`, `apps/borrower_pro/Dockerfile`, and `apps/borrower_pro/tsconfig.json`
 - `packages/**`
 - `config/clients/demo-client.yaml`
 - `Dockerfile.migrations.pro`
@@ -105,12 +126,13 @@ On a push to `main`, the demo workflow detects which part of Pro changed and upd
 
 - `apps/backend_pro/**` updates `truekredit-demo-client-backend`
 - `apps/admin_pro/**` updates `truekredit-demo-client-admin`
-- `apps/borrower_pro/**` updates `truekredit-demo-client-borrower`
+- `apps/borrower_pro/Demo_Client/**` and shared borrower layers used by Demo update `truekredit-demo-client-borrower`
 
 In addition:
 
 - `packages/**` is treated as shared code, so it can trigger rebuilds for more than one Pro app
 - `config/clients/demo-client.yaml` can trigger all 3 because it changes deployment targeting/config
+- changes in `apps/borrower_pro/<external-client>/**` do not auto-deploy `demo-client`
 
 ### 4. Database behavior
 
@@ -524,7 +546,9 @@ External clients should be promoted manually.
 
 ## Operational Notes
 
-- `backend_pro` and borrower/admin apps share `BETTER_AUTH_SECRET` and the same database.
+- within a single client stack, `backend_pro`, `admin_pro`, and the borrower app share that client's `BETTER_AUTH_SECRET` and connect to that client's database.
+- across clients, `backend_pro`, `admin_pro`, borrower apps, databases, secrets, and ECS services are **not shared**.
+- if signing is enabled, each client also has its own on-prem Signing Gateway deployment and its own MTSA deployment on separate client-specific hardware or VM infrastructure.
 - `backend_pro` should run with `PRODUCT_MODE=pro`.
 - `PRO_TENANT_SLUG` should match the seeded or expected Pro tenant.
 - the borrower app and admin app each proxy to `backend_pro`, so `BACKEND_URL` must point to the public API origin.
@@ -537,5 +561,336 @@ External clients should be promoted manually.
 After `demo-client` is working:
 
 - extract the infra into a dedicated Pro Terraform lane
-- generalize the deployment workflow from `demo-client` to a reusable per-client `deploy-pro.yml`
+- use `deploy-pro.yml` for manual semver-based external client promotion
 - keep `demo-client` as the canary deployment target for shared Pro changes
+
+---
+
+## External Client Onboarding Checklist
+
+This checklist is the canonical reference for onboarding and releasing a new external `borrower_pro` client from the shared `truestack_kredit` monorepo.
+
+Use this for clients like **Proficient Premium** where:
+
+- `apps/admin_pro` is shared
+- `apps/backend_pro` is shared
+- `apps/signing-gateway` is shared
+- `apps/borrower_pro/<client>` is the client-specific borrower shell
+- infrastructure, secrets, database, and deployment are isolated per client
+- the on-prem Signing Gateway and MTSA are also deployed separately per client on client-specific hardware / VM infrastructure
+
+### Scope
+
+- Applies to **external Pro clients**
+- Assumes **one AWS account per client**
+- Assumes **manual promotion** for production releases
+- Assumes **semantic versioning** for release control
+- Mobile is **out of scope for now**
+
+### Release model
+
+- Platform release tag: `pro-platform-v<semver>`
+- Borrower release tag: `pro-borrower-<borrower_app>-v<semver>`
+- Example platform tag: `pro-platform-v1.2.3`
+- Example borrower tag: `pro-borrower-Proficient_Premium-v1.2.3`
+
+#### Rules
+
+- `platform_release` controls the shared Pro platform release used for `admin_pro`, `backend_pro`, and shared deployment logic.
+- `borrower_release` controls the borrower app release only when it needs to diverge from the platform release.
+- If `borrower_release` is omitted or equal to `platform_release`, deploy the borrower app from the same platform tag.
+- External clients must use **pinned semver versions**. Do not use `latest`.
+- Demo can continue acting as a canary lane, but external production clients should always be promoted by semver.
+
+### CI/CD workflows
+
+- `deploy-demo-client.yml`: auto-deploy canary lane for `demo-client`
+- `deploy-pro.yml`: manual multi-client AWS app deploy for external clients
+- `terraform-pro.yml`: client-aware Terraform plan/apply
+- `deploy-signing-gateway.yml`: multi-client on-prem signing gateway deploy
+
+#### Auto vs manual policy
+
+- `demo-client`: backend, admin, borrower, and signing build/deploy automatically from `main`
+- external clients: backend, admin, borrower, and signing are always manual via workflow dispatch
+- shared code may trigger the demo lane automatically, but must never auto-promote an external client
+- external-client-only borrower folders must not trigger `demo-client` borrower auto deployment
+
+### AI guardrails
+
+- Do not fork `admin_pro` per client.
+- Do not fork `backend_pro` per client.
+- Do not auto-deploy all external clients from `main`.
+- Do not store secrets in `config/clients/*.yaml`.
+- Do not use `latest` for external client production release pins.
+- Do not assume the borrower app version equals the platform version without checking the client config.
+- Do not change the client’s AWS account boundary to reuse SaaS infrastructure.
+
+### 1. Create client identity
+
+- [ ] Choose a stable machine `client_id` in kebab-case, for example `proficient-premium`
+- [ ] Choose the borrower app folder name, for example `Proficient_Premium`
+- [ ] Confirm the production domains:
+- [ ] Admin domain
+- [ ] API domain
+- [ ] Borrower domain
+- [ ] Signing gateway domain, if signing is enabled
+
+### 2. Create client registry entry
+
+- [ ] Copy `config/clients/_template.yaml` to `config/clients/<client_id>.yaml`
+- [ ] Set `client_type: external`
+- [ ] Set `borrower_app` to the borrower folder name
+- [ ] Set `aws.account_id`
+- [ ] Set `aws.region`
+- [ ] Set `aws.github_environment` to `pro-<client_id>` or approved equivalent
+- [ ] Set `deploy.auto_deploy: false`
+- [ ] Set `deploy.platform_release` to a semver, for example `1.2.3`
+- [ ] Set `deploy.borrower_release` to a semver, for example `1.2.3`
+- [ ] Set ECR repository names
+- [ ] Set ECS cluster/service/task names
+- [ ] Set `secrets.app_secrets_arn`
+- [ ] Set `storage.uploads_bucket`
+- [ ] Set `pro_tenant.slug`
+- [ ] Set `pro_tenant.name`
+- [ ] Set `pro_tenant.type`
+- [ ] Set `pro_tenant.license_number`
+- [ ] Set `pro_tenant.registration_number`
+- [ ] Set `pro_tenant.email`
+- [ ] Set `pro_tenant.contact_number`
+- [ ] Set `pro_tenant.business_address`
+- [ ] Set `pro_tenant.seed_owner_email`
+- [ ] Set `pro_tenant.seed_owner_name`
+- [ ] Set `enabled_modules`
+
+#### If signing is enabled
+
+- [ ] Set `signing.gateway_hostname`
+- [ ] Set `signing.ssh_host`
+- [ ] Set `signing.tunnel_name`
+- [ ] Set `signing.mtsa_env`
+- [ ] Set `signing.backup_bucket_prefix`
+- [ ] Set `signing.ecr_repository` if used by the workflow
+
+### 3. Prepare the AWS account
+
+- [ ] Create or confirm the dedicated AWS account for this client
+- [ ] Bootstrap Terraform backend state in that account
+- [ ] Create the GitHub Actions OIDC deploy role
+- [ ] Grant the deploy role access to ECS, ECR, RDS, S3, Secrets Manager, Route53, ACM, and CloudWatch as required
+- [ ] Confirm Route53 zone ownership strategy for the client domains
+- [ ] Confirm ACM certificate plan for the client domains
+
+### 4. Create GitHub Environment
+
+- [ ] Create GitHub Environment matching `aws.github_environment`
+- [ ] Add `AWS_ROLE_ARN`
+- [ ] Add any extra environment-specific secrets required by deploy workflows
+
+#### If signing is enabled
+
+- [ ] Add `ONPREM_SSH_KEY`
+- [ ] Add `CF_ACCESS_CLIENT_ID`
+- [ ] Add `CF_ACCESS_CLIENT_SECRET`
+- [ ] Add any on-prem deployment secrets still required by `deploy-signing-gateway.yml`
+
+### 5. Provision Terraform client stack
+
+- [ ] Copy `terraform/pro/clients/demo-client/` to `terraform/pro/clients/<client_id>/`
+- [ ] Rename the `*.tfvars` file to match the client folder convention
+- [ ] Update stack names, domains, bucket names, RDS identifiers, and ECS naming
+- [ ] Run `terraform-pro.yml` with `client_id=<client_id>` and `action=plan`
+- [ ] Review the plan
+- [ ] Run `terraform-pro.yml` with `client_id=<client_id>` and `action=apply`
+- [ ] Confirm ECS cluster, services, RDS, Secrets Manager, S3, DNS, and certificates exist
+
+### 6. Populate runtime secrets
+
+- [ ] Create or update the client’s AWS Secrets Manager secret referenced by `secrets.app_secrets_arn`
+- [ ] Store database URL
+- [ ] Store Better Auth secret
+- [ ] Store email provider keys
+- [ ] Store any integration credentials required by this client
+
+#### If signing is enabled
+
+- [ ] Add `signing_gateway_url`
+- [ ] Add `signing_api_key`
+- [ ] Add `signing_backup_bucket`
+
+### 7. Create borrower app shell
+
+- [ ] Copy `apps/borrower_pro/Demo_Client` to `apps/borrower_pro/<borrower_app>`
+- [ ] Keep shared borrower logic in `apps/borrower_pro/components` and `apps/borrower_pro/lib`
+- [ ] Change only client-specific shell concerns:
+- [ ] Branding
+- [ ] Copy/content
+- [ ] Legal pages
+- [ ] Public URL env wiring
+- [ ] Theme storage key and client-facing strings
+- [ ] Verify the borrower app builds via `apps/borrower_pro/Dockerfile`
+
+### 8. Create release tags
+
+- [ ] Decide the platform release version, for example `1.2.3`
+- [ ] Create the platform Git tag: `pro-platform-v1.2.3`
+- [ ] Push the platform tag
+- [ ] If the borrower app needs an independent release, create `pro-borrower-<borrower_app>-v<semver>`
+- [ ] Push the borrower tag if used
+- [ ] Update `config/clients/<client_id>.yaml` release pins if the chosen release changed
+
+#### Recommended semantic versioning policy
+
+- [ ] `MAJOR`: breaking operational or deployment contract changes
+- [ ] `MINOR`: backward-compatible features or modules
+- [ ] `PATCH`: backward-compatible fixes only
+- [ ] Use prerelease labels like `-rc.1` for staged validation
+
+### 9. Deploy AWS-hosted Pro apps
+
+- [ ] Run `deploy-pro.yml`
+- [ ] Set `client_id=<client_id>`
+- [ ] Set `action=full` for first deployment
+- [ ] Set `platform_version=<semver>` or let it resolve from the client config
+- [ ] Set `borrower_version=<semver>` only if the borrower app should differ from the platform release
+- [ ] Leave `skip_migrations=false` unless you have a specific reason
+- [ ] Confirm backend service reaches stable state
+- [ ] Confirm admin service reaches stable state
+- [ ] Confirm borrower service reaches stable state
+
+#### Database actions
+
+- [ ] Use `action=db-migrate` for migrations only
+- [ ] Use `action=db-seed` for seed only
+- [ ] Use `action=db-migrate-and-seed` when both are needed
+- [ ] Use `action=db-reset-and-seed` only in safe non-production situations
+
+#### Important note
+
+- [ ] The seed task reads tenant and owner values from `config/clients/<client>.yaml` via workflow-provided env vars. Demo-compatible fallback values still exist as a safety net, but do not rely on them for a new client.
+- [ ] `domains.admin`, `domains.api`, and `domains.borrower` are not database seed fields. They are the public hostnames used for build args, runtime URLs, CORS, and auth callbacks.
+- [ ] If Cloudflare fronts the client, keep these domain values as the real public hostnames seen by users. Cloudflare is the DNS/proxy layer in front of them, not a replacement for them in config.
+
+### 10. Cloudflare / Zero Trust setup
+
+This is part of the standard workflow for signing-enabled clients. Follow the same pattern used for `demo-client`.
+
+Reference pattern:
+
+- zone: `truestack.my`
+- signing hostname example: `demo-sign.truestack.my`
+- SSH hostname example: `ssh-sign-demo.truestack.my`
+- tunnel name example: `demo-onprem`
+
+Required outcome:
+
+- the public signing hostname routes through a Cloudflare Tunnel to the on-prem Signing Gateway
+- the SSH hostname routes through the same tunnel to the host SSH daemon
+- Cloudflare Access protects both the signing API and the SSH path
+- GitHub Actions and `backend_pro` authenticate with Cloudflare Access using service tokens
+
+Checklist:
+
+- [ ] Confirm the DNS zone is active in Cloudflare before creating Access apps
+- [ ] If using API/CLI automation, create or confirm a Cloudflare API token with:
+- [ ] `Zone > DNS > Edit`
+- [ ] `Account > Cloudflare Tunnel > Edit`
+- [ ] `Account > Access: Apps and Policies > Edit`
+- [ ] Create tunnel: `<client-id>-onprem`
+- [ ] Configure public hostnames on the tunnel:
+- [ ] `<client-id>-sign.truestack.my` -> `http://signing-gateway:3100`
+- [ ] `ssh-sign-<client-id>.truestack.my` -> `ssh://host.docker.internal:22`
+- [ ] Create or verify proxied DNS CNAME records pointing at `<tunnel-id>.cfargotunnel.com`
+- [ ] Create one Cloudflare Access service token for this client
+- [ ] Save the service token Client ID and Client Secret immediately
+- [ ] Create Cloudflare Access application for SSH hostname with service-token-only policy
+- [ ] Create Cloudflare Access application for signing API hostname with service-token-only policy
+- [ ] Verify the signing API returns `403` without token and `200` with the service token headers
+- [ ] Store `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in the client GitHub Environment
+- [ ] Store `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in the client AWS Secrets Manager secret for `backend_pro`
+- [ ] Store the tunnel token as `ONPREM_CF_TUNNEL_TOKEN` in the client GitHub Environment
+
+Important notes:
+
+- The `truestack.my` zone must be **active** in Cloudflare before Access applications can be created. If the zone is still pending, update nameservers at the registrar and wait for propagation.
+- Cloudflare may auto-create the CNAME records when the tunnel and hostnames are configured in the dashboard. If using the API, verify or create the DNS records explicitly.
+- Use the **same Cloudflare Access service token** for both:
+- GitHub Actions SSH deployment through the tunnel
+- `backend_pro` runtime calls to the signing API
+- `cloudflared` runs inside Docker, so the SSH route must target `host.docker.internal:22`, and the production compose config must preserve the `extra_hosts: ["host.docker.internal:host-gateway"]` mapping.
+- Increase Linux UDP buffer sizes before starting `cloudflared`; this was required for tunnel stability in the demo-client setup.
+- If Cloudflare is fronting the public hostnames, keep `domains.*` in `config/clients/<client>.yaml` as the real public origins used by users and runtime configuration.
+- Verification pattern:
+- without Access headers, the signing API should return `403`
+- with `CF-Access-Client-Id` and `CF-Access-Client-Secret`, the health endpoint should return `200`
+
+### 11. Provision on-prem signing stack
+
+- [ ] Provision the on-prem server or VM
+- [ ] Install Docker and Docker Compose
+- [ ] Increase UDP buffer sizes for Cloudflare Tunnel QUIC stability before starting `cloudflared`
+- [ ] Load the MTSA image from the Trustgate tarball
+- [ ] Create `/opt/signing-stack/.env`
+- [ ] Set MTSA credentials
+- [ ] Set the signing API key
+- [ ] Set the Cloudflare Tunnel token from Step 10
+- [ ] Set any GHCR or ECR pull credentials required by the deploy path
+- [ ] Start `cloudflared` and MTSA first so the tunnel is reachable before the first CI/CD deployment
+- [ ] Use a minimal `.env` for the first start if the full CI-managed `.env` has not been written yet
+- [ ] Verify the tunnel shows healthy in Cloudflare Zero Trust
+- [ ] Verify `docker logs cloudflared` shows a healthy registered connection
+
+### 12. Deploy signing gateway
+
+- [ ] Run `deploy-signing-gateway.yml`
+- [ ] Set `client_id=<client_id>`
+- [ ] Set `platform_version=<semver>` or let it resolve from the client config
+- [ ] Use `action=full` for normal deploys
+- [ ] Use `action=deploy-only` only when the image tag already exists in the target registry
+- [ ] Confirm on-prem deployment completes through the Cloudflare Tunnel SSH path
+- [ ] Confirm the gateway health endpoint is healthy
+- [ ] Confirm `backend_pro` can reach the gateway URL
+
+### 13. Validate the deployed environment
+
+- [ ] Admin app loads on the client domain
+- [ ] Borrower app loads on the client domain
+- [ ] API health check passes
+- [ ] Auth/session flow works
+- [ ] File upload path works
+- [ ] Email provider works
+- [ ] Core borrower onboarding works
+- [ ] Loan application flow works
+- [ ] Repayment flow works if enabled
+
+#### If signing is enabled
+
+- [ ] Agreement generation works
+- [ ] Gateway health is healthy
+- [ ] MTSA connectivity works
+- [ ] OTP flow works in the configured environment
+- [ ] Signing callback/reconciliation path works
+- [ ] Download of signed documents works
+
+### 14. Rollback plan
+
+- [ ] Keep the previous known-good `platform_release`
+- [ ] Keep the previous known-good `borrower_release`
+- [ ] To roll back AWS apps, rerun `deploy-pro.yml` with the previous semver
+- [ ] To roll back the signing gateway, rerun `deploy-signing-gateway.yml` with the previous semver
+- [ ] Do not use mutable tags like `latest` as rollback targets
+
+### 15. Future AI instructions
+
+When an AI agent is asked to onboard a new Pro client, it should:
+
+- [ ] Start from this checklist
+- [ ] Read `docs/architecture_plan.md`
+- [ ] Read `config/clients/_template.yaml`
+- [ ] Read `docs/signing-gateway-client-onboarding.md` and `docs/pro_onprem_pki_signing_recommendations.md` when signing is enabled
+- [ ] Confirm whether the client is external or demo
+- [ ] Confirm whether signing is enabled
+- [ ] Confirm the target semver release(s)
+- [ ] Confirm the new client’s AWS account, GitHub Environment, and domains
+- [ ] Prefer reusing `deploy-pro.yml`, `terraform-pro.yml`, and `deploy-signing-gateway.yml`
+- [ ] Avoid inventing a new per-client architecture unless explicitly approved

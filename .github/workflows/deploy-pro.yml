@@ -1,25 +1,12 @@
-name: Deploy Demo Client
+name: Deploy Pro Client
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "apps/admin_pro/**"
-      - "apps/backend_pro/**"
-      - "apps/borrower_pro/Demo_Client/**"
-      - "apps/borrower_pro/components/**"
-      - "apps/borrower_pro/lib/**"
-      - "apps/borrower_pro/help-docs/**"
-      - "apps/borrower_pro/Dockerfile"
-      - "apps/borrower_pro/tsconfig.json"
-      - "packages/**"
-      - "config/clients/demo-client.yaml"
-      - "Dockerfile.migrations.pro"
-      - "scripts/run-prisma-migrations-pro.sh"
-      - ".github/workflows/deploy-demo-client.yml"
   workflow_dispatch:
     inputs:
+      client_id:
+        description: "External Pro client to deploy"
+        required: true
+        type: string
       action:
         description: "What to do"
         required: true
@@ -35,22 +22,31 @@ on:
           - db-seed
           - db-migrate-and-seed
           - db-reset-and-seed
+      platform_version:
+        description: "Semantic version for admin_pro + backend_pro (for example 1.2.3)"
+        required: false
+        type: string
+      borrower_version:
+        description: "Optional semantic version for borrower app. Defaults to config value, then platform_version."
+        required: false
+        type: string
       skip_migrations:
-        description: "Skip auto-migrations (for full deploy only)"
+        description: "Skip auto-migrations for full deploy"
         required: false
         default: false
         type: boolean
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  CLIENT_CONFIG_PATH: config/clients/demo-client.yaml
 
 jobs:
   load-config:
-    name: Load Demo Client Config
+    name: Load Client Config
     runs-on: ubuntu-latest
 
     outputs:
+      client_id: ${{ steps.client.outputs.client_id }}
+      client_type: ${{ steps.config.outputs.client_type }}
       github_environment: ${{ steps.config.outputs.github_environment }}
       aws_region: ${{ steps.config.outputs.aws_region }}
       borrower_app: ${{ steps.config.outputs.borrower_app }}
@@ -77,18 +73,30 @@ jobs:
       pro_tenant_business_address: ${{ steps.config.outputs.pro_tenant_business_address }}
       seed_owner_email: ${{ steps.config.outputs.seed_owner_email }}
       seed_owner_name: ${{ steps.config.outputs.seed_owner_name }}
+      platform_release_default: ${{ steps.config.outputs.platform_release_default }}
+      borrower_release_default: ${{ steps.config.outputs.borrower_release_default }}
       backend_log_group: ${{ steps.config.outputs.backend_log_group }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Determine client config path
+        id: client
+        run: |
+          CLIENT_ID="${{ github.event.inputs.client_id }}"
+          echo "client_id=$CLIENT_ID" >> "$GITHUB_OUTPUT"
+          echo "config_path=config/clients/$CLIENT_ID.yaml" >> "$GITHUB_OUTPUT"
+
       - name: Parse client config
         id: config
+        env:
+          CLIENT_CONFIG_PATH: ${{ steps.client.outputs.config_path }}
         run: |
           ruby -ryaml -e '
             cfg = YAML.load_file(ENV.fetch("CLIENT_CONFIG_PATH"))
             outputs = {
+              "client_type" => cfg.fetch("client_type"),
               "github_environment" => cfg.dig("aws", "github_environment"),
               "aws_region" => cfg.dig("aws", "region"),
               "borrower_app" => cfg.fetch("borrower_app"),
@@ -115,6 +123,8 @@ jobs:
               "pro_tenant_business_address" => cfg.dig("pro_tenant", "business_address"),
               "seed_owner_email" => cfg.dig("pro_tenant", "seed_owner_email"),
               "seed_owner_name" => cfg.dig("pro_tenant", "seed_owner_name"),
+              "platform_release_default" => cfg.dig("deploy", "platform_release"),
+              "borrower_release_default" => cfg.dig("deploy", "borrower_release"),
               "backend_log_group" => "/ecs/#{cfg.dig("ecs", "backend_service")}"
             }
 
@@ -126,113 +136,107 @@ jobs:
             end
           '
 
-  detect-changes:
-    name: Detect Changes
+  resolve-release:
+    name: Resolve Semantic Versions
     runs-on: ubuntu-latest
-    if: |
-      github.event.inputs.action != 'deploy-only' &&
-      github.event.inputs.action != 'db-migrate' &&
-      github.event.inputs.action != 'db-seed' &&
-      github.event.inputs.action != 'db-migrate-and-seed' &&
-      github.event.inputs.action != 'db-reset-and-seed'
+    needs: load-config
 
     outputs:
-      backend_changed: ${{ steps.changes.outputs.backend_changed }}
-      admin_changed: ${{ steps.changes.outputs.admin_changed }}
-      borrower_changed: ${{ steps.changes.outputs.borrower_changed }}
-      migrations_changed: ${{ steps.changes.outputs.migrations_changed }}
+      platform_version: ${{ steps.resolve.outputs.platform_version }}
+      borrower_version: ${{ steps.resolve.outputs.borrower_version }}
+      platform_ref: ${{ steps.resolve.outputs.platform_ref }}
+      borrower_ref: ${{ steps.resolve.outputs.borrower_ref }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Detect changed paths
-        id: changes
+      - name: Resolve release refs
+        id: resolve
+        env:
+          BORROWER_APP: ${{ needs.load-config.outputs.borrower_app }}
+          PLATFORM_DEFAULT: ${{ needs.load-config.outputs.platform_release_default }}
+          BORROWER_DEFAULT: ${{ needs.load-config.outputs.borrower_release_default }}
+          PLATFORM_INPUT: ${{ github.event.inputs.platform_version }}
+          BORROWER_INPUT: ${{ github.event.inputs.borrower_version }}
         run: |
-          echo "Detecting changed files..."
+          set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "push" ]; then
-            BASE_SHA="${{ github.event.before }}"
-            if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
-              BASE_SHA=$(git rev-parse HEAD~1 2>/dev/null || echo "")
-            fi
+          SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+
+          PLATFORM_VERSION="$PLATFORM_INPUT"
+          if [ -z "$PLATFORM_VERSION" ]; then
+            PLATFORM_VERSION="$PLATFORM_DEFAULT"
+          fi
+
+          BORROWER_VERSION="$BORROWER_INPUT"
+          if [ -z "$BORROWER_VERSION" ]; then
+            BORROWER_VERSION="$BORROWER_DEFAULT"
+          fi
+          if [ -z "$BORROWER_VERSION" ]; then
+            BORROWER_VERSION="$PLATFORM_VERSION"
+          fi
+
+          if [ -z "$PLATFORM_VERSION" ]; then
+            echo "platform_version is required either as workflow input or config/clients/<client>.yaml deploy.platform_release"
+            exit 1
+          fi
+
+          if ! [[ "$PLATFORM_VERSION" =~ $SEMVER_REGEX ]]; then
+            echo "Invalid platform_version: $PLATFORM_VERSION"
+            echo "Expected semantic version like 1.2.3 or 1.2.3-rc.1"
+            exit 1
+          fi
+
+          if ! [[ "$BORROWER_VERSION" =~ $SEMVER_REGEX ]]; then
+            echo "Invalid borrower_version: $BORROWER_VERSION"
+            echo "Expected semantic version like 1.2.3 or 1.2.3-client.1"
+            exit 1
+          fi
+
+          PLATFORM_REF="refs/tags/pro-platform-v$PLATFORM_VERSION"
+          if [ "$BORROWER_VERSION" = "$PLATFORM_VERSION" ]; then
+            BORROWER_REF="$PLATFORM_REF"
           else
-            BASE_SHA=$(git merge-base HEAD origin/main 2>/dev/null || git rev-parse HEAD~1)
+            BORROWER_REF="refs/tags/pro-borrower-$BORROWER_APP-v$BORROWER_VERSION"
           fi
 
-          if [ -z "$BASE_SHA" ]; then
-            echo "backend_changed=true" >> "$GITHUB_OUTPUT"
-            echo "admin_changed=true" >> "$GITHUB_OUTPUT"
-            echo "borrower_changed=true" >> "$GITHUB_OUTPUT"
-            echo "migrations_changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD)
-          echo "$CHANGED_FILES"
-
-          if echo "$CHANGED_FILES" | grep -qE "^(apps/backend_pro/|packages/|config/clients/demo-client\.yaml|Dockerfile\.migrations\.pro|scripts/run-prisma-migrations-pro\.sh)"; then
-            echo "backend_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "backend_changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if echo "$CHANGED_FILES" | grep -qE "^(apps/admin_pro/|packages/|config/clients/demo-client\.yaml)"; then
-            echo "admin_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "admin_changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if echo "$CHANGED_FILES" | grep -qE "^(apps/borrower_pro/(Demo_Client/|components/|lib/|help-docs/)|apps/borrower_pro/Dockerfile$|apps/borrower_pro/tsconfig\.json$|packages/|config/clients/demo-client\.yaml)"; then
-            echo "borrower_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "borrower_changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if echo "$CHANGED_FILES" | grep -qE "^apps/backend_pro/prisma/"; then
-            echo "migrations_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "migrations_changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "platform_version=$PLATFORM_VERSION" >> "$GITHUB_OUTPUT"
+          echo "borrower_version=$BORROWER_VERSION" >> "$GITHUB_OUTPUT"
+          echo "platform_ref=$PLATFORM_REF" >> "$GITHUB_OUTPUT"
+          echo "borrower_ref=$BORROWER_REF" >> "$GITHUB_OUTPUT"
 
   build-backend:
     name: Build Backend Pro
     runs-on: ubuntu-latest
-    needs: [load-config, detect-changes]
+    needs: [load-config, resolve-release]
     environment: ${{ needs.load-config.outputs.github_environment }}
     env:
       AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
       ECR_REPOSITORY_BACKEND: ${{ needs.load-config.outputs.ecr_backend }}
+      PLATFORM_VERSION: ${{ needs.resolve-release.outputs.platform_version }}
     if: |
       always() &&
       needs.load-config.result == 'success' &&
-      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
+      needs.resolve-release.result == 'success' &&
       github.event.inputs.action != 'admin-only' &&
       github.event.inputs.action != 'borrower-only' &&
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
       github.event.inputs.action != 'db-migrate-and-seed' &&
-      github.event.inputs.action != 'db-reset-and-seed' &&
-      (
-        github.event.inputs.action == 'backend-only' ||
-        github.event.inputs.action == 'full' ||
-        github.event.inputs.action == 'deploy-only' ||
-        needs.detect-changes.outputs.backend_changed == 'true'
-      )
+      github.event.inputs.action != 'db-reset-and-seed'
 
     permissions:
       id-token: write
       contents: read
 
     outputs:
-      image: ${{ steps.build.outputs.image || steps.latest.outputs.image }}
+      image: ${{ steps.build.outputs.image || steps.deploy_only.outputs.image }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout platform release
         uses: actions/checkout@v5
         if: github.event.inputs.action != 'deploy-only'
+        with:
+          ref: ${{ needs.resolve-release.outputs.platform_ref }}
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -249,62 +253,60 @@ jobs:
         if: github.event.inputs.action != 'deploy-only'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
         run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
           docker build -f apps/backend_pro/Dockerfile \
-            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" .
-          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" \
-            "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest"
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG"
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest"
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION" .
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION-$SHORT_SHA"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION-$SHORT_SHA"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Use latest image for deploy-only
-        id: latest
+      - name: Use semantic version image for deploy-only
+        id: deploy_only
         if: github.event.inputs.action == 'deploy-only'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest" >> "$GITHUB_OUTPUT"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION" >> "$GITHUB_OUTPUT"
 
   build-admin:
     name: Build Admin Pro
     runs-on: ubuntu-latest
-    needs: [load-config, detect-changes]
+    needs: [load-config, resolve-release]
     environment: ${{ needs.load-config.outputs.github_environment }}
     env:
       AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
       ECR_REPOSITORY_ADMIN: ${{ needs.load-config.outputs.ecr_admin }}
       ADMIN_URL: ${{ needs.load-config.outputs.admin_url }}
       BACKEND_URL: ${{ needs.load-config.outputs.backend_url }}
+      PLATFORM_VERSION: ${{ needs.resolve-release.outputs.platform_version }}
     if: |
       always() &&
       needs.load-config.result == 'success' &&
-      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
+      needs.resolve-release.result == 'success' &&
       github.event.inputs.action != 'backend-only' &&
       github.event.inputs.action != 'borrower-only' &&
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
       github.event.inputs.action != 'db-migrate-and-seed' &&
-      github.event.inputs.action != 'db-reset-and-seed' &&
-      (
-        github.event.inputs.action == 'admin-only' ||
-        github.event.inputs.action == 'full' ||
-        github.event.inputs.action == 'deploy-only' ||
-        needs.detect-changes.outputs.admin_changed == 'true'
-      )
+      github.event.inputs.action != 'db-reset-and-seed'
 
     permissions:
       id-token: write
       contents: read
 
     outputs:
-      image: ${{ steps.build.outputs.image || steps.latest.outputs.image }}
+      image: ${{ steps.build.outputs.image || steps.deploy_only.outputs.image }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout platform release
         uses: actions/checkout@v5
         if: github.event.inputs.action != 'deploy-only'
+        with:
+          ref: ${{ needs.resolve-release.outputs.platform_ref }}
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -321,31 +323,31 @@ jobs:
         if: github.event.inputs.action != 'deploy-only'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
         run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
           docker build -f apps/admin_pro/Dockerfile \
-            --build-arg NEXT_PUBLIC_API_URL="${{ env.BACKEND_URL }}" \
-            --build-arg NEXT_PUBLIC_APP_URL="${{ env.ADMIN_URL }}" \
-            --build-arg BACKEND_URL="${{ env.BACKEND_URL }}" \
-            -t "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$IMAGE_TAG" .
-          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$IMAGE_TAG" \
-            "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:latest"
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$IMAGE_TAG"
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:latest"
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+            --build-arg NEXT_PUBLIC_API_URL="$BACKEND_URL" \
+            --build-arg NEXT_PUBLIC_APP_URL="$ADMIN_URL" \
+            --build-arg BACKEND_URL="$BACKEND_URL" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION" .
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION-$SHORT_SHA"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION-$SHORT_SHA"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Use latest image for deploy-only
-        id: latest
+      - name: Use semantic version image for deploy-only
+        id: deploy_only
         if: github.event.inputs.action == 'deploy-only'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:latest" >> "$GITHUB_OUTPUT"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION" >> "$GITHUB_OUTPUT"
 
   build-borrower:
-    name: Build Demo Borrower App
+    name: Build Borrower App
     runs-on: ubuntu-latest
-    needs: [load-config, detect-changes]
+    needs: [load-config, resolve-release]
     environment: ${{ needs.load-config.outputs.github_environment }}
     env:
       AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
@@ -353,34 +355,32 @@ jobs:
       ECR_REPOSITORY_BORROWER: ${{ needs.load-config.outputs.ecr_borrower }}
       BORROWER_URL: ${{ needs.load-config.outputs.borrower_url }}
       BACKEND_URL: ${{ needs.load-config.outputs.backend_url }}
+      BORROWER_VERSION: ${{ needs.resolve-release.outputs.borrower_version }}
     if: |
       always() &&
       needs.load-config.result == 'success' &&
-      (needs.detect-changes.result == 'success' || needs.detect-changes.result == 'skipped') &&
+      needs.resolve-release.result == 'success' &&
       github.event.inputs.action != 'backend-only' &&
       github.event.inputs.action != 'admin-only' &&
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
       github.event.inputs.action != 'db-migrate-and-seed' &&
-      github.event.inputs.action != 'db-reset-and-seed' &&
-      (
-        github.event.inputs.action == 'borrower-only' ||
-        github.event.inputs.action == 'full' ||
-        github.event.inputs.action == 'deploy-only' ||
-        needs.detect-changes.outputs.borrower_changed == 'true'
-      )
+      github.event.inputs.action != 'db-reset-and-seed'
 
     permissions:
       id-token: write
       contents: read
 
     outputs:
-      image: ${{ steps.build.outputs.image || steps.latest.outputs.image }}
+      image: ${{ steps.build.outputs.image || steps.deploy_only.outputs.image }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout borrower release
         uses: actions/checkout@v5
         if: github.event.inputs.action != 'deploy-only'
+        with:
+          ref: ${{ needs.resolve-release.outputs.borrower_ref }}
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -397,32 +397,32 @@ jobs:
         if: github.event.inputs.action != 'deploy-only'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
         run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
           docker build -f apps/borrower_pro/Dockerfile \
-            --build-arg BORROWER_APP="${{ env.BORROWER_APP }}" \
-            --build-arg NEXT_PUBLIC_APP_URL="${{ env.BORROWER_URL }}" \
-            --build-arg NEXT_PUBLIC_BACKEND_URL="${{ env.BACKEND_URL }}" \
-            --build-arg BACKEND_URL="${{ env.BACKEND_URL }}" \
-            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$IMAGE_TAG" .
-          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$IMAGE_TAG" \
-            "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:latest"
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$IMAGE_TAG"
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:latest"
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+            --build-arg BORROWER_APP="$BORROWER_APP" \
+            --build-arg NEXT_PUBLIC_APP_URL="$BORROWER_URL" \
+            --build-arg NEXT_PUBLIC_BACKEND_URL="$BACKEND_URL" \
+            --build-arg BACKEND_URL="$BACKEND_URL" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION" .
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION-$SHORT_SHA"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION-$SHORT_SHA"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Use latest image for deploy-only
-        id: latest
+      - name: Use semantic version image for deploy-only
+        id: deploy_only
         if: github.event.inputs.action == 'deploy-only'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:latest" >> "$GITHUB_OUTPUT"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION" >> "$GITHUB_OUTPUT"
 
   db-operations:
-    name: Demo Client Database Operations
+    name: Pro Client Database Operations
     runs-on: ubuntu-latest
-    needs: [load-config, detect-changes]
+    needs: [load-config, resolve-release]
     environment: ${{ needs.load-config.outputs.github_environment }}
     env:
       AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
@@ -443,20 +443,19 @@ jobs:
       PROD_DEMO_OWNER_EMAIL: ${{ needs.load-config.outputs.seed_owner_email }}
       PROD_DEMO_OWNER_NAME: ${{ needs.load-config.outputs.seed_owner_name }}
       BACKEND_LOG_GROUP: ${{ needs.load-config.outputs.backend_log_group }}
+      PLATFORM_VERSION: ${{ needs.resolve-release.outputs.platform_version }}
     if: |
       always() &&
       needs.load-config.result == 'success' &&
+      needs.resolve-release.result == 'success' &&
       (
         github.event.inputs.action == 'db-migrate' ||
         github.event.inputs.action == 'db-seed' ||
         github.event.inputs.action == 'db-migrate-and-seed' ||
         github.event.inputs.action == 'db-reset-and-seed' ||
         (
-          github.event.inputs.action != 'admin-only' &&
-          github.event.inputs.action != 'borrower-only' &&
-          github.event.inputs.action != 'deploy-only' &&
-          github.event.inputs.skip_migrations != 'true' &&
-          needs.detect-changes.outputs.migrations_changed == 'true'
+          github.event.inputs.action == 'full' &&
+          github.event.inputs.skip_migrations != 'true'
         )
       )
 
@@ -465,8 +464,11 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout code
+      - name: Checkout platform release
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-release.outputs.platform_ref }}
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -481,12 +483,14 @@ jobs:
       - name: Build and push migrations image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
         run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
           docker build -f Dockerfile.migrations.pro \
-            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG-migrations" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION-migrations" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION-$SHORT_SHA-migrations" \
             -t "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest-migrations" .
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG-migrations"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION-migrations"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION-$SHORT_SHA-migrations"
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest-migrations"
 
       - name: Determine operation type
@@ -494,7 +498,7 @@ jobs:
         run: |
           ACTION="${{ github.event.inputs.action }}"
 
-          if [ "$ACTION" = "db-migrate" ] || [ "$ACTION" = "db-migrate-and-seed" ] || [ "$ACTION" = "db-reset-and-seed" ] || [ "$ACTION" = "full" ] || [ -z "$ACTION" ]; then
+          if [ "$ACTION" = "db-migrate" ] || [ "$ACTION" = "db-migrate-and-seed" ] || [ "$ACTION" = "db-reset-and-seed" ] || [ "$ACTION" = "full" ]; then
             echo "run_migrations=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_migrations=false" >> "$GITHUB_OUTPUT"
@@ -758,7 +762,7 @@ jobs:
             --services "${{ env.ECS_SERVICE_ADMIN }}"
 
   deploy-borrower:
-    name: Deploy Demo Borrower App
+    name: Deploy Borrower App
     runs-on: ubuntu-latest
     needs: [load-config, build-borrower]
     environment: ${{ needs.load-config.outputs.github_environment }}
@@ -832,7 +836,7 @@ jobs:
     needs:
       [
         load-config,
-        detect-changes,
+        resolve-release,
         build-backend,
         build-admin,
         build-borrower,
@@ -847,11 +851,10 @@ jobs:
       - name: Deployment summary
         run: |
           echo "Trigger: ${{ github.event_name }}"
-          echo "Action: ${{ github.event.inputs.action || 'auto' }}"
-          echo "Backend changed: ${{ needs.detect-changes.outputs.backend_changed || 'n/a' }}"
-          echo "Admin changed: ${{ needs.detect-changes.outputs.admin_changed || 'n/a' }}"
-          echo "Borrower changed: ${{ needs.detect-changes.outputs.borrower_changed || 'n/a' }}"
-          echo "Migrations changed: ${{ needs.detect-changes.outputs.migrations_changed || 'n/a' }}"
+          echo "Client: ${{ needs.load-config.outputs.client_id }}"
+          echo "Action: ${{ github.event.inputs.action }}"
+          echo "Platform version: ${{ needs.resolve-release.outputs.platform_version }}"
+          echo "Borrower version: ${{ needs.resolve-release.outputs.borrower_version }}"
           echo "Build backend: ${{ needs.build-backend.result }}"
           echo "Build admin: ${{ needs.build-admin.result }}"
           echo "Build borrower: ${{ needs.build-borrower.result }}"

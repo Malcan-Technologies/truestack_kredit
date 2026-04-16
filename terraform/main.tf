@@ -10,8 +10,7 @@ terraform {
 }
 
 provider "aws" {
-  region  = var.aws_region
-  profile = "truestack"
+  region = var.aws_region
 
   default_tags {
     tags = {

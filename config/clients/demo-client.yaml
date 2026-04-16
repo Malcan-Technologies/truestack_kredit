@@ -37,6 +37,13 @@ domains:
 
 pro_tenant:
   slug: demo-company
+  name: Demo Company Sdn Bhd
+  type: PPW
+  license_number: PPW/KL/2024/001
+  registration_number: "202401012345"
+  email: info@demo-company.com
+  contact_number: "+60312345678"
+  business_address: 123 Jalan Demo, 50000 Kuala Lumpur
   seed_owner_email: admin@demo.com
   seed_owner_name: Demo Owner
 

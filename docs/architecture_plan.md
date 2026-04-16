@@ -437,8 +437,8 @@ aws_account_id: "491694399426"
 aws_region: ap-southeast-5
 github_environment: pro-demo-client
 terraform_var_file: terraform/pro/clients/demo-client/prod.tfvars
-platform_release: sha-abcdef123456
-borrower_release: sha-abcdef123456
+platform_release: 1.2.3
+borrower_release: 1.2.3
 auto_deploy: true
 domains:
   admin: demo-admin.example.com
@@ -474,8 +474,11 @@ The Pro platform should use immutable release identifiers.
 
 Recommended default:
 
-- image tag: Git commit SHA
-- optional human label: `pro-YYYY.MM.DD.N`
+- semantic versioning for release pins, for example `1.2.3` or `1.2.3-rc.1`
+- Git tag pattern for shared platform releases: `pro-platform-v<semver>`
+- optional borrower tag pattern when the borrower app ships independently: `pro-borrower-<borrower_app>-v<semver>`
+
+The semantic version is the deployment-facing version contract. Docker images may additionally carry short-SHA tags for traceability, but client promotion and rollback should use the semver release pin.
 
 ### 9.2 Separate Release Pins
 
@@ -501,8 +504,8 @@ This allows:
 
 This is how we maintain version control of shared Pro code without duplicating code per client.
 
-Shared code changes are built once.
-Deployment remains selective.
+Shared code changes are versioned once.
+Deployment remains selective per client account and per pinned semver release.
 
 ---
 
@@ -566,14 +569,16 @@ Purpose:
 
 - manual deployment of an external Pro client
 - uses `workflow_dispatch`
-- required inputs:
+- resolves client infrastructure from `config/clients/<client-id>.yaml`
+- deploys from semantic versions, not floating `latest`
+- supported inputs:
   - `client_id`
-  - `platform_release`
-  - optional `borrower_release`
-  - `run_migrations`
-  - `apply_terraform`
+  - `action`
+  - optional `platform_version`
+  - optional `borrower_version`
+  - optional `skip_migrations`
 
-This remains the next workflow to add after `demo-client` is proven.
+If versions are omitted, the workflow falls back to the client registry release pins (`deploy.platform_release`, `deploy.borrower_release`). Shared platform code resolves from Git tags named `pro-platform-v<semver>`. Borrower-only releases may resolve from `pro-borrower-<borrower_app>-v<semver>` when they diverge from the platform tag.
 
 #### `terraform.yml`
 
@@ -633,15 +638,17 @@ Effect:
 
 - build only the impacted borrower app where possible
 - auto-deploy `demo-client` when `Demo_Client` changes
+- auto-deploy `demo-client` when shared borrower layers it consumes change (for example `apps/borrower_pro/components/**`, `apps/borrower_pro/lib/**`, `apps/borrower_pro/help-docs/**`, borrower Docker/build files)
 - require manual deployment for external clients
+- do not let a change in `apps/borrower_pro/<external-client>/**` trigger `demo-client` auto deployment
 
 ### 10.4 Deployment Policy
 
 Final deployment policy:
 
 - SaaS: automatic from `main`
-- `demo-client`: automatic from `main` for Pro-relevant changes
-- external Pro clients: manual promotion only
+- `demo-client`: automatic from `main` for shared Pro changes, `Demo_Client` changes, and shared borrower code it consumes
+- external Pro clients: manual promotion only for backend, admin, borrower, and signing even though they share the same codebase
 
 ### 10.5 GitHub Environments
 
@@ -1675,3 +1682,59 @@ The final approved method is:
 - reference `docs/mtsa_api_reference.md` for the MTSA SOAP API contract
 
 This is the architecture to follow for all future Pro implementation and deployment work in this repository.
+
+---
+
+## 20. External Pro client onboarding checklist (e.g. Proficient Premium)
+
+Use this when onboarding a **new external Pro client** that shares the same `admin_pro` / `backend_pro` / Signing Gateway code as the rest of the monorepo but runs on **its own AWS account** and (if signing is enabled) **its own on-prem stack**. The borrower app can start as a **structural copy** of `apps/borrower_pro/Demo_Client` with client-specific branding, domains, and registry metadata only.
+
+### 20.1 Identity and registry
+
+1. Choose a stable `client_id` (kebab-case), e.g. `proficient-premium`.
+2. Add `config/clients/<client_id>.yaml` from `config/clients/_template.yaml` with:
+   - `borrower_app` set to the new borrower folder name (e.g. `Proficient_Premium` if mirroring `Demo_Client` folder naming)
+   - `client_type: external`, `deploy.auto_deploy: false`, and **pinned** `platform_release` / `borrower_release` when ready (not `latest` for production)
+   - `aws.account_id` and `aws.region` for the **new** AWS account
+   - `aws.github_environment` naming convention such as `pro-<client_id>`
+   - `domains.*`, `ecr.*`, `ecs.*`, `secrets.app_secrets_arn`, `storage.uploads_bucket`, and `pro_tenant.*` for this client
+3. If signing is enabled, complete the `signing:` block (gateway hostname, SSH host, tunnel name, `mtsa_env`, backup prefix) per Section 12.11 — **no secrets in YAML**.
+
+### 20.2 AWS account and infrastructure
+
+1. Create or designate the client’s AWS account; bootstrap Terraform remote state (S3 + lock table) and GitHub OIDC deploy role in that account.
+2. Instantiate `terraform/pro/clients/<client_id>/` from the `demo-client` pattern (`terraform/pro/clients/demo-client/`), with client-specific `*.tfvars` (names, domains, capacity).
+3. Apply Terraform to create VPC, ALB, ECS, RDS, S3, Secrets Manager, ACM/Route53 as required by the module.
+4. Populate **AWS Secrets Manager** with runtime secrets (DB, auth, app keys, and if signing: `signing_gateway_url`, `signing_api_key`, `signing_backup_bucket` per Section 12.13).
+
+### 20.3 Borrower frontend (`borrower_pro`)
+
+1. Copy `apps/borrower_pro/Demo_Client` to `apps/borrower_pro/<borrower_app>/` and adjust only **shell** concerns: branding, copy, legal pages, env-driven URLs, tenant-facing names — keep shared flows in shared components/packages.
+2. Wire production build args / env for that client’s public URLs (admin, API, borrower) consistent with `domains` in the registry file.
+
+### 20.4 GitHub Environments and secrets
+
+1. Create GitHub Environment `pro-<client_id>` (or the name set in `aws.github_environment`).
+2. Store at minimum: `AWS_ROLE_ARN` (OIDC) for this account; any workflow-specific secrets the generalized deploy job will need.
+3. If on-prem signing deploy is used: `ONPREM_SSH_KEY`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` (Section 12.13). Signing Gateway image pull on the server uses a GHCR token in on-prem `.env`, not necessarily GitHub Environment, but rotation must be coordinated.
+
+### 20.5 CI/CD
+
+1. **AWS (admin_pro + backend_pro + borrower):** use `deploy-pro.yml` (Section 10.2) so `workflow_dispatch` selects `client_id` and semantic release pins from workflow input or `config/clients/<client_id>.yaml`.
+2. **Signing Gateway:** use `deploy-signing-gateway.yml` with `client_id` and semantic `platform_version` (or the config default); external clients still deploy on-prem by **manual** dispatch only (never auto on `main` for external — Section 10.4 / 18).
+3. Keep **demo-client** as the automatic canary on `main`; external clients promote only when deliberately pinned.
+
+### 20.6 On-prem Signing Gateway + MTSA
+
+1. Provision the client’s server (Docker, Compose), load Trustgate MTSA image from tarball, configure `mtsa_env` (`pilot` vs `prod`) and Trustgate-issued SOAP credentials in on-prem `.env` only.
+2. Install and configure Cloudflare Tunnel (`cloudflared`) and DNS/hostnames consistent with `signing.gateway_hostname` / `signing.ssh_host`.
+3. Align `SIGNING_API_KEY` (and related) between on-prem `.env` and the client’s AWS Secrets Manager entry for `backend_pro`.
+4. Run first health checks (Gateway `/health`, MTSA WSDL per Section 12), then first deploy via CI SSH path.
+
+### 20.7 Mobile
+
+Native mobile apps for borrowers are **out of scope** for this checklist until the app reaches release readiness; architecture remains “shared codebase, per-client deployment” when you add them later.
+
+### 20.8 Naming note: “Proficient Premium”
+
+For a client marketed as **Proficient Premium**, use a stable machine-friendly `client_id` (e.g. `proficient-premium`) in registry, Terraform, and GitHub Environment names; use human-facing strings in branding and `pro_tenant` display fields as needed.

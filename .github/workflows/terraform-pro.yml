@@ -29,10 +29,51 @@ env:
   TF_VERSION: "1.6.0"
 
 jobs:
+  load-config:
+    name: Load Client Config
+    runs-on: ubuntu-latest
+
+    outputs:
+      client_id: ${{ steps.client.outputs.client_id }}
+      github_environment: ${{ steps.config.outputs.github_environment }}
+      aws_region: ${{ steps.config.outputs.aws_region }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Determine client config path
+        id: client
+        run: |
+          CLIENT_ID="${{ github.event.inputs.client_id || 'demo-client' }}"
+          echo "client_id=$CLIENT_ID" >> "$GITHUB_OUTPUT"
+          echo "config_path=config/clients/$CLIENT_ID.yaml" >> "$GITHUB_OUTPUT"
+
+      - name: Parse client config
+        id: config
+        env:
+          CLIENT_CONFIG_PATH: ${{ steps.client.outputs.config_path }}
+        run: |
+          ruby -ryaml -e '
+            cfg = YAML.load_file(ENV.fetch("CLIENT_CONFIG_PATH"))
+            outputs = {
+              "github_environment" => cfg.dig("aws", "github_environment"),
+              "aws_region" => cfg.dig("aws", "region")
+            }
+
+            File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |f|
+              outputs.each do |key, value|
+                raise "Missing config value for #{key}" if value.nil? || value.to_s.empty?
+                f.puts("#{key}=#{value}")
+              end
+            end
+          '
+
   terraform:
     name: Terraform Pro
     runs-on: ubuntu-latest
-    environment: pro-demo-client
+    needs: load-config
+    environment: ${{ needs.load-config.outputs.github_environment }}
 
     permissions:
       id-token: write
@@ -40,11 +81,12 @@ jobs:
       pull-requests: write
 
     env:
-      CLIENT_ID: ${{ github.event.inputs.client_id || 'demo-client' }}
+      CLIENT_ID: ${{ needs.load-config.outputs.client_id }}
+      AWS_REGION: ${{ needs.load-config.outputs.aws_region }}
 
     defaults:
       run:
-        working-directory: terraform/pro/clients/${{ github.event.inputs.client_id || 'demo-client' }}
+        working-directory: terraform/pro/clients/${{ needs.load-config.outputs.client_id }}
 
     steps:
       - name: Checkout code
@@ -54,7 +96,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ap-southeast-5
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

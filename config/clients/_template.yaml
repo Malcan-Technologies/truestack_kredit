@@ -9,8 +9,11 @@ aws:
 
 deploy:
   auto_deploy: false
-  platform_release: sha-to-pin
-  borrower_release: sha-to-pin
+  # Git tag: pro-platform-v<platform_release>
+  platform_release: 1.0.0
+  # Git tag: pro-borrower-<borrower_app>-v<borrower_release>
+  # If omitted in deploy-pro.yml input, borrower_release falls back to this value, then platform_release.
+  borrower_release: 1.0.0
 
 ecr:
   backend_repository: truekredit-client-id-backend-pro
@@ -31,12 +34,20 @@ storage:
   uploads_bucket: truekredit-uploads-client-id
 
 domains:
+  # Public client-facing hostnames. These remain the source of truth even when DNS/proxying is handled by Cloudflare.
   admin: admin.client-id.example.com
   api: api.client-id.example.com
   borrower: app.client-id.example.com
 
 pro_tenant:
   slug: client-id
+  name: Client Name Sdn Bhd
+  type: PPW
+  license_number: PPW/KL/2024/001
+  registration_number: "202401012345"
+  email: info@client-id.example.com
+  contact_number: "+60312345678"
+  business_address: 123 Jalan Client, 50000 Kuala Lumpur
   seed_owner_email: admin@client-id.example.com
   seed_owner_name: Client Admin
 

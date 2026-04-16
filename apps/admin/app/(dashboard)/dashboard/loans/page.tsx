@@ -29,6 +29,7 @@ import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { api } from "@/lib/api";
 import { cn, formatCurrency, formatDate, formatSmartDateTime } from "@/lib/utils";
+import { formatLoanStatusLabelForDisplay } from "@/lib/loan-status-label";
 import { toast } from "sonner";
 
 interface LoanProgress {
@@ -44,6 +45,8 @@ interface Loan {
   interestRate: string;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
+  attestationCompletedAt?: string | null;
   disbursementDate: string | null;
   createdAt: string;
   totalLateFees: string;
@@ -145,6 +148,7 @@ function ProgressDonut({
 }
 
 const statusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
+  PENDING_ATTESTATION: "warning",
   PENDING_DISBURSEMENT: "warning",
   ACTIVE: "default",
   IN_ARREARS: "warning",
@@ -152,6 +156,21 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   DEFAULTED: "destructive",
   WRITTEN_OFF: "destructive",
 };
+
+function loanStatusDisplay(loan: Loan): {
+  label: string;
+  variant: "default" | "success" | "warning" | "destructive" | "info";
+} {
+  const label = formatLoanStatusLabelForDisplay(loan);
+  const variant =
+    loan.status === "PENDING_ATTESTATION" ||
+    (loan.status === "PENDING_DISBURSEMENT" &&
+      loan.loanChannel === "ONLINE" &&
+      !loan.attestationCompletedAt)
+      ? "warning"
+      : statusColors[loan.status] || "default";
+  return { label, variant };
+}
 
 function LoansPageContent() {
   const searchParams = useSearchParams();
@@ -611,6 +630,7 @@ function LoansPageContent() {
                     ? loan.borrower.companyName
                     : loan.borrower.name;
                   const progress = loan.progress;
+                  const statusUi = loanStatusDisplay(loan);
 
                   return (
                   <TableRow 
@@ -724,8 +744,8 @@ function LoansPageContent() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <Badge variant={statusColors[loan.status] || "default"}>
-                          {loan.status.replace(/_/g, " ")}
+                        <Badge variant={statusUi.variant}>
+                          {statusUi.label}
                         </Badge>
                         {loan.earlySettlementDate && loan.status === "COMPLETED" && (
                           <Badge variant="outline-success" className="text-xs">

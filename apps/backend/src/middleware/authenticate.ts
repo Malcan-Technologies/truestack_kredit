@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../lib/auth.js';
 import { prisma } from '../lib/prisma.js';
+import { resolveTenantAccess } from '../lib/rbac.js';
 import { UnauthorizedError, ForbiddenError } from '../lib/errors.js';
 
 function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
@@ -45,7 +46,10 @@ export interface SessionUser {
   memberId?: string;
   email: string;
   name: string | null;
-  role?: string; // Role in the current tenant (when tenant is set)
+  role?: string;
+  roleId?: string | null;
+  roleName?: string | null;
+  permissions?: string[];
 }
 
 // Extend Express Request type
@@ -106,6 +110,9 @@ export async function authenticateToken(req: Request, _res: Response, next: Next
           tenantId: dbSession.activeTenantId,
         },
       },
+      include: {
+        roleConfig: true,
+      },
     });
 
     if (!membership) {
@@ -116,6 +123,8 @@ export async function authenticateToken(req: Request, _res: Response, next: Next
       throw new ForbiddenError('Your access to this tenant has been disabled');
     }
 
+    const access = await resolveTenantAccess(prisma, membership);
+
     // Set user info on request
     req.user = {
       userId: session.user.id,
@@ -123,7 +132,10 @@ export async function authenticateToken(req: Request, _res: Response, next: Next
       memberId: membership.id,
       email: session.user.email,
       name: session.user.name,
-      role: membership.role,
+      role: access.roleKey,
+      roleId: access.roleId,
+      roleName: access.roleName,
+      permissions: access.permissions,
     };
     req.tenantId = dbSession.activeTenantId;
     req.memberId = membership.id;
@@ -182,11 +194,18 @@ export async function requireSession(req: Request, _res: Response, next: NextFun
             tenantId: dbSession.activeTenantId,
           },
         },
+        include: {
+          roleConfig: true,
+        },
       });
       if (membership?.isActive) {
+        const access = await resolveTenantAccess(prisma, membership);
         req.user.tenantId = dbSession.activeTenantId;
         req.user.memberId = membership.id;
-        req.user.role = membership.role;
+        req.user.role = access.roleKey;
+        req.user.roleId = access.roleId;
+        req.user.roleName = access.roleName;
+        req.user.permissions = access.permissions;
         req.tenantId = dbSession.activeTenantId;
         req.memberId = membership.id;
       }
@@ -223,16 +242,23 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
               tenantId: dbSession.activeTenantId,
             },
           },
+          include: {
+            roleConfig: true,
+          },
         });
 
         if (membership?.isActive) {
+          const access = await resolveTenantAccess(prisma, membership);
           req.user = {
             userId: session.user.id,
             tenantId: dbSession.activeTenantId,
             memberId: membership.id,
             email: session.user.email,
             name: session.user.name,
-            role: membership.role,
+            role: access.roleKey,
+            roleId: access.roleId,
+            roleName: access.roleName,
+            permissions: access.permissions,
           };
           req.tenantId = dbSession.activeTenantId;
           req.memberId = membership.id;
@@ -246,21 +272,3 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
   next();
 }
 
-/**
- * Require specific roles (checks role in current tenant)
- */
-export function requireRole(...allowedRoles: string[]) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      next(new UnauthorizedError('Authentication required'));
-      return;
-    }
-
-    if (!req.user.role || !allowedRoles.includes(req.user.role)) {
-      next(new ForbiddenError('Insufficient permissions'));
-      return;
-    }
-
-    next();
-  };
-}

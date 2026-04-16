@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, ArrowLeftRight, Plus } from "lucide-react";
+import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,8 +33,14 @@ import Link from "next/link";
 import { useSession } from "@/lib/auth-client";
 import { useTenantContext } from "@/components/tenant-context";
 import { formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
-import { canManageSettings } from "@/lib/permissions";
-import type { TenantRole } from "@/lib/permissions";
+import { canManageSettings, hasAnyPermission, hasPermission } from "@/lib/permissions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface TenantInfo {
   id: string;
@@ -62,10 +68,21 @@ interface User {
   email: string;
   name: string | null;
   role: string;
+  roleId?: string | null;
+  roleName?: string;
+  isSystemRole?: boolean;
   isActive: boolean;
   createdAt: string;
   lastLoginAt: string | null;
 }
+
+interface TenantRoleOption {
+  id: string;
+  key: string;
+  name: string;
+}
+
+const MAX_TEAM_MEMBERS = 10;
 
 interface CurrentMembership {
   role: string;
@@ -81,8 +98,9 @@ export default function SettingsPage() {
     email: "",
     name: "",
     password: "",
-    role: "STAFF",
+    roleId: "" as string,
   });
+  const [roleCatalog, setRoleCatalog] = useState<TenantRoleOption[]>([]);
   // Tenant editing state
   const [showEditTenant, setShowEditTenant] = useState(false);
   const [savingTenant, setSavingTenant] = useState(false);
@@ -107,9 +125,16 @@ export default function SettingsPage() {
 
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
-  const { refreshTenantData, hasTenants } = useTenantContext();
+  const { refreshTenantData, hasTenants, permissions } = useTenantContext();
   const currentUser = session?.user;
   const currentRole = currentMembership?.role || "STAFF";
+  const canInvite = hasPermission(permissions, "team.invite");
+  const canEditMemberRoles = hasPermission(permissions, "team.edit_roles");
+  const canDeactivateMembers = hasPermission(permissions, "team.deactivate");
+  const canViewRolesPage = hasAnyPermission(permissions, "roles.view", "roles.manage");
+  const assignableRoles = roleCatalog.filter((r) => r.key !== "OWNER" && r.key !== "SUPER_ADMIN");
+  const defaultInviteRoleId =
+    assignableRoles.find((r) => r.key === "GENERAL_STAFF")?.id ?? assignableRoles[0]?.id ?? "";
 
   const fetchData = async () => {
     if (!session) return;
@@ -117,10 +142,11 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       // Use proxy route for backend calls (ensures cookies work correctly)
-      const [tenantRes, usersRes, meRes] = await Promise.all([
+      const [tenantRes, usersRes, meRes, rolesRes] = await Promise.all([
         fetch("/api/proxy/tenants/current", { credentials: "include" }).then(r => r.json()),
         fetch("/api/proxy/tenants/users", { credentials: "include" }).then(r => r.json()),
         fetch("/api/proxy/auth/me", { credentials: "include" }).then(r => r.json()),
+        fetch("/api/proxy/tenants/roles", { credentials: "include" }).then(r => r.json()),
       ]);
 
       if (tenantRes.success && tenantRes.data) {
@@ -131,6 +157,22 @@ export default function SettingsPage() {
       }
       if (meRes.success && meRes.data?.user) {
         setCurrentMembership({ role: meRes.data.user.role });
+      }
+      if (rolesRes.success && Array.isArray(rolesRes.data)) {
+        const nextCatalog = rolesRes.data.map((r: { id: string; key: string; name: string }) => ({
+          id: r.id,
+          key: r.key,
+          name: r.name,
+        }));
+        setRoleCatalog(nextCatalog);
+        setNewUser((prev) => ({
+          ...prev,
+          roleId:
+            prev.roleId ||
+            nextCatalog.find((x: TenantRoleOption) => x.key === "GENERAL_STAFF")?.id ||
+            nextCatalog[0]?.id ||
+            "",
+        }));
       }
     } catch (error) {
       console.error("Failed to fetch settings data:", error);
@@ -147,18 +189,26 @@ export default function SettingsPage() {
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const body: Record<string, string> = {
+        email: newUser.email,
+        name: newUser.name,
+        password: newUser.password,
+      };
+      if (canEditMemberRoles && newUser.roleId) {
+        body.roleId = newUser.roleId;
+      }
       const response = await fetch("/api/proxy/tenants/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(newUser),
+        body: JSON.stringify(body),
       });
       const res = await response.json();
       
       if (res.success) {
         toast.success("User added successfully");
         setShowAddUser(false);
-        setNewUser({ email: "", name: "", password: "", role: "STAFF" });
+        setNewUser({ email: "", name: "", password: "", roleId: defaultInviteRoleId });
         fetchData();
       } else {
         toast.error(res.error || "Failed to add user");
@@ -189,19 +239,19 @@ export default function SettingsPage() {
     }
   };
 
-  const handleChangeRole = async (user: User) => {
-    const newRole = user.role === "ADMIN" ? "STAFF" : "ADMIN";
+  const handleChangeMemberRole = async (user: User, roleId: string) => {
     try {
       const response = await fetch(`/api/proxy/tenants/users/${user.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ role: newRole }),
+        body: JSON.stringify({ roleId }),
       });
       const res = await response.json();
 
       if (res.success) {
-        toast.success(`${user.name || user.email} is now ${newRole}`);
+        const label = assignableRoles.find((r) => r.id === roleId)?.name ?? "updated role";
+        toast.success(`${user.name || user.email} is now ${label}`);
         fetchData();
       } else {
         toast.error(res.error || "Failed to change role");
@@ -406,7 +456,7 @@ export default function SettingsPage() {
                 </CardDescription>
               </div>
             </div>
-            {canManageSettings(currentRole as TenantRole) && !showEditTenant && (
+            {canManageSettings(permissions) && !showEditTenant && (
               <Button
                 variant="outline"
                 onClick={() => {
@@ -698,7 +748,7 @@ export default function SettingsPage() {
             <div>
               <CardTitle>Team Members</CardTitle>
               <CardDescription className="flex items-center gap-2">
-                {users.length}/5 members used
+                {users.length}/{MAX_TEAM_MEMBERS} members used
                 <span className="text-muted-foreground/60">·</span>
                 <Link
                   href="/dashboard/help?doc=getting-started/roles-and-permissions"
@@ -706,16 +756,27 @@ export default function SettingsPage() {
                 >
                   Roles & Permissions
                 </Link>
+                {canViewRolesPage && (
+                  <>
+                    <span className="text-muted-foreground/60">·</span>
+                    <Link
+                      href="/dashboard/roles"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Roles & Access
+                    </Link>
+                  </>
+                )}
               </CardDescription>
             </div>
           </div>
-          {canManageSettings(currentRole as TenantRole) && (
+          {canInvite && (
             <Button 
               onClick={() => setShowAddUser(!showAddUser)}
-              disabled={users.length >= 5}
+              disabled={users.length >= MAX_TEAM_MEMBERS}
             >
               <Plus className="h-4 w-4 mr-2" />
-              {users.length >= 5 ? "Limit Reached" : "Add User"}
+              {users.length >= MAX_TEAM_MEMBERS ? "Limit Reached" : "Add User"}
             </Button>
           )}
         </CardHeader>
@@ -750,17 +811,30 @@ export default function SettingsPage() {
                     required
                   />
                 </div>
+                {canEditMemberRoles ? (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Role *</label>
-                  <select
-                    value={newUser.role}
-                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-                    className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  <Select
+                    value={newUser.roleId || undefined}
+                    onValueChange={(roleId) => setNewUser({ ...newUser, roleId })}
                   >
-                    <option value="STAFF">Staff</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {assignableRoles.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground md:col-span-2">
+                    New members are assigned General Staff. Users with role management access can change roles after invite.
+                  </p>
+                )}
               </div>
               <div className="flex gap-2">
                 <Button type="submit">Add User</Button>
@@ -793,10 +867,29 @@ export default function SettingsPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={user.role === "OWNER" ? "default" : "outline"}>
-                      {user.role === "OWNER" && <Crown className="h-3 w-3 mr-1" />}
-                      {user.role}
-                    </Badge>
+                    <div className="flex flex-col gap-1">
+                      <Badge variant={user.role === "OWNER" ? "default" : "outline"}>
+                        {user.role === "OWNER" && <Crown className="h-3 w-3 mr-1" />}
+                        {user.roleName || user.role}
+                      </Badge>
+                      {canEditMemberRoles && user.role !== "OWNER" && user.isActive && (
+                        <Select
+                          value={user.roleId || ""}
+                          onValueChange={(roleId) => handleChangeMemberRole(user, roleId)}
+                        >
+                          <SelectTrigger className="h-8 w-[180px] text-xs">
+                            <SelectValue placeholder="Change role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {assignableRoles.map((r) => (
+                              <SelectItem key={r.id} value={r.id}>
+                                {r.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={user.isActive ? "success" : "secondary"}>
@@ -820,17 +913,12 @@ export default function SettingsPage() {
                     <div className="flex items-center gap-1">
                       {user.role !== "OWNER" && currentRole === "OWNER" && (
                         <>
-                          <TableActionButton
-                            icon={user.isActive ? UserX : UserCheck}
-                            label={user.isActive ? "Deactivate" : "Activate"}
-                            variant={user.isActive ? "destructive" : "success"}
-                            onClick={() => handleToggleUserActive(user)}
-                          />
-                          {user.isActive && (
+                          {canDeactivateMembers && (
                             <TableActionButton
-                              icon={ArrowLeftRight}
-                              label={user.role === "ADMIN" ? "Switch to Staff" : "Switch to Admin"}
-                              onClick={() => handleChangeRole(user)}
+                              icon={user.isActive ? UserX : UserCheck}
+                              label={user.isActive ? "Deactivate" : "Activate"}
+                              variant={user.isActive ? "destructive" : "success"}
+                              onClick={() => handleToggleUserActive(user)}
                             />
                           )}
                           {user.isActive && (

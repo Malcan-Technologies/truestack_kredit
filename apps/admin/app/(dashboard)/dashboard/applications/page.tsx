@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { LoanChannelPill } from "@/components/loan-channel-pill";
 import {
   Table,
   TableBody,
@@ -20,12 +21,16 @@ import {
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
+import { useTenantPermissions } from "@/components/tenant-context";
 import { api } from "@/lib/api";
+import { canCreateApplications } from "@/lib/permissions";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 interface ApplicationCounts {
   submitted: number;
   underReview: number;
+  pendingL2Approval: number;
+  l1QueueCount: number;
 }
 
 interface Application {
@@ -33,6 +38,7 @@ interface Application {
   amount: string;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
   notes: string | null;
   createdAt: string;
   borrower: {
@@ -54,19 +60,22 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   DRAFT: "secondary" as "default",
   SUBMITTED: "warning",
   UNDER_REVIEW: "warning",
+  PENDING_L2_APPROVAL: "info",
   APPROVED: "success",
   REJECTED: "destructive",
   CANCELLED: "destructive",
 };
 
 function applicationStatusLabel(status: string): string {
-  if (status === "SUBMITTED") return "REVIEW";
+  if (status === "SUBMITTED" || status === "UNDER_REVIEW") return "L1 Review";
+  if (status === "PENDING_L2_APPROVAL") return "L2 Review";
   return status.replace(/_/g, " ");
 }
 
 function ApplicationsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const permissions = useTenantPermissions();
   const initialFilter = searchParams.get("filter") || "";
 
   const [applications, setApplications] = useState<Application[]>([]);
@@ -83,11 +92,17 @@ function ApplicationsPageContent() {
   const [totalPages, setTotalPages] = useState(0);
 
   // Action needed counts
-  const [counts, setCounts] = useState<ApplicationCounts>({ submitted: 0, underReview: 0 });
+  const [counts, setCounts] = useState<ApplicationCounts>({
+    submitted: 0,
+    underReview: 0,
+    pendingL2Approval: 0,
+    l1QueueCount: 0,
+  });
 
   // Sort state
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const canCreateApplication = canCreateApplications(permissions);
 
   // Debounce search input
   const handleSearchChange = (value: string) => {
@@ -135,13 +150,18 @@ function ApplicationsPageContent() {
 
   const fetchCounts = useCallback(async () => {
     try {
-      const res = await api.get<{ submitted: number; underReview: number }>(
-        "/api/loans/applications/counts"
-      );
+      const res = await api.get<{
+        submitted: number;
+        underReview: number;
+        pendingL2Approval: number;
+        l1QueueCount: number;
+      }>("/api/loans/applications/counts");
       if (res.success && res.data) {
         setCounts({
           submitted: res.data.submitted,
           underReview: res.data.underReview,
+          pendingL2Approval: res.data.pendingL2Approval ?? 0,
+          l1QueueCount: res.data.l1QueueCount ?? res.data.submitted + res.data.underReview,
         });
       }
     } catch {
@@ -153,6 +173,11 @@ function ApplicationsPageContent() {
     fetchApplications();
     fetchCounts();
   }, [fetchApplications, fetchCounts]);
+
+  useEffect(() => {
+    const q = filter ? `?filter=${encodeURIComponent(filter)}` : "";
+    router.replace(`/dashboard/applications${q}`, { scroll: false });
+  }, [filter, router]);
 
   const handleRefresh = async () => {
     await Promise.all([fetchApplications(), fetchCounts()]);
@@ -208,28 +233,30 @@ function ApplicationsPageContent() {
           <h1 className="text-2xl font-heading font-bold text-gradient">Loan Applications</h1>
           <p className="text-muted">Review and manage loan applications</p>
         </div>
-        <Link href="/dashboard/applications/new">
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            New Application
-          </Button>
-        </Link>
+        {canCreateApplication ? (
+          <Link href="/dashboard/applications/new">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              New Application
+            </Button>
+          </Link>
+        ) : null}
       </div>
 
       {/* Status Alert Bar */}
-      {(counts.submitted > 0 || counts.underReview > 0) && (
+      {(counts.l1QueueCount > 0 || counts.pendingL2Approval > 0) && (
         <div className="flex items-center gap-4 p-3 rounded-lg border border-border bg-secondary">
           <AlertTriangle className="h-4 w-4 text-foreground shrink-0" />
           <div className="flex items-center gap-2 text-sm flex-wrap">
             {[
-              counts.submitted > 0 && (
-                <span key="submitted" className="text-foreground font-medium">
-                  {counts.submitted} application{counts.submitted !== 1 ? "s" : ""} awaiting review
+              counts.l1QueueCount > 0 && (
+                <span key="l1" className="text-foreground font-medium">
+                  {counts.l1QueueCount} in L1 Review
                 </span>
               ),
-              counts.underReview > 0 && (
-                <span key="review" className="text-foreground font-medium">
-                  {counts.underReview} application{counts.underReview !== 1 ? "s" : ""} under review
+              counts.pendingL2Approval > 0 && (
+                <span key="l2" className="text-foreground font-medium">
+                  {counts.pendingL2Approval} in L2 Review
                 </span>
               ),
             ].filter(Boolean).flatMap((item, i, arr) =>
@@ -273,14 +300,26 @@ function ApplicationsPageContent() {
         <span className="border-l border-border mx-1 h-6" />
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Action Needed</span>
         <Button
-          variant={filter === "SUBMITTED" ? "default" : "outline"}
+          variant={filter === "L1_QUEUE" ? "default" : "outline"}
           size="sm"
-          onClick={() => { setFilter("SUBMITTED"); setCurrentPage(1); }}
+          onClick={() => { setFilter("L1_QUEUE"); setCurrentPage(1); }}
         >
-          Pending Review
-          {counts.submitted > 0 && (
+          L1 Review
+          {counts.l1QueueCount > 0 && (
             <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
-              {counts.submitted}
+              {counts.l1QueueCount}
+            </span>
+          )}
+        </Button>
+        <Button
+          variant={filter === "PENDING_L2_APPROVAL" ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setFilter("PENDING_L2_APPROVAL"); setCurrentPage(1); }}
+        >
+          L2 Review
+          {counts.pendingL2Approval > 0 && (
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {counts.pendingL2Approval}
             </span>
           )}
         </Button>
@@ -316,12 +355,13 @@ function ApplicationsPageContent() {
         <CardContent className="p-0">
           {loading ? (
             <TableSkeleton
-              headers={["Borrower", "Product", "Amount", "Term", "Status", "Created"]}
+              headers={["Borrower", "Product", "Amount", "Term", "Channel", "Status", "Created"]}
               columns={[
                 { width: "w-32", subLine: true },
                 { width: "w-24" },
                 { width: "w-20" },
                 { width: "w-16" },
+                { badge: true, width: "w-28" },
                 { badge: true, width: "w-20" },
                 { width: "w-20" },
               ]}
@@ -330,12 +370,14 @@ function ApplicationsPageContent() {
             <div className="flex flex-col items-center justify-center h-64 text-center">
               <ClipboardList className="h-12 w-12 text-muted mb-4" />
               <p className="text-muted">No applications found</p>
-              <Link href="/dashboard/applications/new">
-                <Button className="mt-4">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create application
-                </Button>
-              </Link>
+              {canCreateApplication ? (
+                <Link href="/dashboard/applications/new">
+                  <Button className="mt-4">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create application
+                  </Button>
+                </Link>
+              ) : null}
             </div>
           ) : (
             <Table>
@@ -360,6 +402,7 @@ function ApplicationsPageContent() {
                       {sortField === "term" ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
                     </button>
                   </TableHead>
+                  <TableHead>Channel</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>
                     <button onClick={() => toggleSort("created")} className="flex items-center gap-1 hover:text-foreground transition-colors">
@@ -381,8 +424,11 @@ function ApplicationsPageContent() {
                     key={app.id}
                     className={cn(
                       "cursor-pointer transition-colors hover:bg-muted/20",
-                      app.status === "SUBMITTED"
+                      app.status === "SUBMITTED" || app.status === "UNDER_REVIEW"
                         ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.04]"
+                        : "",
+                      app.status === "PENDING_L2_APPROVAL"
+                        ? "bg-sky-500/[0.04] dark:bg-sky-500/[0.06]"
                         : ""
                     )}
                     onClick={() => router.push(`/dashboard/applications/${app.id}`)}
@@ -408,6 +454,9 @@ function ApplicationsPageContent() {
                     <TableCell>{app.product.name}</TableCell>
                     <TableCell>{formatCurrency(Number(app.amount))}</TableCell>
                     <TableCell>{app.term} months</TableCell>
+                    <TableCell className="align-middle">
+                      <LoanChannelPill channel={app.loanChannel} />
+                    </TableCell>
                     <TableCell>
                       <Badge variant={statusColors[app.status]}>
                         {applicationStatusLabel(app.status)}

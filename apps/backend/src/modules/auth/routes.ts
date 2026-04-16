@@ -5,6 +5,7 @@ import { auth } from '../../lib/auth.js';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnauthorizedError } from '../../lib/errors.js';
 import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
+import { resolveTenantAccess } from '../../lib/rbac.js';
 import { getOrCreateReferralCode } from '../../lib/referral.js';
 // @ts-ignore - better-auth crypto module
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
@@ -209,6 +210,7 @@ router.post('/switch-tenant', async (req, res, next) => {
       },
       include: {
         tenant: true,
+        roleConfig: true,
       },
     });
 
@@ -219,6 +221,8 @@ router.post('/switch-tenant', async (req, res, next) => {
     if (membership.tenant.status !== 'ACTIVE') {
       throw new ForbiddenError('This tenant is not active');
     }
+
+    const access = await resolveTenantAccess(prisma, membership);
 
     // Update session with new active tenant
     await prisma.session.update({
@@ -232,7 +236,11 @@ router.post('/switch-tenant', async (req, res, next) => {
         activeTenantId: tenantId,
         tenantName: membership.tenant.name,
         tenantSlug: membership.tenant.slug,
-        role: membership.role,
+        role: access.roleKey,
+        roleId: access.roleId,
+        roleName: access.roleName,
+        permissions: access.permissions,
+        isOwner: access.isOwner,
       },
     });
   } catch (error) {
@@ -292,6 +300,7 @@ router.get('/me', requireSession, async (req, res, next) => {
       },
       include: {
         tenant: true,
+        roleConfig: true,
       },
     });
 
@@ -319,6 +328,8 @@ router.get('/me', requireSession, async (req, res, next) => {
       });
     }
 
+    const access = await resolveTenantAccess(prisma, membership);
+
     res.json({
       success: true,
       data: {
@@ -326,7 +337,11 @@ router.get('/me', requireSession, async (req, res, next) => {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: membership.role, // Role from membership (tenant-scoped)
+          role: access.roleKey,
+          roleId: access.roleId,
+          roleName: access.roleName,
+          permissions: access.permissions,
+          isOwner: access.isOwner,
           createdAt: user.createdAt.toISOString(),
           referralBankAccountName: user.referralBankAccountName,
           referralBankName: user.referralBankName,

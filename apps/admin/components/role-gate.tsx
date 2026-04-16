@@ -25,8 +25,12 @@ export function RoleGate({
 }: RoleGateProps) {
   const role = useCurrentRole();
   const permissions = useTenantPermissions();
+  const isFullAccessRole = role === "OWNER" || role === "SUPER_ADMIN";
   const roleAllowed =
-    !allowedRoles || allowedRoles.length === 0 || allowedRoles.includes(role);
+    isFullAccessRole ||
+    !allowedRoles ||
+    allowedRoles.length === 0 ||
+    allowedRoles.includes(role);
   const permissionAllowed =
     !requiredPermissions ||
     requiredPermissions.length === 0 ||

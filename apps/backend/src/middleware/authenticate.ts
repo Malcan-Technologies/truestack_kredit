@@ -47,9 +47,15 @@ export interface SessionUser {
   email: string;
   name: string | null;
   role?: string;
+  roleKey?: string;
   roleId?: string | null;
   roleName?: string | null;
   permissions?: string[];
+}
+
+export function toLegacyRole(roleKey: string): string {
+  if (roleKey === 'OPS_ADMIN') return 'ADMIN';
+  return roleKey;
 }
 
 // Extend Express Request type
@@ -132,7 +138,8 @@ export async function authenticateToken(req: Request, _res: Response, next: Next
       memberId: membership.id,
       email: session.user.email,
       name: session.user.name,
-      role: access.roleKey,
+      role: toLegacyRole(access.roleKey),
+      roleKey: access.roleKey,
       roleId: access.roleId,
       roleName: access.roleName,
       permissions: access.permissions,
@@ -202,7 +209,8 @@ export async function requireSession(req: Request, _res: Response, next: NextFun
         const access = await resolveTenantAccess(prisma, membership);
         req.user.tenantId = dbSession.activeTenantId;
         req.user.memberId = membership.id;
-        req.user.role = access.roleKey;
+        req.user.role = toLegacyRole(access.roleKey);
+        req.user.roleKey = access.roleKey;
         req.user.roleId = access.roleId;
         req.user.roleName = access.roleName;
         req.user.permissions = access.permissions;
@@ -255,7 +263,8 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
             memberId: membership.id,
             email: session.user.email,
             name: session.user.name,
-            role: access.roleKey,
+            role: toLegacyRole(access.roleKey),
+            roleKey: access.roleKey,
             roleId: access.roleId,
             roleName: access.roleName,
             permissions: access.permissions,
@@ -271,4 +280,3 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
   
   next();
 }
-

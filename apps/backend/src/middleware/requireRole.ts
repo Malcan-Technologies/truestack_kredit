@@ -4,12 +4,16 @@ import { ForbiddenError, UnauthorizedError } from '../lib/errors.js';
 
 export type UserRole = string;
 
+function getEffectiveRole(req: Request): string | undefined {
+  return req.user?.roleKey ?? req.user?.role;
+}
+
 function hasFullAccessRole(role: string | undefined): boolean {
   return role === 'OWNER' || role === 'SUPER_ADMIN';
 }
 
 export function userHasPermission(req: Request, permission: TenantPermission): boolean {
-  if (hasFullAccessRole(req.user?.role)) return true;
+  if (hasFullAccessRole(getEffectiveRole(req))) return true;
   return (req.user?.permissions ?? []).includes(permission);
 }
 
@@ -17,7 +21,7 @@ function hasRequiredPermission(
   req: Request,
   permissions: readonly TenantPermission[]
 ): boolean {
-  if (hasFullAccessRole(req.user?.role)) return true;
+  if (hasFullAccessRole(getEffectiveRole(req))) return true;
   const userPermissions = new Set(req.user?.permissions ?? []);
   return permissions.every((permission) => userPermissions.has(permission));
 }
@@ -31,7 +35,8 @@ export function requireRole(...roles: UserRole[]) {
       return next(new UnauthorizedError());
     }
 
-    if (!roles.includes(req.user.role as UserRole)) {
+    const role = getEffectiveRole(req);
+    if (!roles.includes(role as UserRole)) {
       return next(new ForbiddenError('Insufficient permissions'));
     }
 
@@ -75,7 +80,7 @@ export function requireAnyPermission(...permissions: TenantPermission[]) {
       return next(new UnauthorizedError());
     }
 
-    if (hasFullAccessRole(req.user.role)) {
+    if (hasFullAccessRole(getEffectiveRole(req))) {
       next();
       return;
     }

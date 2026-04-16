@@ -4,12 +4,16 @@ import {
   FULL_TENANT_PERMISSION_SET,
   LEGACY_TENANT_ROLE_KEY_MAP,
   TENANT_PERMISSIONS,
+  TENANT_ROLE_CATALOG_REVISION,
   getDefaultTenantRoleTemplate,
   getRoleDisplayName,
   type TenantPermission,
 } from "@kredit/shared";
 
 type PrismaLike = PrismaClient | Prisma.TransactionClient;
+
+/** Per-process: tenant catalog has been fully synced for this revision (inserts + immutable updates). */
+const tenantCatalogSyncCache = new Set<string>();
 
 type MembershipWithRoleConfig = {
   id: string;
@@ -145,45 +149,82 @@ async function findTenantFallbackRoleConfig(
   });
 }
 
+/**
+ * Self-heal missing **preset** roles for a tenant (keys in {@link DEFAULT_TENANT_ROLE_TEMPLATES}).
+ *
+ * Does **not** modify tenant-created custom roles: those use unique keys outside the preset list, and
+ * we never iterate or update arbitrary `TenantRole` rows.
+ *
+ * Does **not** overwrite name/permissions for editable default presets (e.g. `OPS_ADMIN`,
+ * `GENERAL_STAFF`): we only `createMany` rows that are **missing**; we do not bulk-update every
+ * default. Tenant edits to those roles persist until an explicit API reset (`POST .../reset`).
+ *
+ * **Does** re-apply the platform template to immutable system presets `OWNER` and `SUPER_ADMIN`
+ * on a full sync (cache miss)—those roles are not tenant-editable in the UI.
+ */
 export async function ensureTenantRoleCatalog(
   db: PrismaLike,
   tenantId: string
 ): Promise<ResolvedAssignableTenantRole[]> {
-  await db.tenantRole.createMany({
-    data: DEFAULT_TENANT_ROLE_TEMPLATES.map((template) => ({
-      tenantId,
-      key: template.key,
-      name: template.name,
-      description: template.description,
-      permissions: [...template.permissions],
-      isSystem: template.isSystem,
-      isEditable: template.isEditable,
-      isDefault: template.isDefault,
-    })),
-    skipDuplicates: true,
-  });
+  const cacheKey = `${tenantId}:${TENANT_ROLE_CATALOG_REVISION}`;
 
-  const ownerTemplate = getDefaultTenantRoleTemplate("OWNER");
-  if (ownerTemplate) {
-    // Preserve tenant customizations for editable default roles while still
-    // enforcing the immutable OWNER template after bootstrap.
+  if (tenantCatalogSyncCache.has(cacheKey)) {
+    const roles = await db.tenantRole.findMany({
+      where: { tenantId },
+      orderBy: [{ isSystem: "desc" }, { isDefault: "desc" }, { name: "asc" }],
+    });
+    return roles.map(toResolvedAssignableRole);
+  }
+
+  const existing = await db.tenantRole.findMany({
+    where: { tenantId },
+    select: { key: true },
+  });
+  const existingKeys = new Set(existing.map((row) => row.key));
+
+  const missingTemplates = DEFAULT_TENANT_ROLE_TEMPLATES.filter(
+    (template) => !existingKeys.has(template.key)
+  );
+
+  if (missingTemplates.length > 0) {
+    await db.tenantRole.createMany({
+      data: missingTemplates.map((template) => ({
+        tenantId,
+        key: template.key,
+        name: template.name,
+        description: template.description,
+        permissions: [...template.permissions],
+        isSystem: template.isSystem,
+        isEditable: template.isEditable,
+        isDefault: template.isDefault,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  // Enforce immutable system templates (OWNER / SUPER_ADMIN) when we run a full sync.
+  for (const key of ["OWNER", "SUPER_ADMIN"] as const) {
+    const template = getDefaultTenantRoleTemplate(key);
+    if (!template) continue;
     await db.tenantRole.update({
       where: {
         tenantId_key: {
           tenantId,
-          key: ownerTemplate.key,
+          key: template.key,
         },
       },
       data: {
-        name: ownerTemplate.name,
-        description: ownerTemplate.description,
-        permissions: [...ownerTemplate.permissions],
-        isSystem: ownerTemplate.isSystem,
-        isEditable: ownerTemplate.isEditable,
-        isDefault: ownerTemplate.isDefault,
+        name: template.name,
+        description: template.description,
+        permissions: [...template.permissions],
+        isSystem: template.isSystem,
+        isEditable: template.isEditable,
+        isDefault: template.isDefault,
       },
     });
   }
+
+  tenantCatalogSyncCache.add(cacheKey);
 
   const roles = await db.tenantRole.findMany({
     where: { tenantId },
@@ -311,7 +352,7 @@ export async function resolveTenantAccess(
   }
 
   const permissions =
-    roleConfig.key === "OWNER"
+    roleConfig.key === "OWNER" || roleConfig.key === "SUPER_ADMIN"
       ? [...TENANT_PERMISSIONS]
       : sanitizePermissions(roleConfig.permissions);
 

@@ -94,14 +94,14 @@ export const NOTIFICATION_DEFINITIONS: NotificationDefinition[] = [
     key: 'loan_signing_certificate_ready',
     label: 'Digital signing certificate ready',
     description:
-      'When a valid MTSA signing certificate is detected or enrollment succeeds before digital signing.',
+      'When MTSA certificate enrollment succeeds before digital signing.',
     category: 'loan_lifecycle',
     channels: ['in_app', 'push'],
   },
   {
     key: 'attestation_meeting_reminder',
     label: 'Attestation meeting reminders',
-    description: 'Reminder before a scheduled attestation meeting.',
+    description: 'Reminder 24 hours before a scheduled attestation meeting.',
     category: 'loan_lifecycle',
     channels: ['email', 'in_app', 'push'],
   },

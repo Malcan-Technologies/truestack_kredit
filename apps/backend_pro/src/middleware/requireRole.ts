@@ -4,11 +4,15 @@ import { ForbiddenError, UnauthorizedError } from '../lib/errors.js';
 
 export type UserRole = string;
 
+function hasFullAccessRole(role: string | undefined): boolean {
+  return role === 'OWNER' || role === 'SUPER_ADMIN';
+}
+
 function hasRequiredPermission(
   req: Request,
   permissions: readonly TenantPermission[]
 ): boolean {
-  if (req.user?.role === 'OWNER') return true;
+  if (hasFullAccessRole(req.user?.role)) return true;
   const userPermissions = new Set(req.user?.permissions ?? []);
   return permissions.every((permission) => userPermissions.has(permission));
 }
@@ -33,7 +37,7 @@ export function requireRole(...roles: UserRole[]) {
 /**
  * Legacy helper for OWNER or operations-admin style role.
  */
-export const requireAdmin = requireRole('OWNER', 'OPS_ADMIN');
+export const requireAdmin = requireRole('OWNER', 'SUPER_ADMIN', 'OPS_ADMIN');
 
 /**
  * Require OWNER role only
@@ -66,7 +70,7 @@ export function requireAnyPermission(...permissions: TenantPermission[]) {
       return next(new UnauthorizedError());
     }
 
-    if (req.user.role === 'OWNER') {
+    if (hasFullAccessRole(req.user.role)) {
       next();
       return;
     }

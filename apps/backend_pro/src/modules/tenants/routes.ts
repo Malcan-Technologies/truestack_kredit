@@ -32,6 +32,11 @@ import { hashPassword } from 'better-auth/crypto';
 
 const router = Router();
 
+/** True when this membership is the tenant owner (canonical `role` or linked role row). */
+function membershipIsTenantOwner(m: { role: string; roleConfig: { key: string } | null }): boolean {
+  return m.role === 'OWNER' || m.roleConfig?.key === 'OWNER';
+}
+
 // Create tenant: only requires valid session (no active tenant yet)
 const createTenantSchema = z.object({
   name: z.string().min(2).max(100),
@@ -224,7 +229,7 @@ async function generateUniqueRoleKey(
 }
 
 function hasPermission(req: Request, permission: TenantPermission): boolean {
-  if (req.user?.role === 'OWNER') return true;
+  if (req.user?.role === 'OWNER' || req.user?.role === 'SUPER_ADMIN') return true;
   return (req.user?.permissions ?? []).includes(permission);
 }
 
@@ -264,6 +269,12 @@ async function resolveInviteAssignedRole(
 
   if (assignedRole.key === 'OWNER') {
     throw new BadRequestError('Use ownership transfer to assign the owner role');
+  }
+
+  if (assignedRole.key === 'SUPER_ADMIN') {
+    throw new BadRequestError(
+      'Super Admin is assigned automatically when someone transfers ownership away from the current owner'
+    );
   }
 
   if (!canAssignCustomRoles && assignedRole.key !== 'GENERAL_STAFF') {
@@ -826,8 +837,8 @@ router.get('/users', requirePermission('team.view'), async (req, res, next) => {
  */
 router.get('/roles', requireAnyPermission('roles.view', 'roles.manage', 'team.edit_roles', 'team.invite'), async (req, res, next) => {
   try {
+    // ensureTenantMembershipRoleAssignments → ensureTenantRoleCatalog (single catalog pass; no duplicate ensure)
     await ensureTenantMembershipRoleAssignments(prisma, req.tenantId!);
-    await ensureTenantRoleCatalog(prisma, req.tenantId!);
 
     const roles = await prisma.tenantRole.findMany({
       where: { tenantId: req.tenantId! },
@@ -1314,14 +1325,17 @@ router.patch('/users/:userId', requireAnyPermission('team.deactivate', 'team.edi
           tenantId: req.tenantId!,
         },
       },
+      include: {
+        roleConfig: { select: { key: true } },
+      },
     });
 
     if (!membership) {
       throw new NotFoundError('Member');
     }
 
-    // Prevent demoting or deactivating OWNER
-    if (membership.role === 'OWNER') {
+    // Prevent demoting or deactivating OWNER (enforced for any caller, including OPS_ADMIN / custom roles)
+    if (membershipIsTenantOwner(membership)) {
       if (isRoleChangeRequested) {
         throw new BadRequestError('Cannot change owner role');
       }
@@ -1342,6 +1356,12 @@ router.patch('/users/:userId', requireAnyPermission('team.deactivate', 'team.edi
 
       if (nextRole.key === 'OWNER') {
         throw new BadRequestError('Use ownership transfer to assign the owner role');
+      }
+
+      if (nextRole.key === 'SUPER_ADMIN') {
+        throw new BadRequestError(
+          'Super Admin is assigned automatically when someone transfers ownership away from the current owner'
+        );
       }
     }
 
@@ -1436,7 +1456,7 @@ router.patch('/users/:userId', requireAnyPermission('team.deactivate', 'team.edi
  * 
  * Only the current OWNER can transfer ownership.
  * The new owner must be an existing active member.
- * The current owner will be demoted to ADMIN.
+ * The current owner is demoted to SUPER_ADMIN (full access without ownership).
  */
 router.post('/transfer-ownership', requireOwner, async (req, res, next) => {
   try {
@@ -1499,18 +1519,18 @@ router.post('/transfer-ownership', requireOwner, async (req, res, next) => {
     await prisma.$transaction(async (tx) => {
       const roles = await ensureTenantRoleCatalog(tx, req.tenantId!);
       const ownerRole = roles.find((role) => role.key === 'OWNER');
-      const opsAdminRole = roles.find((role) => role.key === 'OPS_ADMIN');
+      const superAdminRole = roles.find((role) => role.key === 'SUPER_ADMIN');
 
-      if (!ownerRole || !opsAdminRole) {
+      if (!ownerRole || !superAdminRole) {
         throw new Error('Default tenant roles are missing');
       }
 
-      // Demote current owner to ADMIN
+      // Demote current owner to SUPER_ADMIN
       await tx.tenantMember.update({
         where: { id: currentOwnerMembership.id },
         data: {
-          role: opsAdminRole.key,
-          roleId: opsAdminRole.id,
+          role: superAdminRole.key,
+          roleId: superAdminRole.id,
         },
       });
 
@@ -1553,7 +1573,7 @@ router.post('/transfer-ownership', requireOwner, async (req, res, next) => {
         previousOwner: {
           id: currentOwnerMembership.user.id,
           email: currentOwnerMembership.user.email,
-          newRole: 'OPS_ADMIN',
+          newRole: 'SUPER_ADMIN',
         },
         newOwner: {
           id: newOwnerMembership.user.id,
@@ -1584,6 +1604,7 @@ router.delete('/users/:userId', requirePermission('team.deactivate'), async (req
         },
       },
       include: {
+        roleConfig: { select: { key: true } },
         user: {
           select: { email: true, name: true },
         },
@@ -1595,7 +1616,7 @@ router.delete('/users/:userId', requirePermission('team.deactivate'), async (req
     }
 
     // Prevent removing OWNER
-    if (membership.role === 'OWNER') {
+    if (membershipIsTenantOwner(membership)) {
       throw new BadRequestError('Cannot remove owner from tenant');
     }
 

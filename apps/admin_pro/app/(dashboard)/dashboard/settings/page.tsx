@@ -30,11 +30,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import Link from "next/link";
 import { useSession } from "@/lib/auth-client";
 import { useTenantContext, useTenantPermissions } from "@/components/tenant-context";
 import { dispatchTenantDataUpdated } from "@/lib/tenant-events";
-import { formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
 import {
   canManageSettings,
   hasAnyPermission,
@@ -255,6 +264,9 @@ export default function SettingsPage() {
   const [transferringOwnership, setTransferringOwnership] = useState(false);
   const [selectedNewOwner, setSelectedNewOwner] = useState<User | null>(null);
 
+  const [toggleActiveConfirmUser, setToggleActiveConfirmUser] = useState<User | null>(null);
+  const [toggleActiveSubmitting, setToggleActiveSubmitting] = useState(false);
+
   const [showEditBank, setShowEditBank] = useState(false);
   const [savingBank, setSavingBank] = useState(false);
   const [bankForm, setBankForm] = useState({
@@ -388,6 +400,7 @@ export default function SettingsPage() {
   };
 
   const handleToggleUserActive = async (user: User) => {
+    setToggleActiveSubmitting(true);
     try {
       const response = await fetch(`/api/proxy/tenants/users/${user.id}`, {
         method: "PATCH",
@@ -396,9 +409,10 @@ export default function SettingsPage() {
         body: JSON.stringify({ isActive: !user.isActive }),
       });
       const res = await response.json();
-      
+
       if (res.success) {
         toast.success(`User ${user.isActive ? "deactivated" : "activated"}`);
+        setToggleActiveConfirmUser(null);
         fetchData();
       } else {
         toast.error(res.error || "Failed to update user");
@@ -406,6 +420,7 @@ export default function SettingsPage() {
     } catch (error) {
       toast.error("Failed to update user");
     }
+    setToggleActiveSubmitting(false);
   };
 
   const handleChangeRole = async () => {
@@ -1144,7 +1159,7 @@ export default function SettingsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {roles
-                          .filter((role) => role.key !== "OWNER")
+                          .filter((role) => role.key !== "OWNER" && role.key !== "SUPER_ADMIN")
                           .map((role) => (
                             <SelectItem key={role.id} value={role.id}>
                               {role.name}
@@ -1185,27 +1200,50 @@ export default function SettingsPage() {
             </TableHeader>
             <TableBody>
               {users.map((user) => (
-                <TableRow key={user.id}>
+                <TableRow
+                  key={user.id}
+                  className={
+                    !user.isActive
+                      ? "text-muted-foreground [&>td:last-child]:text-foreground hover:bg-transparent"
+                      : undefined
+                  }
+                >
                   <TableCell>
                     <div>
                       <p className="font-medium">{user.name || "—"}</p>
-                      <p className="text-sm text-muted">{user.email}</p>
+                      <p
+                        className={
+                          user.isActive ? "text-sm text-muted" : "text-sm opacity-80"
+                        }
+                      >
+                        {user.email}
+                      </p>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={user.role === "OWNER" ? "default" : "outline"}>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        user.role === "OWNER" &&
+                          "border-purple-500/45 bg-purple-500/15 text-purple-800 dark:border-purple-500/50 dark:bg-purple-500/15 dark:text-purple-300",
+                        !user.isActive && "opacity-80"
+                      )}
+                    >
                       {user.role === "OWNER" && <Crown className="h-3 w-3 mr-1" />}
                       {user.roleName || user.role}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={user.isActive ? "success" : "secondary"}>
+                    <Badge
+                      variant={user.isActive ? "success" : "secondary"}
+                      className={!user.isActive ? "opacity-80" : undefined}
+                    >
                       {user.isActive ? "Active" : "Inactive"}
                     </Badge>
                   </TableCell>
                   <TableCell>{formatDate(user.createdAt)}</TableCell>
                   <TableCell
-                    className="text-muted"
+                    className={user.isActive ? "text-muted" : undefined}
                     title={
                       user.lastLoginAt
                         ? formatDateTime(user.lastLoginAt)
@@ -1225,7 +1263,7 @@ export default function SettingsPage() {
                               icon={user.isActive ? UserX : UserCheck}
                               label={user.isActive ? "Deactivate" : "Activate"}
                               variant={user.isActive ? "destructive" : "success"}
-                              onClick={() => handleToggleUserActive(user)}
+                              onClick={() => setToggleActiveConfirmUser(user)}
                             />
                           )}
                           {user.isActive && canEditRoles && (
@@ -1288,7 +1326,7 @@ export default function SettingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {roles
-                    .filter((role) => role.key !== "OWNER")
+                    .filter((role) => role.key !== "OWNER" && role.key !== "SUPER_ADMIN")
                     .map((role) => (
                       <SelectItem key={role.id} value={role.id}>
                         {role.name}
@@ -1323,7 +1361,63 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Transfer Ownership Confirmation Dialog */}
+      {/* Activate / deactivate member confirmation */}
+      <AlertDialog
+        open={!!toggleActiveConfirmUser}
+        onOpenChange={(open) => {
+          if (!open && !toggleActiveSubmitting) {
+            setToggleActiveConfirmUser(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {toggleActiveConfirmUser?.isActive ? "Deactivate team member?" : "Activate team member?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {toggleActiveConfirmUser?.isActive ? (
+                  <p>
+                    This user will no longer be able to sign in or access this organization until they are activated
+                    again.
+                  </p>
+                ) : (
+                  <p>This user will be able to sign in and access the organization according to their role.</p>
+                )}
+                <div>
+                  <span className="font-medium text-foreground">
+                    {toggleActiveConfirmUser?.name || toggleActiveConfirmUser?.email || "This user"}
+                  </span>
+                  {toggleActiveConfirmUser?.name && toggleActiveConfirmUser?.email ? (
+                    <span className="mt-0.5 block text-muted-foreground">{toggleActiveConfirmUser.email}</span>
+                  ) : null}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={toggleActiveSubmitting}>Cancel</AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={toggleActiveSubmitting}
+              variant={toggleActiveConfirmUser?.isActive ? "destructive" : "default"}
+              onClick={() => {
+                if (toggleActiveConfirmUser) {
+                  void handleToggleUserActive(toggleActiveConfirmUser);
+                }
+              }}
+            >
+              {toggleActiveSubmitting
+                ? "Saving…"
+                : toggleActiveConfirmUser?.isActive
+                  ? "Deactivate"
+                  : "Activate"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={showTransferOwnership} onOpenChange={setShowTransferOwnership}>
         <DialogContent>
           <DialogHeader>
@@ -1340,7 +1434,7 @@ export default function SettingsPage() {
             <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg">
               <p className="text-sm font-medium text-warning mb-2">Warning: This action cannot be undone!</p>
               <ul className="text-sm text-muted space-y-1">
-                <li>• You will be demoted from Owner to Admin</li>
+                <li>• You will be demoted from Owner to Super Admin (full access without ownership)</li>
                 <li>• <strong>{selectedNewOwner?.name || selectedNewOwner?.email}</strong> will become the new Owner</li>
                 <li>• Only the new Owner can transfer ownership back to you</li>
               </ul>

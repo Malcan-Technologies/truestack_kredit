@@ -128,25 +128,6 @@ router.post('/cert-status', async (req, res, next) => {
     const result = await getCertInfo(userId);
     const hasCert = result.success && result.certStatus === 'Valid';
 
-    if (hasCert) {
-      const pipelineLoan = await prisma.loan.findFirst({
-        where: {
-          tenantId: tenant.id,
-          borrowerId,
-          status: { in: ['PENDING_DISBURSEMENT', 'PENDING_ATTESTATION'] },
-        },
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true },
-      });
-      if (pipelineLoan) {
-        await notifySigningCertificateReadyIfNew({
-          tenantId: tenant.id,
-          borrowerId,
-          loanId: pipelineLoan.id,
-        });
-      }
-    }
-
     res.json({
       success: true,
       hasCert,

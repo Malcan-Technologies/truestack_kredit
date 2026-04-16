@@ -74,6 +74,21 @@ const EMPTY_DRAFT: RoleDraft = {
   permissions: [],
 };
 
+/** Owner first, Super Admin second; all other roles A–Z by display name. */
+function sortRolesCatalogOrder(roles: TenantRoleRecord[]): TenantRoleRecord[] {
+  const rank = (key: string) => {
+    if (key === "OWNER") return 0;
+    if (key === "SUPER_ADMIN") return 1;
+    return 2;
+  };
+  return [...roles].sort((a, b) => {
+    const ra = rank(a.key);
+    const rb = rank(b.key);
+    if (ra !== rb) return ra - rb;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
+}
+
 function permissionLabel(permission: TenantPermission): string {
   return permission
     .split(".")
@@ -198,6 +213,10 @@ export default function RolesPage() {
   });
 
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? null;
+  const catalogRolesOrdered = useMemo(
+    () => sortRolesCatalogOrder(roles),
+    [roles]
+  );
   const selectedPermissionSet = useMemo(
     () => new Set(draft.permissions),
     [draft.permissions]
@@ -217,7 +236,9 @@ export default function RolesPage() {
 
       const nextRoles = result.data as TenantRoleRecord[];
       setRoles(nextRoles);
-      setSelectedRoleId((current) => current || nextRoles[0]?.id || "");
+      setSelectedRoleId((current) =>
+        current || sortRolesCatalogOrder(nextRoles)[0]?.id || ""
+      );
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to load tenant roles"
@@ -412,7 +433,7 @@ export default function RolesPage() {
               ) : roles.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No roles found for this tenant.</p>
               ) : (
-                roles.map((role) => {
+                catalogRolesOrdered.map((role) => {
                   const isSelected = role.id === selectedRoleId;
 
                   return (
@@ -545,8 +566,9 @@ export default function RolesPage() {
                   {!selectedRole.isEditable && (
                     <Card className="border-border bg-muted/30">
                       <CardContent className="pt-6 text-sm text-muted-foreground">
-                        This role is system-managed and cannot be edited here. Use
-                        ownership transfer for `OWNER`.
+                        This role is system-managed and cannot be edited here. `OWNER` is set via
+                        ownership transfer; `SUPER_ADMIN` is assigned automatically when an owner transfers
+                        ownership to someone else.
                       </CardContent>
                     </Card>
                   )}
@@ -669,7 +691,7 @@ export default function RolesPage() {
                     <SelectValue placeholder="Optional starting template" />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.map((role) => (
+                    {catalogRolesOrdered.map((role) => (
                       <SelectItem key={role.id} value={role.id}>
                         {role.name}
                       </SelectItem>

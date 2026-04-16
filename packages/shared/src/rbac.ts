@@ -64,6 +64,7 @@ export type TenantPermission = (typeof TENANT_PERMISSIONS)[number];
 
 export const DEFAULT_TENANT_ROLE_KEYS = [
   "OWNER",
+  "SUPER_ADMIN",
   "OPS_ADMIN",
   "GENERAL_STAFF",
   "CREDIT_OFFICER_L1",
@@ -77,6 +78,13 @@ export const DEFAULT_TENANT_ROLE_KEYS = [
 
 export type DefaultTenantRoleKey = (typeof DEFAULT_TENANT_ROLE_KEYS)[number];
 export type TenantRoleKey = DefaultTenantRoleKey | (string & {});
+
+/**
+ * Bump when default tenant role templates change (new preset keys, or baseline permission changes
+ * for immutable system roles). Backend uses this to invalidate catalog self-heal caches so existing
+ * tenants pick up new rows without re-running heavy sync on every request.
+ */
+export const TENANT_ROLE_CATALOG_REVISION = 1;
 
 export interface TenantRoleTemplate {
   key: TenantRoleKey;
@@ -128,6 +136,16 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
     key: "OWNER",
     name: "Owner",
     description: "Tenant super admin with unrestricted access and ownership transfer rights.",
+    isSystem: true,
+    isEditable: false,
+    isDefault: true,
+    permissions: allPermissions,
+  },
+  {
+    key: "SUPER_ADMIN",
+    name: "Super Admin",
+    description:
+      "Full access like Owner except tenant ownership and ownership transfer.",
     isSystem: true,
     isEditable: false,
     isDefault: true,

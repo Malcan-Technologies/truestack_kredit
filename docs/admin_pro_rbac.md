@@ -30,6 +30,7 @@ Default tenant roles are lazily seeded and legacy memberships are normalized aut
 Every tenant is seeded with these role presets:
 
 - `OWNER`
+- `SUPER_ADMIN` (full permissions like `OWNER`, but not the tenant owner; created by catalog seed and assigned automatically when ownership is transferred)
 - `OPS_ADMIN`
 - `GENERAL_STAFF`
 - `CREDIT_OFFICER_L1`
@@ -40,7 +41,15 @@ Every tenant is seeded with these role presets:
 - `COMPLIANCE_OFFICER`
 - `AUDITOR_READONLY`
 
-`OWNER` is system-managed and not editable through the roles page. Ownership still transfers through the existing ownership-transfer flow.
+`OWNER` and `SUPER_ADMIN` are system-managed and not editable through the roles page. Ownership transfers through `POST /api/tenants/transfer-ownership`; the outgoing owner becomes `SUPER_ADMIN`.
+
+### Ownership transfer
+
+- **Endpoint:** `POST /api/tenants/transfer-ownership` (caller must be the current `OWNER`).
+- **New owner** must be an existing **active** member (any non-owner role).
+- **Previous owner** is demoted to **`SUPER_ADMIN`**, using the tenant’s catalog role id from `ensureTenantRoleCatalog` (seeded on demand like other default roles).
+- **`SUPER_ADMIN` cannot be chosen** on invite or role change; it is only assigned by that transfer flow.
+- **Owner protection:** the `OWNER` membership **cannot be deactivated** or have its role changed via `PATCH /api/tenants/users/:userId`, and **cannot be removed** via `DELETE`, regardless of whether the caller holds `team.deactivate` or uses a custom “super admin” role. Deactivation UI on Settings also omits actions for the owner row.
 
 Important behavior for default roles:
 
@@ -191,6 +200,14 @@ The team settings page now uses the tenant role catalog for:
 - invite role selection
 - member role reassignment
 - role display labels
+
+### Catalog revision and load
+
+Default tenant roles are inserted or updated through `ensureTenantRoleCatalog` (called from membership/roles flows). Missing preset keys (e.g. a new `SUPER_ADMIN` row for an older tenant) are detected with a single key query, then only **missing** rows are inserted—no full re-seed every time.
+
+**Safety:** Custom tenant roles (unique keys from `generateUniqueRoleKey`) are never updated by catalog backfill. Editable default presets (e.g. `OPS_ADMIN`) are **not** overwritten on sync—only rows missing entirely are inserted; permission/name changes from the tenant admin persist until **Reset to default** on the Roles page. Immutable presets `OWNER` and `SUPER_ADMIN` are re-aligned from the platform template on a full sync (they are not editable in the UI).
+
+`TENANT_ROLE_CATALOG_REVISION` in `packages/shared/src/rbac.ts` should be **bumped** when preset keys or immutable role baselines change. The backend keeps a small **per-process cache** keyed by `tenantId` + revision: after a tenant’s catalog is fully synced for that revision, subsequent requests skip mutation work and only read roles—so refreshing the Roles page does not repeat inserts/updates on every load. Restarting the server clears the cache (safe).
 
 ## Migration Notes
 

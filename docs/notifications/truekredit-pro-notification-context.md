@@ -231,7 +231,7 @@ Notification fan-out is invoked from multiple modules. The following aligns **ca
 | `attestation_meeting_reminder` | `attestationCronProcessors.ts` (scheduled reminders; email and borrower notification legs retry independently) |
 | `loan_attestation_complete` | `loans/routes.ts`, `borrower-loans/routes.ts` (attestation step completion) |
 | `loan_kyc_completed` | `webhooks/truestackKycWebhook.ts` (successful KYC) |
-| `loan_signing_certificate_ready` | `loanLifecycleNotify.ts` (certificate detected / enrollment) |
+| `loan_signing_certificate_ready` | `loanLifecycleNotify.ts` via borrower signing `/enroll` (successful enrollment only; not on cert status checks) |
 | `application_submitted` | `borrower-applications/routes.ts` |
 | `application_approved`, `application_rejected` | `loans/routes.ts` |
 | `application_counter_offer`, `application_returned_for_amendments` | `loans/routes.ts` |

@@ -32,7 +32,7 @@ export async function resolvePreDisbursementLoanDeepLink(
   return loan ? `/loans/${loan.id}` : null;
 }
 
-/** One in-app/push notification per borrower when their signing certificate becomes usable (enrollment or first valid check during an active loan). */
+/** One in-app/push notification per borrower after successful MTSA certificate enrollment (not when a cert is merely detected on status check). */
 export async function notifySigningCertificateReadyIfNew(params: {
   tenantId: string;
   borrowerId: string;

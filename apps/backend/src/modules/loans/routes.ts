@@ -739,7 +739,6 @@ router.get('/applications', requirePermission('applications.view'), async (req, 
         include: {
           borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
           product: { select: { id: true, name: true, interestModel: true, interestRate: true } },
-          offerRounds: { select: { status: true, fromParty: true } },
         },
       }),
       prisma.loanApplication.count({ where }),
@@ -761,19 +760,12 @@ router.get('/applications', requirePermission('applications.view'), async (req, 
       returnedDraftIdSet = new Set(returnLogs.map((r) => r.entityId));
     }
 
-    const data = applications.map((a) => {
-      const { offerRounds = [], ...rest } = a;
-      const pendingLenderCounterOffer =
-        (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW') &&
-        offerRounds.some((o) => o.status === 'PENDING' && o.fromParty === 'ADMIN');
-      return {
-        ...rest,
-        returnedForAmendment:
-          a.status === 'DRAFT' &&
-          (returnedDraftIdSet.has(a.id) || Boolean(a.notes?.includes('Returned for amendments:'))),
-        pendingLenderCounterOffer,
-      };
-    });
+    const data = applications.map((a) => ({
+      ...a,
+      returnedForAmendment:
+        a.status === 'DRAFT' &&
+        (returnedDraftIdSet.has(a.id) || Boolean(a.notes?.includes('Returned for amendments:'))),
+    }));
 
     res.json({
       success: true,
@@ -1679,16 +1671,13 @@ router.post('/applications/:applicationId/return-to-draft', requireAnyPermission
 
     const previousStatus = application.status;
 
-    const reasonStr = typeof reason === 'string' ? reason.trim() : '';
-    const amendmentNote = reasonStr
-      ? `\n\nReturned for amendments: ${reasonStr}`
-      : '\n\nReturned for amendments:';
-
     const updated = await prisma.loanApplication.update({
       where: { id: applicationId },
       data: {
         status: 'DRAFT',
-        notes: `${application.notes || ''}${amendmentNote}`,
+        notes: reason
+          ? `${application.notes || ''}\n\nReturned for amendments: ${reason}`
+          : application.notes,
         l1ReviewedAt: null,
         l1ReviewedByMemberId: null,
         l1DecisionNote: null,

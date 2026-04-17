@@ -25,6 +25,12 @@ import { useTenantPermissions } from "@/components/tenant-context";
 import { api } from "@/lib/api";
 import { canCreateApplications } from "@/lib/permissions";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ApplicationCounts {
   submitted: number;
@@ -40,8 +46,8 @@ interface Application {
   status: string;
   loanChannel?: "ONLINE" | "PHYSICAL";
   notes: string | null;
+  /** Staff-only: draft was returned from review for internal correction (no borrower portal). */
   returnedForAmendment?: boolean;
-  pendingLenderCounterOffer?: boolean;
   createdAt: string;
   borrower: {
     id: string;
@@ -228,6 +234,7 @@ function ApplicationsPageContent() {
   }, [applications, sortField, sortDir]);
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -426,12 +433,13 @@ function ApplicationsPageContent() {
                     key={app.id}
                     className={cn(
                       "cursor-pointer transition-colors hover:bg-muted/20",
-                      app.status === "SUBMITTED" || app.status === "UNDER_REVIEW"
-                        ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.04]"
-                        : "",
-                      app.status === "PENDING_L2_APPROVAL"
-                        ? "bg-sky-500/[0.04] dark:bg-sky-500/[0.06]"
-                        : ""
+                      app.returnedForAmendment && app.status === "DRAFT"
+                        ? "bg-amber-400/[0.14] dark:bg-amber-500/[0.2]"
+                        : app.status === "SUBMITTED" || app.status === "UNDER_REVIEW"
+                          ? "bg-amber-500/[0.03] dark:bg-amber-500/[0.04]"
+                          : app.status === "PENDING_L2_APPROVAL"
+                            ? "bg-sky-500/[0.04] dark:bg-sky-500/[0.06]"
+                            : ""
                     )}
                     onClick={() => router.push(`/dashboard/applications/${app.id}`)}
                   >
@@ -465,17 +473,22 @@ function ApplicationsPageContent() {
                           {applicationStatusLabel(app.status)}
                         </Badge>
                         {app.returnedForAmendment ? (
-                          <Badge variant="outline" className="border-primary/40 bg-primary/10 text-foreground">
-                            Amendment
-                          </Badge>
-                        ) : null}
-                        {app.pendingLenderCounterOffer ? (
-                          <Badge
-                            variant="outline"
-                            className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
-                          >
-                            Counter offer
-                          </Badge>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge
+                                variant="outline"
+                                className="border-amber-400/60 bg-amber-50 text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100 cursor-help"
+                              >
+                                Internal amendment
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              <p>
+                                Returned for staff correction. There is no borrower portal in this
+                                product — this is not sent to an applicant.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
                         ) : null}
                       </div>
                     </TableCell>
@@ -498,6 +511,7 @@ function ApplicationsPageContent() {
         </CardContent>
       </Card>
     </div>
+    </TooltipProvider>
   );
 }
 

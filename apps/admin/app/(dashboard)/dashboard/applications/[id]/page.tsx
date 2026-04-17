@@ -30,7 +30,6 @@ import {
   AlertTriangle,
   RotateCcw,
   ChartPie,
-  Handshake,
   ArrowUpRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -336,17 +335,17 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
       case "BORROWER_WITHDRAW_APPLICATION":
         return { icon: X, label: "Application Withdrawn" };
       case "APPLICATION_COUNTER_OFFER":
-        return { icon: Handshake, label: "Counter Offer from Lender" };
+        return { icon: Pencil, label: "Application record updated" };
       case "APPLICATION_ACCEPT_BORROWER_OFFER":
-        return { icon: Check, label: "Borrower Offer Accepted" };
+        return { icon: Check, label: "Change accepted" };
       case "APPLICATION_REJECT_OFFERS":
-        return { icon: X, label: "Negotiation Offers Rejected" };
+        return { icon: X, label: "Change declined" };
       case "BORROWER_COUNTER_OFFER":
-        return { icon: Handshake, label: "Counter Offer from Borrower" };
+        return { icon: Pencil, label: "Application record updated" };
       case "BORROWER_ACCEPT_LENDER_OFFER":
-        return { icon: Check, label: "Borrower Accepted Lender Offer" };
+        return { icon: Check, label: "Change accepted" };
       case "BORROWER_REJECT_OFFERS":
-        return { icon: X, label: "Borrower Declined Pending Offers" };
+        return { icon: X, label: "Change declined" };
       default:
         return { icon: Clock, label: action };
     }

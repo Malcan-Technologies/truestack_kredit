@@ -112,7 +112,7 @@ function CompliancePageSkeleton() {
             <Skeleton key={i} className="h-8 flex-1 rounded-md" />
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
           {[0, 1].map((card) => (
             <Card key={card} className="flex flex-col">
               <CardHeader>
@@ -327,7 +327,7 @@ export default function CompliancePage() {
 
         {/* ===== Tab: KPKT Regulatory ===== */}
         {activeTab === "regulatory" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
           {/* KPKT Portal Export Card */}
           <Card className="flex flex-col">
             <CardHeader>
@@ -553,7 +553,7 @@ export default function CompliancePage() {
 
         {/* ===== Tab: Data Exports ===== */}
         {activeTab === "data" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
           {/* Borrowers Export */}
           <Card className="flex flex-col">
             <CardHeader>
@@ -774,7 +774,7 @@ export default function CompliancePage() {
         {/* ===== Tab: Reports ===== */}
         {activeTab === "reports" && (
           <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
             {/* Overdue / NPL Report */}
             <Card className="flex flex-col">
               <CardHeader>

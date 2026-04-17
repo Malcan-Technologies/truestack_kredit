@@ -1,0 +1,71 @@
+client_id: proficient-premium
+client_type: external
+borrower_app: Proficient_Premium
+
+aws:
+  account_id: "873505479104"
+  region: ap-southeast-5
+  github_environment: pro-proficient-premium
+
+deploy:
+  # External clients must be promoted manually via deploy-pro.yml.
+  auto_deploy: false
+  # Git tag: pro-platform-v<platform_release> (e.g. pro-platform-v1.0.0)
+  platform_release: 1.0.0
+  # Git tag: pro-borrower-<borrower_app>-v<borrower_release> (e.g. pro-borrower-Proficient_Premium-v1.0.0)
+  # If equal to platform_release, deploy-pro.yml reuses the platform tag and no separate borrower tag is required.
+  borrower_release: 1.0.0
+
+ecr:
+  backend_repository: truekredit-proficient-premium-backend-pro
+  admin_repository: truekredit-proficient-premium-admin-pro
+  borrower_repository: truekredit-proficient-premium-borrower
+
+ecs:
+  cluster: truekredit-proficient-premium
+  backend_service: truekredit-proficient-premium-backend
+  admin_service: truekredit-proficient-premium-admin
+  borrower_service: truekredit-proficient-premium-borrower
+  migrations_task: truekredit-proficient-premium-migrations
+
+secrets:
+  # NOTE: Update the random suffix after Terraform creates the Secrets Manager secret.
+  # The deploy workflow reads this exact ARN to mount runtime secrets into ECS tasks.
+  app_secrets_arn: arn:aws:secretsmanager:ap-southeast-5:873505479104:secret:truekredit-proficient-premium
+
+storage:
+  uploads_bucket: truekredit-uploads-proficient-premium
+
+domains:
+  # Public origins seen by users; Cloudflare proxies these but does not change the hostnames.
+  # Borrower portal lives on the apex domain (ppsb-eloan.com.my).
+  admin: admin.ppsb-eloan.com.my
+  api: api.ppsb-eloan.com.my
+  borrower: ppsb-eloan.com.my
+
+pro_tenant:
+  slug: proficient-premium
+  name: Proficient Premium Sdn Bhd
+  type: PPW
+  # TODO: replace placeholder regulatory + contact details with real ones from the client.
+  license_number: PPW/XX/XXXX/XXX
+  registration_number: "XXXXXXXXXXXX"
+  email: info@ppsb-eloan.com.my
+  contact_number: "+60300000000"
+  business_address: TODO - Proficient Premium registered business address
+  seed_owner_email: admin@ppsb-eloan.com.my
+  seed_owner_name: Proficient Premium Owner
+
+enabled_modules:
+  - origination
+  - repayments
+  - attestation
+  - signing
+
+signing:
+  gateway_hostname: sign.ppsb-eloan.com.my
+  ssh_host: ssh-sign.ppsb-eloan.com.my
+  tunnel_name: proficient-premium-onprem
+  mtsa_env: pilot
+  backup_bucket_prefix: proficient-premium
+  ecr_repository: truekredit-pro-signing-gateway

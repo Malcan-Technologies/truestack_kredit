@@ -269,7 +269,7 @@ export default function CompliancePage() {
 
         {/* ===== Tab: KPKT Regulatory ===== */}
         {activeTab === "regulatory" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
           {/* KPKT Portal Export Card */}
           <Card className="flex flex-col">
             <CardHeader>
@@ -493,7 +493,7 @@ export default function CompliancePage() {
 
         {/* ===== Tab: Data Exports ===== */}
         {activeTab === "data" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
           {/* Borrowers Export */}
           <Card className="flex flex-col">
             <CardHeader>
@@ -713,7 +713,7 @@ export default function CompliancePage() {
         {/* ===== Tab: Reports ===== */}
         {activeTab === "reports" && (
           <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
             {/* Overdue / NPL Report */}
             <Card className="flex flex-col">
               <CardHeader>

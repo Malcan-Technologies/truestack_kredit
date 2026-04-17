@@ -15,6 +15,10 @@ type PrismaLike = PrismaClient | Prisma.TransactionClient;
 /** Per-process: tenant catalog has been fully synced for this revision (inserts + immutable updates). */
 const tenantCatalogSyncCache = new Set<string>();
 
+function isRootPrismaClient(db: PrismaLike): db is PrismaClient {
+  return "$transaction" in db;
+}
+
 type MembershipWithRoleConfig = {
   id: string;
   tenantId: string;
@@ -224,7 +228,11 @@ export async function ensureTenantRoleCatalog(
     });
   }
 
-  tenantCatalogSyncCache.add(cacheKey);
+  // Only cache sync completion after a committed write on the root Prisma client.
+  // When called with a transaction client, outer transaction rollback should not poison cache.
+  if (isRootPrismaClient(db)) {
+    tenantCatalogSyncCache.add(cacheKey);
+  }
 
   const roles = await db.tenantRole.findMany({
     where: { tenantId },

@@ -115,21 +115,6 @@ router.post('/create', requireSession, async (req, res, next) => {
         },
       });
 
-      // Create a baseline subscription record.
-      // New tenants start as FREE (no active paid period) until first approved payment.
-      const now = new Date();
-
-      await tx.subscription.create({
-        data: {
-          tenantId: newTenant.id,
-          plan: "free",
-          status: "CANCELLED",
-          autoRenew: false,
-          currentPeriodStart: now,
-          currentPeriodEnd: now,
-        },
-      });
-
       return newTenant;
     });
 

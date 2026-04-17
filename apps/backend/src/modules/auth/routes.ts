@@ -4,7 +4,7 @@ import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../../lib/auth.js';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnauthorizedError } from '../../lib/errors.js';
-import { authenticateToken, requireSession } from '../../middleware/authenticate.js';
+import { authenticateToken, requireSession, toLegacyRole } from '../../middleware/authenticate.js';
 import { resolveTenantAccess } from '../../lib/rbac.js';
 import { getOrCreateReferralCode } from '../../lib/referral.js';
 // @ts-ignore - better-auth crypto module
@@ -236,7 +236,8 @@ router.post('/switch-tenant', async (req, res, next) => {
         activeTenantId: tenantId,
         tenantName: membership.tenant.name,
         tenantSlug: membership.tenant.slug,
-        role: access.roleKey,
+        role: toLegacyRole(access.roleKey),
+        roleKey: access.roleKey,
         roleId: access.roleId,
         roleName: access.roleName,
         permissions: access.permissions,
@@ -337,7 +338,8 @@ router.get('/me', requireSession, async (req, res, next) => {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: access.roleKey,
+          role: toLegacyRole(access.roleKey),
+          roleKey: access.roleKey,
           roleId: access.roleId,
           roleName: access.roleName,
           permissions: access.permissions,
@@ -623,6 +625,7 @@ router.patch('/profile', requireSession, async (req, res, next) => {
       data: {
         ...user,
         role: req.user?.role ?? null, // Role from membership (null when no tenant)
+        roleKey: req.user?.roleKey ?? null,
       },
     });
   } catch (error) {

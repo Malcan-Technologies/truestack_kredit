@@ -511,7 +511,7 @@ router.get('/current', async (req, res, next) => {
  * Update tenant
  * PATCH /api/tenants/current
  */
-router.patch('/current', requireAdmin, async (req, res, next) => {
+router.patch('/current', requirePermission('tenant_settings.edit'), async (req, res, next) => {
   try {
     const data = updateTenantSchema.parse(req.body);
 
@@ -696,7 +696,7 @@ router.patch('/modules/truesend', requireAdmin, async (req, res, next) => {
  * - Dimensions: 100-1000px width/height
  * - Aspect ratio: between 1:2 and 2:1
  */
-router.post('/current/logo', requireAdmin, async (req, res, next) => {
+router.post('/current/logo', requirePermission('tenant_settings.edit'), async (req, res, next) => {
   try {
     // Parse the uploaded file
     const { buffer, originalName, mimeType } = await parseLogoUpload(req);
@@ -754,7 +754,7 @@ router.post('/current/logo', requireAdmin, async (req, res, next) => {
  * Delete tenant logo
  * DELETE /api/tenants/current/logo
  */
-router.delete('/current/logo', requireAdmin, async (req, res, next) => {
+router.delete('/current/logo', requirePermission('tenant_settings.edit'), async (req, res, next) => {
   try {
     const currentTenant = await prisma.tenant.findUnique({
       where: { id: req.tenantId },

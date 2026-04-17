@@ -4,11 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       client_id:
-        description: "External Pro client to deploy"
+        description: "External Pro client to deploy. Add new clients to config/clients/<id>.yaml AND to this list. (demo-client is excluded — it auto-deploys via deploy-demo-client.yml on push to main.)"
         required: true
-        type: string
+        default: "proficient-premium"
+        type: choice
+        options:
+          - proficient-premium
       action:
-        description: "What to do"
+        description: "What to do. 'full' includes the on-prem signing gateway; use 'signing-only' to redeploy just the gateway."
         required: true
         default: "full"
         type: choice
@@ -18,6 +21,7 @@ on:
           - backend-only
           - admin-only
           - borrower-only
+          - signing-only
           - db-migrate
           - db-seed
           - db-migrate-and-seed
@@ -218,6 +222,7 @@ jobs:
       needs.resolve-release.result == 'success' &&
       github.event.inputs.action != 'admin-only' &&
       github.event.inputs.action != 'borrower-only' &&
+      github.event.inputs.action != 'signing-only' &&
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
       github.event.inputs.action != 'db-migrate-and-seed' &&
@@ -288,6 +293,7 @@ jobs:
       needs.resolve-release.result == 'success' &&
       github.event.inputs.action != 'backend-only' &&
       github.event.inputs.action != 'borrower-only' &&
+      github.event.inputs.action != 'signing-only' &&
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
       github.event.inputs.action != 'db-migrate-and-seed' &&
@@ -362,6 +368,7 @@ jobs:
       needs.resolve-release.result == 'success' &&
       github.event.inputs.action != 'backend-only' &&
       github.event.inputs.action != 'admin-only' &&
+      github.event.inputs.action != 'signing-only' &&
       github.event.inputs.action != 'db-migrate' &&
       github.event.inputs.action != 'db-seed' &&
       github.event.inputs.action != 'db-migrate-and-seed' &&
@@ -830,6 +837,33 @@ jobs:
             --cluster "${{ env.ECS_CLUSTER }}" \
             --services "${{ env.ECS_SERVICE_BORROWER }}"
 
+  # On-prem signing gateway deploy. Runs in parallel with the cloud (ECS)
+  # deploys for the same Pro client. Reuses deploy-signing-gateway.yml so the
+  # SSH/Cloudflare/MTSA logic lives in one place. Demo-client is excluded
+  # because it auto-deploys via the dedicated deploy-signing-gateway.yml push
+  # trigger; deploy-pro.yml is for external clients only.
+  deploy-signing-gateway:
+    name: Deploy Signing Gateway (on-prem)
+    needs: [load-config, resolve-release]
+    if: |
+      always() &&
+      needs.load-config.result == 'success' &&
+      needs.resolve-release.result == 'success' &&
+      (
+        github.event.inputs.action == 'full' ||
+        github.event.inputs.action == 'deploy-only' ||
+        github.event.inputs.action == 'signing-only'
+      )
+    uses: ./.github/workflows/deploy-signing-gateway.yml
+    with:
+      client_id: ${{ needs.load-config.outputs.client_id }}
+      platform_version: ${{ needs.resolve-release.outputs.platform_version }}
+      # 'signing-only' rebuilds + redeploys the gateway (treat as 'full').
+      # 'deploy-only' skips the docker build and just re-rolls the image.
+      # 'full' is the default - build + deploy.
+      action: ${{ github.event.inputs.action == 'deploy-only' && 'deploy-only' || 'full' }}
+    secrets: inherit
+
   summary:
     name: Deployment Summary
     runs-on: ubuntu-latest
@@ -844,6 +878,7 @@ jobs:
         deploy-backend,
         deploy-admin,
         deploy-borrower,
+        deploy-signing-gateway,
       ]
     if: always()
 
@@ -862,3 +897,4 @@ jobs:
           echo "Deploy backend: ${{ needs.deploy-backend.result }}"
           echo "Deploy admin: ${{ needs.deploy-admin.result }}"
           echo "Deploy borrower: ${{ needs.deploy-borrower.result }}"
+          echo "Deploy signing gateway: ${{ needs.deploy-signing-gateway.result }}"

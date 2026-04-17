@@ -10,10 +10,13 @@ on:
   workflow_dispatch:
     inputs:
       client_id:
-        description: "Pro client to target"
+        description: "Pro client to target. Add new clients to config/clients/<id>.yaml AND to this list."
         required: true
         default: "demo-client"
-        type: string
+        type: choice
+        options:
+          - demo-client
+          - proficient-premium
       action:
         description: "Terraform action to perform"
         required: true

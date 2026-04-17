@@ -128,6 +128,8 @@ export default function SettingsPage() {
   const { refreshTenantData, hasTenants, permissions } = useTenantContext();
   const currentUser = session?.user;
   const currentRole = currentMembership?.role || "STAFF";
+  const isOwnerOrSuperAdmin =
+    currentRole === "OWNER" || currentRole === "SUPER_ADMIN";
   const canInvite = hasPermission(permissions, "team.invite");
   const canEditMemberRoles = hasPermission(permissions, "team.edit_roles");
   const canDeactivateMembers = hasPermission(permissions, "team.deactivate");
@@ -911,7 +913,8 @@ export default function SettingsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      {user.role !== "OWNER" && currentRole === "OWNER" && (
+                      {user.role !== "OWNER" &&
+                        (canDeactivateMembers || isOwnerOrSuperAdmin) && (
                         <>
                           {canDeactivateMembers && (
                             <TableActionButton
@@ -921,7 +924,7 @@ export default function SettingsPage() {
                               onClick={() => handleToggleUserActive(user)}
                             />
                           )}
-                          {user.isActive && (
+                          {user.isActive && isOwnerOrSuperAdmin && (
                             <TableActionButton
                               icon={Crown}
                               label="Transfer Ownership"

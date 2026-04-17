@@ -1,0 +1,110 @@
+name: Validate Client Dropdowns
+
+# Guards the workflow_dispatch dropdowns in deploy-pro.yml, terraform-pro.yml,
+# and deploy-signing-gateway.yml against the YAML files in config/clients/.
+#
+# Two rules per workflow:
+#  1. Every option in a dropdown MUST exist as config/clients/<id>.yaml.
+#     (Catches typos and stale options pointing at deleted clients.)
+#  2. Every client in config/clients/ MUST appear in the workflow dropdown,
+#     UNLESS that workflow is listed in `auto_deployed_clients` for the
+#     client below (i.e., the client deploys automatically via a different
+#     workflow, so a manual dispatch entry would be redundant).
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "config/clients/**"
+      - ".github/workflows/deploy-pro.yml"
+      - ".github/workflows/terraform-pro.yml"
+      - ".github/workflows/deploy-signing-gateway.yml"
+      - ".github/workflows/validate-client-dropdowns.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Check client_id dropdowns are in sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Verify dropdowns match config/clients/
+        run: |
+          ruby -ryaml <<'RUBY'
+          # Source of truth: every config/clients/*.yaml file (excluding _template).
+          config_clients = Dir.glob("config/clients/*.yaml")
+            .reject { |p| File.basename(p, ".yaml").start_with?("_") }
+            .map    { |p| File.basename(p, ".yaml") }
+            .sort
+
+          if config_clients.empty?
+            warn "No client configs found under config/clients/."
+            exit 1
+          end
+
+          # Map of client_id => workflows it is intentionally allowed to be
+          # absent from (because that workflow runs automatically for that
+          # client via push triggers or a separate dedicated workflow).
+          # Add new exemptions here when a client gets fully automated for a
+          # workflow.
+          auto_deployed_exemptions = {
+            "demo-client" => %w[
+              .github/workflows/deploy-pro.yml
+              .github/workflows/deploy-signing-gateway.yml
+            ],
+          }
+
+          workflows = %w[
+            .github/workflows/deploy-pro.yml
+            .github/workflows/terraform-pro.yml
+            .github/workflows/deploy-signing-gateway.yml
+          ]
+
+          failures = []
+
+          workflows.each do |path|
+            doc = YAML.load_file(path)
+            # `on:` is parsed as the Ruby boolean `true` because of YAML 1.1, so
+            # fall back to that key if "on" isn't present.
+            on_block = doc["on"] || doc[true]
+            options = on_block.dig("workflow_dispatch", "inputs", "client_id", "options")
+
+            if options.nil?
+              failures << "#{path}: workflow_dispatch.inputs.client_id.options is missing (must be a `type: choice` list)."
+              next
+            end
+
+            options_sorted = options.sort
+
+            # Rule 1: no orphan options (every option must exist as a config).
+            orphans = options_sorted - config_clients
+            unless orphans.empty?
+              failures << "#{path}: dropdown contains options with no matching config/clients/<id>.yaml: #{orphans.join(', ')}."
+            end
+
+            # Rule 2: every config client must appear, unless explicitly exempt.
+            expected = config_clients.reject do |client|
+              (auto_deployed_exemptions[client] || []).include?(path)
+            end
+            missing = expected - options_sorted
+            unless missing.empty?
+              failures << "#{path}: dropdown is missing client(s): #{missing.join(', ')}. Add to options or to auto_deployed_exemptions in this workflow."
+            end
+          end
+
+          if failures.any?
+            warn "Client dropdown validation failed:"
+            failures.each { |f| warn "  - #{f}" }
+            warn ""
+            warn "Source of truth: config/clients/*.yaml -> #{config_clients.join(', ')}"
+            warn "Auto-deploy exemptions: #{auto_deployed_exemptions.inspect}"
+            exit 1
+          end
+
+          puts "All client dropdowns match config/clients/: #{config_clients.join(', ')}"
+          puts "Exemptions honored: #{auto_deployed_exemptions.inspect}"
+          RUBY

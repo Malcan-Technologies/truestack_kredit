@@ -22,6 +22,7 @@ import {
   Users,
   Shield,
   ShieldCheck,
+  Info,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -492,6 +493,16 @@ export default function ProductDetailPage() {
                       {product.loanScheduleType === "JADUAL_K" ? "Jadual K" : "Jadual J"}
                     </div>
                   </div>
+                  {product.loanScheduleType === "JADUAL_K" && (
+                    <div className="flex gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                      <Info className="h-4 w-4 shrink-0 text-foreground/80 mt-0.5" aria-hidden />
+                      <p>
+                        <span className="font-medium text-foreground">Borrower portal: </span>
+                        Only Jadual J is available for online KPKT self-service loans. Jadual K products do not appear
+                        there; use them for walk-in / in-branch origination only.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

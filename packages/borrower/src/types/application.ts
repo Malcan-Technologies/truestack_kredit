@@ -100,4 +100,9 @@ export interface LoanApplicationDetail {
     status: string;
     createdAt?: string;
   }>;
+  /**
+   * When present (borrower list/detail API), true if the lender returned this online draft for amendments.
+   * Falls back to notes/timeline heuristics in the UI when omitted.
+   */
+  returnedForAmendment?: boolean;
 }

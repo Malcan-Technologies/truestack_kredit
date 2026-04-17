@@ -41,6 +41,19 @@ import {
 } from "@borrower_pro/lib/loan-status-label";
 import { cn } from "@borrower_pro/lib/utils";
 import { LoanApplicationOfferParty, LoanApplicationOfferStatus } from "@kredit/shared";
+import { isReturnedForAmendment } from "@borrower_pro/lib/borrower-application-amendment";
+
+function updatedAtSortMs(iso: string | undefined | null): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** List API spreads Prisma loan; `updatedAt` may be present though not on the narrow TS type. */
+function borrowerLoanListSortMs(loan: BorrowerLoanListItem): number {
+  const ext = loan as BorrowerLoanListItem & { updatedAt?: string };
+  return updatedAtSortMs(ext.updatedAt ?? loan.createdAt);
+}
 
 function formatRm(v: unknown): string {
   const n = typeof v === "number" ? v : toAmountNumber(v);
@@ -196,6 +209,7 @@ export default function DashboardPage() {
   const [activeLoans, setActiveLoans] = useState<BorrowerLoanListItem[]>([]);
   const [pendingLoans, setPendingLoans] = useState<BorrowerLoanListItem[]>([]);
   const [counterOfferApps, setCounterOfferApps] = useState<LoanApplicationDetail[]>([]);
+  const [amendmentApps, setAmendmentApps] = useState<LoanApplicationDetail[]>([]);
   const [borrowerName, setBorrowerName] = useState<string | null>(null);
   const [borrowerKycDone, setBorrowerKycDone] = useState<boolean | null>(null);
   const [actionsVisible, setActionsVisible] = useState(3);
@@ -205,6 +219,7 @@ export default function DashboardPage() {
     setActiveLoans([]);
     setPendingLoans([]);
     setCounterOfferApps([]);
+    setAmendmentApps([]);
     setBorrowerName(null);
     setBorrowerKycDone(null);
   }, []);
@@ -226,6 +241,7 @@ export default function DashboardPage() {
       setPendingLoans(pLoans.data);
       const applicationRows = apps.success ? apps.data : [];
       setCounterOfferApps(applicationRows.filter((a) => getPendingLenderCounterOffer(a) != null));
+      setAmendmentApps(applicationRows.filter(isReturnedForAmendment));
       if (borrowerRes?.success) {
         setBorrowerKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));
       } else {
@@ -261,7 +277,7 @@ export default function DashboardPage() {
   const pendingActions = useMemo(() => {
     type ActionTier = "urgent" | "action" | "low";
 
-    const items: Array<{
+    type ActionItem = {
       id: string;
       label: string;
       statusLabel: string;
@@ -275,7 +291,9 @@ export default function DashboardPage() {
       tier: ActionTier;
       ctaLabel: string;
       phase?: LoanJourneyPhase;
-    }> = [];
+    };
+
+    const items: Array<ActionItem & { sortAt: number }> = [];
 
     const phaseIcon = (phase: LoanJourneyPhase): React.ElementType => {
       switch (phase) {
@@ -313,6 +331,7 @@ export default function DashboardPage() {
       });
       const style = phaseIconStyle();
       items.push({
+        sortAt: borrowerLoanListSortMs(loan),
         id: `loan-${loan.id}`,
         label: loanJourneyPhaseLabel(phase),
         statusLabel: phase === "attestation" ? "Due soon" : loanJourneyPhaseLabel(phase),
@@ -329,12 +348,32 @@ export default function DashboardPage() {
       });
     }
 
+    for (const app of amendmentApps) {
+      items.push({
+        sortAt: updatedAtSortMs(app.updatedAt),
+        id: `amendment-${app.id}`,
+        label: "Amendment",
+        statusLabel: "Action needed",
+        sublabel: `${app.product?.name ?? "Application"} (${formatRm(app.amount)})`,
+        description:
+          "Your lender returned this application for changes. Review their message, update your details, and resubmit.",
+        href: borrowerApplicationDetailPath(app),
+        badgeVariant: "warning",
+        icon: ClipboardList,
+        iconBg: "bg-warning/15",
+        iconColor: "text-warning",
+        tier: "action",
+        ctaLabel: "Open application",
+      });
+    }
+
     for (const app of counterOfferApps) {
       const pendingOffer = getPendingLenderCounterOffer(app);
       const amountLabel = pendingOffer?.amount != null ? formatRm(pendingOffer.amount) : formatRm(app.amount);
       const termLabel = pendingOffer?.term != null ? `${pendingOffer.term} months` : `${app.term} months`;
 
       items.push({
+        sortAt: updatedAtSortMs(app.updatedAt),
         id: `counter-offer-${app.id}`,
         label: "Counter offer",
         statusLabel: "Review",
@@ -350,8 +389,10 @@ export default function DashboardPage() {
       });
     }
 
-    return items;
-  }, [pendingLoans, counterOfferApps, borrowerKycDone]);
+    return items
+      .sort((a, b) => b.sortAt - a.sortAt)
+      .map(({ sortAt: _sortAt, ...action }) => action);
+  }, [pendingLoans, amendmentApps, counterOfferApps, borrowerKycDone]);
 
   const summary = overview?.summary;
   const counts = overview?.counts;
@@ -489,7 +530,7 @@ export default function DashboardPage() {
                     <AlertTriangle className="h-4 w-4 text-warning" />
                   </div>
                   <span>Action needed</span>
-                  <Badge variant="warning" className="ml-auto text-[10px]">
+                  <Badge variant="warning" className="ml-auto text-[10px] tabular-nums">
                     {pendingActions.length}
                   </Badge>
                 </CardTitle>
@@ -499,12 +540,7 @@ export default function DashboardPage() {
                   <Link
                     key={action.id}
                     href={action.href}
-                    className={cn(
-                      "block rounded-xl border px-4 py-3 transition-colors group",
-                      action.tier === "urgent"
-                        ? "border-warning/15 bg-warning/5 hover:bg-warning/10"
-                        : "border-warning/10 bg-warning/5 hover:bg-warning/10"
-                    )}
+                    className="block rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 transition-colors hover:bg-warning/10 group"
                   >
                     <div className="flex items-center gap-3">
                       <div className={cn(

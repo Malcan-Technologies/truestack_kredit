@@ -664,14 +664,45 @@ router.get('/applications', async (req, res, next) => {
         include: {
           borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
           product: { select: { id: true, name: true, interestModel: true, interestRate: true } },
+          offerRounds: { select: { status: true, fromParty: true } },
         },
       }),
       prisma.loanApplication.count({ where }),
     ]);
 
+    const draftIdsForAmendmentCheck = applications.filter((a) => a.status === 'DRAFT').map((a) => a.id);
+
+    let returnedDraftIdSet = new Set<string>();
+    if (draftIdsForAmendmentCheck.length > 0) {
+      const returnLogs = await prisma.auditLog.findMany({
+        where: {
+          tenantId: req.tenantId!,
+          entityType: 'LoanApplication',
+          action: 'RETURN_TO_DRAFT',
+          entityId: { in: draftIdsForAmendmentCheck },
+        },
+        select: { entityId: true },
+      });
+      returnedDraftIdSet = new Set(returnLogs.map((r) => r.entityId));
+    }
+
+    const data = applications.map((a) => {
+      const { offerRounds = [], ...rest } = a;
+      const pendingLenderCounterOffer =
+        (a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW') &&
+        offerRounds.some((o) => o.status === 'PENDING' && o.fromParty === 'ADMIN');
+      return {
+        ...rest,
+        returnedForAmendment:
+          a.status === 'DRAFT' &&
+          (returnedDraftIdSet.has(a.id) || Boolean(a.notes?.includes('Returned for amendments:'))),
+        pendingLenderCounterOffer,
+      };
+    });
+
     res.json({
       success: true,
-      data: applications,
+      data,
       pagination: {
         total,
         page: parseInt(page as string),
@@ -1492,13 +1523,16 @@ router.post('/applications/:applicationId/return-to-draft', requireAdmin, async 
 
     const previousStatus = application.status;
 
+    const reasonStr = typeof reason === 'string' ? reason.trim() : '';
+    const amendmentNote = reasonStr
+      ? `\n\nReturned for amendments: ${reasonStr}`
+      : '\n\nReturned for amendments:';
+
     const updated = await prisma.loanApplication.update({
       where: { id: applicationId },
       data: {
         status: 'DRAFT',
-        notes: reason
-          ? `${application.notes || ''}\n\nReturned for amendments: ${reason}`
-          : application.notes,
+        notes: `${application.notes || ''}${amendmentNote}`,
       },
     });
 

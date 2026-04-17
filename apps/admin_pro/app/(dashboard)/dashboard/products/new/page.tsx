@@ -20,6 +20,7 @@ import {
   Trash2,
   Sparkles,
   Check,
+  Info,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -491,15 +492,26 @@ export default function NewProductPage() {
                         <div className="flex-1">
                           <span className="text-sm">{option.label}</span>
                           {option.value === "JADUAL_K" && (
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              Requires collateral, max 12% p.a.
-                            </p>
+                            <div className="mt-0.5 space-y-1 text-xs text-muted-foreground">
+                              <p>Requires collateral, max 12% p.a.</p>
+                              <p>Not offered in the borrower portal for online applications (regulatory).</p>
+                            </div>
                           )}
                         </div>
                       </label>
                     );
                   })}
                 </div>
+                {formData.loanScheduleType === "JADUAL_K" && (
+                  <div className="flex gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                    <Info className="h-4 w-4 shrink-0 text-foreground/80 mt-0.5" aria-hidden />
+                    <p>
+                      <span className="font-medium text-foreground">Borrower portal: </span>
+                      Only Jadual J is available for online KPKT self-service loans. Jadual K products do not appear
+                      there; use them for walk-in / in-branch origination only.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

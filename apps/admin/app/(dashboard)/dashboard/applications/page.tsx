@@ -34,6 +34,8 @@ interface Application {
   term: number;
   status: string;
   notes: string | null;
+  returnedForAmendment?: boolean;
+  pendingLenderCounterOffer?: boolean;
   createdAt: string;
   borrower: {
     id: string;
@@ -409,9 +411,24 @@ function ApplicationsPageContent() {
                     <TableCell>{formatCurrency(Number(app.amount))}</TableCell>
                     <TableCell>{app.term} months</TableCell>
                     <TableCell>
-                      <Badge variant={statusColors[app.status]}>
-                        {applicationStatusLabel(app.status)}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant={statusColors[app.status]}>
+                          {applicationStatusLabel(app.status)}
+                        </Badge>
+                        {app.returnedForAmendment ? (
+                          <Badge variant="outline" className="border-primary/40 bg-primary/10 text-foreground">
+                            Amendment
+                          </Badge>
+                        ) : null}
+                        {app.pendingLenderCounterOffer ? (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
+                          >
+                            Counter offer
+                          </Badge>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell>{formatDate(app.createdAt)}</TableCell>
                   </TableRow>

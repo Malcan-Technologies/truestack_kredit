@@ -42,15 +42,18 @@ import type { LoanApplicationDetail } from "@kredit/borrower";
 import { toAmountNumber } from "@borrower_pro/lib/application-form-validation";
 import { formatDate } from "@borrower_pro/lib/borrower-form-display";
 import { LoanApplicationOfferParty, LoanApplicationOfferStatus } from "@kredit/shared";
+import { isReturnedForAmendment } from "@borrower_pro/lib/borrower-application-amendment";
+import { cn } from "@borrower_pro/lib/utils";
 
-/** All, Draft, Submitted (status only), Approved, Rejected, then Action needed → Pending review, Counter-offer */
+/** All, Draft, Submitted (with lender), Approved, Rejected, then Action needed → Counter offer, Amendment */
 type AppFilter =
   | ""
   | "DRAFT"
   | "SUBMITTED"
   | "APPROVED"
   | "REJECTED"
-  | "PENDING_REVIEW";
+  | "COUNTER_OFFER"
+  | "AMENDMENT";
 
 /** Admin has proposed terms; borrower must respond (accept / reject / counter). */
 function hasPendingLenderCounterOffer(a: LoanApplicationDetail): boolean {
@@ -74,8 +77,15 @@ const statusBadgeVariant: Record<
 
 function applyStatusFilter(rows: LoanApplicationDetail[], filter: AppFilter): LoanApplicationDetail[] {
   if (filter === "") return rows;
-  if (filter === "PENDING_REVIEW") {
+  /** Submitted tab = with lender for review (submitted or under review). */
+  if (filter === "SUBMITTED") {
     return rows.filter((a) => a.status === "SUBMITTED" || a.status === "UNDER_REVIEW");
+  }
+  if (filter === "COUNTER_OFFER") {
+    return rows.filter(hasPendingLenderCounterOffer);
+  }
+  if (filter === "AMENDMENT") {
+    return rows.filter(isReturnedForAmendment);
   }
   return rows.filter((a) => a.status === filter);
 }
@@ -217,17 +227,14 @@ export default function ApplicationsPage() {
     }, 300);
   };
 
-  const submittedOnlyCount = useMemo(
-    () => rows.filter((a) => a.status === "SUBMITTED").length,
-    [rows]
-  );
-
-  const pendingReviewCount = useMemo(
+  const submittedWithLenderCount = useMemo(
     () => rows.filter((a) => a.status === "SUBMITTED" || a.status === "UNDER_REVIEW").length,
     [rows]
   );
 
   const counterOfferCount = useMemo(() => rows.filter(hasPendingLenderCounterOffer).length, [rows]);
+
+  const amendmentCount = useMemo(() => rows.filter(isReturnedForAmendment).length, [rows]);
 
   /** Applications sent to the lender (any status except draft). */
   const submittedToLenderTotal = useMemo(
@@ -314,6 +321,20 @@ export default function ApplicationsPage() {
     setCurrentPage(1);
   };
 
+  const scrollToApplicationsList = () => {
+    requestAnimationFrame(() => {
+      document.getElementById("borrower-applications-list")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  const applyFilterFromBanner = (f: AppFilter) => {
+    setFilterAndPage(f);
+    scrollToApplicationsList();
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -346,12 +367,36 @@ export default function ApplicationsPage() {
         </div>
       )}
 
-      {pendingReviewCount > 0 && (
-        <div className="flex items-center gap-4 p-3 rounded-lg border border-border bg-secondary">
-          <AlertTriangle className="h-4 w-4 text-foreground shrink-0" />
-          <div className="flex items-center gap-2 text-sm flex-wrap text-foreground font-medium">
-            {pendingReviewCount} application{pendingReviewCount !== 1 ? "s" : ""} awaiting lender
-            review
+      {amendmentCount > 0 && (
+        <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold">Amendment requested by your lender</span>
+                <Badge
+                  variant="outline"
+                  className="border-amber-300 bg-white/80 text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-100"
+                >
+                  {amendmentCount} application{amendmentCount !== 1 ? "s" : ""}
+                </Badge>
+              </div>
+              <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
+                Open the application to read your lender&apos;s message, then edit and resubmit when ready.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-start sm:justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="border-amber-300 bg-white/80 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
+              onClick={() => applyFilterFromBanner("AMENDMENT")}
+            >
+              Review now
+            </Button>
           </div>
         </div>
       )}
@@ -378,10 +423,14 @@ export default function ApplicationsPage() {
           </div>
 
           <div className="flex justify-start sm:justify-end">
-            <Button type="button" size="sm" variant="outline" asChild>
-              <Link href="/applications" className="border-amber-300 bg-white/80 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60">
-                Review now
-              </Link>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="border-amber-300 bg-white/80 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
+              onClick={() => applyFilterFromBanner("COUNTER_OFFER")}
+            >
+              Review now
             </Button>
           </div>
         </div>
@@ -404,9 +453,9 @@ export default function ApplicationsPage() {
           onClick={() => setFilterAndPage("SUBMITTED")}
         >
           Submitted
-          {submittedOnlyCount > 0 && (
-            <span className="ml-1.5 bg-muted text-foreground rounded-full px-1.5 py-0.5 text-[10px] leading-none">
-              {submittedOnlyCount}
+          {submittedWithLenderCount > 0 && (
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {submittedWithLenderCount}
             </span>
           )}
         </Button>
@@ -429,20 +478,32 @@ export default function ApplicationsPage() {
           Action needed
         </span>
         <Button
-          variant={filter === "PENDING_REVIEW" ? "default" : "outline"}
+          variant={filter === "COUNTER_OFFER" ? "default" : "outline"}
           size="sm"
-          onClick={() => setFilterAndPage("PENDING_REVIEW")}
+          onClick={() => setFilterAndPage("COUNTER_OFFER")}
         >
-          Pending review
-          {pendingReviewCount > 0 && (
+          Counter offer
+          {counterOfferCount > 0 && (
             <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
-              {pendingReviewCount}
+              {counterOfferCount}
+            </span>
+          )}
+        </Button>
+        <Button
+          variant={filter === "AMENDMENT" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setFilterAndPage("AMENDMENT")}
+        >
+          Amendment
+          {amendmentCount > 0 && (
+            <span className="ml-1.5 bg-foreground text-background rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+              {amendmentCount}
             </span>
           )}
         </Button>
       </div>
 
-      <Card>
+      <Card id="borrower-applications-list">
         <CardHeader>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 flex-1">
@@ -576,14 +637,20 @@ export default function ApplicationsPage() {
                 <TableBody>
                   {paginatedApplications.map((app) => {
                     const isDraft = app.status === "DRAFT";
-                    const loanId = app.loan?.id;
                     const badgeVariant = statusBadgeVariant[app.status] ?? "outline";
                     const showCounterOfferPill = hasPendingLenderCounterOffer(app);
+                    const showAmendmentPill = isReturnedForAmendment(app);
+                    const attentionRowHighlight = showAmendmentPill || showCounterOfferPill;
 
                     return (
                       <TableRow
                         key={app.id}
-                        className="cursor-pointer transition-colors hover:bg-muted/20"
+                        className={cn(
+                          "cursor-pointer transition-colors",
+                          attentionRowHighlight
+                            ? "bg-amber-500/[0.06] dark:bg-amber-500/[0.07] hover:bg-amber-500/[0.1] dark:hover:bg-amber-500/[0.12]"
+                            : "hover:bg-muted/20"
+                        )}
                         onClick={() => navigateForApplication(router, app)}
                       >
                         <TableCell className="font-medium">{app.product?.name ?? "—"}</TableCell>
@@ -595,6 +662,14 @@ export default function ApplicationsPage() {
                         <TableCell>
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Badge variant={badgeVariant}>{app.status.replace(/_/g, " ")}</Badge>
+                            {showAmendmentPill && (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
+                              >
+                                Amendment
+                              </Badge>
+                            )}
                             {showCounterOfferPill && (
                               <Badge
                                 variant="outline"

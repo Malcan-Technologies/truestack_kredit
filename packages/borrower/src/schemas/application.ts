@@ -94,4 +94,5 @@ export const LoanApplicationDetailSchema = z.object({
     status: z.string(),
     createdAt: z.string().optional(),
   })).optional(),
+  returnedForAmendment: z.boolean().optional(),
 });

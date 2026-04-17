@@ -127,7 +127,10 @@ export function ApplicationFlowWizard() {
     setLoading(true);
     try {
       const res = await fetchBorrowerProducts();
-      if (res.success) setProducts(res.data);
+      if (res.success) {
+        // Jadual K is walk-in / in-branch only (API also excludes; filter defends stale clients)
+        setProducts(res.data.filter((p) => p.loanScheduleType !== "JADUAL_K"));
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load products");
     } finally {
@@ -186,6 +189,13 @@ export function ApplicationFlowWizard() {
       }
       if (app.loanChannel === "PHYSICAL") {
         toast.info("Physical loan draft applications are read-only in the borrower portal.");
+        router.replace(`/applications/${appId}`);
+        return;
+      }
+      if (app.product?.loanScheduleType === "JADUAL_K") {
+        toast.info(
+          "Jadual K loans are only available in-branch. Open your application to view details, or visit our office to continue."
+        );
         router.replace(`/applications/${appId}`);
         return;
       }

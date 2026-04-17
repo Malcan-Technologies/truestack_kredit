@@ -329,6 +329,17 @@ function getReturnToDraftReason(
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** Text after the last `Returned for amendments:` block in application notes (borrower-visible message). */
+function extractAmendmentMessageFromNotes(notes: string | null | undefined): string | null {
+  const raw = notes?.trim();
+  if (!raw) return null;
+  const marker = "Returned for amendments:";
+  const idx = raw.lastIndexOf(marker);
+  if (idx === -1) return null;
+  const after = raw.slice(idx + marker.length).trim();
+  return after.length > 0 ? after : null;
+}
+
 function TimelineItem({ event }: { event: TimelineEvent }) {
   const returnToDraftReason = getReturnToDraftReason(event);
 
@@ -985,6 +996,18 @@ export default function ApplicationDetailPage() {
   const negotiationQueueBlockTooltip =
     "Finish or wait for offer negotiation (counter-offer or borrower response) before rejecting, sending to L2, or final approval.";
 
+  const isDraftAwaitingBorrowerAmendments =
+    application.status === "DRAFT" &&
+    (Boolean(application.notes?.includes("Returned for amendments:")) ||
+      timeline.some((e) => e.action === "RETURN_TO_DRAFT"));
+
+  const latestReturnToDraftEvent = [...timeline]
+    .filter((e) => e.action === "RETURN_TO_DRAFT")
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  const amendmentBannerMessage =
+    (latestReturnToDraftEvent ? getReturnToDraftReason(latestReturnToDraftEvent) : null) ??
+    extractAmendmentMessageFromNotes(application.notes);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1229,6 +1252,27 @@ export default function ApplicationDetailPage() {
         </div>
         </TooltipProvider>
       </div>
+
+      {/* Returned for amendments — same amber callout pattern as offer negotiation / missing docs */}
+      {isDraftAwaitingBorrowerAmendments && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <RotateCcw className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-amber-800 dark:text-amber-200">Awaiting borrower amendments</p>
+              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                This application is in draft because it was returned for amendments. The borrower can edit and resubmit
+                when ready.
+              </p>
+              {amendmentBannerMessage ? (
+                <p className="text-sm text-amber-900 dark:text-amber-100 mt-3 whitespace-pre-wrap rounded-md border border-amber-200/80 dark:border-amber-800/60 bg-background/70 dark:bg-background/10 px-3 py-2">
+                  {amendmentBannerMessage}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Missing Documents Warning */}
       {application.status === "DRAFT" && missingRequiredDocs.length > 0 && (
@@ -2294,7 +2338,7 @@ export default function ApplicationDetailPage() {
             </Button>
             <Button variant="secondary" onClick={handleReturnToDraftConfirm}>
               <RotateCcw className="h-4 w-4 mr-2" />
-              Return to Draft
+              {application.loanChannel === "PHYSICAL" ? "Return to draft" : "Return to borrower"}
             </Button>
           </DialogFooter>
         </DialogContent>

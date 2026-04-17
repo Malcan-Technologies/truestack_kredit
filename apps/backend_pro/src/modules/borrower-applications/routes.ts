@@ -56,6 +56,14 @@ function productEligibleForBorrower(product: Product, borrowerType: string): boo
   return eligibility === 'BOTH' || eligibility === borrowerType;
 }
 
+/** Jadual K (secured) loans are in-branch / walk-in only; not offered via the online borrower portal. */
+function productAvailableOnline(product: Pick<Product, 'loanScheduleType'>): boolean {
+  return product.loanScheduleType !== 'JADUAL_K';
+}
+
+const JADUAL_K_NOT_ONLINE_MSG =
+  'Jadual K products are only available for in-branch applications. Please visit our office to apply.';
+
 function borrowerCanModifyApplicationDocuments(status: ApplicationStatus): boolean {
   return (
     status === 'DRAFT' ||
@@ -92,6 +100,7 @@ async function requiredApplicationDocumentsComplete(
 /**
  * GET /api/borrower-auth/products
  * Active products eligible for the current borrower type (pro tenant).
+ * Excludes Jadual K — secured products are walk-in / in-branch only.
  */
 router.get('/products', async (req, res, next) => {
   try {
@@ -110,7 +119,9 @@ router.get('/products', async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    const filtered = products.filter((p) => productEligibleForBorrower(p, borrower.borrowerType));
+    const filtered = products.filter(
+      (p) => productEligibleForBorrower(p, borrower.borrowerType) && productAvailableOnline(p)
+    );
 
     res.json({
       success: true,
@@ -151,6 +162,10 @@ router.post('/applications/preview', async (req, res, next) => {
 
     if (!productEligibleForBorrower(product, borrower.borrowerType)) {
       throw new BadRequestError('This product is not available for your borrower type.');
+    }
+
+    if (!productAvailableOnline(product)) {
+      throw new BadRequestError(JADUAL_K_NOT_ONLINE_MSG);
     }
 
     if (data.amount < toSafeNumber(product.minAmount) || data.amount > toSafeNumber(product.maxAmount)) {
@@ -217,21 +232,16 @@ router.post('/applications', async (req, res, next) => {
       throw new BadRequestError('This product is not available for your borrower type.');
     }
 
+    if (!productAvailableOnline(product)) {
+      throw new BadRequestError(JADUAL_K_NOT_ONLINE_MSG);
+    }
+
     if (data.amount < toSafeNumber(product.minAmount) || data.amount > toSafeNumber(product.maxAmount)) {
       throw new BadRequestError(`Amount must be between ${product.minAmount} and ${product.maxAmount}`);
     }
 
     if (data.term < product.minTerm || data.term > product.maxTerm) {
       throw new BadRequestError(`Term must be between ${product.minTerm} and ${product.maxTerm} months`);
-    }
-
-    if (product.loanScheduleType === 'JADUAL_K') {
-      if (!data.collateralType?.trim()) {
-        throw new BadRequestError('Collateral type is required for this product.');
-      }
-      if (data.collateralValue == null || data.collateralValue <= 0) {
-        throw new BadRequestError('Collateral value is required for this product.');
-      }
     }
 
     const application = await prisma.loanApplication.create({
@@ -336,9 +346,36 @@ router.get('/applications', async (req, res, next) => {
       prisma.loanApplication.count({ where }),
     ]);
 
+    /** Drafts returned from the lender for amendment leave an audit row; notes may be empty if admin sent no reason (legacy). */
+    const draftIdsForAmendmentCheck = applications
+      .filter((a) => a.status === 'DRAFT' && a.loanChannel !== 'PHYSICAL')
+      .map((a) => a.id);
+
+    let returnedDraftIdSet = new Set<string>();
+    if (draftIdsForAmendmentCheck.length > 0) {
+      const returnLogs = await prisma.auditLog.findMany({
+        where: {
+          tenantId: tenant.id,
+          entityType: 'LoanApplication',
+          action: 'RETURN_TO_DRAFT',
+          entityId: { in: draftIdsForAmendmentCheck },
+        },
+        select: { entityId: true },
+      });
+      returnedDraftIdSet = new Set(returnLogs.map((r) => r.entityId));
+    }
+
+    const data = applications.map((a) => ({
+      ...a,
+      returnedForAmendment:
+        a.status === 'DRAFT' &&
+        a.loanChannel !== 'PHYSICAL' &&
+        (returnedDraftIdSet.has(a.id) || Boolean(a.notes?.includes('Returned for amendments:'))),
+    }));
+
     res.json({
       success: true,
-      data: applications,
+      data,
       pagination: {
         total,
         page: parseInt(page as string, 10),
@@ -395,9 +432,27 @@ router.get('/applications/:applicationId', async (req, res, next) => {
       throw new NotFoundError('Application');
     }
 
+    let returnedForAmendment = false;
+    if (application.status === 'DRAFT' && application.loanChannel !== 'PHYSICAL') {
+      if (application.notes?.includes('Returned for amendments:')) {
+        returnedForAmendment = true;
+      } else {
+        const returnHit = await prisma.auditLog.findFirst({
+          where: {
+            tenantId: tenant.id,
+            entityType: 'LoanApplication',
+            entityId: application.id,
+            action: 'RETURN_TO_DRAFT',
+          },
+          select: { id: true },
+        });
+        returnedForAmendment = returnHit != null;
+      }
+    }
+
     res.json({
       success: true,
-      data: application,
+      data: { ...application, returnedForAmendment },
     });
   } catch (e) {
     next(e);
@@ -542,7 +597,14 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
       if (!borrower || !productEligibleForBorrower(np, borrower.borrowerType)) {
         throw new BadRequestError('This product is not available for your borrower type.');
       }
+      if (!productAvailableOnline(np)) {
+        throw new BadRequestError(JADUAL_K_NOT_ONLINE_MSG);
+      }
       product = np;
+    }
+
+    if (!productAvailableOnline(product)) {
+      throw new BadRequestError(JADUAL_K_NOT_ONLINE_MSG);
     }
 
     const nextAmount = data.amount ?? toSafeNumber(existing.amount);
@@ -554,21 +616,6 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
 
     if (nextTerm < product.minTerm || nextTerm > product.maxTerm) {
       throw new BadRequestError(`Term must be between ${product.minTerm} and ${product.maxTerm} months`);
-    }
-
-    const collateralType = data.collateralType !== undefined ? data.collateralType : existing.collateralType;
-    const collateralValue =
-      data.collateralValue !== undefined ? data.collateralValue : existing.collateralValue
-        ? toSafeNumber(existing.collateralValue)
-        : undefined;
-
-    if (product.loanScheduleType === 'JADUAL_K') {
-      if (!collateralType?.trim()) {
-        throw new BadRequestError('Collateral type is required for this product.');
-      }
-      if (collateralValue == null || collateralValue <= 0) {
-        throw new BadRequestError('Collateral value is required for this product.');
-      }
     }
 
     const updated = await prisma.loanApplication.update({
@@ -644,6 +691,10 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
 
     if (application.status !== 'DRAFT') {
       throw new BadRequestError('Can only submit draft applications');
+    }
+
+    if (!productAvailableOnline(application.product)) {
+      throw new BadRequestError(JADUAL_K_NOT_ONLINE_MSG);
     }
 
     const requiredDocumentsCompleteAtSubmit = await requiredApplicationDocumentsComplete(

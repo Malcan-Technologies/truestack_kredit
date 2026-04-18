@@ -3,7 +3,6 @@ import type { Href } from 'expo-router';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
 import Svg, { Circle } from 'react-native-svg';
 
 import { BottomSheetModal } from '@/components/bottom-sheet-modal';
+import { ChannelPill } from '@/components/channel-pill';
 import { OnboardingFirstGate } from '@/components/onboarding-first-gate';
 import { PageHeaderToolbarButton, PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
@@ -120,27 +120,8 @@ function StatusPill({ label, tone }: { label: string; tone: BorrowerStatusTone }
 
 /* ------------------------------------------------------------------ */
 /*  Channel pill (Online / Physical)                                  */
+/*  See `@/components/channel-pill` — kept compact for list rows.     */
 /* ------------------------------------------------------------------ */
-
-function ChannelPill({ channel }: { channel?: 'ONLINE' | 'PHYSICAL' | null }) {
-  const theme = useTheme();
-  const isPhysical = channel === 'PHYSICAL';
-  const fg = isPhysical ? theme.text : theme.info;
-  const bg = isPhysical ? theme.backgroundSelected : `${theme.info}14`;
-  const border = isPhysical ? theme.border : `${theme.info}40`;
-  return (
-    <View style={[styles.channelPill, { backgroundColor: bg, borderColor: border }]}>
-      <MaterialIcons
-        name={isPhysical ? 'apartment' : 'computer'}
-        size={12}
-        color={fg}
-      />
-      <ThemedText type="smallBold" style={{ color: fg, fontSize: 11 }}>
-        {isPhysical ? 'Physical' : 'Online'}
-      </ThemedText>
-    </View>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Progress donut (SVG)                                              */
@@ -423,7 +404,7 @@ function LoanCard({
       ]}>
       <View style={styles.cardHeaderRow}>
         <StatusPill label={statusLabel} tone={tone} />
-        <ChannelPill channel={loan.loanChannel} />
+        <ChannelPill channel={loan.loanChannel} size="compact" />
       </View>
 
       <View
@@ -768,7 +749,6 @@ function LoansContent() {
   const allLoansTotal = counts
     ? counts.activeLoans + counts.pendingDisbursementLoans + counts.dischargedLoans
     : 0;
-  const activeLoanCount = counts?.activeLoans ?? 0;
 
   const tabCount = useCallback(
     (key: LoanCenterTab): number | null => {
@@ -863,22 +843,9 @@ function LoansContent() {
   return (
     <PageScreen
       title="Your loans"
-      subtitle="View and manage your loans. Complete attestation, signing, and repayment here."
+      subtitle="View and manage your loans."
       showBorrowerContextHeader
       refreshControl={loading ? undefined : refreshControl}>
-      {activeLoanCount > 0 ? (
-        <View
-          style={[
-            styles.activeBanner,
-            { borderColor: theme.border, backgroundColor: theme.backgroundElement },
-          ]}>
-          <MaterialIcons name="credit-card" size={16} color={theme.textSecondary} />
-          <ThemedText type="smallBold">
-            {activeLoanCount} active loan{activeLoanCount === 1 ? '' : 's'} in your account
-          </ThemedText>
-        </View>
-      ) : null}
-
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -1147,15 +1114,6 @@ export default function LoansScreen() {
 /* ------------------------------------------------------------------ */
 
 const styles = StyleSheet.create({
-  activeBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two + 2,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
   tabsRow: {
     flexDirection: 'row',
     gap: Spacing.two,
@@ -1279,15 +1237,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: 3,
     alignSelf: 'flex-start',
-  },
-  channelPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 3,
   },
   donutWrap: {
     alignItems: 'center',

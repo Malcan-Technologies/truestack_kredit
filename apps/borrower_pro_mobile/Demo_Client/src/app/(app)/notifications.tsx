@@ -14,7 +14,6 @@ import Animated from 'react-native-reanimated';
 
 import { BorrowerNotificationCategoryIcon } from '@/components/borrower-notification-category-icon';
 import { PageHeaderToolbarButton, PageScreen } from '@/components/page-screen';
-import { SectionCard } from '@/components/section-card';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -392,43 +391,31 @@ export default function NotificationsScreen() {
     void fetchNextPage();
   }, [fetchNextPage, hasMore, loading, loadingMore, notifications.length, refreshing]);
 
-  const summaryDescription = useMemo(() => {
-    if (loading) return 'Loading recent activity…';
+  const summaryLabel = useMemo(() => {
+    if (loading) return 'Loading…';
     if (unreadCount > 0) {
-      return `${unreadCount} unread ${unreadCount === 1 ? 'update' : 'updates'} from your loan journey.`;
+      return `${unreadCount} unread`;
     }
-    return "You're all caught up. New updates will appear here.";
+    return 'All caught up';
   }, [loading, unreadCount]);
 
   const listHeader = useMemo(
     () => (
       <View style={styles.listHeader}>
-        <SectionCard
-          hideHeader
-          title="Inbox summary">
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryCopy}>
-              <ThemedText type="smallBold">
-                {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
-              </ThemedText>
-              <ThemedText
-                type="small"
-                themeColor="textSecondary"
-                style={styles.summarySubtext}>
-                {summaryDescription}
-              </ThemedText>
-            </View>
-            {unreadCount > 0 ? (
-              <PageHeaderToolbarButton
-                label="Mark all read"
-                variant="outline"
-                loading={markingAll}
-                disabled={markingAll}
-                onPress={() => void handleMarkAllRead()}
-              />
-            ) : null}
-          </View>
-        </SectionCard>
+        <View style={styles.summaryRow}>
+          <ThemedText type="smallBold" themeColor="textSecondary">
+            {summaryLabel}
+          </ThemedText>
+          {unreadCount > 0 ? (
+            <PageHeaderToolbarButton
+              label="Mark all read"
+              variant="outline"
+              loading={markingAll}
+              disabled={markingAll}
+              onPress={() => void handleMarkAllRead()}
+            />
+          ) : null}
+        </View>
 
         {loading ? (
           <View style={styles.skeletonList}>
@@ -470,7 +457,7 @@ export default function NotificationsScreen() {
       loading,
       markingAll,
       notifications.length,
-      summaryDescription,
+      summaryLabel,
       theme.backgroundElement,
       theme.textSecondary,
       unreadCount,
@@ -544,7 +531,7 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   listHeader: {
-    gap: Spacing.three,
+    gap: Spacing.two,
   },
   listHeaderSpacing: {
     marginBottom: Spacing.three,
@@ -555,18 +542,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   summaryRow: {
+    minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: Spacing.three,
-  },
-  summaryCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  summarySubtext: {
-    lineHeight: 18,
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.one,
   },
   skeletonList: {
     overflow: 'hidden',

@@ -37,6 +37,7 @@ import {
 } from 'react-native';
 
 import { Spacing } from '@/constants/theme';
+import { hapticTick } from '@/lib/haptics';
 import { useTheme } from '@/hooks/use-theme';
 
 interface HorizontalSnapCarouselProps {
@@ -110,7 +111,10 @@ export function HorizontalSnapCarousel({
         0,
         Math.min(items.length - 1, Math.round(x / snapInterval)),
       );
-      if (next !== activeIndex) setActiveIndex(next);
+      if (next !== activeIndex) {
+        setActiveIndex(next);
+        hapticTick();
+      }
     },
     [activeIndex, items.length, snapInterval],
   );

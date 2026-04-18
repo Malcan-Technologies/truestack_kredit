@@ -137,6 +137,23 @@ Defined in `src/constants/theme.ts`:
 - iOS: On **iOS 26+** with Liquid Glass available, the chevron sits in an **`expo-glass-effect` `GlassView`** (`UIGlassEffect`, ~44×44 capsule). Otherwise: SF Symbol `chevron.backward` (or older iOS: `chevron.left` / vector fallback), colored with `theme.primary`.
 - Android / web: Material `arrow-back` only, colored with `theme.primary`.
 
+### Badges & Pills
+
+We have three badge components and use each for a specific job. **Pick the one
+whose visual weight matches the meaning of the data — don't reach for tonal
+status colour just because the field happens to be a status.**
+
+| Component | When to use | Visual recipe |
+|-----------|-------------|---------------|
+| **`MetaBadge`** (`@/components/meta-badge`) | **Default** for any chip that sits below a screen title or inside a list/detail row to label a *property* — status, channel, schedule type, repayment row state, borrower type, etc. Uniform neutral look so multiple chips read as one row of metadata. | `backgroundColor: theme.backgroundSelected`, `borderColor: theme.border`, text + optional 14pt `MaterialIcons` in `theme.textSecondary`, pill-shaped (`borderRadius: 999`, `paddingHorizontal: Spacing.two`, `paddingVertical: 4`). Differentiate badges by **icon + label**, not colour. |
+| **`StatusBadge`** (`@/components/status-badge`) | Rare. Use **only** when the badge stands alone (no neighbouring chips) and tonal colour is itself the message — e.g. a single "Verified" pill on a profile card, or a tonal "Approved" tag in a dense activity log. | Tonal `borderColor` + `theme.backgroundSelected` fill (or light-success tint). |
+| **`ChannelPill`** (`@/components/channel-pill`) | Compact list rows where a coloured Online/Physical pill is a meaningful at-a-glance signal and the row is the primary visual unit (e.g. loan list cards). Not used in title-row badges (use `MetaBadge` there). | Tonal blue for `ONLINE`, neutral surface for `PHYSICAL`, with `apartment` / `computer` icon. |
+
+**Rule of thumb**: title-row badges (status / channel / Jadual / etc.), and
+multi-chip metadata strips inside cards (e.g. each repayment row's status),
+**must** use `MetaBadge`. Only fall back to `StatusBadge` when a single
+coloured pill needs to communicate state by itself.
+
 ---
 
 ## 6) White-Label Customization

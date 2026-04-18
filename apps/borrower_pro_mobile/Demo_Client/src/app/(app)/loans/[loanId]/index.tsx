@@ -24,16 +24,20 @@ import {
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
+import {
+  ActivityTimelineCard as SharedActivityTimelineCard,
+  type ActivityTimelineEvent,
+} from '@/components/activity-timeline';
 import { HorizontalSnapCarousel } from '@/components/horizontal-snap-carousel';
+import { MetaBadge } from '@/components/meta-badge';
 import { PageHeaderToolbarButton, PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
-import { StatusBadge, type StatusBadgeTone } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { loansClient } from '@/lib/api/borrower';
 import { getEnv } from '@/lib/config/env';
-import { formatDate, formatDateTime, formatRelativeTime } from '@/lib/format/date';
+import { formatDate } from '@/lib/format/date';
 import { formatICForDisplay } from '@/lib/format/borrower';
 import { formatRm, toAmountNumber } from '@/lib/loans/currency';
 import {
@@ -41,14 +45,12 @@ import {
   downloadAndShareDocument,
 } from '@/lib/loans/document-download';
 import {
-  borrowerLoanStatusBadgeTone,
   loanStatusBadgeLabelFromDb,
   type BorrowerLoanStatusLabelInput,
-  type BorrowerStatusTone,
 } from '@/lib/loans/status-label';
 import {
+  repaymentStatusIcon,
   repaymentStatusLabel,
-  repaymentStatusTone,
   type RepaymentRow,
   type SchedulePayload,
 } from '@/lib/loans/repayment';
@@ -304,8 +306,8 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
 
       <QuickInfoCard loan={loan} loanId={loanId} />
 
-      <ActivityTimelineCard
-        events={timeline}
+      <SharedActivityTimelineCard
+        events={timeline.map((event) => loanEventToTimelineEvent(event))}
         hasMore={hasMoreTimeline}
         loadingMore={loadingMoreTimeline}
         onLoadMore={handleLoadMoreTimeline}
@@ -327,20 +329,20 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
 /* ------------------------------------------------------------------ */
 
 function LoanHeader({ loan }: { loan: BorrowerLoanDetail }) {
+  const router = useRouter();
   const theme = useTheme();
   const statusInput: BorrowerLoanStatusLabelInput = {
     status: loan.status,
     attestationCompletedAt: loan.attestationCompletedAt ?? null,
     loanChannel: loan.loanChannel,
   };
-  const statusTone = borrowerLoanStatusBadgeTone(statusInput);
   const statusLabel = loanStatusBadgeLabelFromDb(statusInput);
-  const channelLabel = loan.loanChannel === 'PHYSICAL' ? 'Physical loan' : 'Online loan';
   const isCorporate = loan.borrower?.borrowerType === 'CORPORATE';
   const displayName =
     isCorporate && loan.borrower?.companyName
       ? loan.borrower.companyName
       : loan.borrower?.name ?? '—';
+  const isPhysical = loan.loanChannel === 'PHYSICAL';
 
   return (
     <View style={styles.headerWrap}>
@@ -349,41 +351,48 @@ function LoanHeader({ loan }: { loan: BorrowerLoanDetail }) {
         {displayName} · {loan.product?.name ?? 'Loan'}
       </ThemedText>
       <View style={styles.headerBadges}>
-        <StatusBadge label={statusLabel} tone={toneToBadge(statusTone)} />
-        <View
-          style={[
-            styles.channelChip,
-            { backgroundColor: theme.backgroundSelected, borderColor: theme.border },
-          ]}>
-          <MaterialIcons
-            name={loan.loanChannel === 'PHYSICAL' ? 'storefront' : 'language'}
-            size={14}
-            color={theme.textSecondary}
+        <MetaBadge label={statusLabel} />
+        {loan.loanChannel ? (
+          <MetaBadge
+            icon={isPhysical ? 'apartment' : 'computer'}
+            label={isPhysical ? 'Physical' : 'Online'}
           />
-          <ThemedText type="small" themeColor="textSecondary">
-            {channelLabel}
-          </ThemedText>
-        </View>
+        ) : null}
         {loan.product?.loanScheduleType ? (
-          <View
-            style={[
-              styles.channelChip,
-              { backgroundColor: theme.backgroundSelected, borderColor: theme.border },
-            ]}>
-            <MaterialIcons name="receipt-long" size={14} color={theme.textSecondary} />
-            <ThemedText type="small" themeColor="textSecondary">
-              {loan.product.loanScheduleType === 'JADUAL_K' ? 'Jadual K' : 'Jadual J'}
-            </ThemedText>
-          </View>
+          <MetaBadge
+            icon="receipt-long"
+            label={
+              loan.product.loanScheduleType === 'JADUAL_K' ? 'Jadual K' : 'Jadual J'
+            }
+          />
         ) : null}
       </View>
+      {loan.application?.id ? (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="View related application"
+          onPress={() =>
+            router.push(`/applications/${loan.application!.id}` as Href)
+          }
+          style={({ pressed }) => [
+            styles.crossLink,
+            { opacity: pressed ? 0.6 : 1 },
+          ]}>
+          <ThemedText type="small" themeColor="textSecondary">
+            From application
+          </ThemedText>
+          <View style={styles.crossLinkAction}>
+            <ThemedText type="linkPrimary">View</ThemedText>
+            <MaterialIcons
+              name="arrow-forward"
+              size={13}
+              color={theme.primary}
+            />
+          </View>
+        </Pressable>
+      ) : null}
     </View>
   );
-}
-
-function toneToBadge(tone: BorrowerStatusTone): StatusBadgeTone {
-  if (tone === 'info') return 'primary';
-  return tone;
 }
 
 /* ------------------------------------------------------------------ */
@@ -964,8 +973,8 @@ function RepaymentItem({ index, row }: { index: number; row: RepaymentRow }) {
   const isCancelled = row.status === 'CANCELLED';
   const isOverdue = !isCancelled && row.status !== 'PAID' && new Date(row.dueDate) < new Date();
   const balance = isCancelled ? 0 : Math.max(0, totalDue - paid);
-  const tone = repaymentStatusTone(row.status, isOverdue);
   const label = repaymentStatusLabel(row.status, isOverdue);
+  const statusIcon = repaymentStatusIcon(row.status, isOverdue);
   const transactions = useMemo(
     () => aggregatePaymentTransactions(row.allocations ?? []),
     [row.allocations],
@@ -988,7 +997,7 @@ function RepaymentItem({ index, row }: { index: number; row: RepaymentRow }) {
             Due {formatDate(row.dueDate)}
           </ThemedText>
         </View>
-        <StatusBadge label={label} tone={toneToBadge(tone)} />
+        <MetaBadge icon={statusIcon} label={label} />
       </View>
       <View style={styles.repayGrid}>
         <RepayCell label="Principal" value={formatRm(principalDue)} />
@@ -1248,91 +1257,23 @@ function QuickInfoCard({ loan, loanId }: { loan: BorrowerLoanDetail; loanId: str
 
 /* ------------------------------------------------------------------ */
 /*  Activity timeline                                                 */
+/*  Converts BorrowerLoanTimelineEvent → ActivityTimelineEvent so the */
+/*  shared dot-line `ActivityTimelineCard` can render it identically  */
+/*  to the application detail screen.                                 */
 /* ------------------------------------------------------------------ */
 
-function ActivityTimelineCard({
-  events,
-  hasMore,
-  loadingMore,
-  onLoadMore,
-}: {
-  events: BorrowerLoanTimelineEvent[];
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void | Promise<void>;
-}) {
-  return (
-    <SectionCard
-      title="Activity"
-      collapsible
-      defaultExpanded={false}
-      collapsedSummary={
-        events.length === 0 ? 'No activity yet' : `${events.length} recent event${events.length === 1 ? '' : 's'}`
-      }>
-      {events.length === 0 ? (
-        <ThemedText type="small" themeColor="textSecondary">
-          No activity recorded yet.
-        </ThemedText>
-      ) : (
-        <View style={{ gap: Spacing.three }}>
-          {events.map((event) => (
-            <TimelineRow key={event.id} event={event} />
-          ))}
-          {hasMore ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => void onLoadMore()}
-              disabled={loadingMore}
-              style={({ pressed }) => [styles.loadMoreBtn, { opacity: pressed || loadingMore ? 0.7 : 1 }]}>
-              {loadingMore ? (
-                <ActivityIndicator size="small" />
-              ) : (
-                <ThemedText type="linkPrimary">Load more</ThemedText>
-              )}
-            </Pressable>
-          ) : null}
-        </View>
-      )}
-    </SectionCard>
-  );
-}
-
-function TimelineRow({ event }: { event: BorrowerLoanTimelineEvent }) {
-  const theme = useTheme();
+function loanEventToTimelineEvent(
+  event: BorrowerLoanTimelineEvent,
+): ActivityTimelineEvent {
   const info = borrowerTimelineActionInfo(event.action);
   const actor = borrowerTimelineActorLabel(event);
-  const detail = renderTimelineDetail(event);
-
-  return (
-    <View style={styles.timelineRow}>
-      <View
-        style={[
-          styles.timelineIconWrap,
-          { backgroundColor: theme.backgroundSelected, borderColor: theme.border },
-        ]}>
-        <MaterialIcons name={info.icon} size={16} color={theme.text} />
-      </View>
-      <View style={styles.timelineContent}>
-        <ThemedText type="smallBold">{info.label}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {formatRelativeTime(event.createdAt)}
-          {actor ? ` · by ${actor}` : ''}
-        </ThemedText>
-        {detail ? (
-          <View
-            style={[
-              styles.timelineDetail,
-              { backgroundColor: theme.backgroundSelected, borderColor: theme.border },
-            ]}>
-            {detail}
-          </View>
-        ) : null}
-        <ThemedText type="small" themeColor="textSecondary" style={styles.timelineDate}>
-          {formatDateTime(event.createdAt)}
-        </ThemedText>
-      </View>
-    </View>
-  );
+  return {
+    id: event.id,
+    label: info.label,
+    timestamp: event.createdAt,
+    actor: actor ?? null,
+    detail: renderTimelineDetail(event),
+  };
 }
 
 function renderTimelineDetail(event: BorrowerLoanTimelineEvent): React.ReactNode {
@@ -1494,10 +1435,7 @@ function PreDisbursementPlaceholder({ loan }: { loan: BorrowerLoanDetail }) {
           {loan.product?.name ?? 'Loan'} · {loan.term} months
         </ThemedText>
         <View style={styles.headerBadges}>
-          <StatusBadge
-            label={loanStatusBadgeLabelFromDb(statusInput)}
-            tone={toneToBadge(borrowerLoanStatusBadgeTone(statusInput))}
-          />
+          <MetaBadge label={loanStatusBadgeLabelFromDb(statusInput)} />
         </View>
       </View>
 
@@ -1779,35 +1717,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.one,
   },
-  loadMoreBtn: {
-    alignItems: 'center',
-    paddingVertical: Spacing.two,
-  },
-  timelineRow: {
+  crossLink: {
     flexDirection: 'row',
-    gap: Spacing.three,
-  },
-  timelineIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    marginTop: Spacing.two,
+    minHeight: 24,
   },
-  timelineContent: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  timelineDetail: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: Spacing.two,
-    gap: Spacing.half,
-    marginTop: Spacing.one,
-  },
-  timelineDate: {
-    marginTop: Spacing.one,
+  crossLinkAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   bottomHint: {
     textAlign: 'center',

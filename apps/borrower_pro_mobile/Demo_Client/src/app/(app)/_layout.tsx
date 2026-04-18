@@ -1,5 +1,5 @@
 import type { BorrowerMeResponse } from '@kredit/borrower';
-import { Stack, usePathname } from 'expo-router';
+import { Stack } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
@@ -31,7 +31,6 @@ function wait(ms: number) {
 
 function BorrowerProfileProviderShell() {
   const { session, isLoading, signOut } = useSession();
-  const pathname = usePathname();
   const [checking, setChecking] = useState(true);
   const [borrowerContext, setBorrowerContext] = useState<BorrowerMeResponse['data'] | null>(null);
   const [switchingProfileId, setSwitchingProfileId] = useState<string | null>(null);
@@ -89,6 +88,8 @@ function BorrowerProfileProviderShell() {
     [borrowerContext?.activeBorrowerId, loadBorrowerContext, switchingProfileId],
   );
 
+  // Omit pathname from deps: tab switches would refetch `/me`, bump `borrowerContextVersion`,
+  // and tab screens would reload (flash). Session changes are enough to re-sync after login.
   useEffect(() => {
     let cancelled = false;
 
@@ -127,7 +128,7 @@ function BorrowerProfileProviderShell() {
     return () => {
       cancelled = true;
     };
-  }, [isLoading, loadBorrowerContext, pathname, session]);
+  }, [isLoading, loadBorrowerContext, session]);
 
   const hasBorrowerProfiles = Boolean(borrowerContext && borrowerContext.profileCount > 0);
 

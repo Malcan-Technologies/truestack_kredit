@@ -1,12 +1,17 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import type { Href } from 'expo-router';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
@@ -31,6 +36,7 @@ import { isBorrowerKycComplete } from '@/lib/borrower-verification';
 import { isReturnedForAmendment } from '@/lib/applications/amendment';
 import { borrowerApplicationDetailPath } from '@/lib/applications/navigation';
 import { getPendingLenderCounterOffer } from '@/lib/applications/counter-offer';
+import { hapticTick } from '@/lib/haptics';
 import { borrowerLoanNeedsContinueAction } from '@/lib/loans/continue-eligibility';
 import { formatRm, toAmountNumber } from '@/lib/loans/currency';
 import {
@@ -43,7 +49,7 @@ import {
   loanStatusBadgeLabelFromDb,
   type BorrowerStatusTone,
 } from '@/lib/loans/status-label';
-import { formatDate } from '@/lib/format/date';
+// import { formatDate } from '@/lib/format/date';
 import { getBorrowerDisplayName } from '@/lib/format/borrower';
 import { loadOnboardingDraft, type OnboardingDraft } from '@/lib/onboarding';
 
@@ -275,76 +281,268 @@ type ActionItem = {
   tier: ActionTier;
 };
 
-function ActionRow({ action, onPress }: { action: ActionItem; onPress: () => void }) {
-  const theme = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionRow,
-        {
-          backgroundColor: pressed ? `${theme.warning}14` : `${theme.warning}0D`,
-          borderColor: `${theme.warning}33`,
-        },
-      ]}>
-      <View
-        style={[
-          styles.actionIconWrap,
-          { backgroundColor: `${theme.warning}26` },
-        ]}>
-        <MaterialIcons name={action.icon} size={16} color={theme.warning} />
-      </View>
-      <View style={styles.actionRowBody}>
-        <ThemedText type="smallBold" style={styles.actionRowTitle} numberOfLines={1}>
-          {action.label}
-          <ThemedText type="small" themeColor="textSecondary">
-            {'  ·  '}
-            {action.sublabel}
-          </ThemedText>
-        </ThemedText>
-        <ThemedText
-          type="small"
-          themeColor="textSecondary"
-          style={styles.actionRowDescription}
-          numberOfLines={1}>
-          {action.description}
-        </ThemedText>
-      </View>
-      <MaterialIcons name="chevron-right" size={18} color={theme.textSecondary} />
-    </Pressable>
-  );
-}
+/**
+ * ActionNeededAlert
+ *
+ * A single amber alert card that consolidates the entire "Action needed"
+ * section into one compact unit:
+ *
+ *  - Pulsing warning dot + "Action needed" label + count badge form the header
+ *    (single line, ~20pt tall) — keeps urgency without claiming a full
+ *    section header row.
+ *  - The action body is a tappable card that navigates to the action target.
+ *  - When there is more than one pending action, the body becomes a
+ *    page-snapping horizontal pager. Pagination dots render below.
+ *  - Card height is constant regardless of action count, so the dashboard
+ *    layout stays predictable and the section feels "alert"-shaped rather
+ *    than list-shaped.
+ */
+/** Time between auto-advance rotations of the action pager. */
+const ACTION_AUTOPLAY_INTERVAL_MS = 5000;
+/** How long to pause autoplay after the user manually interacts. */
+const ACTION_AUTOPLAY_RESUME_DELAY_MS = 8000;
 
-function ActionsSection({
-  count,
-  children,
+function ActionNeededAlert({
+  actions,
+  onPress,
 }: {
-  count: number;
-  children: React.ReactNode;
+  actions: ActionItem[];
+  onPress: (action: ActionItem) => void;
 }) {
   const theme = useTheme();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [pagerWidth, setPagerWidth] = useState(0);
+  const pulse = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<ScrollView>(null);
+  /**
+   * Tracks scrolls we initiated programmatically (autoplay or post-interaction
+   * resume). Used to suppress the haptic tick on auto-advance — haptics are
+   * for user-initiated changes only.
+   */
+  const programmaticScrollRef = useRef(false);
+  /** Timestamp until which autoplay is paused due to user interaction. */
+  const autoplayPausedUntilRef = useRef(0);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1100,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 2.4] });
+  const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] });
+
+  const advanceTo = useCallback(
+    (index: number) => {
+      if (pagerWidth === 0) return;
+      programmaticScrollRef.current = true;
+      scrollRef.current?.scrollTo({
+        x: index * pagerWidth,
+        y: 0,
+        animated: true,
+      });
+      setActiveIndex(index);
+    },
+    [pagerWidth],
+  );
+
+  // Auto-rotate through actions when there's more than one and the user
+  // hasn't recently interacted with the pager.
+  useEffect(() => {
+    if (actions.length <= 1 || pagerWidth === 0) return;
+    const id = setInterval(() => {
+      if (Date.now() < autoplayPausedUntilRef.current) return;
+      const next = (activeIndex + 1) % actions.length;
+      advanceTo(next);
+    }, ACTION_AUTOPLAY_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [actions.length, activeIndex, advanceTo, pagerWidth]);
+
+  const handleScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (pagerWidth === 0) return;
+      const x = e.nativeEvent.contentOffset.x;
+      const next = Math.max(
+        0,
+        Math.min(actions.length - 1, Math.round(x / pagerWidth)),
+      );
+      if (next !== activeIndex) {
+        setActiveIndex(next);
+        if (!programmaticScrollRef.current) {
+          hapticTick();
+        }
+      }
+    },
+    [actions.length, activeIndex, pagerWidth],
+  );
+
+  const handleScrollBeginDrag = useCallback(() => {
+    autoplayPausedUntilRef.current =
+      Date.now() + ACTION_AUTOPLAY_RESUME_DELAY_MS;
+  }, []);
+
+  const handleMomentumScrollEnd = useCallback(() => {
+    programmaticScrollRef.current = false;
+  }, []);
+
+  if (actions.length === 0) return null;
+
+  const multi = actions.length > 1;
+
   return (
-    <View style={styles.actionsSection}>
-      <View style={styles.actionsHeader}>
-        <MaterialIcons name="error-outline" size={16} color={theme.warning} />
-        <ThemedText type="smallBold" style={styles.actionsHeaderTitle}>
+    <View
+      accessibilityRole="alert"
+      style={[
+        styles.alertCard,
+        {
+          backgroundColor: `${theme.warning}10`,
+          borderColor: `${theme.warning}40`,
+        },
+      ]}>
+      {/* Header strip */}
+      <View style={styles.alertHeader}>
+        <View style={styles.pulseWrap}>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.pulseRing,
+              {
+                backgroundColor: theme.warning,
+                transform: [{ scale: ringScale }],
+                opacity: ringOpacity,
+              },
+            ]}
+          />
+          <View style={[styles.pulseDot, { backgroundColor: theme.warning }]} />
+        </View>
+        <ThemedText
+          type="smallBold"
+          style={[styles.alertHeaderTitle, { color: theme.warning }]}>
           Action needed
         </ThemedText>
         <View
           style={[
-            styles.actionsCountBadge,
-            { backgroundColor: `${theme.warning}1F` },
+            styles.alertCount,
+            { backgroundColor: `${theme.warning}26` },
           ]}>
           <ThemedText
             type="smallBold"
             style={{ color: theme.warning, fontSize: 11, lineHeight: 14 }}>
-            {count}
+            {actions.length}
           </ThemedText>
         </View>
       </View>
-      <View style={styles.actionList}>{children}</View>
+
+      {/* Body — single action or swipeable pager */}
+      <View
+        style={styles.alertBody}
+        onLayout={(e) => setPagerWidth(e.nativeEvent.layout.width)}>
+        {!multi ? (
+          <ActionContent action={actions[0]} onPress={() => onPress(actions[0])} />
+        ) : pagerWidth > 0 ? (
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            pagingEnabled
+            decelerationRate="fast"
+            snapToInterval={pagerWidth}
+            snapToAlignment="start"
+            disableIntervalMomentum
+            showsHorizontalScrollIndicator={false}
+            onScroll={handleScroll}
+            onScrollBeginDrag={handleScrollBeginDrag}
+            onMomentumScrollEnd={handleMomentumScrollEnd}
+            scrollEventThrottle={16}>
+            {actions.map((action) => (
+              <View key={action.id} style={{ width: pagerWidth }}>
+                <ActionContent action={action} onPress={() => onPress(action)} />
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+      </View>
+
+      {/* Pagination dots */}
+      {multi ? (
+        <View style={styles.alertDots}>
+          {actions.map((_, i) => {
+            const active = i === activeIndex;
+            return (
+              <View
+                key={i}
+                style={[
+                  styles.alertDot,
+                  {
+                    backgroundColor: active
+                      ? theme.warning
+                      : `${theme.warning}55`,
+                    width: active ? 14 : 5,
+                  },
+                ]}
+              />
+            );
+          })}
+        </View>
+      ) : null}
     </View>
+  );
+}
+
+function ActionContent({
+  action,
+  onPress,
+}: {
+  action: ActionItem;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${action.label}. ${action.description}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionContent,
+        { opacity: pressed ? 0.65 : 1 },
+      ]}>
+      <View
+        style={[
+          styles.actionContentIcon,
+          { backgroundColor: `${theme.warning}26` },
+        ]}>
+        <MaterialIcons name={action.icon} size={18} color={theme.warning} />
+      </View>
+      <View style={styles.actionContentBody}>
+        <ThemedText
+          type="smallBold"
+          style={styles.actionContentTitle}
+          numberOfLines={1}>
+          {action.label}
+        </ThemedText>
+        <ThemedText
+          type="small"
+          themeColor="textSecondary"
+          style={styles.actionContentDesc}
+          numberOfLines={2}>
+          {action.description}
+        </ThemedText>
+      </View>
+      <MaterialIcons name="chevron-right" size={20} color={theme.warning} />
+    </Pressable>
   );
 }
 
@@ -656,8 +854,6 @@ function DashboardSkeleton() {
 /*  Main dashboard                                                    */
 /* ------------------------------------------------------------------ */
 
-const ACTIONS_PAGE_SIZE = 3;
-
 function DashboardContent() {
   const router = useRouter();
   const theme = useTheme();
@@ -671,7 +867,6 @@ function DashboardContent() {
   const [counterOfferApps, setCounterOfferApps] = useState<LoanApplicationDetail[]>([]);
   const [amendmentApps, setAmendmentApps] = useState<LoanApplicationDetail[]>([]);
   const [borrowerKycDone, setBorrowerKycDone] = useState<boolean | null>(null);
-  const [actionsVisible, setActionsVisible] = useState(ACTIONS_PAGE_SIZE);
 
   const resetState = useCallback(() => {
     setOverview(null);
@@ -728,8 +923,8 @@ function DashboardContent() {
     void loadAll('initial');
   }, [loadAll, borrowerContextVersion]);
 
-  const pendingActions = useMemo<Array<ActionItem & { sortAt: number }>>(() => {
-    const items: Array<ActionItem & { sortAt: number }> = [];
+  const pendingActions = useMemo<(ActionItem & { sortAt: number })[]>(() => {
+    const items: (ActionItem & { sortAt: number })[] = [];
 
     const phaseIcon = (phase: LoanJourneyPhase): keyof typeof MaterialIcons.glyphMap => {
       switch (phase) {
@@ -841,8 +1036,6 @@ function DashboardContent() {
   const headerTitle = borrowerName ? `Welcome, ${borrowerName}` : 'Dashboard';
   const headerSubtitle = 'Overview of your borrowing activity.';
 
-  const visibleActions = pendingActions.slice(0, actionsVisible);
-
   return (
     <PageScreen
       title={headerTitle}
@@ -855,29 +1048,10 @@ function DashboardContent() {
         <>
           {/* Action needed — top of dashboard for fastest access */}
           {pendingActions.length > 0 ? (
-            <ActionsSection count={pendingActions.length}>
-              {visibleActions.map((action) => (
-                <ActionRow
-                  key={action.id}
-                  action={action}
-                  onPress={() => router.push(action.href)}
-                />
-              ))}
-              {pendingActions.length > actionsVisible ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setActionsVisible((v) => v + ACTIONS_PAGE_SIZE)}
-                  hitSlop={6}
-                  style={({ pressed }) => [
-                    styles.showMoreLink,
-                    { opacity: pressed ? 0.6 : 1 },
-                  ]}>
-                  <ThemedText type="smallBold" themeColor="textSecondary" style={styles.showMoreText}>
-                    Show {pendingActions.length - actionsVisible} more
-                  </ThemedText>
-                </Pressable>
-              ) : null}
-            </ActionsSection>
+            <ActionNeededAlert
+              actions={pendingActions}
+              onPress={(action) => router.push(action.href)}
+            />
           ) : null}
 
           {/* KPI Summary */}
@@ -1161,22 +1335,43 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  /* Action list */
-  actionsSection: {
+  /* Action needed alert card */
+  alertCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two + 2,
+    paddingBottom: Spacing.two + 2,
     gap: Spacing.two,
   },
-  actionsHeader: {
+  alertHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.one + 2,
-    paddingHorizontal: Spacing.one,
+    gap: Spacing.two,
   },
-  actionsHeaderTitle: {
-    fontSize: 13,
-    letterSpacing: 0.3,
+  pulseWrap: {
+    width: 10,
+    height: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  alertHeaderTitle: {
+    fontSize: 12,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
-  actionsCountBadge: {
+  alertCount: {
     minWidth: 20,
     height: 18,
     borderRadius: 999,
@@ -1185,48 +1380,45 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 'auto',
   },
-  actionList: {
-    gap: Spacing.one + 2,
+  alertBody: {
+    width: '100%',
   },
-  actionRow: {
+  actionContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.two + 2,
-    minHeight: 56,
+    gap: Spacing.two + 2,
+    paddingVertical: Spacing.one,
   },
-  actionIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+  actionContentIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionRowBody: {
+  actionContentBody: {
     flex: 1,
     minWidth: 0,
+    gap: 2,
   },
-  actionRowTitle: {
-    fontSize: 13,
+  actionContentTitle: {
+    fontSize: 14,
     lineHeight: 18,
   },
-  actionRowDescription: {
+  actionContentDesc: {
     fontSize: 12,
     lineHeight: 16,
-    marginTop: 1,
   },
-  showMoreLink: {
+  alertDots: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: Spacing.one + 2,
+    gap: 5,
+    marginTop: 2,
   },
-  showMoreText: {
-    fontSize: 12,
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
+  alertDot: {
+    height: 5,
+    borderRadius: 3,
   },
 
   /* Section header */

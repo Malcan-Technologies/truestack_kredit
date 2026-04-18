@@ -616,6 +616,140 @@ const chipWidth = Math.max(132, Math.floor((width - 80) / 2));
 
 ---
 
+## 20) Channel pill (Online / Physical)
+
+Loans and applications can originate from two channels: a self-serve **Online** flow or an in-branch **Physical** flow. The borrower needs to recognise that distinction at a glance — both because the surfacing differs (e.g. PHYSICAL drafts are read-only on mobile) and because it sets expectations for who owns the next step.
+
+Use the shared component `ChannelPill` in `src/components/channel-pill.tsx` everywhere a channel needs to be communicated. Do **not** invent new icon pairs.
+
+### Iconography & label (locked)
+
+| Channel | Icon (`MaterialIcons`) | Label |
+|---|---|---|
+| `ONLINE`   | `computer`  | Online   |
+| `PHYSICAL` | `apartment` | Physical |
+
+These were standardised after the loans tab, loans detail, and applications detail each shipped with **different** icon pairs (`apartment`/`computer`, `storefront`/`language`, `store`/`wifi`) — confusing for borrowers who cross those screens. Treat the pair as part of the brand vocabulary.
+
+### Sizes
+
+- `size="default"` (rounded 999, 14pt icon) — **detail-screen header badges** alongside the `StatusBadge`.
+- `size="compact"` (rounded 8, 12pt icon, 11pt label) — **list rows / dense card headers** (e.g. `(tabs)/loans.tsx` cards).
+
+### Placement
+
+- **Lists:** in the top-right of each row's header (paired with the status pill on the left).
+- **Detail screens:** inside the `headerBadges` row directly under the hero amount.
+
+### Colors
+
+`Online` uses the theme's `info` accent (light tint + matching foreground). `Physical` uses a neutral `text` + `backgroundSelected` to read as "happens off-screen". Don't override.
+
+### Reference implementations
+
+- Loans tab cards: `src/app/(app)/(tabs)/loans.tsx`
+- Loan detail header: `src/app/(app)/loans/[loanId]/index.tsx` (`LoanHeader`)
+- Application detail header: `src/app/(app)/applications/[id].tsx`
+
+---
+
+## 21) Detail-screen anatomy & cross-linking
+
+**Loan** and **application** detail screens share one anatomy so the borrower learns it once. Future entity-detail screens (e.g. transaction detail) MUST follow this template.
+
+### Anatomy (top → bottom)
+
+1. **Header block** (`headerWrap`):
+   - `subtitle` hero — usually the headline amount (`formatRm(...)`).
+   - One-line context — `borrower · product` (or equivalent).
+   - **Badges row** (`headerBadges`) — `StatusBadge` first, then `ChannelPill`, then small attribute chips (e.g. schedule type).
+   - **Cross-link row** (optional, see below) — minimal one-line link to the related entity.
+2. **Primary section card** — the most actionable summary (loan: schedule + repayment progress; application: loan summary).
+3. **Borrower** card.
+4. **Product / details** card (collapsed by default if not actionable).
+5. Domain-specific cards (Documents, Pending offer, …).
+6. **`ActivityTimelineCard`** — collapsed by default (§22).
+7. Sticky / inline CTA (`Continue`, `Make payment`, …).
+
+### Cross-link between application ↔ loan
+
+When an application has been approved and a loan record exists, **always** surface a minimal navigation affordance — and vice versa. This mirrors the web borrower portal's "View loan" / "View application" buttons but is condensed to a single row to fit mobile.
+
+```tsx
+{linkedLoanId ? (
+  <Pressable
+    accessibilityRole="link"
+    accessibilityLabel="View linked loan"
+    onPress={() => router.push(`/loans/${linkedLoanId}` as Href)}
+    style={styles.crossLink}>
+    <ThemedText type="small" themeColor="textSecondary">
+      Loan created
+    </ThemedText>
+    <View style={styles.crossLinkAction}>
+      <ThemedText type="linkPrimary">View loan</ThemedText>
+      <MaterialIcons name="arrow-forward" size={13} color={theme.primary} />
+    </View>
+  </Pressable>
+) : null}
+```
+
+Rules:
+
+- Place the cross-link **inside the header block**, immediately under the badges row. Never in a button stack — the relationship is informational, not a primary CTA.
+- Left side: a quiet contextual label (`Loan created`, `From application`).
+- Right side: `linkPrimary` text + `arrow-forward` (13pt). No filled button.
+- Only render when the linked entity actually exists (`loan?.id` / `app?.loan?.id`). Don't show a disabled state.
+- Use `accessibilityRole="link"` + a descriptive `accessibilityLabel`.
+- Routes: applications live at `/applications/[id]`, loans at `/loans/[loanId]`. Keep these stable across screens — list rows, header links, and tab pushes all use the same plural prefix.
+
+### Reference implementations
+
+- `src/app/(app)/applications/[id].tsx` — `Loan created → View loan`.
+- `src/app/(app)/loans/[loanId]/index.tsx` — `From application → View` (in `LoanHeader`).
+
+---
+
+## 22) Activity timeline (`ActivityTimelineCard`)
+
+Detail screens that surface audit history (applications, loans, payments…) MUST use the shared `ActivityTimelineCard` in `src/components/activity-timeline.tsx`. It renders a **dot-and-line** timeline inside a collapsible `SectionCard`, with each row showing:
+
+- Headline label (e.g. "Application submitted").
+- Actor + relative time (`by You · 5 min ago`).
+- Optional inset detail block (status diff, uploaded filename, counter-offer terms…).
+- Absolute date footer.
+
+### Why dot-line over icon-circle
+
+We tried both. The icon-circle variant (32pt round badge per row) made the timeline visually compete with the surrounding `SectionCard`s and felt heavier than the events warranted (audit history is supplemental, not the primary content). The thin vertical guide line + small dot keeps the rhythm scannable and lets the section sit quietly at the bottom of the screen.
+
+### API
+
+```ts
+interface ActivityTimelineEvent {
+  id: string;
+  label: string;        // "Application submitted"
+  timestamp: string;    // ISO
+  actor?: string | null;
+  detail?: ReactNode;   // pre-rendered inset (status diff, etc.)
+}
+```
+
+Domain → timeline conversion lives in `src/lib/{domain}/timeline.ts` (e.g. `applicationTimelineLabel`, `borrowerTimelineActionInfo`). Screens map raw audit events to `ActivityTimelineEvent` and pass them to `ActivityTimelineCard`. The card is dumb about domain shapes.
+
+### Rules
+
+- **Always collapsed by default.** Audit history is supplemental.
+- **Don't put primary actions in timeline rows.** Detail blocks are read-only.
+- **Use the shared converter helpers** (`borrowerTimelineActionInfo` / `applicationTimelineLabel`) — never inline action-label maps in screens.
+- **Pagination is the timeline's job.** Pass `hasMore` + `loadingMore` + `onLoadMore` and the card renders the "Load more" pressable.
+
+### Reference implementations
+
+- Loan detail: `src/app/(app)/loans/[loanId]/index.tsx` (`loanEventToTimelineEvent`).
+- Application detail: `src/app/(app)/applications/[id].tsx` (`applicationEventToTimelineEvent`).
+
+---
+
 ## Summary Checklist
 
 When building new screens, verify:
@@ -641,3 +775,7 @@ When building new screens, verify:
 - [ ] **Dynamic / long lists:** `PageScreen` `scrollableOverride` + `Animated.FlatList`; paginated fetch; PTR = page 1; `onEndReached` = next page; footer loading indicator (§17)
 - [ ] **Toasts:** non-blocking confirmations and recoverable errors use `toast(...)` from `@/lib/toast` (not `Alert.alert`); short copy; correct semantic variant; never used for destructive confirmations (§18)
 - [ ] **KPI / metric strips (3+ tiles):** use `HorizontalSnapCarousel` from `@/components/horizontal-snap-carousel` with bleed-to-edge `pagePadding`, an explicit `cardWidth` for multi-visible strips, and pagination dots — no bespoke ScrollView pagers (§19)
+- [ ] **Channel pill (Online / Physical):** use `ChannelPill` from `@/components/channel-pill` (locked icons `computer`/`apartment`); never re-implement; `compact` size in lists, default size in detail-screen badges row (§20)
+- [ ] **Detail screens** follow the shared anatomy (hero amount → context line → badges row → optional cross-link → primary card → borrower → details → domain cards → activity → CTA) (§21)
+- [ ] **Cross-link between application ↔ loan** rendered as a quiet header row (`label + linkPrimary + arrow-forward`), not a button stack — only when the linked entity exists (§21)
+- [ ] **Activity timeline** uses shared `ActivityTimelineCard` (dot-and-line) with domain → `ActivityTimelineEvent` converter helpers; collapsed by default; pagination passed via `hasMore` / `onLoadMore` (§22)

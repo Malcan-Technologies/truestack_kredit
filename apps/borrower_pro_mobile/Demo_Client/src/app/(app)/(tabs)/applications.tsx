@@ -1,5 +1,4 @@
 import type { LoanApplicationDetail } from '@kredit/borrower';
-import { LoanApplicationOfferParty, LoanApplicationOfferStatus } from '@kredit/shared';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -20,15 +19,14 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { applicationsClient } from '@/lib/api/borrower';
 import { useBorrowerAccess } from '@/lib/borrower-access';
+import { isReturnedForAmendment } from '@/lib/applications/amendment';
+import { getPendingLenderCounterOffer } from '@/lib/applications/counter-offer';
 import { formatCurrencyRM } from '@/lib/loan-application-wizard';
 
 type AppFilter = '' | 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'PENDING_REVIEW';
 
-function hasPendingLenderCounterOffer(app: LoanApplicationDetail): boolean {
-  if (app.status !== 'SUBMITTED' && app.status !== 'UNDER_REVIEW') return false;
-  return (app.offerRounds ?? []).some(
-    (o) => o.status === LoanApplicationOfferStatus.PENDING && o.fromParty === LoanApplicationOfferParty.ADMIN,
-  );
+function applicationNeedsBorrowerAction(app: LoanApplicationDetail): boolean {
+  return isReturnedForAmendment(app) || getPendingLenderCounterOffer(app) != null;
 }
 
 function applyStatusFilter(rows: LoanApplicationDetail[], filter: AppFilter): LoanApplicationDetail[] {
@@ -84,7 +82,26 @@ function FilterChip({ label, active, onPress, count }: { label: string; active: 
 
 function AppRow({ app, onPress }: { app: LoanApplicationDetail; onPress: () => void }) {
   const theme = useTheme();
-  const hasOffer = hasPendingLenderCounterOffer(app);
+  const hasOffer = getPendingLenderCounterOffer(app) != null;
+  const isAmendment = isReturnedForAmendment(app);
+  const needsAction = applicationNeedsBorrowerAction(app);
+
+  const statusBadge =
+    hasOffer ? (
+      <View style={[styles.statusPill, { backgroundColor: theme.warning + '22', borderColor: theme.warning + '44' }]}>
+        <ThemedText type="small" style={{ color: theme.warning, fontWeight: '600', fontSize: 11 }}>
+          COUNTER OFFER
+        </ThemedText>
+      </View>
+    ) : isAmendment ? (
+      <View style={[styles.statusPill, { backgroundColor: theme.warning + '22', borderColor: theme.warning + '44' }]}>
+        <ThemedText type="small" style={{ color: theme.warning, fontWeight: '600', fontSize: 11 }}>
+          AMENDMENT
+        </ThemedText>
+      </View>
+    ) : (
+      <StatusBadgePill status={app.status} />
+    );
 
   return (
     <Pressable
@@ -93,7 +110,7 @@ function AppRow({ app, onPress }: { app: LoanApplicationDetail; onPress: () => v
         styles.appRow,
         {
           backgroundColor: theme.backgroundElement,
-          borderColor: theme.border,
+          borderColor: needsAction ? `${theme.warning}40` : theme.border,
           opacity: pressed ? 0.85 : 1,
         },
       ]}>
@@ -106,16 +123,7 @@ function AppRow({ app, onPress }: { app: LoanApplicationDetail; onPress: () => v
             {formatCurrencyRM(app.amount)} · {app.term} months
           </ThemedText>
         </View>
-        <View style={styles.appRowRight}>
-          <StatusBadgePill status={app.status} />
-          {hasOffer && (
-            <View style={[styles.statusPill, { backgroundColor: theme.warning + '22', borderColor: theme.warning + '44' }]}>
-              <ThemedText type="small" style={{ color: theme.warning, fontWeight: '600', fontSize: 11 }}>
-                COUNTER OFFER
-              </ThemedText>
-            </View>
-          )}
-        </View>
+        <View style={styles.appRowRight}>{statusBadge}</View>
       </View>
       <ThemedText type="small" themeColor="textSecondary" style={{ marginTop: Spacing.one }}>
         {new Intl.DateTimeFormat('en-MY', { dateStyle: 'medium', timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(app.createdAt))}
@@ -152,7 +160,14 @@ function ApplicationsContent() {
     void load();
   }, [load, borrowerContextVersion]);
 
-  const counterOfferCount = useMemo(() => rows.filter(hasPendingLenderCounterOffer).length, [rows]);
+  const counterOfferCount = useMemo(
+    () => rows.filter((a) => getPendingLenderCounterOffer(a) != null).length,
+    [rows],
+  );
+  const amendmentCount = useMemo(
+    () => rows.filter((a) => isReturnedForAmendment(a)).length,
+    [rows],
+  );
   const pendingReviewCount = useMemo(
     () => rows.filter((a) => a.status === 'SUBMITTED' || a.status === 'UNDER_REVIEW').length,
     [rows],
@@ -173,6 +188,17 @@ function ApplicationsContent() {
               {counterOfferCount} counter-offer{counterOfferCount !== 1 ? 's' : ''}
             </ThemedText>
             {' '}waiting for your response
+          </ThemedText>
+        </View>
+      )}
+      {amendmentCount > 0 && (
+        <View style={[styles.alertBanner, { backgroundColor: theme.warning + '18', borderColor: theme.warning + '55' }]}>
+          <MaterialIcons name="assignment-return" size={18} color={theme.warning} />
+          <ThemedText type="small" style={{ color: theme.warning, flex: 1 }}>
+            <ThemedText type="smallBold" style={{ color: theme.warning }}>
+              {amendmentCount} application{amendmentCount !== 1 ? 's' : ''}
+            </ThemedText>
+            {' '}returned for amendments
           </ThemedText>
         </View>
       )}
@@ -232,7 +258,7 @@ function ApplicationsContent() {
           data={filtered}
           keyExtractor={(item: LoanApplicationDetail) => item.id}
           renderItem={({ item }: { item: LoanApplicationDetail }) => (
-            <AppRow app={item} onPress={() => router.push(`/application/${item.id}` as never)} />
+            <AppRow app={item} onPress={() => router.push(`/applications/${item.id}` as never)} />
           )}
           ItemSeparatorComponent={() => <View style={{ height: Spacing.two }} />}
           ListHeaderComponent={ListHeader}

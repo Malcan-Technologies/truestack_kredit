@@ -15,3 +15,19 @@ export function isReturnedForAmendment(a: LoanApplicationDetail): boolean {
   if (a.returnedForAmendment === true) return true;
   return Boolean(a.notes?.includes(RETURNED_FOR_AMENDMENTS_NOTE_MARKER));
 }
+
+/**
+ * Last "Returned for amendments: …" block from application notes (borrower-visible lender message).
+ * Mirrors `extractLastAmendmentMessageFromNotes` in `borrower-application-detail.tsx` (web).
+ */
+export function extractLastAmendmentMessageFromNotes(
+  fullNotes: string | null | undefined,
+): string | null {
+  const raw = fullNotes?.trim();
+  if (!raw) return null;
+  const marker = RETURNED_FOR_AMENDMENTS_NOTE_MARKER;
+  const idx = raw.lastIndexOf(marker);
+  if (idx === -1) return null;
+  const after = raw.slice(idx + marker.length).trim();
+  return after || null;
+}

@@ -4,7 +4,7 @@
 
 import type { MaterialIcons } from '@expo/vector-icons';
 
-import type { BorrowerStatusTone } from '@/lib/loans/status-label';
+import type { StatusBadgeTone } from '@/components/status-badge';
 
 type MaterialIconName = keyof typeof MaterialIcons.glyphMap;
 
@@ -40,19 +40,33 @@ export interface SchedulePayload {
   };
 }
 
-export function repaymentStatusTone(status: string, isOverdue: boolean): BorrowerStatusTone {
-  if (isOverdue && status !== 'PAID') return 'error';
-  switch (status) {
+export function repaymentStatusTone(status: string, isOverdue: boolean): StatusBadgeTone {
+  const upper = status.toUpperCase();
+
+  if (upper === 'CANCELLED') return 'neutral';
+  if (isOverdue && upper !== 'PAID') return 'error';
+
+  switch (upper) {
     case 'PAID':
       return 'success';
     case 'OVERDUE':
       return 'error';
     case 'PARTIAL':
       return 'warning';
-    case 'CANCELLED':
+    case 'PENDING':
       return 'neutral';
-    default:
-      return 'neutral';
+    default: {
+      if (
+        upper.includes('ARREARS') ||
+        upper.includes('DEFAULT') ||
+        upper.includes('DELINQUENT') ||
+        upper.includes('LATE') ||
+        upper.includes('MISSED')
+      ) {
+        return 'error';
+      }
+      return 'warning';
+    }
   }
 }
 
@@ -65,9 +79,7 @@ export function repaymentStatusLabel(status: string, isOverdue: boolean): string
 }
 
 /**
- * MaterialIcons name to render alongside the status label inside a neutral
- * `MetaBadge`. Icons stay glyph-only (no semantic colour) — colour is uniform
- * `textSecondary`. Picks intuitive glyphs for at-a-glance recognition.
+ * MaterialIcons name for the repayment row badge. Colour comes from `MetaBadge` `tone`.
  */
 export function repaymentStatusIcon(
   status: string,

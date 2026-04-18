@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { PageHeaderToolbarButton } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
 import { ThemedText } from '@/components/themed-text';
+import { VerifiedStatusRow } from '@/components/verified-status-row';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { signingClient } from '@/lib/api/borrower';
@@ -117,12 +118,6 @@ export function DigitalSigningCertCard() {
   } else if (phase === 'valid' && cert) {
     body = (
       <View style={styles.compactBlock}>
-        <View style={styles.inlineRow}>
-          <MaterialIcons name="check-circle" size={18} color={theme.success} />
-          <ThemedText type="smallBold" style={{ color: theme.success }}>
-            Active
-          </ThemedText>
-        </View>
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
           Serial {serialShort(cert.certSerialNo)}
         </ThemedText>
@@ -165,7 +160,10 @@ export function DigitalSigningCertCard() {
   }
 
   return (
-    <SectionCard title="Signing certificate" description="PKI certificate for loan agreement signing.">
+    <SectionCard
+      title="Signing certificate"
+      description="PKI certificate for loan agreement signing."
+      action={phase === 'valid' && cert ? <VerifiedStatusRow label="Active" /> : undefined}>
       {body}
     </SectionCard>
   );

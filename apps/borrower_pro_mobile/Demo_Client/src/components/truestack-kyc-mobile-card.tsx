@@ -8,8 +8,8 @@ import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { SectionCard } from '@/components/section-card';
-import { StatusBadge } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
+import { InlineStatusRow } from '@/components/verified-status-row';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { getCorporateDirectorsForKyc, pickLatestKycSession } from '@/lib/borrower-verification';
@@ -182,7 +182,7 @@ function DirectorSessionCard({
             </ThemedText>
           ) : null}
         </View>
-        <StatusBadge tone={state.tone} label={state.label} />
+        <InlineStatusRow tone={state.tone} label={state.label} />
       </View>
 
       <ThemedText type="small" themeColor="textSecondary">
@@ -276,19 +276,19 @@ export function TruestackKycMobileCard({
   const state = describeSessionState(individualSession);
 
   return (
-    <SectionCard title="KYC" description="Identity verification for your borrower profile.">
-      <View style={styles.rowBetween}>
-        <View style={styles.statusCopy}>
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
-            {state.description}
+    <SectionCard
+      title="KYC"
+      description="Identity verification for your borrower profile."
+      action={<InlineStatusRow tone={state.tone} label={state.label} />}>
+      <View style={styles.compactBlock}>
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={3}>
+          {state.description}
+        </ThemedText>
+        {individualSession?.updatedAt ? (
+          <ThemedText type="small" themeColor="textSecondary">
+            Updated {formatDate(individualSession.updatedAt)}
           </ThemedText>
-          {individualSession?.updatedAt ? (
-            <ThemedText type="small" themeColor="textSecondary">
-              Updated {formatDate(individualSession.updatedAt)}
-            </ThemedText>
-          ) : null}
-        </View>
-        <StatusBadge tone={state.tone} label={state.label} />
+        ) : null}
       </View>
 
       <View style={styles.actionStack}>
@@ -323,18 +323,17 @@ const styles = StyleSheet.create({
   stack: {
     gap: Spacing.two,
   },
+  compactBlock: {
+    gap: Spacing.two,
+  },
   stackTight: {
     gap: Spacing.one,
     flex: 1,
-  },
-  statusCopy: {
-    flex: 1,
     minWidth: 0,
-    gap: 4,
   },
   rowBetween: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: Spacing.two,
     flexWrap: 'wrap',

@@ -173,7 +173,9 @@ The primary content container is `SectionCard` — a bordered, rounded card.
 - **16px internal padding** (`Spacing.three`).
 - **16px gap** between cards in a page.
 - **Card titles** use `smallBold` (14px/700) — not heading sizes. This keeps density appropriate for mobile.
-- **Card actions** (edit, expand) sit at the **top-right** of the card header.
+- **Card actions** sit at the **top-right** of the card header via the **`action`** prop:
+  - **Outline / toolbar controls** — e.g. **Edit** on "My account", **Retry** on error cards (`PageHeaderToolbarButton`).
+  - **Section status summaries** — e.g. **`InlineStatusRow`** / **`VerifiedStatusRow`** (`@/components/verified-status-row`) for Account security (email verified, passkeys registered, 2FA enabled) and Profile (KYC state, signing certificate **Active**). Same corner as edit buttons; body content stays description + CTAs only. See **§8** and **Brand §5** (`InlineStatusRow` tone → icon mapping).
 - **Collapsible cards** should use the chevron affordance (expand-more/expand-less) to indicate interactivity.
 
 ### Lists Within Cards
@@ -239,10 +241,16 @@ Use semantic colors consistently for loan/application status:
 | Draft / Inactive | `textSecondary` | Gray text |
 | Informational | `info` | Blue badge |
 
+### Section headers vs. list/detail chips
+
+- **Account / Profile section cards** (security, KYC, signing certificate): put the **primary state** in **`SectionCard` `action`** using **`InlineStatusRow`** or **`VerifiedStatusRow`** — **icon (18px) + `smallBold` label**, no pill background. This matches the signing-certificate **Active** treatment and keeps the header aligned with **Edit** / outline actions on other cards. Reference: `src/components/verified-status-row.tsx`, Brand **§5** (tone → icon table).
+- **Loan/application list rows and detail hero rows** continue to use **`MetaBadge`** / **`StatusBadge`** / **`ChannelPill`** per Brand **§5** — those contexts are metadata strips or dense chips, not settings-style section headers.
+
 **Rules:**
 
-- **Status badges** should be small (12–14px, `small` variant), with 10% opacity background + solid text (e.g. `{ backgroundColor: success + '/10', color: success }`).
-- **Do not rely on color alone.** Always include a text label alongside the color indicator (accessibility).
+- **Pill-style status** (lists, timelines, repayment rows): small (12–14px, `small` variant), often with 10% opacity background + solid text (e.g. `{ backgroundColor: success + '/10', color: success }`) where `MetaBadge` / tonal pills apply.
+- **Section-header status** (`InlineStatusRow`): no pill; semantic colour on **icon + label** only.
+- **Do not rely on color alone.** Always include a text label alongside the colour indicator (accessibility).
 
 ---
 
@@ -345,7 +353,7 @@ Use semantic colors consistently for loan/application status:
 │  ┌────────────────────────────┐  │
 │  │  SectionCard               │  │
 │  │  ┌──────────────────────┐  │  │
-│  │  │ Title        [Action]│  │  │
+│  │  │ Title    [Status/Edit]│  │  │  ← `SectionCard` `action`: InlineStatusRow or outline button
 │  │  │ Description          │  │  │
 │  │  ├──────────────────────┤  │  │
 │  │  │ Content              │  │  │
@@ -765,7 +773,7 @@ When building new screens, verify:
 - [ ] Form screens use `stickyFooter` for the primary Save/Submit button
 - [ ] Contextual edit buttons use the inline row pattern (icon + label + chevron)
 - [ ] Cards use `SectionCard` with consistent spacing
-- [ ] Status indicators use semantic color tokens
+- [ ] Status indicators use semantic color tokens; **Account / Profile section headers** use **`InlineStatusRow`** in **`SectionCard` `action`** (not pills) where applicable (§8, Brand §5)
 - [ ] Loading state shown during data fetch
 - [ ] Empty state with helpful CTA
 - [ ] Touch targets ≥44pt

@@ -1055,7 +1055,7 @@ function DashboardContent() {
           ) : null}
 
           {/* KPI Summary */}
-          <HorizontalSnapCarousel initialIndex={1} gap={KPI_GAP}>
+          <HorizontalSnapCarousel showDots={false} initialIndex={1} gap={KPI_GAP}>
             <KpiCard
               label="Active Loans"
               icon="account-balance-wallet"

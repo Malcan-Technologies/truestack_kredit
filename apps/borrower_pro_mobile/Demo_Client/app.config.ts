@@ -37,6 +37,8 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     scheme: 'democlient',
     userInterfaceStyle: 'automatic',
     ios: {
+      /** Required for `expo prebuild` / `expo run:ios` — cannot be inferred when using dynamic `app.config.ts`. */
+      bundleIdentifier: 'com.anonymous.Demo-Client',
       icon: './assets/expo.icon',
       ...(includeAssociatedDomain
         ? {
@@ -45,6 +47,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
         : {}),
     },
     android: {
+      package: 'com.anonymous.democlient',
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: './assets/images/android-icon-foreground.png',

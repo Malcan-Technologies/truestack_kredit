@@ -14,14 +14,15 @@
  * text/icon). Differentiation comes from the icon + label, not from colour.
  *
  * Tonal status communication still has its place (e.g., individual repayment
- * row badges, profile-card pills) — those keep using `StatusBadge`. Use
- * `MetaBadge` only for the title-row metadata badges.
+ * row badges with icon + label, profile-card pills). Pass `tone` on `MetaBadge`
+ * for those; omit it for title-row neutral chips.
  */
 
 import { MaterialIcons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { statusBadgeTonalColors, type StatusBadgeTone } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -30,23 +31,29 @@ interface MetaBadgeProps {
   /** Optional leading icon — sized to match the chip's text height. */
   icon?: keyof typeof MaterialIcons.glyphMap;
   label: string;
+  /** Semantic colours for icon + label + border. Omit for neutral title-row chips. */
+  tone?: StatusBadgeTone;
 }
 
-export function MetaBadge({ icon, label }: MetaBadgeProps) {
+export function MetaBadge({ icon, label, tone }: MetaBadgeProps) {
   const theme = useTheme();
+  const tonal = tone != null ? statusBadgeTonalColors(theme, tone) : null;
   return (
     <View
       style={[
         styles.badge,
         {
-          backgroundColor: theme.backgroundSelected,
-          borderColor: theme.border,
+          backgroundColor: tonal?.backgroundColor ?? theme.backgroundSelected,
+          borderColor: tonal?.borderColor ?? theme.border,
         },
       ]}>
       {icon ? (
-        <MaterialIcons name={icon} size={14} color={theme.textSecondary} />
+        <MaterialIcons name={icon} size={14} color={tonal?.foregroundColor ?? theme.textSecondary} />
       ) : null}
-      <ThemedText type="small" themeColor="textSecondary">
+      <ThemedText
+        type={tonal ? 'smallBold' : 'small'}
+        themeColor={tonal ? undefined : 'textSecondary'}
+        style={tonal ? { color: tonal.foregroundColor } : undefined}>
         {label}
       </ThemedText>
     </View>

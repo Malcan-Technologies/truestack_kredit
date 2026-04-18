@@ -146,13 +146,28 @@ status colour just because the field happens to be a status.**
 | Component | When to use | Visual recipe |
 |-----------|-------------|---------------|
 | **`MetaBadge`** (`@/components/meta-badge`) | **Default** for any chip that sits below a screen title or inside a list/detail row to label a *property* — status, channel, schedule type, repayment row state, borrower type, etc. Uniform neutral look so multiple chips read as one row of metadata. | `backgroundColor: theme.backgroundSelected`, `borderColor: theme.border`, text + optional 14pt `MaterialIcons` in `theme.textSecondary`, pill-shaped (`borderRadius: 999`, `paddingHorizontal: Spacing.two`, `paddingVertical: 4`). Differentiate badges by **icon + label**, not colour. |
-| **`StatusBadge`** (`@/components/status-badge`) | Rare. Use **only** when the badge stands alone (no neighbouring chips) and tonal colour is itself the message — e.g. a single "Verified" pill on a profile card, or a tonal "Approved" tag in a dense activity log. | Tonal `borderColor` + `theme.backgroundSelected` fill (or light-success tint). |
+| **`StatusBadge`** (`@/components/status-badge`) | Rare **filled pill**. Use when a compact tonal chip is appropriate and you are **not** using the section-header pattern below — e.g. a single "Approved" tag in a dense activity log, or legacy screens not yet migrated. Prefer **`InlineStatusRow`** for account/profile **section card headers** (see below). | Tonal `borderColor` + `theme.backgroundSelected` fill (or light-success tint). |
 | **`ChannelPill`** (`@/components/channel-pill`) | Compact list rows where a coloured Online/Physical pill is a meaningful at-a-glance signal and the row is the primary visual unit (e.g. loan list cards). Not used in title-row badges (use `MetaBadge` there). | Tonal blue for `ONLINE`, neutral surface for `PHYSICAL`, with `apartment` / `computer` icon. |
+| **`InlineStatusRow`** (`@/components/verified-status-row`) | **Section card header status** — pass as `SectionCard` **`action`** (top-right of the card header, aligned with title/description). Use for **account security** (email / passkeys / authenticator), **profile** (KYC, signing certificate **Active**), and anywhere the signing-certificate pattern applies: **icon + `smallBold` label**, no pill fill. **`VerifiedStatusRow`** is sugar for `tone="success"` (e.g. "Verified", "Active", "Enabled"). | `MaterialIcons` **18px** + label colour from semantic token; row gap `Spacing.two`. See tone → icon mapping below. |
+
+**Tone → icon / colour (`InlineStatusRow`)** — mirrors `StatusBadgeTone` from `@/components/status-badge`:
+
+| Tone | Icon (`MaterialIcons`) | Label colour |
+|------|------------------------|--------------|
+| `success` | `check-circle` | `theme.success` |
+| `warning` | `warning` | `theme.warning` |
+| `error` | `error` | `theme.error` |
+| `primary` | `info` | `theme.primary` |
+| `neutral` | `schedule` | `theme.textSecondary` |
+
+**Reference implementations:** `src/app/(app)/account.tsx` (security sections), `src/components/truestack-kyc-mobile-card.tsx`, `src/components/digital-signing-cert-card.tsx` (profile).
 
 **Rule of thumb**: title-row badges (status / channel / Jadual / etc.), and
 multi-chip metadata strips inside cards (e.g. each repayment row's status),
-**must** use `MetaBadge`. Only fall back to `StatusBadge` when a single
-coloured pill needs to communicate state by itself.
+**must** use `MetaBadge`. Use **`InlineStatusRow`** in **`SectionCard` `action`** for
+high-level verification/setup state on **Account** and **Profile** (and similar
+settings-style cards). Only fall back to **`StatusBadge`** when a filled pill is
+explicitly required for density or legacy layout.
 
 ---
 

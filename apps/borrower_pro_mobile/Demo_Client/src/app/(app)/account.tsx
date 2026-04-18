@@ -6,8 +6,8 @@ import QRCode from 'react-native-qrcode-svg';
 import { BottomSheetModal } from '@/components/bottom-sheet-modal';
 import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
-import { StatusBadge } from '@/components/status-badge';
 import { ThemedText } from '@/components/themed-text';
+import { InlineStatusRow, VerifiedStatusRow } from '@/components/verified-status-row';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
@@ -568,10 +568,11 @@ function AccountSecuritySection() {
             title="Email"
             description={user?.email ?? '—'}
             action={
-              <StatusBadge
-                label={user?.emailVerified ? 'Verified' : 'Verification required'}
-                tone={user?.emailVerified ? 'success' : 'warning'}
-              />
+              user?.emailVerified ? (
+                <VerifiedStatusRow label="Verified" />
+              ) : (
+                <InlineStatusRow label="Verification required" tone="warning" />
+              )
             }>
             <View style={styles.stack}>
               {!user?.emailVerified ? (
@@ -610,10 +611,13 @@ function AccountSecuritySection() {
             title="Passkeys"
             description="Sign in with a device passkey instead of typing your password."
             action={
-              <StatusBadge
-                label={passkeys.length > 0 ? `${passkeys.length} registered` : 'Not set up'}
-                tone={passkeys.length > 0 ? 'success' : 'neutral'}
-              />
+              passkeys.length > 0 ? (
+                <VerifiedStatusRow
+                  label={passkeys.length === 1 ? '1 registered' : `${passkeys.length} registered`}
+                />
+              ) : (
+                <InlineStatusRow label="Not set up" tone="neutral" />
+              )
             }>
             <View style={styles.stack}>
               <FormInput
@@ -689,10 +693,11 @@ function AccountSecuritySection() {
             title="Authenticator app"
             description="Trusted devices skip the extra prompt for 7 days, matching borrower web."
             action={
-              <StatusBadge
-                label={user?.twoFactorEnabled ? 'Enabled' : 'Not set up'}
-                tone={user?.twoFactorEnabled ? 'success' : 'neutral'}
-              />
+              user?.twoFactorEnabled ? (
+                <VerifiedStatusRow label="Enabled" />
+              ) : (
+                <InlineStatusRow label="Not set up" tone="neutral" />
+              )
             }>
             <View style={styles.stack}>
               {/* <ThemedText type="small" themeColor="textSecondary">

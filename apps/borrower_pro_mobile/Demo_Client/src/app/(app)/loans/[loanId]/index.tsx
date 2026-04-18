@@ -51,6 +51,7 @@ import {
 import {
   repaymentStatusIcon,
   repaymentStatusLabel,
+  repaymentStatusTone,
   type RepaymentRow,
   type SchedulePayload,
 } from '@/lib/loans/repayment';
@@ -513,6 +514,7 @@ function ProgressCard({
       </View>
 
       <HorizontalSnapCarousel
+        showDots={false}
         pagePadding={Spacing.three}
         gap={Spacing.two}
         cardWidth={metricCardWidth}>
@@ -975,6 +977,7 @@ function RepaymentItem({ index, row }: { index: number; row: RepaymentRow }) {
   const balance = isCancelled ? 0 : Math.max(0, totalDue - paid);
   const label = repaymentStatusLabel(row.status, isOverdue);
   const statusIcon = repaymentStatusIcon(row.status, isOverdue);
+  const statusTone = repaymentStatusTone(row.status, isOverdue);
   const transactions = useMemo(
     () => aggregatePaymentTransactions(row.allocations ?? []),
     [row.allocations],
@@ -997,7 +1000,7 @@ function RepaymentItem({ index, row }: { index: number; row: RepaymentRow }) {
             Due {formatDate(row.dueDate)}
           </ThemedText>
         </View>
-        <MetaBadge icon={statusIcon} label={label} />
+        <MetaBadge icon={statusIcon} label={label} tone={statusTone} />
       </View>
       <View style={styles.repayGrid}>
         <RepayCell label="Principal" value={formatRm(principalDue)} />

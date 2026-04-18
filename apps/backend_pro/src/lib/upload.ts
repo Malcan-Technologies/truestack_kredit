@@ -276,7 +276,12 @@ export async function parseFileUpload(req: Request): Promise<{
       return;
     }
 
-    const boundary = contentType.split('boundary=')[1];
+    // Some clients (e.g. Android OkHttp) quote the boundary parameter; strip
+    // optional surrounding quotes and any trailing parameters.
+    const boundary = (contentType.split('boundary=')[1] || '')
+      .split(';')[0]
+      .trim()
+      .replace(/^"|"$/g, '');
     if (!boundary) {
       reject(new BadRequestError('Missing boundary in Content-Type'));
       return;
@@ -308,12 +313,16 @@ export async function parseFileUpload(req: Request): Promise<{
         let mimeType = '';
         
         for (const part of parts) {
-          if (part.includes('Content-Disposition')) {
+          // RFC 7230: HTTP header field names are case-insensitive. React Native's
+          // FormData polyfill emits `content-disposition` in lowercase, while
+          // browsers typically send `Content-Disposition`. Match both.
+          if (/content-disposition/i.test(part)) {
             // Check field name
-            const nameMatch = part.match(/name="([^"]+)"/);
+            const nameMatch = part.match(/name="([^"]+)"/i);
             const fieldName = nameMatch ? nameMatch[1] : '';
-            
-            if (!part.includes('filename=')) {
+            const hasFilename = /filename="/i.test(part);
+
+            if (!hasFilename) {
               // This is a regular field, extract its value
               const headerEnd = part.indexOf('\r\n\r\n');
               if (headerEnd !== -1) {
@@ -323,10 +332,10 @@ export async function parseFileUpload(req: Request): Promise<{
                 }
               }
             }
-            
-            if (part.includes('filename=')) {
+
+            if (hasFilename) {
               // Extract filename
-              const filenameMatch = part.match(/filename="([^"]+)"/);
+              const filenameMatch = part.match(/filename="([^"]+)"/i);
               originalName = filenameMatch ? filenameMatch[1] : 'document';
               
               // Extract content type
@@ -368,7 +377,7 @@ export async function parseFileUpload(req: Request): Promise<{
         }
         
         resolve({ buffer: fileBuffer, originalName, mimeType, fields });
-      } catch (error) {
+      } catch {
         reject(new BadRequestError('Failed to parse file upload'));
       }
     });
@@ -392,7 +401,10 @@ export async function parseMultipartWithOptionalFile(req: Request): Promise<{
       return;
     }
 
-    const boundary = contentType.split('boundary=')[1];
+    const boundary = (contentType.split('boundary=')[1] || '')
+      .split(';')[0]
+      .trim()
+      .replace(/^"|"$/g, '');
     if (!boundary) {
       reject(new BadRequestError('Missing boundary in Content-Type'));
       return;
@@ -423,49 +435,53 @@ export async function parseMultipartWithOptionalFile(req: Request): Promise<{
         let mimeType = '';
 
         for (const part of parts) {
-          if (part.includes('Content-Disposition')) {
-            const nameMatch = part.match(/name="([^"]+)"/);
-            const fieldName = nameMatch ? nameMatch[1] : '';
-
-            if (!part.includes('filename=')) {
-              const headerEnd = part.indexOf('\r\n\r\n');
-              if (headerEnd !== -1) {
-                const value = part.substring(headerEnd + 4).replace(/\r\n--$/, '').replace(/--\r\n$/, '').replace(/\r\n$/, '').trim();
-                if (fieldName) {
-                  fields[fieldName] = value;
-                }
-              }
-            }
-
-            if (part.includes('filename=')) {
-              const filenameMatch = part.match(/filename="([^"]+)"/);
-              originalName = filenameMatch ? filenameMatch[1] : 'document';
-
-              const contentTypeMatch = part.match(/Content-Type:\s*([^\r\n]+)/i);
-              mimeType = contentTypeMatch ? contentTypeMatch[1].trim() : 'application/octet-stream';
-
-              if (!ALLOWED_DOCUMENT_MIME_TYPES.includes(mimeType)) {
-                reject(new BadRequestError(`Invalid file type. Allowed: ${ALLOWED_DOCUMENT_MIME_TYPES.join(', ')}`));
-                return;
-              }
-
-              const ext = path.extname(originalName).toLowerCase();
-              if (!ALLOWED_DOCUMENT_EXTENSIONS.includes(ext)) {
-                reject(new BadRequestError(`Invalid file extension. Allowed: ${ALLOWED_DOCUMENT_EXTENSIONS.join(', ')}`));
-                return;
-              }
-
-              const headerEnd = part.indexOf('\r\n\r\n');
-              if (headerEnd === -1) {
-                reject(new BadRequestError('Invalid multipart format'));
-                return;
-              }
-
-              const fileContent = part.substring(headerEnd + 4);
-              const cleanContent = fileContent.replace(/\r\n--$/, '').replace(/--\r\n$/, '').replace(/\r\n$/, '');
-              fileBuffer = Buffer.from(cleanContent, 'binary');
-            }
+          // RFC 7230: HTTP header field names are case-insensitive. React Native's
+          // FormData polyfill emits `content-disposition` in lowercase, while
+          // browsers typically send `Content-Disposition`. Match both.
+          if (!/content-disposition/i.test(part)) {
+            continue;
           }
+          const nameMatch = part.match(/name="([^"]+)"/i);
+          const fieldName = nameMatch ? nameMatch[1] : '';
+          const hasFilename = /filename="/i.test(part);
+
+          if (!hasFilename) {
+            const headerEnd = part.indexOf('\r\n\r\n');
+            if (headerEnd !== -1) {
+              const value = part.substring(headerEnd + 4).replace(/\r\n--$/, '').replace(/--\r\n$/, '').replace(/\r\n$/, '').trim();
+              if (fieldName) {
+                fields[fieldName] = value;
+              }
+            }
+            continue;
+          }
+
+          const filenameMatch = part.match(/filename="([^"]+)"/i);
+          originalName = filenameMatch ? filenameMatch[1] : 'document';
+
+          const contentTypeMatch = part.match(/Content-Type:\s*([^\r\n]+)/i);
+          mimeType = contentTypeMatch ? contentTypeMatch[1].trim() : 'application/octet-stream';
+
+          if (!ALLOWED_DOCUMENT_MIME_TYPES.includes(mimeType)) {
+            reject(new BadRequestError(`Invalid file type. Allowed: ${ALLOWED_DOCUMENT_MIME_TYPES.join(', ')}`));
+            return;
+          }
+
+          const ext = path.extname(originalName).toLowerCase();
+          if (!ALLOWED_DOCUMENT_EXTENSIONS.includes(ext)) {
+            reject(new BadRequestError(`Invalid file extension. Allowed: ${ALLOWED_DOCUMENT_EXTENSIONS.join(', ')}`));
+            return;
+          }
+
+          const headerEnd = part.indexOf('\r\n\r\n');
+          if (headerEnd === -1) {
+            reject(new BadRequestError('Invalid multipart format'));
+            return;
+          }
+
+          const fileContent = part.substring(headerEnd + 4);
+          const cleanContent = fileContent.replace(/\r\n--$/, '').replace(/--\r\n$/, '').replace(/\r\n$/, '');
+          fileBuffer = Buffer.from(cleanContent, 'binary');
         }
 
         const out: { fields: Record<string, string>; file?: { buffer: Buffer; originalName: string; mimeType: string } } = {

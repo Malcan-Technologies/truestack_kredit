@@ -32,25 +32,20 @@ export default function AppTabs() {
     Platform.OS === 'ios' && iosMajor != null && iosMajor >= 26 ? 'never' : undefined;
 
   /**
-   * Native tab bar materials (especially Liquid Glass on iOS 26+) follow **UIKit's** interface style.
-   * With `app.config` `userInterfaceStyle: 'automatic'`, that can stay **light** while the app theme
-   * is **dark**, so the bar flashes or sticks light until scroll/layout updates. `experimental_userInterfaceStyle`
-   * pins the tab screen (and bar chrome) to match our resolved in-app scheme.
+   * On iOS 26+, the default `UIScrollEdgeEffect` on the **bottom** can overlap the tab bar blur
+   * (documented by react-native-screens); hiding the bottom edge effect avoids fighting the bar.
    *
-   * On iOS 26+, default `UIScrollEdgeEffect` on the **bottom** can overlap the tab bar blur (RNScreens
-   * documents this); hiding the bottom edge effect avoids fighting the bar — often visible on long,
-   * scroll-edge-heavy tabs like Home and Settings.
+   * Window-level `userInterfaceStyle` is now driven from the app's resolved theme via
+   * `Appearance.setColorScheme` in the root layout, so we no longer need a per-screen
+   * `experimental_userInterfaceStyle` override here — the Liquid Glass tab bar samples the right
+   * material from the window trait collection.
    *
    * @see https://github.com/software-mansion/react-native-screens/blob/main/src/types.tsx
    */
   const iosTabScreenNativeProps = useMemo((): NativeScreenProps | undefined => {
-    if (Platform.OS !== 'ios') {
-      return undefined;
-    }
-    const uiStyle = resolvedScheme === 'dark' ? 'dark' : 'light';
+    if (Platform.OS !== 'ios') return undefined;
     if (iosMajor != null && iosMajor >= 26) {
       return {
-        experimental_userInterfaceStyle: uiStyle,
         scrollEdgeEffects: {
           top: 'automatic',
           bottom: 'hidden',
@@ -59,8 +54,8 @@ export default function AppTabs() {
         },
       };
     }
-    return { experimental_userInterfaceStyle: uiStyle };
-  }, [resolvedScheme, iosMajor]);
+    return undefined;
+  }, [iosMajor]);
 
   const tabTriggerNative = iosTabScreenNativeProps
     ? { unstable_nativeProps: iosTabScreenNativeProps }

@@ -25,27 +25,56 @@ export function HelpTopicList({
   return (
     <SectionCard title={title} description={description}>
       <View style={styles.list}>
-        {topics.map((topic) => {
+        {topics.map((topic, index) => {
           const active = topic.slug === activeSlug;
+          const isLast = index === topics.length - 1;
 
           return (
             <Pressable
               key={topic.slug}
+              accessibilityRole="button"
+              accessibilityLabel={topic.title}
+              accessibilityState={{ selected: active }}
               disabled={active}
-              onPress={() => router.push((`/help/${topic.slug}` as Href))}
+              onPress={() => router.push(`/help/${topic.slug}` as Href)}
               style={({ pressed }) => [
                 styles.row,
                 {
-                  borderColor: active ? theme.primary : theme.border,
-                  backgroundColor: active ? theme.backgroundSelected : theme.background,
-                  opacity: active ? 1 : pressed ? 0.8 : 1,
+                  backgroundColor: active ? theme.backgroundSelected : 'transparent',
+                  opacity: !active && pressed ? 0.7 : 1,
+                },
+                !isLast && {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: theme.border,
                 },
               ]}>
+              <View
+                style={[
+                  styles.iconWrap,
+                  {
+                    backgroundColor: active
+                      ? theme.background
+                      : theme.backgroundSelected,
+                  },
+                ]}>
+                <MaterialIcons
+                  name={topic.icon}
+                  size={18}
+                  color={active ? theme.primary : theme.text}
+                />
+              </View>
               <View style={styles.copy}>
-                <ThemedText type="smallBold" style={{ color: active ? theme.primary : theme.text }}>
+                <ThemedText
+                  type="smallBold"
+                  numberOfLines={1}
+                  style={{ color: active ? theme.primary : theme.text }}>
                   {topic.title}
                 </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
+                <ThemedText
+                  type="small"
+                  themeColor="textSecondary"
+                  numberOfLines={2}
+                  style={styles.summary}>
                   {topic.summary}
                 </ThemedText>
               </View>
@@ -64,18 +93,30 @@ export function HelpTopicList({
 
 const styles = StyleSheet.create({
   list: {
-    gap: Spacing.two,
+    marginHorizontal: -Spacing.three,
+    marginVertical: -Spacing.two,
   },
   row: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: Spacing.three,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three - 2,
+  },
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   copy: {
     flex: 1,
-    gap: Spacing.one,
+    minWidth: 0,
+    gap: 2,
+  },
+  summary: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

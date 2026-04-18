@@ -194,8 +194,11 @@ interface PageScreenProps {
    * Replaces the main `Animated.ScrollView` with this scrollable (typically Reanimated `Animated.FlatList`).
    * Use for paginated / infinite lists. **`children` are ignored** when set — build the screen body inside
    * the list (`ListHeaderComponent`, `renderItem`, etc.).
+   *
+   * Typed as `ReactElement<any>` because we forward dynamic props (`onScroll`, `style`, etc.) via
+   * `cloneElement` and React 19's default `ReactElement<unknown>` would make `.props` unknown.
    */
-  scrollableOverride?: React.ReactElement;
+  scrollableOverride?: React.ReactElement<any>;
   showBackButton?: boolean;
   showBottomNav?: boolean;
   backFallbackHref?: Href;

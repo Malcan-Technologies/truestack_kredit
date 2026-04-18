@@ -1,4 +1,9 @@
-import type { BorrowerDetail, BorrowerDirector, TruestackKycSessionRow } from '@kredit/borrower';
+import type {
+  BorrowerDetail,
+  BorrowerDirector,
+  TruestackKycSessionRow,
+  TruestackKycStatusData,
+} from '@kredit/borrower';
 
 export function getCorporateDirectorsForKyc(
   directors: BorrowerDirector[] | undefined | null,
@@ -54,4 +59,41 @@ export function pickLatestKycSession<T extends Pick<TruestackKycSessionRow, 'cre
     const rightKey = right.createdAt ?? right.updatedAt ?? '';
     return rightKey.localeCompare(leftKey);
   })[0];
+}
+
+/**
+ * Mirror of `apps/borrower_pro/lib/borrower-verification.ts#isBorrowerKycComplete`.
+ * Used by loan center logic to decide whether the borrower needs to finish e-KYC before
+ * disbursement.
+ */
+export function isBorrowerKycComplete(
+  borrower: Pick<
+    BorrowerDetail,
+    | 'borrowerType'
+    | 'documentVerified'
+    | 'verificationStatus'
+    | 'trueIdentityStatus'
+    | 'trueIdentityResult'
+    | 'directors'
+  >,
+  kycStatus?: Pick<TruestackKycStatusData, 'sessions'> | null,
+): boolean {
+  const sessions = kycStatus?.sessions ?? [];
+
+  if (borrower.borrowerType === 'INDIVIDUAL') {
+    if (isIndividualIdentityLocked(borrower)) return true;
+    const latestIndividualSession = pickLatestKycSession(sessions.filter((s) => !s.directorId));
+    return isSessionApproved(latestIndividualSession);
+  }
+
+  if (borrower.verificationStatus === 'FULLY_VERIFIED') return true;
+  const kycDirectors = getCorporateDirectorsForKyc(borrower.directors);
+  if (kycDirectors.length === 0) return false;
+
+  return kycDirectors.every((director) => {
+    const latestDirectorSession = pickLatestKycSession(
+      sessions.filter((s) => s.directorId === director.id),
+    );
+    return isSessionApproved(latestDirectorSession);
+  });
 }

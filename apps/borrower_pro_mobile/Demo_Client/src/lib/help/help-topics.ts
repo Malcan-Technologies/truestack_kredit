@@ -1,3 +1,8 @@
+import type { MaterialIcons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
+
+export type HelpTopicIconName = ComponentProps<typeof MaterialIcons>['name'];
+
 export type HelpTopicSection = {
   title: string;
   paragraphs?: string[];
@@ -9,6 +14,7 @@ export type HelpTopicSummary = {
   title: string;
   summary: string;
   order: number;
+  icon: HelpTopicIconName;
 };
 
 export type HelpTopicDocument = HelpTopicSummary & {
@@ -22,6 +28,7 @@ const HELP_TOPICS: HelpTopicDocument[] = [
     summary:
       'Understand every stage from application to final discharge, including which steps are handled by the admin team and which require your action.',
     order: 1,
+    icon: 'timeline',
     sections: [
       {
         title: 'Overview',
@@ -62,6 +69,7 @@ const HELP_TOPICS: HelpTopicDocument[] = [
     summary:
       "Learn how to repay through the company's bank account, use the transfer reference, and submit your payment for review.",
     order: 2,
+    icon: 'payments',
     sections: [
       {
         title: 'How payment works',
@@ -100,6 +108,7 @@ const HELP_TOPICS: HelpTopicDocument[] = [
     summary:
       'Learn why identity verification is needed for safe lending, compliance, and issuance of your digital signing certificate.',
     order: 3,
+    icon: 'verified-user',
     sections: [
       {
         title: 'Why the portal asks you to complete e-KYC',
@@ -131,6 +140,7 @@ const HELP_TOPICS: HelpTopicDocument[] = [
     summary:
       'Learn how your personal data, e-KYC information, identity documents, and account access are protected in the portal.',
     order: 4,
+    icon: 'lock-outline',
     sections: [
       {
         title: 'What information is protected',
@@ -169,11 +179,12 @@ const HELP_TOPICS: HelpTopicDocument[] = [
 ];
 
 export function getHelpTopics(): HelpTopicSummary[] {
-  return HELP_TOPICS.map(({ slug, title, summary, order }) => ({
+  return HELP_TOPICS.map(({ slug, title, summary, order, icon }) => ({
     slug,
     title,
     summary,
     order,
+    icon,
   })).sort((a, b) => a.order - b.order);
 }
 

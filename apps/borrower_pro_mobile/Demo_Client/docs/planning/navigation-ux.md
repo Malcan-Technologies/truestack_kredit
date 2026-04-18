@@ -417,7 +417,7 @@ For future implementation:
 | **Bottom sheet** | Quick selections, confirmations, filters | Half-screen with drag handle |
 | **Full-screen modal** | Complex multi-step flows (e.g. document upload) | With close (X) button top-right |
 | **Alert dialog** | Destructive confirmations, critical errors | Native `Alert.alert()` |
-| **Toast** | Success confirmations, non-critical info | Auto-dismiss after 3–4 seconds |
+| **Toast** | Success confirmations, non-critical info, copy/save feedback | `toast(...)` from `@/lib/toast` — see §18 |
 
 **Rules:**
 
@@ -477,6 +477,145 @@ Any screen that loads **many rows from an API** (notifications, activity feeds, 
 
 ---
 
+## 18) Toast notifications (`toast` API)
+
+The mobile app provides a brand-aware toast system in `src/lib/toast` that mirrors the web app's [`sonner`](https://sonner.emilkowal.ski/) API. Use it for transient, non-blocking feedback — copy confirmations, save success, recoverable async errors, and small status hints.
+
+### When to use
+
+| Use a toast | Don't use a toast |
+|-------------|--------------------|
+| Confirm a tap-to-copy / tap-to-save / dismiss happened (`toast.success(...)`) | Critical errors that need a decision (use `Alert.alert`) |
+| Recoverable async errors (`toast.error(...)`) | Inline form validation (use red text under the field, see §6) |
+| Lightweight tips / status (`toast.info(...)`, `toast.warning(...)`) | Long-form content (use `SectionCard`) |
+| Explain what just happened after a tap | Persistent state the user must continue to see (use a banner or empty state) |
+
+### API
+
+`toast` is a singleton — call it from anywhere (components, hooks, async callbacks, even outside React):
+
+```tsx
+import { toast } from '@/lib/toast';
+
+toast('Email copied');
+toast.success('Saved', { description: 'Profile updated.' });
+toast.error('Network error', { duration: 6000 });
+toast.info('Tip: tap the bell to see all notifications.');
+toast.warning('Connection unstable');
+
+const id = toast.success('Uploaded', { duration: 0 }); // sticky
+toast.dismiss(id);   // dismiss one
+toast.dismiss();     // dismiss all
+```
+
+`<ToastProvider />` mounts once near the root (already wired in `src/app/_layout.tsx`) and registers itself with the singleton — call sites do not need a hook or context.
+
+### Behavior
+
+| Behavior | Default |
+|----------|---------|
+| Position | Top, below the device safe area (mirrors sonner's web default) |
+| Duration | 2400 ms; pass `duration: 0` to keep open until manually dismissed |
+| Stack | Up to 3 visible at once; older toasts drop off |
+| Dismiss | Tap to dismiss; auto-dismiss timer always set unless `duration: 0`; `toast.dismiss(id?)` dismisses programmatically |
+| Animation | Gentle timed slide-in (~280 ms `easeOutCubic`) and fade-out (~220 ms) — no spring/bounce, per §9 (200–300 ms micro-interactions) |
+| Width | Centered, capped at `MaxContentWidth` (800px) for tablets / web |
+| Variants | `default`, `success`, `error`, `warning`, `info` — each ships a semantic icon and tinted background using the brand status colors |
+
+### Visual
+
+Toasts use the same surface as cards (`backgroundElement` + hairline border + 14px radius), with a small leading semantic icon for `success` / `error` / `info` / `warning` (no icon for `default`), the message in `smallBold`, and an optional `description` line in `small` `textSecondary`. An optional `action` button (e.g. "Undo") sits on the trailing edge.
+
+### Rules
+
+- **Keep messages short.** Title 1 line, optional `description` 1–2 lines.
+- **Always pair a toast with the action that triggered it.** A copy-to-clipboard tap should toast `"<Field> copied"` with the copied value as the description. A failed save should toast `"Couldn't save"` with an error tone.
+- **Never use a toast for a destructive confirmation.** Destructive actions still go through `Alert.alert` with explicit Cancel / Confirm buttons — toasts are dismissible and easy to miss.
+- **Never toast on every render.** Toast on user-initiated actions or one-shot side effects, not as a substitute for inline UI state.
+- **Never toast unrecoverable errors silently.** If the user can't proceed without acting, render an inline error state instead.
+- **Use the right tone:** `success` for confirmations, `error` for failures the user should know about, `warning` for risky states (low connectivity, stale data), `info` for tips, `default` for neutral confirmations like "Copied".
+- **Don't stack-spam.** If the same action can fire repeatedly (e.g. tap-to-copy), reuse a stable `id` so the latest call replaces the previous toast instead of stacking.
+
+### Reference implementation
+
+- Tap-to-copy contact rows: `src/components/help-contact-card.tsx` — copies email/phone via `expo-clipboard` and confirms with `toast.success(\`${label} copied\`, { description: value })`.
+
+---
+
+## 19) Horizontal carousels (KPI / metric strips)
+
+When a card needs to show **3+ small, equally-weighted summary tiles** (KPIs, repayment metrics, quick stats), prefer a **horizontal snap carousel** over a 2x2 grid. The carousel:
+
+- preserves vertical real estate (one row instead of two)
+- communicates "there is more to see" via a peek of the next card
+- pages cleanly with snap behaviour and pagination dots
+
+Use the shared component `HorizontalSnapCarousel` in `src/components/horizontal-snap-carousel.tsx`. Do **not** re-implement scroll math, snap intervals, or pagination dots — extend the shared component instead so all carousels stay visually consistent.
+
+### When to use vs. when to skip
+
+| Use a carousel | Skip the carousel |
+|----------------|-------------------|
+| 3+ tiles of comparable importance (KPIs, metric chips) | 1–2 tiles → place inline, no scroll affordance needed |
+| Tiles need to stay readable on small screens (≥160pt wide) | Tiles are tiny pills (badges, status chips) → use a wrap-flex grid |
+| Tiles are independent — order is browseable, not ranked | Order is significant and the user must compare them at once → use a fixed grid |
+| The strip would otherwise force two stacked rows on narrow phones | The strip is part of a form / requires simultaneous interaction (tap multiple tiles together) |
+
+### API & sizing
+
+```tsx
+import {
+  HorizontalSnapCarousel,
+  useSnapCarouselCardWidth,
+} from '@/components/horizontal-snap-carousel';
+
+// Default: one card fills the screen with a peek of the next.
+<HorizontalSnapCarousel initialIndex={1}>
+  <KpiCard ... />
+  <KpiCard ... />
+  <KpiCard ... />
+</HorizontalSnapCarousel>
+
+// Multiple cards visible (e.g. small metric chips inside a SectionCard):
+const { width } = useWindowDimensions();
+const chipWidth = Math.max(132, Math.floor((width - 80) / 2));
+
+<HorizontalSnapCarousel
+  pagePadding={Spacing.three}      // matches the wrapping container's inner padding
+  gap={Spacing.two}
+  cardWidth={chipWidth}>            // explicit width when 2+ visible at a time
+  <MetricChip ... />
+  ...
+</HorizontalSnapCarousel>
+```
+
+| Prop | Default | Notes |
+|------|---------|-------|
+| `cardWidth` | auto: `windowWidth - pagePadding*2 - peek` | Pass an explicit width when you want **multiple cards visible** at once. |
+| `gap` | `Spacing.three` (16) | Gap between cards. Use `Spacing.two` for denser strips. |
+| `pagePadding` | `Spacing.four` (24) | Horizontal padding of the **wrapping container** (page or `SectionCard`). The carousel applies a matching negative margin so cards bleed to the edges. |
+| `peek` | `36` | Only used when `cardWidth` is auto-computed; how much of the next card peeks. |
+| `minCardWidth` | `180` | Floor for the auto-computed width on very narrow screens. |
+| `initialIndex` | `0` | Card to land on first (e.g. the most relevant KPI). |
+| `showDots` | `true` | Pagination dots below the strip. Keep enabled unless the surrounding context already communicates pagination. |
+
+### Rules
+
+- **Always bleed to the edges.** Pass the wrapping container's horizontal padding via `pagePadding` so cards align with the edge of the screen / section card and the user feels they can keep scrolling.
+- **Always show pagination dots** for 2+ cards (the default). They double as a visible affordance that the strip is scrollable, even when the peek is subtle.
+- **Pick a sensible `initialIndex`.** Land on the most relevant card first (e.g. `Outstanding` rather than the first one alphabetically).
+- **Enforce a minimum readable width.** ~140pt for compact metric chips, ~180pt for full KPI cards. Smaller than that and tiles become illegible.
+- **One snap carousel per logical strip.** Don't nest carousels or place two side-by-side — that contradicts the "one direction of motion at a time" mobile heuristic.
+- **Don't put primary CTAs inside carousel cards.** Tiles are summaries; primary actions belong in the `stickyFooter` or inline rows (§3).
+- **Don't replace structured lists with carousels.** A list of repayments, transactions, or notifications is a vertical list — the carousel pattern is for **summary tiles**, not feed items.
+
+### Reference implementations
+
+- Dashboard KPI strip — Active Loans / Outstanding / Next Payment / Before Payout: `src/app/(app)/(tabs)/index.tsx` (`HorizontalSnapCarousel` with the default 1-card-per-screen layout).
+- Loan detail "Repayment progress" metric chips — Paid / Overdue / Late fees / On-time: `src/app/(app)/loans/[loanId]/index.tsx` (`HorizontalSnapCarousel` with explicit `cardWidth` so ~2 chips show at once).
+
+---
+
 ## Summary Checklist
 
 When building new screens, verify:
@@ -500,3 +639,5 @@ When building new screens, verify:
 - [ ] Colors from `useTheme()`, never hardcoded
 - [ ] **Notification inbox:** bell-only entry (no duplicate Settings row); PTR for reload; unread copy in `SectionCard` description; “Mark all read” as outline card action when applicable (`src/app/(app)/notifications.tsx`)
 - [ ] **Dynamic / long lists:** `PageScreen` `scrollableOverride` + `Animated.FlatList`; paginated fetch; PTR = page 1; `onEndReached` = next page; footer loading indicator (§17)
+- [ ] **Toasts:** non-blocking confirmations and recoverable errors use `toast(...)` from `@/lib/toast` (not `Alert.alert`); short copy; correct semantic variant; never used for destructive confirmations (§18)
+- [ ] **KPI / metric strips (3+ tiles):** use `HorizontalSnapCarousel` from `@/components/horizontal-snap-carousel` with bleed-to-edge `pagePadding`, an explicit `cardWidth` for multi-visible strips, and pagination dots — no bespoke ScrollView pagers (§19)

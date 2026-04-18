@@ -20,10 +20,12 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { notificationsClient } from '@/lib/api/borrower';
 import { useBorrowerAccess } from '@/lib/borrower-access';
+import { toast } from '@/lib/toast';
 
 import type { BorrowerNotificationItem } from '@kredit/borrower';
 
 const PAGE_SIZE = 20;
+const ROW_RADIUS = 16;
 
 function formatRelativeTime(value: string): string {
   const date = new Date(value);
@@ -34,136 +36,84 @@ function formatRelativeTime(value: string): string {
   const diffMs = Date.now() - date.getTime();
   const diffMinutes = Math.round(diffMs / (1000 * 60));
   if (diffMinutes < 1) return 'Just now';
-  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+  if (diffMinutes < 60) return `${diffMinutes}m`;
 
   const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours} hr ago`;
+  if (diffHours < 24) return `${diffHours}h`;
 
   const diffDays = Math.round(diffHours / 24);
-  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  if (diffDays < 7) return `${diffDays}d`;
 
   return new Intl.DateTimeFormat('en-MY', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+    day: 'numeric',
+    month: 'short',
     timeZone: 'Asia/Kuala_Lumpur',
   }).format(date);
 }
 
-function InlineActionButton({
-  label,
-  onPress,
-  disabled,
-  primary = false,
+function NotificationRowSkeleton({
+  isFirst,
+  isLast,
 }: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  primary?: boolean;
+  isFirst: boolean;
+  isLast: boolean;
 }) {
-  const theme = useTheme();
-
-  return (
-    <Pressable
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.inlineButton,
-        {
-          backgroundColor: primary ? theme.primary : theme.background,
-          borderColor: primary ? theme.primary : theme.border,
-          opacity: pressed || disabled ? 0.75 : 1,
-        },
-      ]}>
-      <ThemedText
-        type="smallBold"
-        style={{ color: primary ? theme.primaryForeground : theme.text }}>
-        {label}
-      </ThemedText>
-    </Pressable>
-  );
-}
-
-function OpenDeepLinkButton({ onPress }: { onPress: () => void }) {
-  const theme = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.inlineButton,
-        styles.openButton,
-        {
-          backgroundColor: theme.background,
-          borderColor: theme.border,
-          opacity: pressed ? 0.85 : 1,
-        },
-      ]}>
-      <ThemedText type="smallBold" style={{ color: theme.text }}>
-        Open
-      </ThemedText>
-      <MaterialIcons name="chevron-right" size={16} color={theme.text} />
-    </Pressable>
-  );
-}
-
-function NotificationCardSkeleton() {
   const theme = useTheme();
   return (
     <View
       style={[
-        styles.notificationCard,
-        { borderColor: theme.border, backgroundColor: theme.background },
+        styles.row,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.border,
+        },
+        isFirst && styles.rowFirst,
+        isLast && styles.rowLast,
+        !isLast && {
+          borderBottomWidth: StyleSheet.hairlineWidth,
+        },
       ]}>
-      <View style={styles.cardMainRow}>
-        <View
-          style={[
-            styles.categoryIconWrap,
-            { borderColor: theme.border, backgroundColor: theme.backgroundElement },
-          ]}
-        />
-        <View style={styles.notificationTitleWrap}>
-          <View style={styles.titleRow}>
-            <View
-              style={[
-                styles.skeletonLine,
-                { backgroundColor: theme.backgroundElement, flex: 1, maxWidth: 280 },
-              ]}
-            />
-            <View
-              style={[
-                styles.skeletonPill,
-                { backgroundColor: theme.backgroundElement, width: 56, height: 20 },
-              ]}
-            />
-          </View>
+      <View
+        style={[
+          styles.iconWrap,
+          { backgroundColor: theme.backgroundSelected },
+        ]}
+      />
+      <View style={styles.rowContent}>
+        <View style={styles.titleLine}>
           <View
             style={[
               styles.skeletonLine,
-              { backgroundColor: theme.backgroundElement, width: '70%', height: 12 },
+              {
+                backgroundColor: theme.backgroundSelected,
+                flex: 1,
+                maxWidth: 220,
+                height: 14,
+              },
             ]}
           />
-          <View style={styles.metaRow}>
-            <View
-              style={[
-                styles.skeletonLine,
-                { backgroundColor: theme.backgroundElement, width: 100, height: 12 },
-              ]}
-            />
-            <View style={{ flexDirection: 'row', gap: Spacing.two }}>
-              <View
-                style={[
-                  styles.skeletonLine,
-                  { backgroundColor: theme.backgroundElement, width: 72, height: 32, borderRadius: 8 },
-                ]}
-              />
-              <View
-                style={[
-                  styles.skeletonLine,
-                  { backgroundColor: theme.backgroundElement, width: 88, height: 32, borderRadius: 8 },
-                ]}
-              />
-            </View>
-          </View>
+          <View
+            style={[
+              styles.skeletonLine,
+              {
+                backgroundColor: theme.backgroundSelected,
+                width: 28,
+                height: 12,
+              },
+            ]}
+          />
         </View>
+        <View
+          style={[
+            styles.skeletonLine,
+            {
+              backgroundColor: theme.backgroundSelected,
+              width: '85%',
+              height: 12,
+              marginTop: 6,
+            },
+          ]}
+        />
       </View>
     </View>
   );
@@ -171,118 +121,104 @@ function NotificationCardSkeleton() {
 
 function NotificationRow({
   notification,
-  markingId,
-  onMarkRead,
-  onOpenDeepLink,
+  isFirst,
+  isLast,
+  isMarking,
+  onPress,
 }: {
   notification: BorrowerNotificationItem;
-  markingId: string | null;
-  onMarkRead: (id: string) => void;
-  onOpenDeepLink: (href: string) => void;
+  isFirst: boolean;
+  isLast: boolean;
+  isMarking: boolean;
+  onPress: () => void;
 }) {
   const theme = useTheme();
   const isUnread = !notification.readAt;
-  const channels = [
-    ...new Set(
-      (notification.deliveries ?? [])
-        .filter((delivery) => delivery.channel !== 'in_app')
-        .map((delivery) => delivery.channel.toUpperCase())
-    ),
-  ];
-  const hasActions = Boolean(notification.deepLink) || isUnread;
+  const hasDeepLink = Boolean(notification.deepLink);
+  const interactive = hasDeepLink || isUnread;
 
   return (
-    <View
-      style={[
-        styles.notificationCard,
+    <Pressable
+      accessibilityRole={interactive ? 'button' : undefined}
+      accessibilityLabel={notification.title}
+      disabled={!interactive || isMarking}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
         {
-          borderColor: isUnread ? theme.primary : theme.border,
-          backgroundColor: isUnread ? theme.backgroundSelected : theme.background,
+          backgroundColor: isUnread
+            ? theme.backgroundSelected
+            : theme.backgroundElement,
+          borderColor: theme.border,
+          opacity: pressed && interactive ? 0.7 : 1,
+        },
+        isFirst && styles.rowFirst,
+        isLast && styles.rowLast,
+        !isLast && {
+          borderBottomWidth: StyleSheet.hairlineWidth,
         },
       ]}>
-      <View style={styles.cardMainRow}>
-        <View
-          style={[
-            styles.categoryIconWrap,
-            {
-              borderColor: isUnread ? theme.primary : theme.border,
-              backgroundColor: isUnread ? theme.background : theme.backgroundElement,
-            },
-          ]}>
-          <BorrowerNotificationCategoryIcon
-            category={notification.category}
-            size={20}
-            color={isUnread ? theme.primary : theme.textSecondary}
-          />
-        </View>
-        <View style={styles.notificationTitleWrap}>
-          <View style={styles.titleRow}>
-            <ThemedText type="smallBold" style={styles.titleFlex} numberOfLines={2}>
-              {notification.title}
-            </ThemedText>
-            <View
-              style={[
-                styles.statusBadge,
-                {
-                  backgroundColor: isUnread ? theme.primary : theme.backgroundElement,
-                  borderColor: isUnread ? theme.primary : theme.border,
-                },
-              ]}>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  fontSize: 11,
-                  color: isUnread ? theme.primaryForeground : theme.textSecondary,
-                }}>
-                {isUnread ? 'Unread' : 'Read'}
-              </ThemedText>
-            </View>
-          </View>
-          {channels.length > 0 ? (
-            <ThemedText type="small" themeColor="textSecondary" style={styles.channelsLine}>
-              {channels.join(' · ')}
-            </ThemedText>
-          ) : null}
-          {notification.body ? (
-            <ThemedText
-              type="small"
-              themeColor="textSecondary"
-              numberOfLines={2}
-              style={styles.bodyText}>
-              {notification.body}
-            </ThemedText>
-          ) : null}
-          <View style={[styles.metaRow, hasActions && styles.metaRowSpread]}>
-            <ThemedText
-              type="small"
-              themeColor="textSecondary"
-              style={[styles.timeText, hasActions && styles.timeTextFlex]}>
-              {formatRelativeTime(notification.createdAt)}
-            </ThemedText>
-            {hasActions ? (
-              <View style={styles.notificationActions}>
-                {notification.deepLink ? (
-                  <OpenDeepLinkButton
-                    onPress={() => {
-                      const href = notification.deepLink;
-                      if (href?.startsWith('/')) onOpenDeepLink(href);
-                    }}
-                  />
-                ) : null}
-                {isUnread ? (
-                  <InlineActionButton
-                    label={markingId === notification.id ? 'Updating...' : 'Mark read'}
-                    onPress={() => onMarkRead(notification.id)}
-                    disabled={markingId === notification.id}
-                    primary
-                  />
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        </View>
+      <View
+        style={[
+          styles.iconWrap,
+          {
+            backgroundColor: isUnread
+              ? theme.background
+              : theme.backgroundSelected,
+          },
+        ]}>
+        <BorrowerNotificationCategoryIcon
+          category={notification.category}
+          size={18}
+          color={isUnread ? theme.primary : theme.textSecondary}
+        />
       </View>
-    </View>
+
+      <View style={styles.rowContent}>
+        <View style={styles.titleLine}>
+          <ThemedText
+            type="smallBold"
+            numberOfLines={1}
+            style={[
+              styles.titleText,
+              !isUnread && { fontWeight: '600' },
+            ]}>
+            {notification.title}
+          </ThemedText>
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={styles.timeText}>
+            {formatRelativeTime(notification.createdAt)}
+          </ThemedText>
+        </View>
+        {notification.body ? (
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            numberOfLines={2}
+            style={styles.bodyText}>
+            {notification.body}
+          </ThemedText>
+        ) : null}
+      </View>
+
+      <View style={styles.trailing}>
+        {isMarking ? (
+          <ActivityIndicator size="small" color={theme.textSecondary} />
+        ) : isUnread ? (
+          <View style={[styles.unreadDot, { backgroundColor: theme.primary }]} />
+        ) : hasDeepLink ? (
+          <MaterialIcons
+            name="chevron-right"
+            size={20}
+            color={theme.textSecondary}
+          />
+        ) : (
+          <View style={styles.trailingSpacer} />
+        )}
+      </View>
+    </Pressable>
   );
 }
 
@@ -374,15 +310,6 @@ export default function NotificationsScreen() {
     void fetchFirstPage('initial');
   }, [hasBorrowerProfiles, isCheckingBorrowerProfiles, borrowerContextVersion, fetchFirstPage]);
 
-  const sectionDescription = useMemo(() => {
-    const body =
-      'Platform announcements and automated borrower updates appear below.';
-    if (unreadCount > 0) {
-      return `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}. ${body}`;
-    }
-    return `You're all caught up. ${body}`;
-  }, [unreadCount]);
-
   const refreshControl = useMemo(
     () => (
       <RefreshControl
@@ -403,8 +330,16 @@ export default function NotificationsScreen() {
         current.map((item) => (item.id === notificationId ? response.data : item))
       );
       setUnreadCount((current) => Math.max(0, current - 1));
+      toast.success('Marked as read', {
+        id: `notification-read-${notificationId}`,
+        description: response.data.title,
+      });
     } catch (error) {
       console.warn('[notifications] Failed to mark as read:', error);
+      toast.error("Couldn't mark as read", {
+        id: `notification-read-error-${notificationId}`,
+        description: 'Please try again in a moment.',
+      });
     } finally {
       setMarkingId(null);
     }
@@ -412,26 +347,42 @@ export default function NotificationsScreen() {
 
   const handleMarkAllRead = useCallback(async () => {
     setMarkingAll(true);
+    const previousUnreadCount = unreadCount;
     try {
       await notificationsClient.markAllBorrowerNotificationsRead();
       setNotifications((current) =>
         current.map((item) => (item.readAt ? item : { ...item, readAt: new Date().toISOString() }))
       );
       setUnreadCount(0);
+      toast.success(
+        previousUnreadCount === 1
+          ? '1 notification marked as read'
+          : `${previousUnreadCount} notifications marked as read`,
+        { id: 'notifications-mark-all-read' },
+      );
     } catch (error) {
       console.warn('[notifications] Failed to mark all as read:', error);
+      toast.error("Couldn't mark all as read", {
+        id: 'notifications-mark-all-read-error',
+        description: 'Please try again in a moment.',
+      });
     } finally {
       setMarkingAll(false);
     }
-  }, []);
+  }, [unreadCount]);
 
-  const handleOpenDeepLink = useCallback(
-    (deepLink: string) => {
-      if (deepLink.startsWith('/')) {
-        router.push(deepLink as Href);
+  const handleRowPress = useCallback(
+    (notification: BorrowerNotificationItem) => {
+      const isUnread = !notification.readAt;
+      if (isUnread) {
+        void handleMarkRead(notification.id);
+      }
+      const href = notification.deepLink;
+      if (href && href.startsWith('/')) {
+        router.push(href as Href);
       }
     },
-    [router]
+    [handleMarkRead, router]
   );
 
   const onEndReached = useCallback(() => {
@@ -441,54 +392,86 @@ export default function NotificationsScreen() {
     void fetchNextPage();
   }, [fetchNextPage, hasMore, loading, loadingMore, notifications.length, refreshing]);
 
+  const summaryDescription = useMemo(() => {
+    if (loading) return 'Loading recent activity…';
+    if (unreadCount > 0) {
+      return `${unreadCount} unread ${unreadCount === 1 ? 'update' : 'updates'} from your loan journey.`;
+    }
+    return "You're all caught up. New updates will appear here.";
+  }, [loading, unreadCount]);
+
   const listHeader = useMemo(
     () => (
-      <SectionCard
-        title="Notification center"
-        description={sectionDescription}
-        action={
-          unreadCount > 0 ? (
-            <PageHeaderToolbarButton
-              label="Mark all read"
-              variant="outline"
-              loading={markingAll}
-              disabled={markingAll}
-              onPress={() => void handleMarkAllRead()}
-            />
-          ) : null
-        }>
+      <View style={styles.listHeader}>
+        <SectionCard
+          hideHeader
+          title="Inbox summary">
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryCopy}>
+              <ThemedText type="smallBold">
+                {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
+              </ThemedText>
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                style={styles.summarySubtext}>
+                {summaryDescription}
+              </ThemedText>
+            </View>
+            {unreadCount > 0 ? (
+              <PageHeaderToolbarButton
+                label="Mark all read"
+                variant="outline"
+                loading={markingAll}
+                disabled={markingAll}
+                onPress={() => void handleMarkAllRead()}
+              />
+            ) : null}
+          </View>
+        </SectionCard>
+
         {loading ? (
           <View style={styles.skeletonList}>
-            <NotificationCardSkeleton />
-            <NotificationCardSkeleton />
-            <NotificationCardSkeleton />
+            <NotificationRowSkeleton isFirst isLast={false} />
+            <NotificationRowSkeleton isFirst={false} isLast={false} />
+            <NotificationRowSkeleton isFirst={false} isLast />
           </View>
         ) : null}
+
         {!loading && notifications.length === 0 ? (
           <View style={styles.emptyState}>
-            <MaterialIcons
-              name="inbox"
-              size={40}
-              color={theme.textSecondary}
-              style={{ opacity: 0.45 }}
-            />
-            <ThemedText type="smallBold" style={{ marginTop: Spacing.three }}>
+            <View
+              style={[
+                styles.emptyIconWrap,
+                { backgroundColor: theme.backgroundElement },
+              ]}>
+              <MaterialIcons
+                name="inbox"
+                size={28}
+                color={theme.textSecondary}
+              />
+            </View>
+            <ThemedText type="smallBold" style={styles.emptyTitle}>
               No notifications yet
             </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.emptySubtext}>
+            <ThemedText
+              type="small"
+              themeColor="textSecondary"
+              style={styles.emptySubtext}>
               When the lender sends updates or your application status changes, they will appear
               here.
             </ThemedText>
           </View>
         ) : null}
-      </SectionCard>
+      </View>
     ),
     [
       handleMarkAllRead,
       loading,
       markingAll,
       notifications.length,
-      sectionDescription,
+      summaryDescription,
+      theme.backgroundElement,
       theme.textSecondary,
       unreadCount,
     ]
@@ -537,18 +520,18 @@ export default function NotificationsScreen() {
         <Animated.FlatList
           data={loading || (!loading && notifications.length === 0) ? [] : notifications}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <NotificationRow
               notification={item}
-              markingId={markingId}
-              onMarkRead={handleMarkRead}
-              onOpenDeepLink={handleOpenDeepLink}
+              isFirst={index === 0}
+              isLast={index === notifications.length - 1}
+              isMarking={markingId === item.id}
+              onPress={() => handleRowPress(item)}
             />
           )}
           ListHeaderComponent={listHeader}
           ListHeaderComponentStyle={styles.listHeaderSpacing}
           ListFooterComponent={listFooter}
-          ItemSeparatorComponent={() => <View style={{ height: Spacing.three }} />}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.35}
           removeClippedSubviews={Platform.OS === 'android'}
@@ -560,6 +543,9 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
+  listHeader: {
+    gap: Spacing.three,
+  },
   listHeaderSpacing: {
     marginBottom: Spacing.three,
   },
@@ -568,14 +554,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  skeletonList: {
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: Spacing.three,
   },
-  skeletonLine: {
-    borderRadius: 6,
+  summaryCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
-  skeletonPill: {
-    borderRadius: 999,
+  summarySubtext: {
+    lineHeight: 18,
+  },
+  skeletonList: {
+    overflow: 'hidden',
+    borderRadius: ROW_RADIUS,
+  },
+  skeletonLine: {
+    borderRadius: 4,
   },
   loadingState: {
     minHeight: 160,
@@ -583,107 +581,94 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyState: {
-    minHeight: 160,
+    minHeight: 200,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.one,
+    gap: Spacing.two,
     paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.four,
+  },
+  emptyIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.one,
+  },
+  emptyTitle: {
+    marginTop: Spacing.one,
   },
   emptySubtext: {
     textAlign: 'center',
-    marginTop: Spacing.one,
     lineHeight: 20,
+    maxWidth: 320,
   },
-  notificationCard: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: Spacing.three,
-  },
-  cardMainRow: {
+  row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three - 2,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
   },
-  categoryIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    borderWidth: 1,
+  rowFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: ROW_RADIUS,
+    borderTopRightRadius: ROW_RADIUS,
+  },
+  rowLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: ROW_RADIUS,
+    borderBottomRightRadius: ROW_RADIUS,
+  },
+  iconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.two,
-  },
-  titleFlex: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  channelsLine: {
-    fontSize: 10,
-    lineHeight: 16,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-    fontWeight: '500',
-  },
-  bodyText: {
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: '400',
-  },
-  notificationTitleWrap: {
-    flex: 1,
-    gap: 6,
-    minWidth: 0,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    columnGap: 12,
-    rowGap: 8,
     marginTop: 2,
   },
-  metaRowSpread: {
-    justifyContent: 'space-between',
+  rowContent: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+    paddingTop: 2,
+  },
+  titleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  titleText: {
+    flex: 1,
+    minWidth: 0,
   },
   timeText: {
     fontSize: 12,
+    lineHeight: 16,
+    flexShrink: 0,
+  },
+  bodyText: {
+    fontSize: 13,
     lineHeight: 18,
+    fontWeight: '400',
   },
-  timeTextFlex: {
-    flex: 1,
-    minWidth: 100,
-  },
-  statusBadge: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 4,
-    marginTop: 2,
-  },
-  notificationActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: Spacing.two,
-  },
-  inlineButton: {
-    minHeight: 32,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: 6,
+  trailing: {
+    minWidth: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingTop: 12,
   },
-  openButton: {
-    flexDirection: 'row',
-    gap: 4,
+  trailingSpacer: {
+    width: 8,
+    height: 8,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, Easing, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BorrowerProfileSwitcher } from '@/components/borrower-profile-switcher';
@@ -9,6 +9,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatBorrowerTypeLabel, getBorrowerDisplayName } from '@/lib/format/borrower';
 import { useBorrowerAccess } from '@/lib/borrower-access';
+import { toast } from '@/lib/toast';
 import { useRouter } from 'expo-router';
 
 export function BorrowerContextHeader() {
@@ -71,14 +72,34 @@ export function BorrowerContextHeader() {
   }
 
   async function handleSwitch(profileId: string) {
+    if (profileId === activeBorrowerId) {
+      closeSheet();
+      return;
+    }
+    const targetProfile = profiles.find((profile) => profile.id === profileId);
+    const targetName = targetProfile ? getBorrowerDisplayName(targetProfile) : 'profile';
     try {
       await switchBorrowerProfile(profileId);
-      closeSheet();
+      // Use `navigate` rather than `replace` here: with NativeTabs, expo-router
+      // maps `replace` to `JUMP_TO` but it doesn't reliably switch the
+      // selected tab from inside a non-index tab (see expo/expo#36385,
+      // expo/expo#30407). `navigate('/')` jumps to the dashboard tab and pops
+      // any nested stack back to its root.
+      router.navigate('/');
+      closeSheet(() => {
+        toast.success(`Switched to ${targetName}`, {
+          id: 'borrower-profile-switch',
+          description: targetProfile
+            ? formatBorrowerTypeLabel(targetProfile.borrowerType)
+            : undefined,
+        });
+      });
     } catch (error) {
-      Alert.alert(
-        'Unable to switch profile',
-        error instanceof Error ? error.message : 'Please try again.',
-      );
+      toast.error("Couldn't switch profile", {
+        id: 'borrower-profile-switch-error',
+        description:
+          error instanceof Error ? error.message : 'Please try again in a moment.',
+      });
     }
   }
 

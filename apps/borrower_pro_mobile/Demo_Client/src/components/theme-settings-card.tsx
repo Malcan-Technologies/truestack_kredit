@@ -49,7 +49,7 @@ export function ThemeSettingsCard() {
       description="Choose how this app looks on this device.">
       <ThemedText type="small" themeColor="textSecondary">
         {preference === 'system'
-          ? `Following your device setting. Current theme: ${resolvedScheme}.`
+          ? `Following device settings. Current theme: ${resolvedScheme}.`
           : `Using ${resolvedScheme} theme.`}
       </ThemedText>
 

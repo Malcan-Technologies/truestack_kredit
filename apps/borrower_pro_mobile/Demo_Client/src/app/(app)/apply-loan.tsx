@@ -12,6 +12,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 
 import {
+  DatePickerField,
   Field,
   FormSwitchRow,
   OptionChipGroup,
@@ -823,11 +824,10 @@ export default function ApplyLoanScreen() {
               error={errors.icNumber}
             />
           )}
-          <Field
-            label="Date of birth (YYYY-MM-DD)"
+          <DatePickerField
+            label="Date of birth"
             value={individualForm.dateOfBirth}
-            onChangeText={(v) => setIndividualForm((f) => ({ ...f, dateOfBirth: v }))}
-            placeholder="e.g. 1990-01-15"
+            onChange={(v) => setIndividualForm((f) => ({ ...f, dateOfBirth: v }))}
             error={errors.dateOfBirth}
           />
           <OptionChipGroup

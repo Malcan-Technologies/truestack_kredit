@@ -45,6 +45,15 @@ export type OptionChipGroupProps = {
   disabled?: boolean;
 };
 
+export type DatePickerFieldProps = {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  helperText?: string;
+  disabled?: boolean;
+};
+
 export type SelectFieldProps = {
   label: string;
   value: string;
@@ -208,6 +217,225 @@ export function OptionChipGroup({
           {helperText}
         </ThemedText>
       ) : null}
+    </View>
+  );
+}
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: CURRENT_YEAR - 1919 }, (_, i) => CURRENT_YEAR - i);
+
+function getDaysInMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
+function formatDateDisplay(value: string) {
+  try {
+    const parts = value.split('-').map(Number);
+    const [y, m, d] = parts;
+    if (!y || !m || !d) return value;
+    return `${String(d).padStart(2, '0')} ${MONTHS[m - 1]} ${y}`;
+  } catch {
+    return value;
+  }
+}
+
+export function DatePickerField({
+  label,
+  value,
+  onChange,
+  error,
+  helperText,
+  disabled = false,
+}: DatePickerFieldProps) {
+  const theme = useTheme();
+  const [open, setOpen] = useState(false);
+
+  const defaultYear = CURRENT_YEAR - 30;
+  const [pickerYear, setPickerYear] = useState(defaultYear);
+  const [pickerMonth, setPickerMonth] = useState(1);
+  const [pickerDay, setPickerDay] = useState(1);
+
+  const daysInMonth = getDaysInMonth(pickerYear, pickerMonth);
+  const days = useMemo(
+    () => Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    [daysInMonth],
+  );
+
+  useEffect(() => {
+    if (pickerDay > daysInMonth) {
+      setPickerDay(daysInMonth);
+    }
+  }, [pickerDay, daysInMonth]);
+
+  function handleOpen() {
+    if (value) {
+      const [y, m, d] = value.split('-').map(Number);
+      if (y) setPickerYear(y);
+      if (m) setPickerMonth(m);
+      if (d) setPickerDay(Math.min(d, getDaysInMonth(y || defaultYear, m || 1)));
+    }
+    setOpen(true);
+  }
+
+  function handleConfirm() {
+    const clampedDay = Math.min(pickerDay, getDaysInMonth(pickerYear, pickerMonth));
+    onChange(
+      `${pickerYear}-${String(pickerMonth).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`,
+    );
+    setOpen(false);
+  }
+
+  const displayValue = value ? formatDateDisplay(value) : '';
+
+  return (
+    <View style={styles.fieldWrap}>
+      <ThemedText type="smallBold">{label}</ThemedText>
+      <Pressable
+        disabled={disabled}
+        onPress={handleOpen}
+        style={({ pressed }) => [
+          styles.selectTrigger,
+          {
+            borderColor: error ? theme.error : theme.border,
+            backgroundColor: disabled ? theme.backgroundElement : theme.background,
+            opacity: disabled ? 0.6 : pressed ? 0.8 : 1,
+          },
+        ]}>
+        <ThemedText
+          type="default"
+          style={{ color: displayValue ? theme.text : theme.textSecondary, flex: 1 }}>
+          {displayValue || 'Select date'}
+        </ThemedText>
+        <MaterialIcons name="calendar-today" size={18} color={theme.textSecondary} />
+      </Pressable>
+      {error ? (
+        <ThemedText type="small" style={{ color: theme.error }}>
+          {error}
+        </ThemedText>
+      ) : helperText ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          {helperText}
+        </ThemedText>
+      ) : null}
+
+      <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setOpen(false)} />
+          <View
+            style={[
+              styles.selectModal,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+            ]}>
+            <View style={styles.selectModalHeader}>
+              <ThemedText type="smallBold">{label}</ThemedText>
+              <Pressable onPress={() => setOpen(false)}>
+                <ThemedText type="small" themeColor="primary">
+                  Close
+                </ThemedText>
+              </Pressable>
+            </View>
+
+            <View style={styles.dateColumns}>
+              <View style={styles.dateColumn}>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.dateColLabel}>
+                  Day
+                </ThemedText>
+                <ScrollView style={styles.dateScroll} showsVerticalScrollIndicator={false}>
+                  {days.map((d) => (
+                    <Pressable
+                      key={d}
+                      onPress={() => setPickerDay(d)}
+                      style={[
+                        styles.dateItem,
+                        pickerDay === d && { backgroundColor: theme.backgroundSelected, borderRadius: 10 },
+                      ]}>
+                      <ThemedText
+                        type="default"
+                        style={{
+                          textAlign: 'center',
+                          color: pickerDay === d ? theme.primary : theme.text,
+                          fontWeight: pickerDay === d ? '600' : '400',
+                        }}>
+                        {String(d).padStart(2, '0')}
+                      </ThemedText>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+
+              <View style={[styles.dateColumn, { flex: 2 }]}>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.dateColLabel}>
+                  Month
+                </ThemedText>
+                <ScrollView style={styles.dateScroll} showsVerticalScrollIndicator={false}>
+                  {MONTHS.map((m, i) => (
+                    <Pressable
+                      key={i + 1}
+                      onPress={() => setPickerMonth(i + 1)}
+                      style={[
+                        styles.dateItem,
+                        pickerMonth === i + 1 && {
+                          backgroundColor: theme.backgroundSelected,
+                          borderRadius: 10,
+                        },
+                      ]}>
+                      <ThemedText
+                        type="default"
+                        style={{
+                          textAlign: 'center',
+                          color: pickerMonth === i + 1 ? theme.primary : theme.text,
+                          fontWeight: pickerMonth === i + 1 ? '600' : '400',
+                        }}>
+                        {m}
+                      </ThemedText>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+
+              <View style={styles.dateColumn}>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.dateColLabel}>
+                  Year
+                </ThemedText>
+                <ScrollView style={styles.dateScroll} showsVerticalScrollIndicator={false}>
+                  {YEARS.map((y) => (
+                    <Pressable
+                      key={y}
+                      onPress={() => setPickerYear(y)}
+                      style={[
+                        styles.dateItem,
+                        pickerYear === y && { backgroundColor: theme.backgroundSelected, borderRadius: 10 },
+                      ]}>
+                      <ThemedText
+                        type="default"
+                        style={{
+                          textAlign: 'center',
+                          color: pickerYear === y ? theme.primary : theme.text,
+                          fontWeight: pickerYear === y ? '600' : '400',
+                        }}>
+                        {y}
+                      </ThemedText>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+
+            <Pressable
+              onPress={handleConfirm}
+              style={[styles.dateConfirmBtn, { backgroundColor: theme.primary }]}>
+              <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
+                Confirm
+              </ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -683,6 +911,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.three,
+  },
+  dateColumns: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    height: 220,
+  },
+  dateColumn: {
+    flex: 1,
+    gap: Spacing.one,
+  },
+  dateColLabel: {
+    textAlign: 'center',
+  },
+  dateScroll: {
+    flex: 1,
+  },
+  dateItem: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.two,
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  dateConfirmBtn: {
+    borderRadius: 14,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
   },
   switchCopy: {
     flex: 1,

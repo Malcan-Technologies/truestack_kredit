@@ -130,13 +130,17 @@ export default function DashboardScreen() {
       subtitle="Your borrower home will live here."
       showBorrowerContextHeader>
       <SectionCard
+        title="Apply for a loan"
+        description="Start a new digital loan application in a few steps.">
+        <ActionButton
+          label="Apply for a loan"
+          onPress={() => router.push('/apply-loan' as never)}
+        />
+      </SectionCard>
+      <SectionCard
         title="Coming next"
-        description="This section is scaffolded so the locked onboarding state, profile switching, and settings flow are ready while more borrower features land.">
+        description="Applications, loans, and richer dashboard summaries will be added next.">
         <View style={styles.copy}>
-          <ThemedText type="default">
-            Applications, loans, and richer dashboard summaries will be added next. The mobile app
-            already supports onboarding, borrower profile management, and account/security flows.
-          </ThemedText>
           {user?.email ? (
             <ThemedText type="small" themeColor="textSecondary">
               {`Signed in as ${user.email}`}

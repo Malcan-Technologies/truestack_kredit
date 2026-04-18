@@ -8,12 +8,29 @@ import { borrowerAuthClient } from '@/lib/api/borrower';
 import { BorrowerAccessProvider } from '@/lib/borrower-access';
 import { PushNotificationsProvider } from '@/lib/notifications/push-provider';
 
+/**
+ * Returns true for errors that indicate the session cookie is missing or was
+ * rejected by the server (401 / expired / invalid). Network errors and other
+ * server errors are intentionally excluded so we don't sign out on a flaky
+ * connection.
+ */
+function isSessionAuthError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes('no active session') ||
+    msg.includes('unauthorized') ||
+    msg.includes('expired') ||
+    (msg.includes('invalid') && msg.includes('session'))
+  );
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function BorrowerProfileProviderShell() {
-  const { session, isLoading } = useSession();
+  const { session, isLoading, signOut } = useSession();
   const pathname = usePathname();
   const [checking, setChecking] = useState(true);
   const [borrowerContext, setBorrowerContext] = useState<BorrowerMeResponse['data'] | null>(null);
@@ -43,11 +60,15 @@ function BorrowerProfileProviderShell() {
   const refreshBorrowerProfiles = useCallback(async () => {
     try {
       return await loadBorrowerContext();
-    } catch {
+    } catch (err) {
+      if (isSessionAuthError(err)) {
+        await signOut();
+        return null;
+      }
       setBorrowerContext(null);
       return null;
     }
-  }, [loadBorrowerContext]);
+  }, [loadBorrowerContext, signOut]);
 
   const handleSwitchBorrowerProfile = useCallback(
     async (borrowerId: string) => {
@@ -83,8 +104,15 @@ function BorrowerProfileProviderShell() {
       setChecking(true);
       try {
         await loadBorrowerContext();
-      } catch {
+      } catch (err) {
         if (!cancelled) {
+          if (isSessionAuthError(err)) {
+            // Cookie missing or server rejected session (expired/invalid).
+            // Sign out to clear any stale SecureStore state so the user can
+            // sign in fresh and get a valid cookie.
+            await signOut();
+            return;
+          }
           setBorrowerContext(null);
         }
       } finally {

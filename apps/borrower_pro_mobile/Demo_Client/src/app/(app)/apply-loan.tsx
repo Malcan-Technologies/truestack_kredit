@@ -57,23 +57,6 @@ import {
   type LoanWizardDraft,
 } from '@/lib/loan-application-wizard';
 
-const TOTAL_STEPS = 5;
-
-function stepTitle(step: number, profileSubStep: number): string {
-  switch (step) {
-    case 0: return 'Select Product';
-    case 1: return 'Loan Details';
-    case 2: return profileSubStep === 1 ? 'Personal Info' : 'Contact & Banking';
-    case 3: return 'Documents';
-    case 4: return 'Review & Submit';
-    default: return 'Apply for a Loan';
-  }
-}
-
-function stepSubtitle(step: number, profileSubStep: number): string {
-  const displayStep = step === 2 ? (profileSubStep === 1 ? 3 : 4) : step + 1;
-  return `Step ${displayStep} of ${TOTAL_STEPS}`;
-}
 
 // ─── Step 0: Product Selection ────────────────────────────────────────────────
 
@@ -209,6 +192,87 @@ function ConsentCheckbox({ checked, onToggle }: { checked: boolean; onToggle: ()
         <ThemedText type="small" style={{ color: theme.primary }}>Privacy Policy</ThemedText>.
       </ThemedText>
     </Pressable>
+  );
+}
+
+// ─── Step progress stepper ────────────────────────────────────────────────────
+
+const WIZARD_STEPS = [
+  { label: 'Product' },
+  { label: 'Details' },
+  { label: 'Profile' },
+  { label: 'Docs' },
+  { label: 'Review' },
+];
+
+function StepperBar({ currentStep }: { currentStep: number }) {
+  const theme = useTheme();
+  return (
+    <View style={[stepperStyles.wrapper, { borderBottomColor: theme.border }]}>
+      <View style={stepperStyles.row}>
+        {WIZARD_STEPS.map((s, i) => {
+          const done = i < currentStep;
+          const active = i === currentStep;
+          return (
+            <React.Fragment key={s.label}>
+              <View style={stepperStyles.stepCol}>
+                <View
+                  style={[
+                    stepperStyles.circle,
+                    {
+                      backgroundColor: done
+                        ? theme.primary
+                        : active
+                        ? theme.primary + '1A'
+                        : theme.backgroundElement,
+                      borderColor: done || active ? theme.primary : theme.border,
+                      borderStyle: done || active ? 'solid' : 'dashed',
+                    },
+                  ]}>
+                  {done ? (
+                    <MaterialIcons name="check" size={13} color={theme.primaryForeground} />
+                  ) : (
+                    <ThemedText
+                      type="small"
+                      style={[
+                        stepperStyles.stepNumber,
+                        { color: active ? theme.primary : theme.textSecondary },
+                      ]}>
+                      {i + 1}
+                    </ThemedText>
+                  )}
+                </View>
+                <ThemedText
+                  type="small"
+                  style={[
+                    stepperStyles.stepLabel,
+                    {
+                      color: active ? theme.primary : done ? theme.text : theme.textSecondary,
+                      fontWeight: active ? '600' : '400',
+                    },
+                  ]}>
+                  {s.label}
+                </ThemedText>
+              </View>
+              {i < WIZARD_STEPS.length - 1 && (
+                <View style={stepperStyles.connectorWrap}>
+                  <View
+                    style={[
+                      stepperStyles.connector,
+                      {
+                        borderTopColor: done ? theme.primary : theme.border,
+                        borderStyle: done ? 'solid' : 'dashed',
+                        opacity: done ? 0.5 : 0.4,
+                      },
+                    ]}
+                  />
+                </View>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -1196,10 +1260,10 @@ export default function ApplyLoanScreen() {
 
   return (
     <PageScreen
-      title={stepTitle(step, profileSubStep as number)}
-      subtitle={step > 0 ? stepSubtitle(step, profileSubStep as number) : undefined}
+      title="Apply for a Loan"
       showBackButton
       stickyFooter={getFooterButton() ?? undefined}>
+      <StepperBar currentStep={step} />
       {step === 0 && renderStep0()}
       {step === 1 && renderStep1()}
       {step === 2 && renderStep2()}
@@ -1208,6 +1272,49 @@ export default function ApplyLoanScreen() {
     </PageScreen>
   );
 }
+
+const stepperStyles = StyleSheet.create({
+  wrapper: {
+    paddingBottom: Spacing.three,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  stepCol: {
+    flex: 2,
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  circle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumber: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
+  stepLabel: {
+    fontSize: 10,
+    lineHeight: 14,
+    textAlign: 'center',
+  },
+  connectorWrap: {
+    flex: 1,
+    paddingTop: 14,
+  },
+  connector: {
+    width: '100%',
+    height: 0,
+    borderTopWidth: 1.5,
+  },
+});
 
 const styles = StyleSheet.create({
   productCard: {

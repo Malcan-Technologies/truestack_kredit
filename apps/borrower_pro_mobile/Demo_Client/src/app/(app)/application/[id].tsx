@@ -1,4 +1,4 @@
-import type { LoanApplicationDetail } from '@kredit/borrower';
+import type { LoanApplicationDetail, LoanPreviewData } from '@kredit/borrower';
 import { LoanApplicationOfferParty, LoanApplicationOfferStatus } from '@kredit/shared';
 import * as DocumentPicker from 'expo-document-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -19,23 +19,64 @@ import { SectionCard } from '@/components/section-card';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { applicationsClient } from '@/lib/api/borrower';
+import { applicationsClient, loansClient } from '@/lib/api/borrower';
 import { formatCurrencyRM } from '@/lib/loan-application-wizard';
 
-function StatusPill({ status }: { status: string }) {
-  const theme = useTheme();
-  const colorMap: Record<string, string> = {
-    DRAFT: theme.textSecondary,
-    SUBMITTED: theme.info,
-    UNDER_REVIEW: theme.warning,
-    APPROVED: theme.success,
-    REJECTED: theme.error,
-    CANCELLED: theme.error,
-  };
-  const color = colorMap[status] ?? theme.textSecondary;
+type ApplicationTimelineEvent = {
+  id: string;
+  action: string;
+  previousData: unknown;
+  newData: unknown;
+  createdAt: string;
+  user: { id: string; email: string; name: string | null } | null;
+};
+
+// --- helpers ---
+
+function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 45) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function formatDateShort(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-MY', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+// --- small ui components ---
+
+const STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'textSecondary',
+  SUBMITTED: 'info',
+  UNDER_REVIEW: 'warning',
+  APPROVED: 'success',
+  REJECTED: 'error',
+  CANCELLED: 'error',
+};
+
+function StatusPill({ status, theme }: { status: string; theme: ReturnType<typeof import('@/hooks/use-theme').useTheme> }) {
+  const colorKey = STATUS_COLORS[status];
+  const color = colorKey === 'textSecondary'
+    ? theme.textSecondary
+    : colorKey === 'info' ? theme.info
+    : colorKey === 'warning' ? theme.warning
+    : colorKey === 'success' ? theme.success
+    : theme.error;
   return (
     <View style={[styles.pill, { backgroundColor: color + '22', borderColor: color + '44' }]}>
-      <ThemedText type="small" style={{ color, fontWeight: '600', fontSize: 12 }}>
+      <ThemedText type="small" style={{ color, fontWeight: '600', fontSize: 11 }}>
         {status.replace(/_/g, ' ')}
       </ThemedText>
     </View>
@@ -45,11 +86,166 @@ function StatusPill({ status }: { status: string }) {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.infoRow}>
-      <ThemedText type="small" themeColor="textSecondary">{label}</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={{ flexShrink: 0 }}>{label}</ThemedText>
       <ThemedText type="smallBold" style={{ textAlign: 'right', flex: 1 }}>{value}</ThemedText>
     </View>
   );
 }
+
+function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: 'success' | 'warning' }) {
+  const theme = useTheme();
+  const valueColor = highlight === 'success' ? theme.success : highlight === 'warning' ? theme.warning : theme.text;
+  return (
+    <View style={styles.infoRow}>
+      <ThemedText type="small" themeColor="textSecondary" style={{ flexShrink: 0 }}>{label}</ThemedText>
+      <ThemedText type="smallBold" style={{ textAlign: 'right', flex: 1, color: valueColor }}>{value}</ThemedText>
+    </View>
+  );
+}
+
+// --- timeline action labels (aligned with web app) ---
+
+const TIMELINE_LABELS: Record<string, string> = {
+  CREATE: 'Application created',
+  UPDATE: 'Application updated',
+  SUBMIT: 'Application submitted',
+  APPROVE: 'Application approved',
+  REJECT: 'Application rejected',
+  RETURN_TO_DRAFT: 'Returned for amendments',
+  DOCUMENT_UPLOAD: 'Document uploaded',
+  DOCUMENT_DELETE: 'Document deleted',
+  BORROWER_CREATE_APPLICATION: 'Application created',
+  BORROWER_UPDATE_APPLICATION: 'Application updated',
+  BORROWER_SUBMIT_APPLICATION: 'Application submitted',
+  BORROWER_APPLICATION_DOCUMENT_UPLOAD: 'Document uploaded',
+  BORROWER_APPLICATION_DOCUMENT_DELETE: 'Document removed',
+  BORROWER_APPLICATION_STATUS_CHANGE: 'Status updated',
+  BORROWER_WITHDRAW_APPLICATION: 'Application withdrawn',
+  APPLICATION_COUNTER_OFFER: 'Counter offer from lender',
+  APPLICATION_ACCEPT_BORROWER_OFFER: 'Borrower offer accepted',
+  APPLICATION_REJECT_OFFERS: 'Negotiation offers rejected',
+  BORROWER_COUNTER_OFFER: 'Counter offer sent',
+  BORROWER_ACCEPT_LENDER_OFFER: 'Lender offer accepted',
+  BORROWER_REJECT_OFFERS: 'Pending offers declined',
+};
+
+function timelineActionLabel(action: string): string {
+  return TIMELINE_LABELS[action] ?? action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function timelineActorLabel(event: ApplicationTimelineEvent): string | null {
+  if (event.user?.name ?? event.user?.email) return event.user?.name ?? event.user?.email ?? null;
+  if (event.action.startsWith('BORROWER_')) return 'You';
+  if (
+    event.action.startsWith('APPLICATION_') ||
+    event.action === 'APPROVE' ||
+    event.action === 'REJECT' ||
+    event.action === 'RETURN_TO_DRAFT'
+  ) return 'Lender';
+  return null;
+}
+
+function TimelineItem({ event }: { event: ApplicationTimelineEvent }) {
+  const theme = useTheme();
+  const label = timelineActionLabel(event.action);
+  const actorLabel = timelineActorLabel(event);
+  const nd = event.newData && typeof event.newData === 'object' ? (event.newData as Record<string, unknown>) : null;
+  const prev = event.previousData && typeof event.previousData === 'object'
+    ? (event.previousData as Record<string, unknown>)
+    : null;
+
+  const renderDetail = () => {
+    if (
+      (event.action === 'DOCUMENT_UPLOAD' || event.action === 'BORROWER_APPLICATION_DOCUMENT_UPLOAD') && nd
+    ) {
+      return (
+        <View style={[styles.timelineDetail, { backgroundColor: theme.background, borderColor: theme.border }]}>
+          <ThemedText type="small" themeColor="textSecondary">
+            Uploaded: <ThemedText type="smallBold">{String(nd.originalName ?? nd.filename ?? '—')}</ThemedText>
+          </ThemedText>
+        </View>
+      );
+    }
+    if (
+      (event.action === 'DOCUMENT_DELETE' || event.action === 'BORROWER_APPLICATION_DOCUMENT_DELETE')
+    ) {
+      const src = prev ?? nd;
+      return (
+        <View style={[styles.timelineDetail, { backgroundColor: theme.background, borderColor: theme.border }]}>
+          <ThemedText type="small" themeColor="textSecondary">
+            Removed: <ThemedText type="smallBold">{String(src?.originalName ?? src?.filename ?? '—')}</ThemedText>
+          </ThemedText>
+        </View>
+      );
+    }
+    if (
+      (event.action === 'BORROWER_APPLICATION_STATUS_CHANGE' ||
+        event.action === 'APPROVE' ||
+        event.action === 'REJECT' ||
+        event.action === 'RETURN_TO_DRAFT') && nd
+    ) {
+      return (
+        <View style={[styles.timelineDetail, { backgroundColor: theme.background, borderColor: theme.border }]}>
+          <ThemedText type="small" themeColor="textSecondary">
+            {prev?.status
+              ? `${String(prev.status).replace(/_/g, ' ')} → ${String(nd.status ?? '').replace(/_/g, ' ')}`
+              : String(nd.status ?? '').replace(/_/g, ' ')}
+          </ThemedText>
+          {(nd.reason ?? nd.notes) ? (
+            <ThemedText type="small" themeColor="textSecondary" style={{ marginTop: Spacing.one }}>
+              {String(nd.reason ?? nd.notes)}
+            </ThemedText>
+          ) : null}
+        </View>
+      );
+    }
+    if (
+      (event.action === 'APPLICATION_COUNTER_OFFER' || event.action === 'BORROWER_COUNTER_OFFER') && nd
+    ) {
+      return (
+        <View style={[styles.timelineDetail, { backgroundColor: theme.background, borderColor: theme.border }]}>
+          {nd.amount != null ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              Amount: <ThemedText type="smallBold">{formatCurrencyRM(nd.amount)}</ThemedText>
+            </ThemedText>
+          ) : null}
+          {nd.term != null ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              Term: <ThemedText type="smallBold">{String(nd.term)} months</ThemedText>
+            </ThemedText>
+          ) : null}
+        </View>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <View style={styles.timelineItem}>
+      <View style={styles.timelineDotCol}>
+        <View style={[styles.timelineDot, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+          <MaterialIcons name="radio-button-checked" size={10} color={theme.textSecondary} />
+        </View>
+        <View style={[styles.timelineLine, { backgroundColor: theme.border }]} />
+      </View>
+      <View style={styles.timelineContent}>
+        <ThemedText type="smallBold">{label}</ThemedText>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+          {actorLabel ? (
+            <ThemedText type="small" themeColor="textSecondary">by {actorLabel} · </ThemedText>
+          ) : null}
+          <ThemedText type="small" themeColor="textSecondary">{formatRelativeTime(event.createdAt)}</ThemedText>
+        </View>
+        {renderDetail()}
+        <ThemedText type="small" themeColor="textSecondary" style={{ marginTop: Spacing.one }}>
+          {formatDateShort(event.createdAt)}
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
+
+// --- main screen ---
 
 export default function ApplicationDetailScreen() {
   const theme = useTheme();
@@ -59,8 +255,17 @@ export default function ApplicationDetailScreen() {
   const [app, setApp] = useState<LoanApplicationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
 
+  const [preview, setPreview] = useState<LoanPreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const [timeline, setTimeline] = useState<ApplicationTimelineEvent[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [hasMoreTimeline, setHasMoreTimeline] = useState(false);
+  const [timelineCursor, setTimelineCursor] = useState<string | null>(null);
+  const [loadingMoreTimeline, setLoadingMoreTimeline] = useState(false);
+
+  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
   const [showCounterForm, setShowCounterForm] = useState(false);
   const [counterAmount, setCounterAmount] = useState('');
   const [counterTerm, setCounterTerm] = useState('');
@@ -80,7 +285,55 @@ export default function ApplicationDetailScreen() {
     }
   }, [id]);
 
+  const loadPreview = useCallback(async (data: LoanApplicationDetail) => {
+    setPreviewLoading(true);
+    try {
+      const res = await applicationsClient.previewBorrowerApplication({
+        productId: data.productId,
+        amount: Number(data.amount),
+        term: data.term,
+      });
+      if (res.success) setPreview(res.data);
+    } catch {
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
+  const loadTimeline = useCallback(async (appId: string) => {
+    setTimelineLoading(true);
+    try {
+      const res = await loansClient.getBorrowerApplicationTimeline(appId, { limit: 10 });
+      setTimeline((res.data ?? []) as ApplicationTimelineEvent[]);
+      setHasMoreTimeline(res.pagination?.hasMore ?? false);
+      setTimelineCursor(res.pagination?.nextCursor ?? null);
+    } catch { /* silent */ } finally {
+      setTimelineLoading(false);
+    }
+  }, []);
+
+  const loadMoreTimeline = useCallback(async (appId: string) => {
+    if (!timelineCursor) return;
+    setLoadingMoreTimeline(true);
+    try {
+      const res = await loansClient.getBorrowerApplicationTimeline(appId, { limit: 10, cursor: timelineCursor });
+      setTimeline((curr) => [...curr, ...((res.data ?? []) as ApplicationTimelineEvent[])]);
+      setHasMoreTimeline(res.pagination?.hasMore ?? false);
+      setTimelineCursor(res.pagination?.nextCursor ?? null);
+    } catch { /* silent */ } finally {
+      setLoadingMoreTimeline(false);
+    }
+  }, [timelineCursor]);
+
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (app) {
+      void loadPreview(app);
+      if (id) void loadTimeline(id);
+    }
+  }, [app?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pendingOffer = app?.offerRounds?.find(
     (o) => o.status === LoanApplicationOfferStatus.PENDING && o.fromParty === LoanApplicationOfferParty.ADMIN,
@@ -94,14 +347,9 @@ export default function ApplicationDetailScreen() {
         text: 'Accept',
         onPress: async () => {
           setOfferActionLoading(true);
-          try {
-            await applicationsClient.postBorrowerAcceptOffer(id);
-            await load();
-          } catch (e) {
-            Alert.alert('Error', e instanceof Error ? e.message : 'Failed to accept offer');
-          } finally {
-            setOfferActionLoading(false);
-          }
+          try { await applicationsClient.postBorrowerAcceptOffer(id); await load(); }
+          catch (e) { Alert.alert('Error', e instanceof Error ? e.message : 'Failed to accept offer'); }
+          finally { setOfferActionLoading(false); }
         },
       },
     ]);
@@ -116,14 +364,9 @@ export default function ApplicationDetailScreen() {
         style: 'destructive',
         onPress: async () => {
           setOfferActionLoading(true);
-          try {
-            await applicationsClient.postBorrowerRejectOffers(id);
-            await load();
-          } catch (e) {
-            Alert.alert('Error', e instanceof Error ? e.message : 'Failed to reject offer');
-          } finally {
-            setOfferActionLoading(false);
-          }
+          try { await applicationsClient.postBorrowerRejectOffers(id); await load(); }
+          catch (e) { Alert.alert('Error', e instanceof Error ? e.message : 'Failed to reject offer'); }
+          finally { setOfferActionLoading(false); }
         },
       },
     ]);
@@ -185,12 +428,8 @@ export default function ApplicationDetailScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          try {
-            await applicationsClient.deleteApplicationDocument(id, docId);
-            await load(true);
-          } catch (e) {
-            Alert.alert('Error', e instanceof Error ? e.message : 'Could not delete document');
-          }
+          try { await applicationsClient.deleteApplicationDocument(id, docId); await load(true); }
+          catch (e) { Alert.alert('Error', e instanceof Error ? e.message : 'Could not delete file'); }
         },
       },
     ]);
@@ -219,10 +458,14 @@ export default function ApplicationDetailScreen() {
   const isDraft = app.status === 'DRAFT';
   const loanChannel = (app as unknown as { loanChannel?: string }).loanChannel;
   const borrowerObj = (app as unknown as { borrower?: Record<string, unknown> }).borrower;
+  const product = app.product;
+  const isJadualK = product?.loanScheduleType === 'JADUAL_K';
+  const interestModelLabel = product?.interestModel === 'RULE_78' ? 'Rule 78'
+    : product?.interestModel ? product.interestModel.replace(/_/g, ' ') : null;
 
   return (
     <PageScreen
-      title={app.product?.name ?? 'Application'}
+      title={product?.name ?? 'Application'}
       showBackButton
       backFallbackHref="/applications"
       refreshControl={
@@ -230,49 +473,148 @@ export default function ApplicationDetailScreen() {
       }>
       <View style={{ gap: Spacing.three }}>
 
+        {/* Overview — compact single card */}
         <SectionCard title="Overview">
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <ThemedText type="small" themeColor="textSecondary">Status</ThemedText>
-            <StatusPill status={app.status} />
+          {/* Status row */}
+          <View style={styles.overviewStatusRow}>
+            <StatusPill status={app.status} theme={theme} />
+            {loanChannel ? (
+              <View style={[styles.channelChip, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                <MaterialIcons
+                  name={loanChannel === 'PHYSICAL' ? 'store' : 'wifi'}
+                  size={11}
+                  color={theme.textSecondary}
+                />
+                <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 11 }}>
+                  {loanChannel === 'PHYSICAL' ? 'Physical' : 'Online'}
+                </ThemedText>
+              </View>
+            ) : null}
+            <ThemedText type="small" themeColor="textSecondary" style={{ marginLeft: 'auto', fontSize: 11 }}>
+              {formatDateShort(app.createdAt)}
+            </ThemedText>
           </View>
-          {loanChannel && (
-            <InfoRow label="Channel" value={loanChannel === 'PHYSICAL' ? 'Physical branch' : 'Online'} />
+
+          {/* Borrower — inline below status */}
+          {borrowerObj ? (
+            <View style={[styles.borrowerRow, { borderTopColor: theme.border }]}>
+              <MaterialIcons name="person" size={14} color={theme.textSecondary} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                {borrowerObj.name ? (
+                  <ThemedText type="smallBold" numberOfLines={1}>{String(borrowerObj.name)}</ThemedText>
+                ) : null}
+                <View style={styles.borrowerMeta}>
+                  {borrowerObj.icNumber ? (
+                    <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 11 }}>
+                      {String(borrowerObj.icNumber)}
+                    </ThemedText>
+                  ) : null}
+                  {borrowerObj.phone ? (
+                    <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 11 }}>
+                      {borrowerObj.icNumber ? ' · ' : ''}{String(borrowerObj.phone)}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </SectionCard>
+
+        {/* Loan summary — calculated from preview API */}
+        <SectionCard
+          title="Loan summary"
+          collapsible
+          defaultExpanded>
+          {previewLoading ? (
+            <View style={{ alignItems: 'center', paddingVertical: Spacing.two }}>
+              <ActivityIndicator size="small" color={theme.primary} />
+            </View>
+          ) : preview ? (
+            <View style={{ gap: Spacing.one }}>
+              {/* Hero amount + monthly */}
+              <View style={styles.summaryHero}>
+                <View>
+                  <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 11 }}>Loan amount</ThemedText>
+                  <ThemedText type="default" style={{ fontWeight: '700', fontSize: 20 }}>
+                    {formatCurrencyRM(preview.loanAmount)}
+                  </ThemedText>
+                </View>
+                <View style={[styles.monthlyBox, { backgroundColor: theme.primary + '14', borderColor: theme.primary + '33' }]}>
+                  <ThemedText type="small" style={{ fontSize: 10, color: theme.primary }}>Monthly</ThemedText>
+                  <ThemedText type="smallBold" style={{ color: theme.primary, fontSize: 15 }}>
+                    {formatCurrencyRM(preview.monthlyPayment)}
+                  </ThemedText>
+                </View>
+              </View>
+
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+              <SummaryRow label="Term" value={`${preview.term} months`} />
+              <SummaryRow label={`Interest (${preview.interestRate}% p.a.)`} value={formatCurrencyRM(preview.totalInterest)} />
+              <SummaryRow label="Legal fee" value={formatCurrencyRM(preview.legalFee)} highlight="warning" />
+              <SummaryRow label="Stamping fee" value={formatCurrencyRM(preview.stampingFee)} highlight="warning" />
+              <SummaryRow label="Total fees" value={formatCurrencyRM(preview.totalFees)} highlight="warning" />
+
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+              <SummaryRow label="Net disbursement" value={formatCurrencyRM(preview.netDisbursement)} highlight="success" />
+              <SummaryRow label="Total payable" value={formatCurrencyRM(preview.totalPayable)} />
+            </View>
+          ) : (
+            <ThemedText type="small" themeColor="textSecondary">Loan estimate could not be loaded.</ThemedText>
           )}
-          <InfoRow
-            label="Submitted"
-            value={new Intl.DateTimeFormat('en-MY', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(app.createdAt))}
-          />
         </SectionCard>
 
-        <SectionCard title="Loan details">
-          <InfoRow label="Amount" value={formatCurrencyRM(app.amount)} />
-          <InfoRow label="Term" value={`${app.term} months`} />
+        {/* Product details — collapsible, collapsed by default */}
+        <SectionCard
+          title="Product details"
+          collapsible
+          defaultExpanded={false}
+          collapsedSummary={[
+            product?.name,
+            isJadualK ? 'Jadual K' : 'Jadual J',
+            interestModelLabel,
+          ].filter(Boolean).join(' · ')}>
+          {product?.name ? <InfoRow label="Product" value={product.name} /> : null}
+          <InfoRow label="Schedule type" value={isJadualK ? 'Jadual K' : 'Jadual J'} />
+          {interestModelLabel ? <InfoRow label="Interest model" value={interestModelLabel} /> : null}
+          {product?.interestRate != null ? <InfoRow label="Interest rate" value={`${Number(product.interestRate)}% p.a.`} /> : null}
+          {product?.latePaymentRate != null ? <InfoRow label="Late payment rate" value={`${Number(product.latePaymentRate)}% p.a.`} /> : null}
+          {product?.arrearsPeriod != null ? <InfoRow label="Arrears period" value={`${product.arrearsPeriod} days`} /> : null}
+          {product?.defaultPeriod != null ? <InfoRow label="Default period" value={`${product.defaultPeriod} days`} /> : null}
           {(app as unknown as { collateralType?: string }).collateralType ? (
-            <InfoRow label="Collateral type" value={String((app as unknown as { collateralType: string }).collateralType)} />
+            <>
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+              <InfoRow label="Collateral type" value={String((app as unknown as { collateralType: string }).collateralType)} />
+              {(app as unknown as { collateralValue?: unknown }).collateralValue ? (
+                <InfoRow label="Collateral value" value={formatCurrencyRM((app as unknown as { collateralValue: unknown }).collateralValue)} />
+              ) : null}
+            </>
           ) : null}
-          {(app as unknown as { collateralValue?: unknown }).collateralValue ? (
-            <InfoRow label="Collateral value" value={formatCurrencyRM((app as unknown as { collateralValue: unknown }).collateralValue)} />
+          {product?.earlySettlementEnabled ? (
+            <>
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+              <InfoRow label="Early settlement" value="Enabled" />
+              {product.earlySettlementLockInMonths != null ? (
+                <InfoRow
+                  label="Lock-in period"
+                  value={product.earlySettlementLockInMonths > 0 ? `${product.earlySettlementLockInMonths} months` : 'None'}
+                />
+              ) : null}
+            </>
           ) : null}
         </SectionCard>
 
-        {borrowerObj && (
-          <SectionCard title="Borrower information">
-            {borrowerObj.name ? <InfoRow label="Name" value={String(borrowerObj.name)} /> : null}
-            {borrowerObj.icNumber ? <InfoRow label="IC / Passport" value={String(borrowerObj.icNumber)} /> : null}
-            {borrowerObj.phone ? <InfoRow label="Phone" value={String(borrowerObj.phone)} /> : null}
-            {borrowerObj.email ? <InfoRow label="Email" value={String(borrowerObj.email)} /> : null}
-          </SectionCard>
-        )}
-
-        {pendingOffer && (
-          <SectionCard title="Counter-offer from lender" description="The lender has proposed revised terms. Please review and respond.">
+        {/* Pending offer from lender */}
+        {pendingOffer ? (
+          <SectionCard title="Counter-offer from lender" description="Review and respond to the lender's proposed terms.">
             <View style={[styles.offerBox, { backgroundColor: theme.warning + '14', borderColor: theme.warning + '44' }]}>
-              {pendingOffer.amount != null && (
+              {pendingOffer.amount != null ? (
                 <InfoRow label="Proposed amount" value={formatCurrencyRM(pendingOffer.amount)} />
-              )}
-              {pendingOffer.term != null && (
+              ) : null}
+              {pendingOffer.term != null ? (
                 <InfoRow label="Proposed term" value={`${pendingOffer.term} months`} />
-              )}
+              ) : null}
             </View>
 
             {!showCounterForm ? (
@@ -284,11 +626,9 @@ export default function ApplicationDetailScreen() {
                     styles.offerBtn,
                     { backgroundColor: theme.success, opacity: pressed || offerActionLoading ? 0.75 : 1 },
                   ]}>
-                  {offerActionLoading ? (
-                    <ActivityIndicator size="small" color={theme.primaryForeground} />
-                  ) : (
-                    <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>Accept</ThemedText>
-                  )}
+                  {offerActionLoading
+                    ? <ActivityIndicator size="small" color={theme.primaryForeground} />
+                    : <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>Accept</ThemedText>}
                 </Pressable>
                 <Pressable
                   disabled={offerActionLoading}
@@ -334,11 +674,9 @@ export default function ApplicationDetailScreen() {
                       styles.offerBtn,
                       { backgroundColor: theme.primary, opacity: pressed || counterSubmitting ? 0.75 : 1 },
                     ]}>
-                    {counterSubmitting ? (
-                      <ActivityIndicator size="small" color={theme.primaryForeground} />
-                    ) : (
-                      <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>Send counter</ThemedText>
-                    )}
+                    {counterSubmitting
+                      ? <ActivityIndicator size="small" color={theme.primaryForeground} />
+                      : <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>Send counter</ThemedText>}
                   </Pressable>
                   <Pressable
                     onPress={() => setShowCounterForm(false)}
@@ -352,13 +690,19 @@ export default function ApplicationDetailScreen() {
               </View>
             )}
           </SectionCard>
-        )}
+        ) : null}
 
+        {/* Documents */}
         <SectionCard
           title="Documents"
-          description={uploadedDocs.length > 0 ? `${uploadedDocs.length} document${uploadedDocs.length !== 1 ? 's' : ''} uploaded` : 'No documents uploaded yet'}
+          description={uploadedDocs.length > 0
+            ? `${uploadedDocs.length} document${uploadedDocs.length !== 1 ? 's' : ''} uploaded`
+            : 'No documents uploaded yet'}
           collapsible
-          defaultExpanded={requiredDocs.length > 0}>
+          defaultExpanded={requiredDocs.length > 0}
+          collapsedSummary={uploadedDocs.length > 0
+            ? `${uploadedDocs.length} uploaded`
+            : requiredDocs.length > 0 ? `${requiredDocs.length} required` : undefined}>
           {requiredDocs.length > 0 ? (
             requiredDocs.map((doc) => {
               const uploaded = uploadedDocs.find((d) => d.category === doc.key);
@@ -372,11 +716,11 @@ export default function ApplicationDetailScreen() {
                     />
                     <View style={{ flex: 1 }}>
                       <ThemedText type="small">{doc.label}</ThemedText>
-                      {uploaded && (
+                      {uploaded ? (
                         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
                           {uploaded.originalName ?? uploaded.filename}
                         </ThemedText>
-                      )}
+                      ) : null}
                     </View>
                   </View>
                   <View style={{ flexShrink: 0, flexDirection: 'row', gap: Spacing.one }}>
@@ -420,7 +764,42 @@ export default function ApplicationDetailScreen() {
           )}
         </SectionCard>
 
-        {isDraft && loanChannel !== 'PHYSICAL' && (
+        {/* Activity timeline */}
+        <SectionCard
+          title="Activity"
+          collapsible
+          defaultExpanded={false}
+          collapsedSummary={timeline.length > 0 ? `${timeline.length} event${timeline.length !== 1 ? 's' : ''}` : undefined}>
+          {timelineLoading ? (
+            <View style={{ alignItems: 'center', paddingVertical: Spacing.three }}>
+              <ActivityIndicator size="small" color={theme.primary} />
+            </View>
+          ) : timeline.length === 0 ? (
+            <ThemedText type="small" themeColor="textSecondary">No activity recorded yet.</ThemedText>
+          ) : (
+            <View>
+              {timeline.map((event, index) => (
+                <TimelineItem key={event.id ?? String(index)} event={event} />
+              ))}
+              {hasMoreTimeline ? (
+                <Pressable
+                  disabled={loadingMoreTimeline}
+                  onPress={() => id ? void loadMoreTimeline(id) : undefined}
+                  style={({ pressed }) => [
+                    styles.loadMoreBtn,
+                    { borderColor: theme.border, opacity: pressed || loadingMoreTimeline ? 0.75 : 1 },
+                  ]}>
+                  {loadingMoreTimeline
+                    ? <ActivityIndicator size="small" color={theme.primary} />
+                    : <ThemedText type="small" style={{ color: theme.primary }}>Load more</ThemedText>}
+                </Pressable>
+              ) : null}
+            </View>
+          )}
+        </SectionCard>
+
+        {/* Draft CTA */}
+        {isDraft && loanChannel !== 'PHYSICAL' ? (
           <Pressable
             onPress={() => router.push(`/apply-loan?applicationId=${app.id}` as never)}
             style={({ pressed }) => [
@@ -432,7 +811,17 @@ export default function ApplicationDetailScreen() {
               Continue application
             </ThemedText>
           </Pressable>
-        )}
+        ) : null}
+
+        {/* Approved — loan pending */}
+        {app.status === 'APPROVED' && !(app as unknown as { loan?: { id?: string } }).loan?.id ? (
+          <View style={[styles.infoNotice, { backgroundColor: theme.success + '14', borderColor: theme.success + '33' }]}>
+            <MaterialIcons name="check-circle" size={16} color={theme.success} />
+            <ThemedText type="small" style={{ color: theme.success, flex: 1 }}>
+              Approved — your loan record will appear in the Loans tab when ready.
+            </ThemedText>
+          </View>
+        ) : null}
       </View>
     </PageScreen>
   );
@@ -440,17 +829,62 @@ export default function ApplicationDetailScreen() {
 
 const styles = StyleSheet.create({
   pill: {
-    paddingHorizontal: Spacing.two,
+    paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
+  },
+  overviewStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    flexWrap: 'wrap',
+  },
+  channelChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  borrowerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: Spacing.two,
+  },
+  borrowerMeta: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 2,
+  },
+  summaryHero: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    marginBottom: Spacing.one,
+  },
+  monthlyBox: {
+    alignItems: 'flex-end',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: Spacing.one,
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: Spacing.two,
-    paddingVertical: Spacing.one,
+    paddingVertical: 3,
   },
   offerBox: {
     borderRadius: 10,
@@ -503,6 +937,49 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
+  timelineItem: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  timelineDotCol: {
+    alignItems: 'center',
+    width: 20,
+  },
+  timelineDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineLine: {
+    flex: 1,
+    width: 1,
+    marginTop: 4,
+    minHeight: 8,
+  },
+  timelineContent: {
+    flex: 1,
+    paddingBottom: Spacing.two,
+    gap: 3,
+  },
+  timelineDetail: {
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    marginTop: Spacing.one,
+  },
+  loadMoreBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.two,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: Spacing.two,
+    minHeight: 44,
+  },
   continueButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -510,5 +987,14 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingVertical: Spacing.two + 4,
     borderRadius: 14,
+    minHeight: 44,
+  },
+  infoNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+    padding: Spacing.two,
+    borderRadius: 10,
+    borderWidth: 1,
   },
 });

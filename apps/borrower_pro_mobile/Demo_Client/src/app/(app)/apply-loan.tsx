@@ -667,7 +667,7 @@ export default function ApplyLoanScreen() {
     try {
       await applicationsClient.submitBorrowerApplication(draft.applicationId);
       await clearLoanWizardDraft();
-      router.replace(`/application/${draft.applicationId}` as never);
+      router.replace('/applications' as never);
     } catch (e) {
       Alert.alert('Submission failed', e instanceof Error ? e.message : 'Could not submit application');
     } finally {
@@ -1167,9 +1167,23 @@ export default function ApplyLoanScreen() {
 
   function renderStep4() {
     const app = application;
+    const reviewDocs = (app?.product?.requiredDocuments ?? []) as Array<{ key: string; label: string; required: boolean }>;
+    const uploadedDocs = (app?.documents ?? []) as Array<{ id: string; category?: string }>;
+    const missingRequired = reviewDocs.filter((r) => r.required && !uploadedDocs.some((d) => d.category === r.key));
+    const uploadedCount = uploadedDocs.filter((d) => reviewDocs.some((r) => r.key === d.category)).length;
+    const borrowerName = (borrower as unknown as { name?: string }).name ?? '—';
 
     return (
       <View style={{ gap: Spacing.three }}>
+        {missingRequired.length > 0 && (
+          <View style={[styles.warningBanner, { backgroundColor: theme.error + '18', borderColor: theme.error + '44' }]}>
+            <MaterialIcons name="warning" size={16} color={theme.error} />
+            <ThemedText type="small" style={{ color: theme.error, flex: 1 }}>
+              Required documents are missing. Go back to upload all required documents.
+            </ThemedText>
+          </View>
+        )}
+
         <SectionCard title="Loan details">
           {[
             { label: 'Product', value: app?.product?.name ?? selectedProduct?.name ?? '—' },
@@ -1184,8 +1198,12 @@ export default function ApplyLoanScreen() {
         </SectionCard>
 
         {preview && (
-          <SectionCard title="Estimated fees">
+          <SectionCard title="Estimated fees" collapsible defaultExpanded>
             {[
+              {
+                label: 'Interest rate',
+                value: `${Number((preview as unknown as { interestRate?: number }).interestRate ?? 0).toFixed(2)}% p.a. (${String((preview as unknown as { interestModel?: string }).interestModel ?? '')})`,
+              },
               { label: 'Monthly payment', value: formatCurrencyRM(preview.monthlyPayment) },
               { label: 'Legal fee', value: formatCurrencyRM((preview as unknown as { legalFee?: unknown }).legalFee) },
               { label: 'Stamping fee', value: formatCurrencyRM((preview as unknown as { stampingFee?: unknown }).stampingFee) },
@@ -1201,9 +1219,13 @@ export default function ApplyLoanScreen() {
         )}
 
         {borrower && (
-          <SectionCard title="Borrower information">
+          <SectionCard
+            title="Borrower information"
+            collapsible
+            defaultExpanded={false}
+            collapsedSummary={borrowerName}>
             {[
-              { label: 'Name', value: (borrower as unknown as { name?: string }).name ?? '—' },
+              { label: 'Name', value: borrowerName },
               { label: 'IC / Passport', value: (borrower as unknown as { icNumber?: string }).icNumber ?? '—' },
               { label: 'Phone', value: (borrower as unknown as { phone?: string }).phone ?? '—' },
               { label: 'Email', value: (borrower as unknown as { email?: string }).email ?? '—' },
@@ -1216,21 +1238,29 @@ export default function ApplyLoanScreen() {
           </SectionCard>
         )}
 
-        {((application?.product?.requiredDocuments as Array<unknown> | null | undefined)?.length ?? 0) > 0 && (
-          <SectionCard title="Documents">
-            {((application?.product?.requiredDocuments ?? []) as Array<{ key: string; label: string; required: boolean }>).map((doc) => {
-              const uploaded = ((application?.documents ?? []) as Array<{ id: string; category?: string }>).some((d) => d.category === doc.key);
+        {reviewDocs.length > 0 && (
+          <SectionCard
+            title="Documents"
+            collapsible
+            defaultExpanded={missingRequired.length > 0}
+            collapsedSummary={`${uploadedCount} / ${reviewDocs.length} uploaded`}>
+            {reviewDocs.map((doc) => {
+              const isUploaded = uploadedDocs.some((d) => d.category === doc.key);
               return (
                 <View key={doc.key} style={styles.reviewRow}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two, flex: 1 }}>
                     <MaterialIcons
-                      name={uploaded ? 'check-circle' : 'cancel'}
+                      name={isUploaded ? 'check-circle' : 'cancel'}
                       size={16}
-                      color={uploaded ? theme.success : doc.required ? theme.error : theme.textSecondary}
+                      color={isUploaded ? theme.success : doc.required ? theme.error : theme.textSecondary}
                     />
                     <ThemedText type="small">{doc.label}</ThemedText>
                   </View>
-                  <ThemedText type="small" themeColor="textSecondary">{uploaded ? 'Uploaded' : doc.required ? 'Missing' : 'Not uploaded'}</ThemedText>
+                  <ThemedText
+                    type="small"
+                    style={{ color: isUploaded ? theme.success : doc.required ? theme.error : theme.textSecondary }}>
+                    {isUploaded ? 'Uploaded' : doc.required ? 'Missing' : 'Optional'}
+                  </ThemedText>
                 </View>
               );
             })}
@@ -1378,6 +1408,14 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: Spacing.two,
     paddingVertical: Spacing.one,
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: Spacing.two + 2,
   },
   consentRow: {
     flexDirection: 'row',

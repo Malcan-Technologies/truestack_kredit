@@ -6,11 +6,13 @@ import {
 } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { type Href, useNavigation, useRouter } from 'expo-router';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   Platform,
   Pressable,
+  type RefreshControlProps,
   StyleSheet,
   View,
   type ViewStyle,
@@ -187,7 +189,7 @@ interface PageScreenProps {
   children: React.ReactNode;
   contentStyle?: ViewStyle;
   /** Native pull-to-refresh on the main scroll (e.g. `RefreshControl`). */
-  refreshControl?: React.ReactElement;
+  refreshControl?: React.ReactElement<RefreshControlProps>;
   /**
    * Replaces the main `Animated.ScrollView` with this scrollable (typically Reanimated `Animated.FlatList`).
    * Use for paginated / infinite lists. **`children` are ignored** when set — build the screen body inside
@@ -208,6 +210,8 @@ interface PageScreenProps {
   collapseTitleOnScroll?: boolean;
   /** Fixed action bar anchored to the bottom of the screen, above the safe area. */
   stickyFooter?: React.ReactNode;
+  /** Override the default back navigation. When provided, called instead of `navigation.goBack()`. */
+  onBack?: () => void | Promise<void>;
 }
 
 export function PageScreen({
@@ -224,6 +228,7 @@ export function PageScreen({
   headerActions,
   collapseTitleOnScroll = true,
   stickyFooter,
+  onBack,
 }: PageScreenProps) {
   const theme = useTheme();
   const { resolvedScheme } = useThemePreference();
@@ -311,13 +316,26 @@ export function PageScreen({
   const showNotificationBell = showProfileSwitcher;
 
   function handleBack() {
+    if (onBack) {
+      void onBack();
+      return;
+    }
     if (navigation.canGoBack()) {
       navigation.goBack();
       return;
     }
-
     router.replace(backFallbackHref);
   }
+
+  useEffect(() => {
+    if (!showBackButton || Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true;
+    });
+    return () => sub.remove();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showBackButton, onBack]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -416,26 +434,33 @@ export function PageScreen({
       </SafeAreaView>
 
       {scrollableOverride ? (
-        React.cloneElement(scrollableOverride, {
-          onScroll,
-          scrollEventThrottle: 16,
-          keyboardShouldPersistTaps: 'handled',
-          style: [styles.scroll, { backgroundColor: theme.background }, scrollableOverride.props.style],
-          contentContainerStyle: [
-            styles.scrollContent,
-            {
-              paddingBottom: bottomPadding,
-              paddingHorizontal: Spacing.four,
-              maxWidth: MaxContentWidth,
-              alignSelf: 'center',
-              width: '100%',
-            },
-            scrollableOverride.props.contentContainerStyle,
-          ],
-          refreshControl: refreshControl ?? scrollableOverride.props.refreshControl,
-          showsVerticalScrollIndicator:
-            scrollableOverride.props.showsVerticalScrollIndicator ?? true,
-        } as never)
+        (() => {
+          const op = scrollableOverride.props as {
+            style?: ViewStyle;
+            contentContainerStyle?: ViewStyle;
+            refreshControl?: React.ReactElement<RefreshControlProps>;
+            showsVerticalScrollIndicator?: boolean;
+          };
+          return React.cloneElement(scrollableOverride, {
+            onScroll,
+            scrollEventThrottle: 16,
+            keyboardShouldPersistTaps: 'handled',
+            style: [styles.scroll, { backgroundColor: theme.background }, op.style],
+            contentContainerStyle: [
+              styles.scrollContent,
+              {
+                paddingBottom: bottomPadding,
+                paddingHorizontal: Spacing.four,
+                maxWidth: MaxContentWidth,
+                alignSelf: 'center',
+                width: '100%',
+              },
+              op.contentContainerStyle,
+            ],
+            refreshControl: refreshControl ?? op.refreshControl,
+            showsVerticalScrollIndicator: op.showsVerticalScrollIndicator ?? true,
+          } as never);
+        })()
       ) : (
         <Animated.ScrollView
           style={[styles.scroll, { backgroundColor: theme.background }]}

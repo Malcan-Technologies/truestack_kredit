@@ -495,8 +495,6 @@ export default function ApplyLoanScreen() {
     setDraft(newDraft);
     await saveLoanWizardDraft(newDraft);
   }
-  void handleBack;
-
   async function advanceStep(newStep: number, updatedDraft?: Partial<LoanWizardDraft>) {
     const newDraft = { ...draft, ...updatedDraft, step: newStep };
     setDraft(newDraft);
@@ -1262,6 +1260,7 @@ export default function ApplyLoanScreen() {
     <PageScreen
       title="Apply for a Loan"
       showBackButton
+      onBack={() => void handleBack()}
       stickyFooter={getFooterButton() ?? undefined}>
       <StepperBar currentStep={step} />
       {step === 0 && renderStep0()}

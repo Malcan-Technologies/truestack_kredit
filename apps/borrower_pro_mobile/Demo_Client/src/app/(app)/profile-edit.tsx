@@ -6,6 +6,7 @@ import {
   Field,
   FormSwitchRow,
   OptionChipGroup,
+  PhoneField,
   ReadOnlyField,
   SelectField,
 } from '@/components/borrower-form-fields';
@@ -572,7 +573,7 @@ export default function ProfileEditScreen() {
           </SectionCard>
 
           <SectionCard title="Contact information">
-            <Field
+            <PhoneField
               label="Phone number"
               value={individualFormData.phone}
               onChangeText={(value) => {
@@ -581,9 +582,6 @@ export default function ProfileEditScreen() {
                   current ? { ...current, phone: value } : current,
                 );
               }}
-              placeholder="+60..."
-              keyboardType="phone-pad"
-              autoCapitalize="none"
               error={validationErrors.phone}
             />
             <Field
@@ -709,7 +707,7 @@ export default function ProfileEditScreen() {
               placeholder="Optional"
               autoCapitalize="words"
             />
-            <Field
+            <PhoneField
               label="Emergency contact phone"
               value={individualFormData.emergencyContactPhone}
               onChangeText={(value) =>
@@ -717,9 +715,6 @@ export default function ProfileEditScreen() {
                   current ? { ...current, emergencyContactPhone: value } : current,
                 )
               }
-              placeholder="Optional"
-              keyboardType="phone-pad"
-              autoCapitalize="none"
             />
             <OptionChipGroup
               label="Relationship"
@@ -997,7 +992,7 @@ export default function ProfileEditScreen() {
           </SectionCard>
 
           <SectionCard title="Company contact">
-            <Field
+            <PhoneField
               label="Company phone"
               value={corporateFormData.companyPhone}
               onChangeText={(value) => {
@@ -1006,9 +1001,6 @@ export default function ProfileEditScreen() {
                   current ? { ...current, companyPhone: value } : current,
                 );
               }}
-              placeholder="+60..."
-              keyboardType="phone-pad"
-              autoCapitalize="none"
               error={validationErrors.companyPhone}
             />
             <Field

@@ -1,3 +1,5 @@
+import { parsePhoneNumber, formatPhoneNumber } from 'react-phone-number-input';
+
 import { getCountryName, getStateName } from '@/lib/address-options';
 
 const DISPLAY_FALLBACK = '—';
@@ -202,6 +204,26 @@ export function formatAddressValue(data: {
   ].filter((part): part is string => Boolean(part));
 
   return parts.length > 0 ? parts.join(', ') : DISPLAY_FALLBACK;
+}
+
+export function getFlagEmoji(countryCode: string): string {
+  return countryCode
+    .toUpperCase()
+    .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+export function formatPhoneWithFlag(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return DISPLAY_FALLBACK;
+  try {
+    const parsed = parsePhoneNumber(trimmed);
+    if (parsed?.country) {
+      const flag = getFlagEmoji(parsed.country);
+      const formatted = formatPhoneNumber(trimmed);
+      return `${flag} ${formatted || trimmed}`;
+    }
+  } catch {}
+  return trimmed;
 }
 
 export function humanizeToken(value: string | null | undefined, fallback = DISPLAY_FALLBACK): string {

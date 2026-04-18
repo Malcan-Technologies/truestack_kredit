@@ -1,5 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { getCountries, getCountryCallingCode, parsePhoneNumber } from 'react-phone-number-input';
+import en from 'react-phone-number-input/locale/en.json';
 import {
   Modal,
   Pressable,
@@ -9,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import type { Country } from 'react-phone-number-input';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
@@ -359,6 +362,194 @@ export function SelectField({
   );
 }
 
+const PRIORITY_COUNTRIES: Country[] = ['MY', 'SG', 'ID', 'TH', 'BN', 'PH'];
+
+function getFlagEmoji(countryCode: string): string {
+  return countryCode
+    .toUpperCase()
+    .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+function parseE164(value: string): { country: Country; nationalNumber: string } {
+  try {
+    const parsed = parsePhoneNumber(value);
+    if (parsed?.country && parsed?.nationalNumber) {
+      return { country: parsed.country, nationalNumber: parsed.nationalNumber };
+    }
+  } catch {}
+  return { country: 'MY', nationalNumber: '' };
+}
+
+const allCountryOptions = (() => {
+  const all = getCountries();
+  const priority = PRIORITY_COUNTRIES.filter((c) => all.includes(c));
+  const rest = all.filter((c) => !PRIORITY_COUNTRIES.includes(c));
+  return [...priority, ...rest].map((code) => ({
+    code,
+    name: (en as Record<string, string>)[code] ?? code,
+    callingCode: getCountryCallingCode(code),
+    flag: getFlagEmoji(code),
+  }));
+})();
+
+export function PhoneField({
+  label,
+  value,
+  onChangeText,
+  error,
+  disabled = false,
+}: Pick<FieldProps, 'label' | 'value' | 'onChangeText' | 'error' | 'disabled'>) {
+  const theme = useTheme();
+
+  const initialRef = useRef(value);
+  const initialParsed = useMemo(() => parseE164(initialRef.current), []);
+  const [country, setCountry] = useState<Country>(initialParsed.country);
+  const [nationalNumber, setNationalNumber] = useState(initialParsed.nationalNumber);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+
+  useEffect(() => {
+    if (value !== undefined && value !== null) {
+      const parsed = parseE164(value);
+      setCountry(parsed.country);
+      setNationalNumber(parsed.nationalNumber);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const callingCode = getCountryCallingCode(country);
+
+  const filteredOptions = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    if (!q) return allCountryOptions;
+    return allCountryOptions.filter(
+      (o) => o.name.toLowerCase().includes(q) || o.callingCode.includes(q),
+    );
+  }, [pickerQuery]);
+
+  function handleNumberChange(text: string) {
+    const digits = text.replace(/\D/g, '');
+    setNationalNumber(text);
+    onChangeText(digits ? `+${callingCode}${digits}` : '');
+  }
+
+  function handleCountrySelect(code: Country) {
+    setCountry(code);
+    setPickerOpen(false);
+    setPickerQuery('');
+    const newCallingCode = getCountryCallingCode(code);
+    const digits = nationalNumber.replace(/\D/g, '');
+    onChangeText(digits ? `+${newCallingCode}${digits}` : '');
+  }
+
+  return (
+    <View style={styles.fieldWrap}>
+      <ThemedText type="smallBold">{label}</ThemedText>
+      <View
+        style={[
+          styles.phoneRow,
+          {
+            borderColor: error ? theme.error : theme.border,
+            backgroundColor: disabled ? theme.backgroundElement : theme.background,
+          },
+        ]}>
+        <Pressable
+          disabled={disabled}
+          onPress={() => setPickerOpen(true)}
+          style={({ pressed }) => [styles.countryBtn, { opacity: pressed ? 0.7 : 1 }]}>
+          <ThemedText type="default">
+            {getFlagEmoji(country)} +{callingCode}
+          </ThemedText>
+          <MaterialIcons name="arrow-drop-down" size={18} color={theme.textSecondary} />
+        </Pressable>
+        <View style={[styles.phoneDivider, { backgroundColor: theme.border }]} />
+        <TextInput
+          value={nationalNumber}
+          onChangeText={handleNumberChange}
+          placeholder="16 2487680"
+          placeholderTextColor={theme.textSecondary}
+          keyboardType="phone-pad"
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!disabled}
+          style={[styles.phoneInput, { color: disabled ? theme.textSecondary : theme.text }]}
+        />
+      </View>
+      {error ? (
+        <ThemedText type="small" style={{ color: theme.error }}>
+          {error}
+        </ThemedText>
+      ) : null}
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={pickerOpen}
+        onRequestClose={() => setPickerOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPickerOpen(false)} />
+          <View
+            style={[
+              styles.selectModal,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+            ]}>
+            <View style={styles.selectModalHeader}>
+              <ThemedText type="smallBold">Country / Region</ThemedText>
+              <Pressable onPress={() => { setPickerOpen(false); setPickerQuery(''); }}>
+                <ThemedText type="small" themeColor="primary">
+                  Close
+                </ThemedText>
+              </Pressable>
+            </View>
+            <TextInput
+              value={pickerQuery}
+              onChangeText={setPickerQuery}
+              placeholder="Search"
+              placeholderTextColor={theme.textSecondary}
+              autoCorrect={false}
+              autoCapitalize="none"
+              style={[
+                styles.searchInput,
+                { borderColor: theme.border, backgroundColor: theme.background, color: theme.text },
+              ]}
+            />
+            <ScrollView style={styles.selectList} contentContainerStyle={styles.selectListContent}>
+              {filteredOptions.map((option) => {
+                const selected = option.code === country;
+                return (
+                  <Pressable
+                    key={option.code}
+                    onPress={() => handleCountrySelect(option.code)}
+                    style={({ pressed }) => [
+                      styles.selectOption,
+                      {
+                        borderColor: selected ? theme.primary : theme.border,
+                        backgroundColor: selected ? theme.backgroundSelected : theme.background,
+                        opacity: pressed ? 0.8 : 1,
+                      },
+                    ]}>
+                    <ThemedText
+                      type="default"
+                      style={{ flex: 1, color: selected ? theme.primary : theme.text }}>
+                      {option.flag} {option.name}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      +{option.callingCode}
+                    </ThemedText>
+                    {selected ? (
+                      <MaterialIcons name="check" size={18} color={theme.primary} />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
 export function FormSwitchRow({
   title,
   description,
@@ -496,5 +687,31 @@ const styles = StyleSheet.create({
   switchCopy: {
     flex: 1,
     gap: Spacing.one,
+  },
+  phoneRow: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  countryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    gap: 2,
+  },
+  phoneDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    marginVertical: Spacing.two,
+  },
+  phoneInput: {
+    flex: 1,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    fontSize: 16,
   },
 });

@@ -26,6 +26,7 @@ import {
   formatCurrency,
   formatICForDisplay,
   formatOptionLabel,
+  formatPhoneWithFlag,
   getBorrowerDisplayName,
   normalizeDisplayValue,
 } from '@/lib/format/borrower';
@@ -41,16 +42,16 @@ function wait(ms: number) {
 }
 
 function buildContactLine(borrower: BorrowerDetail): string | null {
-  const parts =
-    borrower.borrowerType === 'CORPORATE'
-      ? [borrower.companyPhone, borrower.companyEmail]
-      : [borrower.phone, borrower.email];
+  const rawPhone =
+    borrower.borrowerType === 'CORPORATE' ? borrower.companyPhone : borrower.phone;
+  const email =
+    borrower.borrowerType === 'CORPORATE' ? borrower.companyEmail : borrower.email;
 
-  const populated = parts
-    .map((value) => value?.trim())
-    .filter((value): value is string => Boolean(value));
+  const phoneDisplay = rawPhone?.trim() ? formatPhoneWithFlag(rawPhone) : null;
+  const emailDisplay = email?.trim() || null;
 
-  return populated.length > 0 ? populated.join(' • ') : null;
+  const parts = [phoneDisplay, emailDisplay].filter((v): v is string => Boolean(v));
+  return parts.length > 0 ? parts.join('  •  ') : null;
 }
 
 function InfoGrid({ items }: { items: InfoItem[] }) {
@@ -368,7 +369,7 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
               <SectionCard title="Contact information">
                 <InfoGrid
                   items={[
-                    { label: 'Phone', value: normalizeDisplayValue(borrower.phone) },
+                    { label: 'Phone', value: formatPhoneWithFlag(borrower.phone) },
                     { label: 'Email', value: normalizeDisplayValue(borrower.email) },
                   ]}
                 />
@@ -394,7 +395,7 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
                     },
                     {
                       label: 'Phone',
-                      value: normalizeDisplayValue(borrower.emergencyContactPhone),
+                      value: formatPhoneWithFlag(borrower.emergencyContactPhone),
                     },
                     {
                       label: 'Relationship',
@@ -477,7 +478,7 @@ export function ProfileScreen({ embeddedInTab = false }: { embeddedInTab?: boole
                   items={[
                     {
                       label: 'Phone',
-                      value: normalizeDisplayValue(borrower.companyPhone),
+                      value: formatPhoneWithFlag(borrower.companyPhone),
                     },
                     {
                       label: 'Email',

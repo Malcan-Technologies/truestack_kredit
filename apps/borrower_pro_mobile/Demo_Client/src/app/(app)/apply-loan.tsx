@@ -12,11 +12,13 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 
 import {
+  DatePickerField,
   Field,
   FormSwitchRow,
   OptionChipGroup,
   ReadOnlyField,
   SelectField,
+  PhoneField
 } from '@/components/borrower-form-fields';
 import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
@@ -823,11 +825,10 @@ export default function ApplyLoanScreen() {
               error={errors.icNumber}
             />
           )}
-          <Field
-            label="Date of birth (YYYY-MM-DD)"
+          <DatePickerField
+            label="Date of birth"
             value={individualForm.dateOfBirth}
-            onChangeText={(v) => setIndividualForm((f) => ({ ...f, dateOfBirth: v }))}
-            placeholder="e.g. 1990-01-15"
+            onChange={(v) => setIndividualForm((f) => ({ ...f, dateOfBirth: v }))}
             error={errors.dateOfBirth}
           />
           <OptionChipGroup
@@ -890,11 +891,10 @@ export default function ApplyLoanScreen() {
     return (
       <View style={{ gap: Spacing.three }}>
         <SectionCard title="Contact details">
-          <Field
+          <PhoneField
             label="Phone number"
             value={individualForm.phone}
             onChangeText={(v) => setIndividualForm((f) => ({ ...f, phone: v }))}
-            keyboardType="phone-pad"
             error={errors.phone}
           />
           <Field

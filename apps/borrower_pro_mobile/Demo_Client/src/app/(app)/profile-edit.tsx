@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import {
+  DatePickerField,
   Field,
   FormSwitchRow,
   OptionChipGroup,
@@ -464,17 +465,15 @@ export default function ProfileEditScreen() {
                       : undefined
                   }
                 />
-                <Field
+                <DatePickerField
                   label="Date of birth"
                   value={dateOfBirthValue}
-                  onChangeText={(value) => {
+                  onChange={(value) => {
                     clearError('dateOfBirth');
                     setIndividualFormData((current) =>
                       current ? { ...current, dateOfBirth: value } : current,
                     );
                   }}
-                  placeholder="YYYY-MM-DD"
-                  autoCapitalize="none"
                   error={validationErrors.dateOfBirth}
                   disabled={individualFormData.documentType === 'IC' && !!derivedDateOfBirth}
                 />
@@ -883,16 +882,14 @@ export default function ProfileEditScreen() {
               placeholder="Optional"
               autoCapitalize="words"
             />
-            <Field
+            <DatePickerField
               label="Date of incorporation"
               value={corporateFormData.dateOfIncorporation}
-              onChangeText={(value) =>
+              onChange={(value) =>
                 setCorporateFormData((current) =>
                   current ? { ...current, dateOfIncorporation: value } : current,
                 )
               }
-              placeholder="YYYY-MM-DD"
-              autoCapitalize="none"
             />
           </SectionCard>
 

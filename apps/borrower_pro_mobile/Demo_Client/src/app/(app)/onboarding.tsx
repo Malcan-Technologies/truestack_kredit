@@ -9,6 +9,7 @@ import {
 import { useRouter } from "expo-router";
 
 import {
+  DatePickerField,
   Field,
   FormSwitchRow,
   OptionChipGroup,
@@ -1051,18 +1052,16 @@ export default function OnboardingScreen() {
                             : undefined
                         }
                       />
-                      <Field
+                      <DatePickerField
                         label="Date of birth"
                         value={dateOfBirthValue}
-                        onChangeText={(value) => {
+                        onChange={(value) => {
                           clearError("dateOfBirth");
                           setIndividualFormData((current) => ({
                             ...current,
                             dateOfBirth: value,
                           }));
                         }}
-                        placeholder="YYYY-MM-DD"
-                        autoCapitalize="none"
                         error={validationErrors.dateOfBirth}
                         disabled={isIndividualIC && !!derivedDateOfBirth}
                       />
@@ -1502,17 +1501,15 @@ export default function OnboardingScreen() {
                         placeholder="Optional"
                         autoCapitalize="words"
                       />
-                      <Field
+                      <DatePickerField
                         label="Date of incorporation"
                         value={corporateFormData.dateOfIncorporation}
-                        onChangeText={(value) =>
+                        onChange={(value) =>
                           setCorporateFormData((current) => ({
                             ...current,
                             dateOfIncorporation: value,
                           }))
                         }
-                        placeholder="YYYY-MM-DD"
-                        autoCapitalize="none"
                       />
                       <Field
                         label="Address line 1"

@@ -18,6 +18,7 @@ import {
   OptionChipGroup,
   ReadOnlyField,
   SelectField,
+  PhoneField
 } from '@/components/borrower-form-fields';
 import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
@@ -890,11 +891,10 @@ export default function ApplyLoanScreen() {
     return (
       <View style={{ gap: Spacing.three }}>
         <SectionCard title="Contact details">
-          <Field
+          <PhoneField
             label="Phone number"
             value={individualForm.phone}
             onChangeText={(v) => setIndividualForm((f) => ({ ...f, phone: v }))}
-            keyboardType="phone-pad"
             error={errors.phone}
           />
           <Field

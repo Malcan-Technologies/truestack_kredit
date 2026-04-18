@@ -636,14 +636,15 @@ export function PhoneField({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState('');
 
+  const prevValueRef = useRef(value);
   useEffect(() => {
-    if (value !== undefined && value !== null) {
+    if (value !== prevValueRef.current && value !== undefined && value !== null) {
+      prevValueRef.current = value;
       const parsed = parseE164(value);
       setCountry(parsed.country);
       setNationalNumber(parsed.nationalNumber);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [value]);
 
   const callingCode = getCountryCallingCode(country);
 

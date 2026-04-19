@@ -41,6 +41,63 @@ export function VerifiedStatusRow({ label }: { label: string }) {
   return <InlineStatusRow label={label} tone="success" />;
 }
 
+/** Section completion indicator for SectionCard `action` slot. Renders a green
+ * "Complete" row when the section is filled, and a neutral "Incomplete" row
+ * (hollow circle, secondary color) otherwise so the user can see that every
+ * card has been evaluated. */
+export function SectionCompleteStatusRow({
+  complete,
+  completeLabel = 'Complete',
+  incompleteLabel = 'Incomplete',
+}: {
+  complete: boolean;
+  completeLabel?: string;
+  incompleteLabel?: string;
+}) {
+  const theme = useTheme();
+  if (complete) {
+    return <InlineStatusRow label={completeLabel} tone="success" />;
+  }
+  return (
+    <View style={styles.inlineRow}>
+      <MaterialIcons
+        name="radio-button-unchecked"
+        size={18}
+        color={theme.textSecondary}
+      />
+      <ThemedText type="smallBold" style={{ color: theme.textSecondary }}>
+        {incompleteLabel}
+      </ThemedText>
+    </View>
+  );
+}
+
+/** Status row for cards with no required fields. Shows a neutral "Optional"
+ * badge until every field in the section is filled, then flips to the same
+ * green "Complete" indicator used by required cards. */
+export function SectionOptionalStatusRow({
+  complete,
+  completeLabel = 'Complete',
+  optionalLabel = 'Optional',
+}: {
+  complete: boolean;
+  completeLabel?: string;
+  optionalLabel?: string;
+}) {
+  const theme = useTheme();
+  if (complete) {
+    return <InlineStatusRow label={completeLabel} tone="success" />;
+  }
+  return (
+    <View style={styles.inlineRow}>
+      <MaterialIcons name="info-outline" size={18} color={theme.textSecondary} />
+      <ThemedText type="smallBold" style={{ color: theme.textSecondary }}>
+        {optionalLabel}
+      </ThemedText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   inlineRow: {
     flexDirection: 'row',

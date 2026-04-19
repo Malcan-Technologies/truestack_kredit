@@ -13,10 +13,15 @@ import {
   Field,
   FormSwitchRow,
   OptionChipGroup,
+  ReadOnlyField,
   SelectField,
 } from "@/components/borrower-form-fields";
 import { PageScreen } from "@/components/page-screen";
 import { SectionCard } from "@/components/section-card";
+import {
+  SectionCompleteStatusRow,
+  SectionOptionalStatusRow,
+} from "@/components/verified-status-row";
 import { ThemedText } from "@/components/themed-text";
 import { Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
@@ -38,6 +43,9 @@ import {
   getSavedDraftProgressLabel,
   initialCorporateFormData,
   initialIndividualFormData,
+  isCorporateSocialMediaComplete,
+  isIndividualEmergencyContactComplete,
+  isIndividualSocialMediaComplete,
   loadOnboardingDraft,
   raceOptions,
   relationshipOptions,
@@ -405,6 +413,42 @@ export default function OnboardingScreen() {
   const currentGuide =
     step === 2 ? GUIDED_TITLES[borrowerType][borrowerDetailSubStep] : null;
   const totalSubSteps = borrowerType === "INDIVIDUAL" ? 3 : 5;
+  const isOptionalSubStep =
+    step === 2 &&
+    !!currentGuide &&
+    ((borrowerType === "INDIVIDUAL" && borrowerDetailSubStep === 3) ||
+      (borrowerType === "CORPORATE" && borrowerDetailSubStep === 5));
+  const subStepComplete = (() => {
+    if (step !== 2 || !currentGuide) return false;
+    if (borrowerType === "INDIVIDUAL") {
+      if (borrowerDetailSubStep === 3) {
+        return (
+          isIndividualEmergencyContactComplete(individualFormData) &&
+          isIndividualSocialMediaComplete(individualFormData)
+        );
+      }
+      return (
+        Object.keys(
+          validateIndividualFormStep(
+            individualFormData,
+            borrowerDetailSubStep as IndividualSubStep,
+            noMonthlyIncome,
+          ),
+        ).length === 0
+      );
+    }
+    if (borrowerDetailSubStep === 5) {
+      return isCorporateSocialMediaComplete(corporateFormData);
+    }
+    return (
+      Object.keys(
+        validateCorporateFormStep(
+          corporateFormData,
+          borrowerDetailSubStep as CorporateSubStep,
+        ),
+      ).length === 0
+    );
+  })();
   const draftProgress = useMemo(
     () =>
       getSavedDraftProgressLabel({
@@ -932,6 +976,13 @@ export default function OnboardingScreen() {
           <SectionCard
             title={currentGuide.title}
             description={currentGuide.description}
+            action={
+              isOptionalSubStep ? (
+                <SectionOptionalStatusRow complete={subStepComplete} />
+              ) : (
+                <SectionCompleteStatusRow complete={subStepComplete} />
+              )
+            }
           >
             <View style={styles.stack}>
               {Object.keys(validationErrors).length > 0 ? (
@@ -1035,11 +1086,11 @@ export default function OnboardingScreen() {
                           setIndividualFormData((current) => ({
                             ...current,
                             icNumber: cleanValue,
-                            ...(extractedDate
-                              ? { dateOfBirth: extractedDate }
-                              : {}),
-                            ...(extractedGender
-                              ? { gender: extractedGender }
+                            ...(isIndividualIC
+                              ? {
+                                  dateOfBirth: extractedDate || "",
+                                  gender: extractedGender || "",
+                                }
                               : {}),
                           }));
                         }}
@@ -1052,33 +1103,56 @@ export default function OnboardingScreen() {
                             : undefined
                         }
                       />
-                      <DatePickerField
-                        label="Date of birth"
-                        value={dateOfBirthValue}
-                        onChange={(value) => {
-                          clearError("dateOfBirth");
-                          setIndividualFormData((current) => ({
-                            ...current,
-                            dateOfBirth: value,
-                          }));
-                        }}
-                        error={validationErrors.dateOfBirth}
-                        disabled={isIndividualIC && !!derivedDateOfBirth}
-                      />
-                      <OptionChipGroup
-                        label="Gender"
-                        value={genderValue}
-                        onChange={(value) => {
-                          clearError("gender");
-                          setIndividualFormData((current) => ({
-                            ...current,
-                            gender: value,
-                          }));
-                        }}
-                        options={genderOptions}
-                        error={validationErrors.gender}
-                        disabled={isIndividualIC && !!derivedGender}
-                      />
+                      {isIndividualIC ? (
+                        <>
+                          <ReadOnlyField
+                            autoFilled
+                            label="Date of birth"
+                            value={dateOfBirthValue ? formatDate(dateOfBirthValue) : ""}
+                            placeholder="Enter your IC number to auto-fill"
+                            helperText="Derived from your IC number."
+                          />
+                          <ReadOnlyField
+                            autoFilled
+                            label="Gender"
+                            value={
+                              genderValue
+                                ? formatOptionLabel("gender", genderValue)
+                                : ""
+                            }
+                            placeholder="Enter your IC number to auto-fill"
+                            helperText="Derived from your IC number."
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <DatePickerField
+                            label="Date of birth"
+                            value={dateOfBirthValue}
+                            onChange={(value) => {
+                              clearError("dateOfBirth");
+                              setIndividualFormData((current) => ({
+                                ...current,
+                                dateOfBirth: value,
+                              }));
+                            }}
+                            error={validationErrors.dateOfBirth}
+                          />
+                          <OptionChipGroup
+                            label="Gender"
+                            value={genderValue}
+                            onChange={(value) => {
+                              clearError("gender");
+                              setIndividualFormData((current) => ({
+                                ...current,
+                                gender: value,
+                              }));
+                            }}
+                            options={genderOptions}
+                            error={validationErrors.gender}
+                          />
+                        </>
+                      )}
                       <SelectField
                         label="Race"
                         value={individualFormData.race}

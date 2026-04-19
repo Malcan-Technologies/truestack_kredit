@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack, usePathname, useRouter } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, Appearance, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { SessionProvider, useSession } from '@/lib/auth';
@@ -95,8 +96,10 @@ function RootLayoutContent() {
 
 export default function RootLayout() {
   return (
-    <ThemePreferenceProvider>
-      <RootLayoutContent />
-    </ThemePreferenceProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemePreferenceProvider>
+        <RootLayoutContent />
+      </ThemePreferenceProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -83,6 +83,26 @@ export function validateLoanDetails(
   return errors;
 }
 
+export function isLoanAmountAndTermComplete(
+  amount: string,
+  term: string,
+  product: BorrowerProduct,
+): boolean {
+  const errors = validateLoanDetails(amount, term, product, '', '');
+  return !errors.amount && !errors.term;
+}
+
+export function isCollateralSectionComplete(
+  product: BorrowerProduct,
+  collateralType: string,
+  collateralValue: string,
+): boolean {
+  if (product.loanScheduleType !== 'JADUAL_K') return true;
+  if (!collateralType.trim()) return false;
+  const cv = parseFloat(collateralValue);
+  return !!collateralValue.trim() && !isNaN(cv) && cv > 0;
+}
+
 export function formatCurrencyRM(value: unknown): string {
   const n = parseFloat(String(value));
   if (isNaN(n)) return 'RM —';

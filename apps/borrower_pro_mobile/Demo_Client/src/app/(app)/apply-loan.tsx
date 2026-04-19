@@ -5,6 +5,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Pressable,
   StyleSheet,
   View,
@@ -18,10 +20,15 @@ import {
   OptionChipGroup,
   ReadOnlyField,
   SelectField,
-  PhoneField
+  PhoneField,
+  SliderField,
 } from '@/components/borrower-form-fields';
 import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
+import {
+  SectionCompleteStatusRow,
+  SectionOptionalStatusRow,
+} from '@/components/verified-status-row';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -39,6 +46,16 @@ import {
   genderOptions,
   initialCorporateFormData,
   initialIndividualFormData,
+  isCorporateAddressSectionComplete,
+  isCorporateBankSectionComplete,
+  isCorporateCompanySectionComplete,
+  isCorporateContactSectionComplete,
+  isCorporateDirectorsSectionComplete,
+  isIndividualAddressSectionComplete,
+  isIndividualBankSectionComplete,
+  isIndividualContactSectionComplete,
+  isIndividualEmergencyContactComplete,
+  isIndividualPersonalSectionComplete,
   raceOptions,
   relationshipOptions,
   type CorporateFormData,
@@ -48,11 +65,16 @@ import {
   validateCorporateFormStep,
   validateIndividualFormStep,
 } from '@/lib/onboarding';
+import { formatICForDisplay, formatOptionLabel } from '@/lib/format/borrower';
+import { formatDate } from '@/lib/format/date';
+import { isIndividualIdentityLocked } from '@/lib/borrower-verification';
+import { toast } from '@/lib/toast';
 import {
-  buildTermOptions,
   clearLoanWizardDraft,
   formatCurrencyRM,
   initialLoanWizardDraft,
+  isCollateralSectionComplete,
+  isLoanAmountAndTermComplete,
   loadLoanWizardDraft,
   saveLoanWizardDraft,
   validateLoanDetails,
@@ -91,29 +113,81 @@ function ProductCard({ product, selected, onSelect }: { product: BorrowerProduct
   );
 }
 
+function SkeletonBar({ width = 90, height = 14 }: { width?: number; height?: number }) {
+  const theme = useTheme();
+  const opacity = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.85,
+          duration: 700,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.35,
+          duration: 700,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      style={{
+        width,
+        height,
+        borderRadius: 4,
+        backgroundColor: theme.border,
+        opacity,
+      }}
+    />
+  );
+}
+
+const PREVIEW_ROW_LABELS = [
+  'Monthly payment',
+  'Total payable',
+  'Net disbursement',
+  'Total interest',
+] as const;
+
 function PreviewPanel({ preview, loading }: { preview: LoanPreviewData | null; loading: boolean }) {
   const theme = useTheme();
-  if (loading) {
-    return (
-      <View style={[styles.previewPanel, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <ActivityIndicator size="small" color={theme.primary} />
-      </View>
-    );
-  }
-  if (!preview) return null;
-  const rows: { label: string; value: string }[] = [
-    { label: 'Monthly payment', value: formatCurrencyRM(preview.monthlyPayment) },
-    { label: 'Total payable', value: formatCurrencyRM(preview.totalPayable) },
-    { label: 'Net disbursement', value: formatCurrencyRM(preview.netDisbursement) },
-    { label: 'Total interest', value: formatCurrencyRM(preview.totalInterest) },
-  ];
+
+  if (!preview && !loading) return null;
+
+  const rows = preview
+    ? [
+        { label: 'Monthly payment', value: formatCurrencyRM(preview.monthlyPayment) },
+        { label: 'Total payable', value: formatCurrencyRM(preview.totalPayable) },
+        { label: 'Net disbursement', value: formatCurrencyRM(preview.netDisbursement) },
+        { label: 'Total interest', value: formatCurrencyRM(preview.totalInterest) },
+      ]
+    : PREVIEW_ROW_LABELS.map((label) => ({ label, value: null as string | null }));
+
   return (
     <View style={[styles.previewPanel, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-      <ThemedText type="smallBold">Estimated breakdown</ThemedText>
+      <View style={styles.previewHeaderRow}>
+        <ThemedText type="smallBold">Estimated breakdown</ThemedText>
+        {loading && preview ? (
+          <ActivityIndicator size="small" color={theme.primary} />
+        ) : null}
+      </View>
       {rows.map((row) => (
         <View key={row.label} style={styles.previewRow}>
           <ThemedText type="small" themeColor="textSecondary">{row.label}</ThemedText>
-          <ThemedText type="smallBold">{row.value}</ThemedText>
+          {row.value !== null ? (
+            <ThemedText type="smallBold">{row.value}</ThemedText>
+          ) : (
+            <SkeletonBar width={90} />
+          )}
         </View>
       ))}
     </View>
@@ -631,8 +705,8 @@ export default function ApplyLoanScreen() {
   }
 
   async function handleDocsContinue() {
-    const required = (application?.product?.requiredDocuments ?? []) as Array<{ key: string; label: string; required: boolean }>;
-    const uploaded = (application?.documents ?? []) as Array<{ id: string; category?: string }>;
+    const required = (application?.product?.requiredDocuments ?? []) as { key: string; label: string; required: boolean }[];
+    const uploaded = (application?.documents ?? []) as { id: string; category?: string }[];
 
     const missingRequired = required.filter(
       (r) => r.required && !uploaded.some((d) => d.category === r.key),
@@ -670,8 +744,13 @@ export default function ApplyLoanScreen() {
       await applicationsClient.submitBorrowerApplication(draft.applicationId);
       await clearLoanWizardDraft();
       router.replace('/applications' as never);
+      toast.success('Application submitted', {
+        description: 'We have received your application and will review it shortly.',
+      });
     } catch (e) {
-      Alert.alert('Submission failed', e instanceof Error ? e.message : 'Could not submit application');
+      toast.error('Submission failed', {
+        description: e instanceof Error ? e.message : 'Could not submit application',
+      });
     } finally {
       setSubmitting(false);
     }
@@ -735,32 +814,51 @@ export default function ApplyLoanScreen() {
   }
 
   function renderStep1() {
-    const termOptions = selectedProduct ? buildTermOptions(selectedProduct) : [];
     const isJadualK = (selectedProduct as unknown as { loanScheduleType?: string })?.loanScheduleType === 'JADUAL_K';
+    const termMin = selectedProduct?.minTerm ?? 1;
+    const termMax = selectedProduct?.maxTerm ?? 12;
+    const parsedTerm = parseInt(draft.term, 10);
+    const termValue = Number.isFinite(parsedTerm) ? parsedTerm : termMin;
+    const formatMonths = (m: number) => `${m} ${m === 1 ? 'month' : 'months'}`;
+
+    const amountTermComplete = selectedProduct
+      ? isLoanAmountAndTermComplete(draft.amount, draft.term, selectedProduct)
+      : false;
+    const collateralComplete = selectedProduct
+      ? isCollateralSectionComplete(selectedProduct, draft.collateralType, draft.collateralValue)
+      : false;
 
     return (
       <View style={{ gap: Spacing.three }}>
-        <SectionCard title="Loan amount & term">
+        <SectionCard
+          title="Loan amount & term"
+          action={<SectionCompleteStatusRow complete={amountTermComplete} />}>
           <Field
-            label={`Loan amount (RM${selectedProduct ? ` ${formatCurrencyRM(selectedProduct.minAmount)} – ${formatCurrencyRM(selectedProduct.maxAmount)}` : ''})`}
+            label={`Loan amount${selectedProduct ? ` (${formatCurrencyRM(selectedProduct.minAmount)} – ${formatCurrencyRM(selectedProduct.maxAmount)})` : ''}`}
             value={draft.amount}
             onChangeText={(v) => setDraft((d) => ({ ...d, amount: v }))}
             keyboardType="numeric"
             placeholder="e.g. 10000"
             error={errors.amount}
           />
-          <SelectField
-            label="Loan term"
-            value={draft.term}
-            onChange={(v) => setDraft((d) => ({ ...d, term: v }))}
-            options={termOptions}
-            placeholder="Select term"
-            error={errors.term}
-          />
+          {selectedProduct ? (
+            <SliderField
+              label="Loan term"
+              value={termValue}
+              onChange={(v) => setDraft((d) => ({ ...d, term: String(v) }))}
+              min={termMin}
+              max={termMax}
+              step={1}
+              formatValue={formatMonths}
+              error={errors.term}
+            />
+          ) : null}
         </SectionCard>
 
         {isJadualK && (
-          <SectionCard title="Collateral">
+          <SectionCard
+            title="Collateral"
+            action={<SectionCompleteStatusRow complete={collateralComplete} />}>
             <Field
               label="Collateral type"
               value={draft.collateralType}
@@ -785,59 +883,121 @@ export default function ApplyLoanScreen() {
   }
 
   function renderIndividualSubStep1() {
-    const icLocked = Boolean((borrower as unknown as { documentVerified?: boolean })?.documentVerified);
+    const identityLocked = borrower
+      ? isIndividualIdentityLocked(borrower as unknown as Parameters<typeof isIndividualIdentityLocked>[0])
+      : false;
+    const isIC = individualForm.documentType === 'IC';
+    const personalComplete = isIndividualPersonalSectionComplete(individualForm, noMonthlyIncome);
     return (
       <View style={{ gap: Spacing.three }}>
-        <SectionCard title="Identity & personal details">
-          {icLocked ? (
-            <ReadOnlyField label="Full name" value={individualForm.name} />
+        <SectionCard
+          title="Identity & personal details"
+          description={
+            identityLocked
+              ? 'Your identity has been verified by e-KYC. Your name, IC, date of birth and gender are locked. Redo e-KYC from your Profile if any of these need updating.'
+              : undefined
+          }
+          action={<SectionCompleteStatusRow complete={personalComplete} />}>
+          {identityLocked ? (
+            <>
+              <ReadOnlyField locked label="Full name" value={individualForm.name} />
+              <ReadOnlyField
+                locked
+                label="Document type"
+                value={formatOptionLabel('documentType', individualForm.documentType)}
+              />
+              <ReadOnlyField
+                locked
+                label="IC / Passport number"
+                value={
+                  isIC
+                    ? formatICForDisplay(individualForm.icNumber)
+                    : individualForm.icNumber
+                }
+              />
+              <ReadOnlyField
+                locked
+                label="Date of birth"
+                value={
+                  individualForm.dateOfBirth ? formatDate(individualForm.dateOfBirth) : '—'
+                }
+              />
+              <ReadOnlyField
+                locked
+                label="Gender"
+                value={formatOptionLabel('gender', individualForm.gender)}
+              />
+            </>
           ) : (
-            <Field
-              label="Full name"
-              value={individualForm.name}
-              onChangeText={(v) => setIndividualForm((f) => ({ ...f, name: v }))}
-              error={errors.name}
-            />
+            <>
+              <Field
+                label="Full name"
+                value={individualForm.name}
+                onChangeText={(v) => setIndividualForm((f) => ({ ...f, name: v }))}
+                error={errors.name}
+              />
+              <OptionChipGroup
+                label="Document type"
+                value={individualForm.documentType}
+                onChange={(v) => setIndividualForm((f) => ({ ...f, documentType: v }))}
+                options={documentTypeOptions}
+              />
+              <Field
+                label="IC / Passport number"
+                value={individualForm.icNumber}
+                onChangeText={(v) => {
+                  const extracted = extractDateFromIC(v);
+                  const gender = extractGenderFromIC(v);
+                  setIndividualForm((f) => ({
+                    ...f,
+                    icNumber: v,
+                    dateOfBirth: f.documentType === 'IC' ? (extracted || '') : f.dateOfBirth,
+                    gender: f.documentType === 'IC' ? (gender || '') : f.gender,
+                  }));
+                }}
+                keyboardType="numeric"
+                error={errors.icNumber}
+              />
+              {isIC ? (
+                <>
+                  <ReadOnlyField
+                    autoFilled
+                    label="Date of birth"
+                    value={individualForm.dateOfBirth ? formatDate(individualForm.dateOfBirth) : ''}
+                    placeholder="Enter your IC number to auto-fill"
+                    helperText="Derived from your IC number."
+                  />
+                  <ReadOnlyField
+                    autoFilled
+                    label="Gender"
+                    value={
+                      individualForm.gender
+                        ? formatOptionLabel('gender', individualForm.gender)
+                        : ''
+                    }
+                    placeholder="Enter your IC number to auto-fill"
+                    helperText="Derived from your IC number."
+                  />
+                </>
+              ) : (
+                <>
+                  <DatePickerField
+                    label="Date of birth"
+                    value={individualForm.dateOfBirth}
+                    onChange={(v) => setIndividualForm((f) => ({ ...f, dateOfBirth: v }))}
+                    error={errors.dateOfBirth}
+                  />
+                  <OptionChipGroup
+                    label="Gender"
+                    value={individualForm.gender}
+                    onChange={(v) => setIndividualForm((f) => ({ ...f, gender: v }))}
+                    options={genderOptions}
+                    error={errors.gender}
+                  />
+                </>
+              )}
+            </>
           )}
-          <OptionChipGroup
-            label="Document type"
-            value={individualForm.documentType}
-            onChange={(v) => setIndividualForm((f) => ({ ...f, documentType: v }))}
-            options={documentTypeOptions}
-          />
-          {icLocked ? (
-            <ReadOnlyField label="IC / Passport number" value={individualForm.icNumber} locked />
-          ) : (
-            <Field
-              label="IC / Passport number"
-              value={individualForm.icNumber}
-              onChangeText={(v) => {
-                const extracted = extractDateFromIC(v);
-                const gender = extractGenderFromIC(v);
-                setIndividualForm((f) => ({
-                  ...f,
-                  icNumber: v,
-                  dateOfBirth: f.documentType === 'IC' && extracted ? extracted : f.dateOfBirth,
-                  gender: f.documentType === 'IC' && gender ? gender : f.gender,
-                }));
-              }}
-              keyboardType="numeric"
-              error={errors.icNumber}
-            />
-          )}
-          <DatePickerField
-            label="Date of birth"
-            value={individualForm.dateOfBirth}
-            onChange={(v) => setIndividualForm((f) => ({ ...f, dateOfBirth: v }))}
-            error={errors.dateOfBirth}
-          />
-          <OptionChipGroup
-            label="Gender"
-            value={individualForm.gender}
-            onChange={(v) => setIndividualForm((f) => ({ ...f, gender: v }))}
-            options={genderOptions}
-            error={errors.gender}
-          />
           <SelectField
             label="Race"
             value={individualForm.race}
@@ -888,9 +1048,14 @@ export default function ApplyLoanScreen() {
   function renderIndividualSubStep2() {
     const stateOptions = getStateOptions(individualForm.country);
     const countryOptions = getCountryOptions();
+    const contactComplete = isIndividualContactSectionComplete(individualForm);
+    const addressComplete = isIndividualAddressSectionComplete(individualForm);
+    const bankComplete = isIndividualBankSectionComplete(individualForm);
     return (
       <View style={{ gap: Spacing.three }}>
-        <SectionCard title="Contact details">
+        <SectionCard
+          title="Contact details"
+          action={<SectionCompleteStatusRow complete={contactComplete} />}>
           <PhoneField
             label="Phone number"
             value={individualForm.phone}
@@ -906,7 +1071,9 @@ export default function ApplyLoanScreen() {
             error={errors.email}
           />
         </SectionCard>
-        <SectionCard title="Address">
+        <SectionCard
+          title="Address"
+          action={<SectionCompleteStatusRow complete={addressComplete} />}>
           <Field
             label="Address line 1"
             value={individualForm.addressLine1}
@@ -956,7 +1123,9 @@ export default function ApplyLoanScreen() {
             error={errors.postcode}
           />
         </SectionCard>
-        <SectionCard title="Bank details">
+        <SectionCard
+          title="Bank details"
+          action={<SectionCompleteStatusRow complete={bankComplete} />}>
           <SelectField
             label="Bank"
             value={individualForm.bankName}
@@ -981,7 +1150,15 @@ export default function ApplyLoanScreen() {
             error={errors.bankAccountNo}
           />
         </SectionCard>
-        <SectionCard title="Emergency contact (optional)" collapsible defaultExpanded={false}>
+        <SectionCard
+          title="Emergency contact"
+          action={
+            <SectionOptionalStatusRow
+              complete={isIndividualEmergencyContactComplete(individualForm)}
+            />
+          }
+          collapsible
+          defaultExpanded={false}>
           <Field
             label="Contact name"
             value={individualForm.emergencyContactName}
@@ -1023,14 +1200,20 @@ export default function ApplyLoanScreen() {
     const countryOptions = getCountryOptions();
 
     if ((profileSubStep as number) === 1) {
+      const companyComplete = isCorporateCompanySectionComplete(corporateForm);
+      const corporateAddressComplete = isCorporateAddressSectionComplete(corporateForm);
       return (
         <View style={{ gap: Spacing.three }}>
-          <SectionCard title="Company details">
+          <SectionCard
+            title="Company details"
+            action={<SectionCompleteStatusRow complete={companyComplete} />}>
             <Field label="Company name" value={corporateForm.companyName} onChangeText={(v) => setCorporateForm((f) => ({ ...f, companyName: v }))} error={errors.companyName} />
             <Field label="SSM registration no." value={corporateForm.ssmRegistrationNo} onChangeText={(v) => setCorporateForm((f) => ({ ...f, ssmRegistrationNo: v }))} error={errors.ssmRegistrationNo} />
             <SelectField label="Bumiputera status" value={corporateForm.bumiStatus} onChange={(v) => setCorporateForm((f) => ({ ...f, bumiStatus: v }))} options={bumiStatusOptions} error={errors.bumiStatus} />
           </SectionCard>
-          <SectionCard title="Registered address">
+          <SectionCard
+            title="Registered address"
+            action={<SectionCompleteStatusRow complete={corporateAddressComplete} />}>
             <Field label="Address line 1" value={corporateForm.addressLine1} onChangeText={(v) => setCorporateForm((f) => ({ ...f, addressLine1: v }))} error={errors.addressLine1} />
             <Field label="Address line 2 (optional)" value={corporateForm.addressLine2} onChangeText={(v) => setCorporateForm((f) => ({ ...f, addressLine2: v }))} />
             <Field label="City" value={corporateForm.city} onChangeText={(v) => setCorporateForm((f) => ({ ...f, city: v }))} error={errors.city} />
@@ -1048,7 +1231,9 @@ export default function ApplyLoanScreen() {
 
     if ((profileSubStep as number) === 2) {
       return (
-        <SectionCard title="Company contact">
+        <SectionCard
+          title="Company contact"
+          action={<SectionCompleteStatusRow complete={isCorporateContactSectionComplete(corporateForm)} />}>
           <Field label="Company phone" value={corporateForm.companyPhone} onChangeText={(v) => setCorporateForm((f) => ({ ...f, companyPhone: v }))} keyboardType="phone-pad" error={errors.companyPhone} />
           <Field label="Company email" value={corporateForm.companyEmail} onChangeText={(v) => setCorporateForm((f) => ({ ...f, companyEmail: v }))} keyboardType="email-address" autoCapitalize="none" error={errors.companyEmail} />
         </SectionCard>
@@ -1057,7 +1242,9 @@ export default function ApplyLoanScreen() {
 
     if ((profileSubStep as number) === 3) {
       return (
-        <SectionCard title="Directors">
+        <SectionCard
+          title="Directors"
+          action={<SectionCompleteStatusRow complete={isCorporateDirectorsSectionComplete(corporateForm)} />}>
           {errors.directors ? (
             <ThemedText type="small" style={{ color: theme.error }}>{errors.directors}</ThemedText>
           ) : null}
@@ -1118,7 +1305,9 @@ export default function ApplyLoanScreen() {
 
     if ((profileSubStep as number) === 4) {
       return (
-        <SectionCard title="Bank details">
+        <SectionCard
+          title="Bank details"
+          action={<SectionCompleteStatusRow complete={isCorporateBankSectionComplete(corporateForm)} />}>
           <SelectField label="Bank" value={corporateForm.bankName} onChange={(v) => setCorporateForm((f) => ({ ...f, bankName: v }))} options={bankOptions} searchable error={errors.bankName} />
           {corporateForm.bankName === 'OTHER' && (
             <Field label="Bank name" value={corporateForm.bankNameOther} onChangeText={(v) => setCorporateForm((f) => ({ ...f, bankNameOther: v }))} error={errors.bankNameOther} />
@@ -1132,12 +1321,18 @@ export default function ApplyLoanScreen() {
   }
 
   function renderStep3() {
-    const requiredDocs = (application?.product?.requiredDocuments ?? []) as Array<{ key: string; label: string; required: boolean }>;
-    const uploaded = (application?.documents ?? []) as Array<{ id: string; category?: string }>;
+    const requiredDocs = (application?.product?.requiredDocuments ?? []) as { key: string; label: string; required: boolean }[];
+    const uploaded = (application?.documents ?? []) as { id: string; category?: string }[];
+    const requiredOnly = requiredDocs.filter((d) => d.required);
+    const docsComplete =
+      requiredOnly.length === 0 ||
+      requiredOnly.every((d) => uploaded.some((u) => u.category === d.key));
 
     if (requiredDocs.length === 0) {
       return (
-        <SectionCard title="Supporting documents">
+        <SectionCard
+          title="Supporting documents"
+          action={<SectionCompleteStatusRow complete />}>
           <ThemedText type="small" themeColor="textSecondary">
             No documents required for this product.
           </ThemedText>
@@ -1146,7 +1341,10 @@ export default function ApplyLoanScreen() {
     }
 
     return (
-      <SectionCard title="Supporting documents" description="Upload the required documents for your application.">
+      <SectionCard
+        title="Supporting documents"
+        description="Upload the required documents for your application."
+        action={<SectionCompleteStatusRow complete={docsComplete} />}>
         {requiredDocs.map((doc) => {
           const uploadedDoc = uploaded.find((d) => d.category === doc.key);
           return (
@@ -1167,8 +1365,8 @@ export default function ApplyLoanScreen() {
 
   function renderStep4() {
     const app = application;
-    const reviewDocs = (app?.product?.requiredDocuments ?? []) as Array<{ key: string; label: string; required: boolean }>;
-    const uploadedDocs = (app?.documents ?? []) as Array<{ id: string; category?: string }>;
+    const reviewDocs = (app?.product?.requiredDocuments ?? []) as { key: string; label: string; required: boolean }[];
+    const uploadedDocs = (app?.documents ?? []) as { id: string; category?: string }[];
     const missingRequired = reviewDocs.filter((r) => r.required && !uploadedDocs.some((d) => d.category === r.key));
     const uploadedCount = uploadedDocs.filter((d) => reviewDocs.some((r) => r.key === d.category)).length;
     const borrowerName = (borrower as unknown as { name?: string }).name ?? '—';
@@ -1363,10 +1561,17 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     gap: Spacing.two,
   },
+  previewHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
   previewRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    minHeight: 18,
   },
   footerButton: {
     alignItems: 'center',

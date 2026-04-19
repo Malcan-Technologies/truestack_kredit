@@ -1,3 +1,4 @@
+import { MaterialIcons } from '@expo/vector-icons';
 import type { BorrowerDetail } from '@kredit/borrower';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
@@ -13,6 +14,10 @@ import {
 } from '@/components/borrower-form-fields';
 import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
+import {
+  SectionCompleteStatusRow,
+  SectionOptionalStatusRow,
+} from '@/components/verified-status-row';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -28,6 +33,19 @@ import {
   extractDateFromIC,
   extractGenderFromIC,
   genderOptions,
+  isCorporateAdditionalDetailsComplete,
+  isCorporateAddressSectionComplete,
+  isCorporateBankSectionComplete,
+  isCorporateCompanySectionComplete,
+  isCorporateContactSectionComplete,
+  isCorporateDirectorsSectionComplete,
+  isCorporateSocialMediaComplete,
+  isIndividualAddressSectionComplete,
+  isIndividualBankSectionComplete,
+  isIndividualContactSectionComplete,
+  isIndividualEmergencyContactComplete,
+  isIndividualPersonalSectionComplete,
+  isIndividualSocialMediaComplete,
   relationshipOptions,
   raceOptions,
   type CorporateFormData,
@@ -142,6 +160,43 @@ export default function ProfileEditScreen() {
     '';
   const genderValue =
     individualFormData?.gender || (isIndividualIC && derivedGender ? derivedGender : '') || '';
+
+  const individualCompletion = individualFormData
+    ? {
+        personal: isIndividualPersonalSectionComplete(individualFormData, noMonthlyIncome),
+        contact: isIndividualContactSectionComplete(individualFormData),
+        address: isIndividualAddressSectionComplete(individualFormData),
+        bank: isIndividualBankSectionComplete(individualFormData),
+        emergency: isIndividualEmergencyContactComplete(individualFormData),
+        social: isIndividualSocialMediaComplete(individualFormData),
+      }
+    : {
+        personal: false,
+        contact: false,
+        address: false,
+        bank: false,
+        emergency: false,
+        social: false,
+      };
+  const corporateCompletion = corporateFormData
+    ? {
+        company: isCorporateCompanySectionComplete(corporateFormData),
+        address: isCorporateAddressSectionComplete(corporateFormData),
+        contact: isCorporateContactSectionComplete(corporateFormData),
+        directors: isCorporateDirectorsSectionComplete(corporateFormData),
+        bank: isCorporateBankSectionComplete(corporateFormData),
+        additional: isCorporateAdditionalDetailsComplete(corporateFormData),
+        social: isCorporateSocialMediaComplete(corporateFormData),
+      }
+    : {
+        company: false,
+        address: false,
+        contact: false,
+        directors: false,
+        bank: false,
+        additional: false,
+        social: false,
+      };
 
   const loadBorrower = useCallback(async () => {
     setLoading(true);
@@ -345,7 +400,14 @@ export default function ProfileEditScreen() {
 
       {isIndividual ? (
         <>
-          <SectionCard title="Personal information">
+          <SectionCard
+            title="Personal information"
+            description={
+              identityLocked
+                ? 'Your identity has been verified by e-KYC. Your name, IC, date of birth and gender are locked. Contact support if any of these need updating.'
+                : undefined
+            }
+            action={<SectionCompleteStatusRow complete={individualCompletion.personal} />}>
             {identityLocked ? (
               <>
                 <ReadOnlyField locked label="Full name" value={individualFormData.name} />
@@ -450,8 +512,9 @@ export default function ProfileEditScreen() {
                         ? {
                             ...current,
                             icNumber: cleanValue,
-                            ...(nextDate ? { dateOfBirth: nextDate } : {}),
-                            ...(nextGender ? { gender: nextGender } : {}),
+                            ...(current.documentType === 'IC'
+                              ? { dateOfBirth: nextDate || '', gender: nextGender || '' }
+                              : {}),
                           }
                         : current,
                     );
@@ -465,31 +528,54 @@ export default function ProfileEditScreen() {
                       : undefined
                   }
                 />
-                <DatePickerField
-                  label="Date of birth"
-                  value={dateOfBirthValue}
-                  onChange={(value) => {
-                    clearError('dateOfBirth');
-                    setIndividualFormData((current) =>
-                      current ? { ...current, dateOfBirth: value } : current,
-                    );
-                  }}
-                  error={validationErrors.dateOfBirth}
-                  disabled={individualFormData.documentType === 'IC' && !!derivedDateOfBirth}
-                />
-                <OptionChipGroup
-                  label="Gender"
-                  value={genderValue}
-                  onChange={(value) => {
-                    clearError('gender');
-                    setIndividualFormData((current) =>
-                      current ? { ...current, gender: value } : current,
-                    );
-                  }}
-                  options={genderOptions}
-                  error={validationErrors.gender}
-                  disabled={individualFormData.documentType === 'IC' && !!derivedGender}
-                />
+                {isIndividualIC ? (
+                  <>
+                    <ReadOnlyField
+                      autoFilled
+                      label="Date of birth"
+                      value={dateOfBirthValue ? formatDate(dateOfBirthValue) : ''}
+                      placeholder="Enter your IC number to auto-fill"
+                      helperText="Derived from your IC number."
+                    />
+                    <ReadOnlyField
+                      autoFilled
+                      label="Gender"
+                      value={
+                        genderValue
+                          ? formatOptionLabel('gender', genderValue)
+                          : ''
+                      }
+                      placeholder="Enter your IC number to auto-fill"
+                      helperText="Derived from your IC number."
+                    />
+                  </>
+                ) : (
+                  <>
+                    <DatePickerField
+                      label="Date of birth"
+                      value={dateOfBirthValue}
+                      onChange={(value) => {
+                        clearError('dateOfBirth');
+                        setIndividualFormData((current) =>
+                          current ? { ...current, dateOfBirth: value } : current,
+                        );
+                      }}
+                      error={validationErrors.dateOfBirth}
+                    />
+                    <OptionChipGroup
+                      label="Gender"
+                      value={genderValue}
+                      onChange={(value) => {
+                        clearError('gender');
+                        setIndividualFormData((current) =>
+                          current ? { ...current, gender: value } : current,
+                        );
+                      }}
+                      options={genderOptions}
+                      error={validationErrors.gender}
+                    />
+                  </>
+                )}
               </>
             )}
             <SelectField
@@ -571,7 +657,9 @@ export default function ProfileEditScreen() {
             ) : null}
           </SectionCard>
 
-          <SectionCard title="Contact information">
+          <SectionCard
+            title="Contact information"
+            action={<SectionCompleteStatusRow complete={individualCompletion.contact} />}>
             <PhoneField
               label="Phone number"
               value={individualFormData.phone}
@@ -599,7 +687,9 @@ export default function ProfileEditScreen() {
             />
           </SectionCard>
 
-          <SectionCard title="Address">
+          <SectionCard
+            title="Address"
+            action={<SectionCompleteStatusRow complete={individualCompletion.address} />}>
             <Field
               label="Address line 1"
               value={individualFormData.addressLine1}
@@ -694,7 +784,9 @@ export default function ProfileEditScreen() {
             />
           </SectionCard>
 
-          <SectionCard title="Emergency contact">
+          <SectionCard
+            title="Emergency contact"
+            action={<SectionOptionalStatusRow complete={individualCompletion.emergency} />}>
             <Field
               label="Emergency contact name"
               value={individualFormData.emergencyContactName}
@@ -727,7 +819,9 @@ export default function ProfileEditScreen() {
             />
           </SectionCard>
 
-          <SectionCard title="Bank information">
+          <SectionCard
+            title="Bank information"
+            action={<SectionCompleteStatusRow complete={individualCompletion.bank} />}>
             <SelectField
               label="Bank"
               value={individualFormData.bankName}
@@ -772,7 +866,9 @@ export default function ProfileEditScreen() {
             />
           </SectionCard>
 
-          <SectionCard title="Social media">
+          <SectionCard
+            title="Social media"
+            action={<SectionOptionalStatusRow complete={individualCompletion.social} />}>
             <Field
               label="Instagram"
               value={individualFormData.instagram}
@@ -832,7 +928,9 @@ export default function ProfileEditScreen() {
         </>
       ) : (
         <>
-          <SectionCard title="Company information">
+          <SectionCard
+            title="Company information"
+            action={<SectionCompleteStatusRow complete={corporateCompletion.company} />}>
             <Field
               label="Company name"
               value={corporateFormData.companyName}
@@ -893,7 +991,9 @@ export default function ProfileEditScreen() {
             />
           </SectionCard>
 
-          <SectionCard title="Business address">
+          <SectionCard
+            title="Business address"
+            action={<SectionCompleteStatusRow complete={corporateCompletion.address} />}>
             <Field
               label="Address line 1"
               value={corporateFormData.addressLine1}
@@ -988,7 +1088,9 @@ export default function ProfileEditScreen() {
             />
           </SectionCard>
 
-          <SectionCard title="Company contact">
+          <SectionCard
+            title="Company contact"
+            action={<SectionCompleteStatusRow complete={corporateCompletion.contact} />}>
             <PhoneField
               label="Company phone"
               value={corporateFormData.companyPhone}
@@ -1016,7 +1118,9 @@ export default function ProfileEditScreen() {
             />
           </SectionCard>
 
-          <SectionCard title="Additional details">
+          <SectionCard
+            title="Additional details"
+            action={<SectionOptionalStatusRow complete={corporateCompletion.additional} />}>
             <Field
               label="Paid-up capital"
               value={corporateFormData.paidUpCapital}
@@ -1046,7 +1150,7 @@ export default function ProfileEditScreen() {
           <SectionCard
             title="Company directors"
             description="Choose one authorized representative for e-KYC."
-            action={<ActionButton label="Add director" variant="outline" onPress={addDirector} />}>
+            action={<SectionCompleteStatusRow complete={corporateCompletion.directors} />}>
             {validationErrors.authorizedRepresentative ? (
               <ThemedText type="small" style={{ color: theme.error }}>
                 {validationErrors.authorizedRepresentative}
@@ -1132,9 +1236,25 @@ export default function ProfileEditScreen() {
                 />
               </View>
             ))}
+            {corporateFormData.directors.length < 10 ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={addDirector}
+                style={({ pressed }) => [
+                  styles.addDirectorButton,
+                  { borderColor: theme.border, opacity: pressed ? 0.8 : 1 },
+                ]}>
+                <MaterialIcons name="add" size={18} color={theme.primary} />
+                <ThemedText type="small" style={{ color: theme.primary }}>
+                  Add director
+                </ThemedText>
+              </Pressable>
+            ) : null}
           </SectionCard>
 
-          <SectionCard title="Bank information">
+          <SectionCard
+            title="Bank information"
+            action={<SectionCompleteStatusRow complete={corporateCompletion.bank} />}>
             <SelectField
               label="Bank"
               value={corporateFormData.bankName}
@@ -1179,7 +1299,9 @@ export default function ProfileEditScreen() {
             />
           </SectionCard>
 
-          <SectionCard title="Social media">
+          <SectionCard
+            title="Social media"
+            action={<SectionOptionalStatusRow complete={corporateCompletion.social} />}>
             <Field
               label="Instagram"
               value={corporateFormData.instagram}
@@ -1294,6 +1416,16 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
+  },
+  addDirectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    padding: Spacing.two,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    justifyContent: 'center',
   },
   footerRow: {
     gap: Spacing.two,

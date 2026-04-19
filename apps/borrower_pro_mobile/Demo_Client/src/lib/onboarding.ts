@@ -603,6 +603,110 @@ export function validateCorporateForm(data: CorporateFormData): Record<string, s
   };
 }
 
+/**
+ * Per-card completeness helpers. Each returns true when every mandatory
+ * field rendered inside that section card is valid. Optional cards
+ * (emergency contact, social media, additional details) are not included
+ * because they have no required fields and should not show a "Complete"
+ * status even when partially filled.
+ */
+export function isIndividualPersonalSectionComplete(
+  data: IndividualFormData,
+  noMonthlyIncome: boolean,
+): boolean {
+  return Object.keys(validateIndividualFormStep(data, 1, noMonthlyIncome)).length === 0;
+}
+
+export function isIndividualContactSectionComplete(data: IndividualFormData): boolean {
+  return Boolean(data.phone.trim()) && Boolean(data.email.trim());
+}
+
+export function isIndividualAddressSectionComplete(data: IndividualFormData): boolean {
+  return (
+    Boolean(data.addressLine1.trim()) &&
+    Boolean(data.city.trim()) &&
+    Boolean(data.state.trim()) &&
+    Boolean(data.postcode.trim()) &&
+    POSTCODE_REGEX.test(data.postcode) &&
+    Boolean(data.country.trim())
+  );
+}
+
+export function isIndividualBankSectionComplete(data: IndividualFormData): boolean {
+  if (!data.bankName) return false;
+  if (data.bankName === 'OTHER' && !data.bankNameOther.trim()) return false;
+  if (!data.bankAccountNo.trim()) return false;
+  return BANK_ACCOUNT_REGEX.test(data.bankAccountNo.replace(/\D/g, ''));
+}
+
+export function isCorporateCompanySectionComplete(data: CorporateFormData): boolean {
+  return (
+    Boolean(data.companyName.trim()) &&
+    Boolean(data.ssmRegistrationNo.trim()) &&
+    Boolean(data.bumiStatus)
+  );
+}
+
+export function isCorporateAddressSectionComplete(data: CorporateFormData): boolean {
+  return (
+    Boolean(data.addressLine1.trim()) &&
+    Boolean(data.city.trim()) &&
+    Boolean(data.state.trim()) &&
+    Boolean(data.postcode.trim()) &&
+    POSTCODE_REGEX.test(data.postcode) &&
+    Boolean(data.country.trim())
+  );
+}
+
+export function isCorporateContactSectionComplete(data: CorporateFormData): boolean {
+  return Boolean(data.companyPhone.trim()) && Boolean(data.companyEmail.trim());
+}
+
+export function isCorporateDirectorsSectionComplete(data: CorporateFormData): boolean {
+  return Object.keys(validateCorporateFormStep(data, 3)).length === 0;
+}
+
+export function isCorporateBankSectionComplete(data: CorporateFormData): boolean {
+  return Object.keys(validateCorporateFormStep(data, 4)).length === 0;
+}
+
+/**
+ * Optional-section completeness helpers. Each returns true only when every
+ * field in the section has a value, so the UI can flip the card status from
+ * a neutral "Optional" badge to a green "Complete" badge.
+ */
+export function isIndividualEmergencyContactComplete(data: IndividualFormData): boolean {
+  return (
+    Boolean(data.emergencyContactName.trim()) &&
+    Boolean(data.emergencyContactPhone.trim()) &&
+    Boolean(data.emergencyContactRelationship.trim())
+  );
+}
+
+export function isIndividualSocialMediaComplete(data: IndividualFormData): boolean {
+  return (
+    Boolean(data.instagram.trim()) &&
+    Boolean(data.tiktok.trim()) &&
+    Boolean(data.facebook.trim()) &&
+    Boolean(data.linkedin.trim()) &&
+    Boolean(data.xTwitter.trim())
+  );
+}
+
+export function isCorporateSocialMediaComplete(data: CorporateFormData): boolean {
+  return (
+    Boolean(data.instagram.trim()) &&
+    Boolean(data.tiktok.trim()) &&
+    Boolean(data.facebook.trim()) &&
+    Boolean(data.linkedin.trim()) &&
+    Boolean(data.xTwitter.trim())
+  );
+}
+
+export function isCorporateAdditionalDetailsComplete(data: CorporateFormData): boolean {
+  return Boolean(data.paidUpCapital.trim()) && Boolean(data.numberOfEmployees.trim());
+}
+
 export function buildOnboardingPayload(params: {
   borrowerType: BorrowerType;
   individualFormData: IndividualFormData;

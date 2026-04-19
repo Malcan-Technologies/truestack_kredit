@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getCountries, getCountryCallingCode, parsePhoneNumber } from 'react-phone-number-input';
 import en from 'react-phone-number-input/locale/en.json';
 import {
+  LayoutChangeEvent,
   Modal,
   Pressable,
   ScrollView,
@@ -11,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import type { Country } from 'react-phone-number-input';
 
 import { ThemedText } from '@/components/themed-text';
@@ -124,39 +126,68 @@ export function ReadOnlyField({
   value,
   helperText,
   locked = false,
+  autoFilled = false,
+  placeholder,
 }: {
   label: string;
   value: string;
   helperText?: string;
   /** When true, shows a lock affordance and non-editable styling (e.g. verified identity). */
   locked?: boolean;
+  /**
+   * When true, shows a sparkle affordance and "Auto-filled" badge to indicate the value is
+   * derived from another field (e.g. DOB / gender derived from IC number).
+   */
+  autoFilled?: boolean;
+  /** Shown in muted style when `value` is empty (e.g. "Enter IC to auto-fill"). */
+  placeholder?: string;
 }) {
   const theme = useTheme();
+  const showLock = locked && !autoFilled;
+  const showAuto = autoFilled && !locked;
+  const dashed = showLock || showAuto;
+  const hasValue = Boolean(value);
 
   return (
     <View style={styles.fieldWrap}>
       <View style={styles.readOnlyLabelRow}>
-        {locked ? (
-          <MaterialIcons name="lock-outline" size={16} color={theme.textSecondary} />
+        {showLock ? (
+          <MaterialIcons name="verified" size={16} color={theme.success} />
+        ) : null}
+        {showAuto ? (
+          <MaterialIcons name="auto-awesome" size={16} color={theme.primary} />
         ) : null}
         <ThemedText type="smallBold">{label}</ThemedText>
-        {locked ? (
-          <ThemedText type="small" themeColor="textSecondary">
-            Read-only
+        {showLock ? (
+          <ThemedText type="small" style={{ color: theme.success }}>
+            Verified
+          </ThemedText>
+        ) : null}
+        {showAuto ? (
+          <ThemedText type="small" style={{ color: theme.primary }}>
+            Auto-filled
           </ThemedText>
         ) : null}
       </View>
       <View
         style={[
           styles.staticField,
-          locked && styles.staticFieldLocked,
+          dashed && styles.staticFieldLocked,
           {
             borderColor: theme.border,
-            backgroundColor: locked ? theme.backgroundElement : theme.background,
+            backgroundColor: dashed ? theme.backgroundElement : theme.background,
           },
         ]}>
-        <ThemedText type="default" style={locked ? { opacity: 0.92 } : undefined}>
-          {value || '—'}
+        <ThemedText
+          type="default"
+          style={
+            !hasValue
+              ? { color: theme.textSecondary }
+              : showLock
+                ? { opacity: 0.92 }
+                : undefined
+          }>
+          {hasValue ? value : placeholder || '—'}
         </ThemedText>
       </View>
       {helperText ? (
@@ -795,6 +826,154 @@ export function PhoneField({
   );
 }
 
+export type SliderFieldProps = {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  formatValue?: (value: number) => string;
+  formatBound?: (value: number) => string;
+  helperText?: string;
+  error?: string;
+  disabled?: boolean;
+};
+
+const SLIDER_THUMB_SIZE = 26;
+const SLIDER_TRACK_HEIGHT = 6;
+const SLIDER_ROW_HEIGHT = 40;
+
+export function SliderField({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+  formatValue = (v) => String(v),
+  formatBound,
+  helperText,
+  error,
+  disabled = false,
+}: SliderFieldProps) {
+  const theme = useTheme();
+  const [trackWidth, setTrackWidth] = useState(0);
+  const widthRef = useRef(0);
+
+  const safeValue = Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
+
+  const stateRef = useRef({ min, max, step, value: safeValue, onChange });
+  useEffect(() => {
+    stateRef.current = { min, max, step, value: safeValue, onChange };
+  });
+
+  const handleAtX = (x: number) => {
+    const { min: mn, max: mx, step: st } = stateRef.current;
+    const usable = Math.max(1, widthRef.current - SLIDER_THUMB_SIZE);
+    const adj = x - SLIDER_THUMB_SIZE / 2;
+    const clamped = Math.max(0, Math.min(usable, adj));
+    const r = clamped / usable;
+    const raw = mn + r * (mx - mn);
+    const stepped = Math.round(raw / st) * st;
+    const next = Math.max(mn, Math.min(mx, stepped));
+    if (next !== stateRef.current.value) {
+      stateRef.current.onChange(next);
+    }
+  };
+
+  const gesture = useMemo(() => {
+    const pan = Gesture.Pan()
+      .enabled(!disabled)
+      // Claim horizontal motion early so the native swipe-back gesture yields.
+      .activeOffsetX([-2, 2])
+      .failOffsetY([-12, 12])
+      .onStart((e) => handleAtX(e.x))
+      .onUpdate((e) => handleAtX(e.x))
+      .runOnJS(true);
+    const tap = Gesture.Tap()
+      .enabled(!disabled)
+      .onEnd((e, success) => {
+        if (success) handleAtX(e.x);
+      })
+      .runOnJS(true);
+    return Gesture.Race(pan, tap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled]);
+
+  function handleLayout(e: LayoutChangeEvent) {
+    const w = e.nativeEvent.layout.width;
+    widthRef.current = w;
+    setTrackWidth(w);
+  }
+
+  const ratio = max === min ? 0 : (safeValue - min) / (max - min);
+  const usable = Math.max(0, trackWidth - SLIDER_THUMB_SIZE);
+  const thumbLeft = ratio * usable;
+  const filledWidth = thumbLeft + SLIDER_THUMB_SIZE / 2;
+
+  const minDisplay = (formatBound ?? formatValue)(min);
+  const maxDisplay = (formatBound ?? formatValue)(max);
+
+  return (
+    <View style={styles.fieldWrap}>
+      <View style={styles.sliderHeaderRow}>
+        <ThemedText type="smallBold">{label}</ThemedText>
+        <ThemedText type="smallBold" style={{ color: theme.primary }}>
+          {formatValue(safeValue)}
+        </ThemedText>
+      </View>
+      <GestureDetector gesture={gesture}>
+        <View
+          onLayout={handleLayout}
+          collapsable={false}
+          style={[styles.sliderRow, { opacity: disabled ? 0.55 : 1 }]}>
+          <View style={[styles.sliderTrack, { backgroundColor: theme.border }]}>
+            {trackWidth > 0 ? (
+              <View
+                style={[
+                  styles.sliderTrackFilled,
+                  { backgroundColor: theme.primary, width: filledWidth },
+                ]}
+              />
+            ) : null}
+          </View>
+          {trackWidth > 0 ? (
+            <View
+              style={[
+                styles.sliderThumb,
+                {
+                  left: thumbLeft,
+                  backgroundColor: theme.primary,
+                  borderColor: theme.primaryForeground,
+                },
+              ]}
+              pointerEvents="none"
+            />
+          ) : null}
+        </View>
+      </GestureDetector>
+      <View style={styles.sliderBoundsRow}>
+        <ThemedText type="small" themeColor="textSecondary">
+          {minDisplay}
+        </ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          {maxDisplay}
+        </ThemedText>
+      </View>
+      {error ? (
+        <ThemedText type="small" style={{ color: theme.error }}>
+          {error}
+        </ThemedText>
+      ) : helperText ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          {helperText}
+        </ThemedText>
+      ) : null}
+    </View>
+  );
+}
+
 export function FormSwitchRow({
   title,
   description,
@@ -994,5 +1173,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     fontSize: 16,
+  },
+  sliderHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  sliderRow: {
+    height: SLIDER_ROW_HEIGHT,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  sliderTrack: {
+    height: SLIDER_TRACK_HEIGHT,
+    borderRadius: SLIDER_TRACK_HEIGHT / 2,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  sliderTrackFilled: {
+    height: '100%',
+    borderRadius: SLIDER_TRACK_HEIGHT / 2,
+  },
+  sliderThumb: {
+    position: 'absolute',
+    width: SLIDER_THUMB_SIZE,
+    height: SLIDER_THUMB_SIZE,
+    borderRadius: SLIDER_THUMB_SIZE / 2,
+    borderWidth: 2,
+    top: (SLIDER_ROW_HEIGHT - SLIDER_THUMB_SIZE) / 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  sliderBoundsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
 });

@@ -429,7 +429,7 @@ export function DatePickerField({
             <Pressable
               onPress={handleConfirm}
               style={[styles.dateConfirmBtn, { backgroundColor: theme.primary }]}>
-              <ThemedText type="smallBold" style={{ color: '#fff', textAlign: 'center' }}>
+              <ThemedText type="smallBold" style={{ color: theme.primaryForeground, textAlign: 'center' }}>
                 Confirm
               </ThemedText>
             </Pressable>

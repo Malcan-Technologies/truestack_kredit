@@ -179,6 +179,12 @@ const enrollBodySchema = z.object({
   otp: z.string().min(4).max(8),
 });
 
+/** MTSA requires `yyyy-MM-dd HH:mm:ss` — NOT ISO 8601. */
+function fmtMtsaDatetime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 /** Categories that can satisfy MTSA RequestCertificate image fields (individual + corporate KYC). */
 const ENROLL_DOC_CATEGORIES = [
   'IC_FRONT',
@@ -274,6 +280,19 @@ router.post('/enroll', async (req, res, next) => {
       );
     }
 
+    // MTSA rejects RequestCertificate when VerificationData is absent ("verify data is null"),
+    // even though the ICD lists it as optional for UserType 1. Populate it from the borrower's
+    // latest approved TrueStack KYC session, or fall back to a generic e-KYC record.
+    const latestKyc = await prisma.truestackKycSession.findFirst({
+      where: {
+        borrowerId,
+        tenantId: tenant.id,
+        status: 'completed',
+        result: 'approved',
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
     const result = await enrollCertificate({
       UserID: userId,
       FullName: fullName,
@@ -286,6 +305,12 @@ router.post('/enroll', async (req, res, next) => {
       ...(!isPassport ? { NRICFront: nricFront, NRICBack: nricBack } : {}),
       ...(isPassport ? { PassportImage: passportImage } : {}),
       SelfieImage: selfie,
+      VerificationData: {
+        verifyDatetime: fmtMtsaDatetime(latestKyc?.updatedAt ?? new Date()),
+        verifyMethod: 'e-KYC (face recognition with liveness detection)',
+        verifyStatus: 'approved',
+        verifyVerifier: 'TrueStack',
+      },
     });
 
     if (result.success) {

@@ -57,8 +57,27 @@ function signingOtpKey(loanId: string) {
 }
 
 async function blobToBytes(blob: Blob): Promise<Uint8Array> {
-  const buf = await blob.arrayBuffer();
-  return new Uint8Array(buf);
+  // React Native's Blob polyfill lacks arrayBuffer(); read via FileReader instead.
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read PDF blob'));
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Expected data URL from FileReader'));
+        return;
+      }
+      resolve(reader.result);
+    };
+    reader.readAsDataURL(blob);
+  });
+  const commaIdx = dataUrl.indexOf(',');
+  const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+  const binary = globalThis.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 function ensurePdfCacheDir(): Directory {
@@ -86,6 +105,7 @@ export default function SignAgreementScreen() {
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(5);
+  const [isDrawing, setIsDrawing] = useState(false);
 
   const sigRef = useRef<SignatureViewRef>(null);
 
@@ -453,7 +473,8 @@ export default function SignAgreementScreen() {
       title="Sign agreement"
       showBackButton
       backFallbackHref={backHref}
-      stickyFooter={stickyFooter}>
+      stickyFooter={stickyFooter}
+      scrollEnabled={!isDrawing}>
       {errorMsg ? (
         <View
           style={[
@@ -538,6 +559,8 @@ export default function SignAgreementScreen() {
               ref={sigRef}
               onOK={handleSignatureCaptured}
               onEmpty={() => toast.error('Please draw your signature first.')}
+              onBegin={() => setIsDrawing(true)}
+              onEnd={() => setIsDrawing(false)}
               webStyle={SIGNATURE_WEB_STYLE}
               descriptionText=""
               imageType="image/png"
@@ -551,7 +574,11 @@ export default function SignAgreementScreen() {
               onPress={() => sigRef.current?.clearSignature()}
               style={({ pressed }) => [
                 styles.clearBtn,
-                { borderColor: theme.border, opacity: pressed ? 0.8 : 1 },
+                {
+                  borderColor: theme.border,
+                  backgroundColor: theme.background,
+                  opacity: pressed ? 0.8 : 1,
+                },
               ]}>
               <MaterialIcons name="close" size={14} color={theme.text} />
               <ThemedText type="smallBold">Clear</ThemedText>

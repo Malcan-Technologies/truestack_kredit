@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -72,6 +73,7 @@ import {
   borrowerTransactionReceiptUrl,
 } from '@kredit/borrower';
 import type {
+  AttestationStatus,
   BorrowerLoanDetail,
   BorrowerLoanMetrics,
   BorrowerLoanTimelineEvent,
@@ -254,7 +256,7 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
   }
 
   if (PRE_DISBURSEMENT_STATUSES.has(loan.status)) {
-    return <PreDisbursementPlaceholder loan={loan} />;
+    return <PreDisbursementPlaceholder loan={loan} loanId={loanId} onRefresh={handleRefresh} />;
   }
 
   /* --- Servicing view ------------------------------------------ */
@@ -1422,7 +1424,37 @@ function renderTimelineDetail(event: BorrowerLoanTimelineEvent): React.ReactNode
 /*  Pre-disbursement placeholder                                      */
 /* ------------------------------------------------------------------ */
 
-function PreDisbursementPlaceholder({ loan }: { loan: BorrowerLoanDetail }) {
+const MALAYSIA_TZ = 'Asia/Kuala_Lumpur';
+
+function formatMalaysiaDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-MY', {
+    timeZone: MALAYSIA_TZ,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatMalaysiaTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-MY', {
+    timeZone: MALAYSIA_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function PreDisbursementPlaceholder({
+  loan,
+  loanId,
+  onRefresh,
+}: {
+  loan: BorrowerLoanDetail;
+  loanId: string;
+  onRefresh: () => void | Promise<void>;
+}) {
   const router = useRouter();
   const theme = useTheme();
   const statusInput: BorrowerLoanStatusLabelInput = {
@@ -1430,6 +1462,11 @@ function PreDisbursementPlaceholder({ loan }: { loan: BorrowerLoanDetail }) {
     attestationCompletedAt: loan.attestationCompletedAt ?? null,
     loanChannel: loan.loanChannel,
   };
+
+  const requiresAttestation = loan.loanChannel !== 'PHYSICAL';
+  const attestationDone = Boolean(loan.attestationCompletedAt);
+  const showAttestation = requiresAttestation && !attestationDone;
+
   return (
     <PageScreen title="Loan" showBackButton backFallbackHref="/loans">
       <View style={styles.headerWrap}>
@@ -1442,10 +1479,16 @@ function PreDisbursementPlaceholder({ loan }: { loan: BorrowerLoanDetail }) {
         </View>
       </View>
 
-      <SectionCard title="Continue on web">
+      {showAttestation ? (
+        <AttestationStateCard loan={loan} loanId={loanId} onRefresh={onRefresh} />
+      ) : null}
+
+      <SectionCard
+        title={showAttestation ? 'Remaining steps — continue on web' : 'Continue on web'}>
         <ThemedText type="small">
-          The mobile flow for finishing pre-disbursement steps (attestation, e-KYC, agreement
-          signing) is on its way. For now, please finish these steps in the web portal.
+          {showAttestation
+            ? 'The mobile flow supports attestation. Continue the remaining pre-disbursement steps (e-KYC, agreement signing) in the web portal.'
+            : 'The mobile flow for finishing pre-disbursement steps (e-KYC, agreement signing) is on its way. For now, please finish these steps in the web portal.'}
         </ThemedText>
         <Pressable
           accessibilityRole="button"
@@ -1459,6 +1502,469 @@ function PreDisbursementPlaceholder({ loan }: { loan: BorrowerLoanDetail }) {
         </Pressable>
       </SectionCard>
     </PageScreen>
+  );
+}
+
+/*  Attestation state-machine card  */
+
+function AttestationStateCard({
+  loan,
+  loanId,
+  onRefresh,
+}: {
+  loan: BorrowerLoanDetail;
+  loanId: string;
+  onRefresh: () => void | Promise<void>;
+}) {
+  const theme = useTheme();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const status: AttestationStatus =
+    (loan.attestationStatus as AttestationStatus | undefined) ?? 'NOT_STARTED';
+
+  const runAction = useCallback(
+    async (fn: () => Promise<unknown>, successMsg?: string) => {
+      setBusy(true);
+      try {
+        await fn();
+        if (successMsg) toast.success(successMsg);
+        await onRefresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Action failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onRefresh],
+  );
+
+  const onProceedSigning = useCallback(
+    () =>
+      runAction(
+        () => loansClient.postAttestationProceedToSigning(loanId),
+        'Attestation complete. Continue with e-KYC.',
+      ),
+    [loanId, runAction],
+  );
+
+  const onRequestMeeting = useCallback(async () => {
+    setBusy(true);
+    try {
+      await loansClient.postAttestationRequestMeeting(loanId);
+      toast.success('Meeting requested — choose a time.');
+      await onRefresh();
+      router.push(`/loans/${loanId}/schedule-meeting` as Href);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Action failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [loanId, onRefresh, router]);
+
+  const confirmRequestMeeting = useCallback(() => {
+    Alert.alert(
+      'Request an online meeting?',
+      'Video attestation is immediate. Scheduling a meeting usually takes 2–3 business days while your lender confirms a time.',
+      [
+        { text: 'Stay here', style: 'cancel' },
+        { text: 'Request meeting', onPress: () => void onRequestMeeting() },
+      ],
+    );
+  }, [onRequestMeeting]);
+
+  const onAcceptCounter = useCallback(
+    () =>
+      runAction(
+        () => loansClient.postAttestationAcceptCounter(loanId),
+        'Meeting confirmed. Check your Meet link below.',
+      ),
+    [loanId, runAction],
+  );
+
+  const onDeclineCounter = useCallback(
+    () =>
+      runAction(
+        () => loansClient.postAttestationDeclineCounter(loanId),
+        'You can pick another slot.',
+      ),
+    [loanId, runAction],
+  );
+
+  const onCancelLoan = useCallback(
+    (reason: 'WITHDRAWN' | 'REJECTED_AFTER_ATTESTATION') => {
+      setBusy(true);
+      (async () => {
+        try {
+          await loansClient.postAttestationCancelLoan(loanId, { reason });
+          toast.success('Loan cancelled.');
+          router.replace('/loans' as Href);
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : 'Action failed');
+        } finally {
+          setBusy(false);
+        }
+      })();
+    },
+    [loanId, router],
+  );
+
+  const confirmWithdraw = useCallback(() => {
+    Alert.alert(
+      'Withdraw and cancel this loan?',
+      'You finished the attestation video but have not accepted the terms yet. If you withdraw now, this application will be cancelled and you will need to start a new application if you change your mind.',
+      [
+        { text: 'Stay on this loan', style: 'cancel' },
+        {
+          text: 'Yes, withdraw',
+          style: 'destructive',
+          onPress: () => onCancelLoan('WITHDRAWN'),
+        },
+      ],
+    );
+  }, [onCancelLoan]);
+
+  const confirmRejectAgreement = useCallback(() => {
+    Alert.alert(
+      'Reject agreement and cancel loan?',
+      'This will cancel the loan after meeting attestation. You cannot undo this.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject and cancel',
+          style: 'destructive',
+          onPress: () => onCancelLoan('REJECTED_AFTER_ATTESTATION'),
+        },
+      ],
+    );
+  }, [onCancelLoan]);
+
+  const openMeetLink = useCallback((url: string) => {
+    void Linking.openURL(url).catch(() => toast.error('Could not open meeting link.'));
+  }, []);
+
+  return (
+    <SectionCard
+      title="Step 1 — Attestation"
+      description="Watch the attestation video, or request an online meeting with a lawyer.">
+      {status === 'NOT_STARTED' ? (
+        <View style={styles.attestChoiceGrid}>
+          <AttestationChoiceTile
+            icon="videocam"
+            label="Watch video"
+            eta="About 5 mins"
+            etaTone="success"
+            helper="Instant option. Watch the required video and continue as soon as you finish."
+            disabled={busy}
+            onPress={() => router.push(`/loans/${loanId}/watch-video` as Href)}
+          />
+          <AttestationChoiceTile
+            icon="groups"
+            label="Request online meeting"
+            eta="2 – 3 business days"
+            etaTone="warning"
+            helper="Schedule an online meeting with a lawyer to explain the terms of your loan before you continue."
+            disabled={busy}
+            onPress={confirmRequestMeeting}
+          />
+        </View>
+      ) : null}
+
+      {status === 'VIDEO_COMPLETED' ? (
+        <View style={styles.attestActions}>
+          <AttestActionButton
+            label="Accept terms — continue to e-KYC"
+            busy={busy}
+            onPress={() => void onProceedSigning()}
+            disabled={busy}
+            variant="primary"
+          />
+          <AttestActionButton
+            label="Request meeting — choose a time"
+            icon="groups"
+            busy={busy}
+            onPress={() => void onRequestMeeting()}
+            disabled={busy}
+            variant="outline"
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={confirmWithdraw}
+            style={({ pressed }) => [
+              styles.attestGhost,
+              { opacity: busy ? 0.5 : pressed ? 0.7 : 1 },
+            ]}>
+            <ThemedText type="small" style={{ color: theme.error, fontWeight: '600' }}>
+              Withdraw / cancel loan
+            </ThemedText>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {status === 'MEETING_REQUESTED' || status === 'PROPOSAL_EXPIRED' ? (
+        <View
+          style={[
+            styles.attestInfoBox,
+            { borderColor: theme.border, backgroundColor: theme.background },
+          ]}>
+          <View style={styles.attestInfoHeader}>
+            <MaterialIcons name="event" size={18} color={theme.text} />
+            <ThemedText type="smallBold">
+              {status === 'PROPOSAL_EXPIRED'
+                ? 'Propose a new time'
+                : 'Choose a meeting time'}
+            </ThemedText>
+          </View>
+          <ThemedText type="small" themeColor="textSecondary">
+            {status === 'PROPOSAL_EXPIRED'
+              ? 'Your previous slot was not confirmed in time. Pick another slot.'
+              : 'Pick an available slot on the scheduling page (one proposal per loan).'}
+          </ThemedText>
+          <AttestActionButton
+            label="Open schedule page"
+            busy={busy}
+            onPress={() => router.push(`/loans/${loanId}/schedule-meeting` as Href)}
+            disabled={busy}
+            variant="primary"
+          />
+        </View>
+      ) : null}
+
+      {status === 'SLOT_PROPOSED' ? (
+        <View
+          style={[
+            styles.attestInfoBox,
+            {
+              borderColor: theme.warning,
+              backgroundColor: theme.warning + '10',
+            },
+          ]}>
+          <View style={styles.attestInfoHeader}>
+            <MaterialIcons name="schedule" size={18} color={theme.warning} />
+            <ThemedText type="smallBold">Waiting for lender confirmation</ThemedText>
+          </View>
+          {loan.attestationProposalStartAt ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              Your slot: {formatMalaysiaDateTime(loan.attestationProposalStartAt)}
+            </ThemedText>
+          ) : null}
+          <ThemedText type="small" themeColor="textSecondary">
+            A Google Meet link appears here only after your lender accepts this time. We will also
+            email the same link to your account email.
+          </ThemedText>
+        </View>
+      ) : null}
+
+      {status === 'COUNTER_PROPOSED' && loan.attestationProposalStartAt ? (
+        <View
+          style={[
+            styles.attestInfoBox,
+            {
+              borderColor: theme.primary,
+              backgroundColor: theme.primary + '10',
+            },
+          ]}>
+          <View style={styles.attestInfoHeader}>
+            <MaterialIcons name="swap-horiz" size={18} color={theme.primary} />
+            <ThemedText type="smallBold">Your lender proposed a different time</ThemedText>
+          </View>
+          <ThemedText type="small" themeColor="textSecondary">
+            {formatMalaysiaDateTime(loan.attestationProposalStartAt)}
+            {loan.attestationProposalEndAt
+              ? ` — ${formatMalaysiaTime(loan.attestationProposalEndAt)}`
+              : ''}
+          </ThemedText>
+          {loan.attestationProposalDeadlineAt ? (
+            <ThemedText type="small" style={{ color: theme.warning }}>
+              Respond by: {formatMalaysiaDateTime(loan.attestationProposalDeadlineAt)}
+            </ThemedText>
+          ) : null}
+          <View style={styles.attestActions}>
+            <AttestActionButton
+              label="Accept this time"
+              busy={busy}
+              onPress={() => void onAcceptCounter()}
+              disabled={busy}
+              variant="primary"
+            />
+            <AttestActionButton
+              label="Decline and pick another slot"
+              busy={busy}
+              onPress={() => void onDeclineCounter()}
+              disabled={busy}
+              variant="outline"
+            />
+          </View>
+        </View>
+      ) : null}
+
+      {status === 'MEETING_SCHEDULED' ? (
+        <View
+          style={[
+            styles.attestInfoBox,
+            {
+              borderColor: theme.success,
+              backgroundColor: theme.success + '10',
+            },
+          ]}>
+          <View style={styles.attestInfoHeader}>
+            <MaterialIcons name="event-available" size={18} color={theme.success} />
+            <ThemedText type="smallBold">Your meeting</ThemedText>
+          </View>
+          {loan.attestationMeetingStartAt ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              {formatMalaysiaDateTime(loan.attestationMeetingStartAt)}
+              {loan.attestationMeetingEndAt
+                ? ` — ${formatMalaysiaTime(loan.attestationMeetingEndAt)}`
+                : ''}
+            </ThemedText>
+          ) : null}
+          {loan.attestationMeetingNotes ? (
+            <ThemedText
+              type="small"
+              themeColor="textSecondary"
+              style={[
+                styles.attestNoteBox,
+                { borderColor: theme.border, backgroundColor: theme.backgroundElement },
+              ]}>
+              {loan.attestationMeetingNotes}
+            </ThemedText>
+          ) : null}
+          {loan.attestationMeetingLink ? (
+            <AttestActionButton
+              label="Join meeting"
+              icon="open-in-new"
+              busy={false}
+              onPress={() => openMeetLink(loan.attestationMeetingLink as string)}
+              disabled={busy}
+              variant="outline"
+            />
+          ) : (
+            <ThemedText type="small" themeColor="textSecondary">
+              Meet link not available yet — check your email or contact your lender.
+            </ThemedText>
+          )}
+          <ThemedText type="small" themeColor="textSecondary">
+            Your lender will mark the meeting complete after it ends. Once confirmed, you can
+            continue to e-KYC and signing.
+          </ThemedText>
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={confirmRejectAgreement}
+            style={({ pressed }) => [
+              styles.attestGhost,
+              { opacity: busy ? 0.5 : pressed ? 0.7 : 1 },
+            ]}>
+            <ThemedText type="small" style={{ color: theme.error, fontWeight: '600' }}>
+              Reject agreement — cancel loan
+            </ThemedText>
+          </Pressable>
+        </View>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+function AttestationChoiceTile({
+  icon,
+  label,
+  eta,
+  etaTone,
+  helper,
+  disabled,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof MaterialIcons>['name'];
+  label: string;
+  eta: string;
+  etaTone: 'success' | 'warning';
+  helper: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const toneColor = etaTone === 'success' ? theme.success : theme.warning;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.attestTile,
+        {
+          borderColor: theme.border,
+          backgroundColor: theme.background,
+          opacity: disabled ? 0.6 : pressed ? 0.9 : 1,
+        },
+      ]}>
+      <View style={styles.attestTileTop}>
+        <View style={[styles.attestTileIcon, { backgroundColor: theme.backgroundElement }]}>
+          <MaterialIcons name={icon} size={20} color={theme.textSecondary} />
+        </View>
+        <View style={[styles.attestTileEta, { backgroundColor: toneColor + '1A' }]}>
+          <MaterialIcons name="schedule" size={12} color={toneColor} />
+          <ThemedText type="small" style={{ color: toneColor, fontWeight: '600' }}>
+            {eta}
+          </ThemedText>
+        </View>
+      </View>
+      <ThemedText type="smallBold" style={{ marginTop: Spacing.two }}>
+        {label}
+      </ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        {helper}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+function AttestActionButton({
+  label,
+  icon,
+  onPress,
+  disabled,
+  busy,
+  variant,
+}: {
+  label: string;
+  icon?: React.ComponentProps<typeof MaterialIcons>['name'];
+  onPress: () => void;
+  disabled: boolean;
+  busy: boolean;
+  variant: 'primary' | 'outline';
+}) {
+  const theme = useTheme();
+  const isPrimary = variant === 'primary';
+  const bg = isPrimary ? theme.primary : 'transparent';
+  const fg = isPrimary ? theme.primaryForeground : theme.text;
+  const borderColor = isPrimary ? theme.primary : theme.border;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || busy }}
+      onPress={onPress}
+      disabled={disabled || busy}
+      style={({ pressed }) => [
+        styles.attestActionBtn,
+        {
+          backgroundColor: bg,
+          borderColor,
+          opacity: disabled || busy ? 0.5 : pressed ? 0.85 : 1,
+        },
+      ]}>
+      {busy ? (
+        <ActivityIndicator color={fg} />
+      ) : (
+        <>
+          {icon ? <MaterialIcons name={icon} size={16} color={fg} /> : null}
+          <ThemedText type="smallBold" style={{ color: fg }}>
+            {label}
+          </ThemedText>
+        </>
+      )}
+    </Pressable>
   );
 }
 
@@ -1757,5 +2263,69 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     alignSelf: 'flex-start',
+  },
+  attestChoiceGrid: {
+    gap: Spacing.two,
+  },
+  attestTile: {
+    borderWidth: 1.5,
+    borderRadius: 14,
+    padding: Spacing.three,
+    gap: Spacing.half,
+  },
+  attestTileTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  attestTileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attestTileEta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+  },
+  attestActions: {
+    gap: Spacing.two,
+  },
+  attestGhost: {
+    alignSelf: 'flex-start',
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.one,
+  },
+  attestActionBtn: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.four,
+  },
+  attestInfoBox: {
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: Spacing.three,
+    gap: Spacing.two,
+  },
+  attestInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  attestNoteBox: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: Spacing.two,
   },
 });

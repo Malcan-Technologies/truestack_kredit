@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { formatDate, formatRelativeTime, formatCurrency, toSafeNumber } from "@/lib/utils";
-import { useCurrentRole } from "@/components/tenant-context";
+import { useTenantPermissions } from "@/components/tenant-context";
 import { canManageProducts } from "@/lib/permissions";
 
 // ============================================
@@ -275,7 +275,7 @@ export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
   const productId = params.id as string;
-  const currentRole = useCurrentRole();
+  const permissions = useTenantPermissions();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -399,7 +399,7 @@ export default function ProductDetailPage() {
             </p>
           </div>
         </div>
-        {canManageProducts(currentRole) && (
+        {canManageProducts(permissions) && (
           <div className="flex gap-2">
             <Button
               variant="outline"

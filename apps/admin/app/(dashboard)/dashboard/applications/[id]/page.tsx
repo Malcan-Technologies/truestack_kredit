@@ -30,12 +30,14 @@ import {
   AlertTriangle,
   RotateCcw,
   ChartPie,
+  ArrowUpRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -63,8 +65,13 @@ import {
   safeRound,
   safeSubtract,
 } from "@/lib/utils";
-import { useCurrentRole } from "@/components/tenant-context";
-import { canApproveApplications } from "@/lib/permissions";
+import { useTenantPermissions } from "@/components/tenant-context";
+import {
+  canApproveApplicationsL1,
+  canApproveApplicationsL2,
+  canEditApplications,
+  hasPermission,
+} from "@/lib/permissions";
 
 // ============================================
 // Types
@@ -92,6 +99,7 @@ interface Application {
   amount: string;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
   notes: string | null;
   actualInterestRate: string | null;
   actualTerm: number | null;
@@ -153,6 +161,12 @@ interface Application {
     id: string;
     status: string;
   } | null;
+  l1ReviewedAt?: string | null;
+  l1ReviewedByMemberId?: string | null;
+  l1DecisionNote?: string | null;
+  l2ReviewedAt?: string | null;
+  l2ReviewedByMemberId?: string | null;
+  l2DecisionNote?: string | null;
 }
 
 interface TimelineEvent {
@@ -186,13 +200,15 @@ const statusColors: Record<string, "default" | "success" | "warning" | "destruct
   DRAFT: "secondary" as "default",
   SUBMITTED: "warning",
   UNDER_REVIEW: "warning",
+  PENDING_L2_APPROVAL: "info",
   APPROVED: "success",
   REJECTED: "destructive",
   CANCELLED: "destructive",
 };
 
 function applicationStatusLabel(status: string): string {
-  if (status === "SUBMITTED") return "REVIEW";
+  if (status === "SUBMITTED" || status === "UNDER_REVIEW") return "L1 Review";
+  if (status === "PENDING_L2_APPROVAL") return "L2 Review";
   return status.replace(/_/g, " ");
 }
 
@@ -381,7 +397,11 @@ export default function ApplicationDetailPage() {
   const params = useParams();
   const router = useRouter();
   const applicationId = params.id as string;
-  const currentRole = useCurrentRole();
+  const permissions = useTenantPermissions();
+  const canEditApplication = canEditApplications(permissions);
+  const canApproveL1 = canApproveApplicationsL1(permissions);
+  const canApproveL2 = canApproveApplicationsL2(permissions);
+  const canRejectApplication = hasPermission(permissions, "applications.reject");
 
   const [application, setApplication] = useState<Application | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -399,6 +419,9 @@ export default function ApplicationDetailPage() {
   // Dialog states
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [showApproveDialog, setShowApproveDialog] = useState(false);
+  const [finalApproveNote, setFinalApproveNote] = useState("");
+  const [showSendToL2Dialog, setShowSendToL2Dialog] = useState(false);
+  const [sendToL2Note, setSendToL2Note] = useState("");
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showReturnToDraftDialog, setShowReturnToDraftDialog] = useState(false);
 
@@ -483,6 +506,10 @@ export default function ApplicationDetailPage() {
   }, [application?.id, application?.term, application?.actualInterestRate, application?.actualTerm]);
 
   const handleSubmitClick = () => {
+    if (!canEditApplication || application?.loanChannel !== "PHYSICAL") {
+      toast.error("Only physical (in-branch) draft applications can be submitted from admin.");
+      return;
+    }
     if (!canSubmit) {
       toast.error(`Please upload all required documents before submitting`);
       return;
@@ -494,6 +521,11 @@ export default function ApplicationDetailPage() {
     setShowSubmitDialog(false);
     setActionLoading("submit");
     if (!application) {
+      setActionLoading(null);
+      return;
+    }
+    if (application.loanChannel !== "PHYSICAL") {
+      toast.error("Online applications must be submitted by the borrower.");
       setActionLoading(null);
       return;
     }
@@ -558,6 +590,7 @@ export default function ApplicationDetailPage() {
   };
 
   const handleApproveClick = () => {
+    setFinalApproveNote("");
     setShowApproveDialog(true);
   };
 
@@ -569,7 +602,9 @@ export default function ApplicationDetailPage() {
       return;
     }
 
-    const res = await api.post(`/api/loans/applications/${applicationId}/approve`, {});
+    const res = await api.post(`/api/loans/applications/${applicationId}/approve`, {
+      note: finalApproveNote.trim() || undefined,
+    });
     if (res.success) {
       toast.success("Application approved! Loan created.");
       fetchApplication();
@@ -578,6 +613,28 @@ export default function ApplicationDetailPage() {
       window.dispatchEvent(new CustomEvent("loans-count-changed"));
     } else {
       toast.error(res.error || "Failed to approve application");
+    }
+    setActionLoading(null);
+  };
+
+  const handleSendToL2Click = () => {
+    setSendToL2Note("");
+    setShowSendToL2Dialog(true);
+  };
+
+  const handleSendToL2Confirm = async () => {
+    setShowSendToL2Dialog(false);
+    setActionLoading("sendToL2");
+    const res = await api.post(`/api/loans/applications/${applicationId}/send-to-l2`, {
+      note: sendToL2Note.trim() || undefined,
+    });
+    if (res.success) {
+      toast.success("Application moved to L2 Review");
+      fetchApplication();
+      fetchTimeline();
+      window.dispatchEvent(new CustomEvent("applications-count-changed"));
+    } else {
+      toast.error(res.error || "Failed to move application to L2 Review");
     }
     setActionLoading(null);
   };
@@ -787,6 +844,12 @@ export default function ApplicationDetailPage() {
   const preview = compliantPreview;
   const requiredDocs = application.product.requiredDocuments || [];
 
+  const isL1Queue = application.status === "SUBMITTED" || application.status === "UNDER_REVIEW";
+  const isL2Queue = application.status === "PENDING_L2_APPROVAL";
+  const canRejectThisStage =
+    canRejectApplication &&
+    ((isL1Queue && canApproveL1) || (isL2Queue && canApproveL2));
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -797,10 +860,13 @@ export default function ApplicationDetailPage() {
             Back
           </Button>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-heading font-bold text-gradient">
                 Application
               </h1>
+              <Badge variant="outline" className="text-xs">
+                {application.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan"}
+              </Badge>
               <Badge variant={statusColors[application.status]}>
                 {applicationStatusLabel(application.status)}
               </Badge>
@@ -810,11 +876,28 @@ export default function ApplicationDetailPage() {
                 ? application.borrower.companyName
                 : application.borrower.name} • Created {formatDate(application.createdAt)}
             </p>
+            {isL1Queue && (
+              <p className="text-xs text-muted-foreground mt-1">
+                L1 Review — first-line review. Move to L2 Review when ready for final approval (no loan is created until L2
+                approves).
+              </p>
+            )}
+            {isL2Queue && (
+              <p className="text-xs text-muted-foreground mt-1">
+                L2 Review — final credit decision. Approving will create the loan and schedule.
+              </p>
+            )}
+            {application.l1ReviewedAt && (
+              <p className="text-xs text-muted-foreground mt-1">
+                L1 reviewed {formatDate(application.l1ReviewedAt)}
+                {application.l1DecisionNote ? ` — ${application.l1DecisionNote}` : ""}
+              </p>
+            )}
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
           <RefreshButton
             onRefresh={async () => {
               await Promise.all([fetchApplication(), fetchTimeline()]);
@@ -823,7 +906,7 @@ export default function ApplicationDetailPage() {
             showToast
             successMessage="Application refreshed"
           />
-          {application.status === "DRAFT" && (
+          {application.status === "DRAFT" && canEditApplication && application.loanChannel === "PHYSICAL" && (
             <Button
               onClick={handleSubmitClick}
               disabled={actionLoading === "submit" || !canSubmit}
@@ -833,7 +916,7 @@ export default function ApplicationDetailPage() {
               {actionLoading === "submit" ? "Submitting..." : "Submit"}
             </Button>
           )}
-          {(application.status === "SUBMITTED" || application.status === "UNDER_REVIEW") && canApproveApplications(currentRole) && (
+          {isL1Queue && canApproveL1 && (
             <>
               <Button
                 variant="outline"
@@ -843,17 +926,53 @@ export default function ApplicationDetailPage() {
                 <RotateCcw className="h-4 w-4 mr-2" />
                 {actionLoading === "returnToDraft" ? "Returning..." : "Amendments"}
               </Button>
+              {canRejectThisStage && (
+                <Button
+                  variant="destructive"
+                  onClick={handleRejectClick}
+                  disabled={actionLoading === "reject"}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  {actionLoading === "reject" ? "Rejecting..." : "Reject"}
+                </Button>
+              )}
               <Button
-                variant="destructive"
-                onClick={handleRejectClick}
-                disabled={actionLoading === "reject"}
+                onClick={handleSendToL2Click}
+                disabled={actionLoading === "sendToL2"}
+                className="bg-sky-600 hover:bg-sky-700"
               >
-                <X className="h-4 w-4 mr-2" />
-                {actionLoading === "reject" ? "Rejecting..." : "Reject"}
+                <ArrowUpRight className="h-4 w-4 mr-2" />
+                {actionLoading === "sendToL2" ? "Sending..." : "Send to L2 Review"}
               </Button>
-              <Button onClick={handleApproveClick} disabled={actionLoading === "approve"}>
+            </>
+          )}
+          {isL2Queue && canApproveL2 && (
+            <>
+              <Button
+                variant="outline"
+                onClick={handleReturnToDraftClick}
+                disabled={actionLoading === "returnToDraft"}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                {actionLoading === "returnToDraft" ? "Returning..." : "Amendments"}
+              </Button>
+              {canRejectThisStage && (
+                <Button
+                  variant="destructive"
+                  onClick={handleRejectClick}
+                  disabled={actionLoading === "reject"}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  {actionLoading === "reject" ? "Rejecting..." : "Reject"}
+                </Button>
+              )}
+              <Button
+                onClick={handleApproveClick}
+                disabled={actionLoading === "approve"}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
                 <Check className="h-4 w-4 mr-2" />
-                {actionLoading === "approve" ? "Approving..." : "Approve"}
+                {actionLoading === "approve" ? "Approving..." : "Final approve"}
               </Button>
             </>
           )}
@@ -1581,13 +1700,44 @@ export default function ApplicationDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Send to L2 Review */}
+      <Dialog open={showSendToL2Dialog} onOpenChange={setShowSendToL2Dialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send to L2 Review</DialogTitle>
+            <DialogDescription>
+              Move this application to L2 Review for final approval. No loan is created until an L2 approver finalizes the decision.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="send-l2-note">Note (optional)</Label>
+            <Textarea
+              id="send-l2-note"
+              value={sendToL2Note}
+              onChange={(e) => setSendToL2Note(e.target.value)}
+              placeholder="Context for L2 reviewers…"
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSendToL2Dialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendToL2Confirm} className="bg-sky-600 hover:bg-sky-700">
+              <ArrowUpRight className="h-4 w-4 mr-2" />
+              Send to L2
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Approve Confirmation Dialog */}
       <Dialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Approve Application</DialogTitle>
+            <DialogTitle>Final approve application</DialogTitle>
             <DialogDescription>
-              Are you sure you want to approve this loan application?
+              Are you sure you want to finally approve this loan application?
               This will create a new loan and generate the repayment schedule.
             </DialogDescription>
           </DialogHeader>
@@ -1639,6 +1789,16 @@ export default function ApplicationDetailPage() {
                 </>
               )}
             </div>
+          </div>
+          <div className="space-y-2 pb-2">
+            <Label htmlFor="final-approve-note">Decision note (optional)</Label>
+            <Textarea
+              id="final-approve-note"
+              value={finalApproveNote}
+              onChange={(e) => setFinalApproveNote(e.target.value)}
+              placeholder="Optional note recorded on the application…"
+              rows={3}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowApproveDialog(false)}>

@@ -62,6 +62,14 @@ import { PromotionsCarousel } from "@/components/promotions-carousel";
 import { KPKT_PROMOTIONS } from "@/lib/promotions";
 import { useTenantContext } from "@/components/tenant-context";
 import { NoTenantPrompt } from "@/components/no-tenant-prompt";
+import {
+  APPLICATION_STATUS_BADGE_VARIANT,
+  CHART_STATUS_COLORS,
+  CHART_STATUS_LABELS,
+  LOAN_STATUS_BADGE_VARIANT,
+  applicationStatusLabel,
+  loanStatusBadgeLabel,
+} from "@/lib/status-badges";
 
 // ============================================
 // Types
@@ -143,6 +151,7 @@ interface DashboardStats {
   };
   actionNeeded: {
     submittedApplications: number;
+    applicationsPendingL2?: number;
     loansPendingDisbursement: number;
     loansReadyToComplete: number;
     loansReadyForDefault: number;
@@ -235,36 +244,8 @@ function getPlanName(plan: string | null | undefined): "Core" | "Free" {
   return "Free";
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: "hsl(0, 0%, 20%)",
-  IN_ARREARS: "hsl(38, 92%, 50%)",
-  COMPLETED: "hsl(142, 71%, 45%)",
-  DEFAULTED: "hsl(0, 84%, 60%)",
-  WRITTEN_OFF: "hsl(0, 0%, 65%)",
-  PENDING_DISBURSEMENT: "hsl(142, 71%, 65%)",
-  // Application statuses
-  DRAFT: "hsl(0, 0%, 65%)",
-  SUBMITTED: "hsl(217, 91%, 60%)",
-  UNDER_REVIEW: "hsl(38, 92%, 50%)",
-  APPROVED: "hsl(142, 71%, 45%)",
-  REJECTED: "hsl(0, 84%, 60%)",
-  CANCELLED: "hsl(0, 0%, 50%)",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  ACTIVE: "Active",
-  IN_ARREARS: "In Arrears",
-  COMPLETED: "Completed",
-  DEFAULTED: "Defaulted",
-  WRITTEN_OFF: "Written Off",
-  PENDING_DISBURSEMENT: "Pending Disbursement",
-  DRAFT: "Draft",
-  SUBMITTED: "Submitted",
-  UNDER_REVIEW: "Under Review",
-  APPROVED: "Approved",
-  REJECTED: "Rejected",
-  CANCELLED: "Cancelled",
-};
+const STATUS_COLORS = CHART_STATUS_COLORS;
+const STATUS_LABELS = CHART_STATUS_LABELS;
 
 // ============================================
 // Utility: format month label
@@ -700,6 +681,7 @@ export default function DashboardPage() {
         {/* ============================================ */}
         {stats?.actionNeeded && (
           stats.actionNeeded.submittedApplications > 0 ||
+          (stats.actionNeeded.applicationsPendingL2 ?? 0) > 0 ||
           stats.actionNeeded.loansPendingDisbursement > 0 ||
           stats.actionNeeded.loansReadyToComplete > 0 ||
           stats.actionNeeded.loansReadyForDefault > 0
@@ -714,11 +696,25 @@ export default function DashboardPage() {
                 stats.actionNeeded.submittedApplications > 0 && (
                   <Link
                     key="submitted"
-                    href="/dashboard/applications?filter=SUBMITTED"
+                    href="/dashboard/applications?filter=L1_QUEUE"
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-amber-500/10 transition-colors"
                   >
                     <ClipboardList className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                    <span className="text-foreground">{stats.actionNeeded.submittedApplications} pending review</span>
+                    <span className="text-foreground">
+                      {stats.actionNeeded.submittedApplications} L1 Review
+                    </span>
+                  </Link>
+                ),
+                (stats.actionNeeded.applicationsPendingL2 ?? 0) > 0 && (
+                  <Link
+                    key="pending-l2"
+                    href="/dashboard/applications?filter=PENDING_L2_APPROVAL"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-amber-500/10 transition-colors"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                    <span className="text-foreground">
+                      {stats.actionNeeded.applicationsPendingL2} L2 Review
+                    </span>
                   </Link>
                 ),
                 stats.actionNeeded.loansPendingDisbursement > 0 && (
@@ -1741,39 +1737,17 @@ function PARBar({
 }
 
 function LoanStatusBadge({ status }: { status: string }) {
-  const variantMap: Record<string, "success" | "warning" | "destructive" | "default" | "info" | "secondary"> = {
-    ACTIVE: "default",
-    IN_ARREARS: "warning",
-    COMPLETED: "success",
-    DEFAULTED: "destructive",
-    WRITTEN_OFF: "secondary",
-    PENDING_DISBURSEMENT: "default",
-  };
-
   return (
-    <Badge
-      variant={variantMap[status] || "secondary"}
-    >
-      {STATUS_LABELS[status] || status}
+    <Badge variant={LOAN_STATUS_BADGE_VARIANT[status] || "secondary"}>
+      {loanStatusBadgeLabel(status)}
     </Badge>
   );
 }
 
 function ApplicationStatusBadge({ status }: { status: string }) {
-  const variantMap: Record<string, "success" | "warning" | "destructive" | "default" | "info" | "secondary"> = {
-    DRAFT: "secondary",
-    SUBMITTED: "default",
-    UNDER_REVIEW: "warning",
-    APPROVED: "success",
-    REJECTED: "destructive",
-    CANCELLED: "secondary",
-  };
-
   return (
-    <Badge
-      variant={variantMap[status] || "secondary"}
-    >
-      {STATUS_LABELS[status] || status}
+    <Badge variant={APPLICATION_STATUS_BADGE_VARIANT[status] || "secondary"}>
+      {applicationStatusLabel(status)}
     </Badge>
   );
 }

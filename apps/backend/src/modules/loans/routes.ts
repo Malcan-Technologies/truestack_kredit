@@ -1,12 +1,17 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, BadRequestError } from '../../lib/errors.js';
+import { NotFoundError, BadRequestError, ForbiddenError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
-import { requireAdmin } from '../../middleware/requireRole.js';
+import {
+  requireAdmin,
+  requireAnyPermission,
+  requirePermission,
+  userHasPermission,
+} from '../../middleware/requireRole.js';
 import { generateSchedule } from '../schedules/service.js';
 import { parseDocumentUpload, parseFileUpload, saveDocumentFile, deleteDocumentFile, UPLOAD_DIR } from '../../lib/upload.js';
 import { AuditService } from '../compliance/auditService.js';
@@ -72,6 +77,14 @@ const submitApplicationSchema = z.object({
   enableInternalSchedule: z.boolean().optional().default(false),
   actualInterestRate: z.number().positive().max(100).optional(),
   actualTerm: z.number().int().positive().optional(),
+});
+
+const sendToL2Schema = z.object({
+  note: z.string().max(8000).optional(),
+});
+
+const finalApproveSchema = z.object({
+  note: z.string().max(8000).optional(),
 });
 
 function deriveCompliantStructureFromInternal(params: {
@@ -388,6 +401,38 @@ async function generateSettlementReceipt(params: SettlementReceiptParams): Promi
 
 const router = Router();
 
+const APPLICATION_STATUS_FILTER = [
+  'DRAFT',
+  'SUBMITTED',
+  'UNDER_REVIEW',
+  'PENDING_L2_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+] as const;
+
+type ApplicationStatusFilter = (typeof APPLICATION_STATUS_FILTER)[number];
+
+function isL1QueueStatus(status: string): boolean {
+  return status === 'SUBMITTED' || status === 'UNDER_REVIEW';
+}
+
+function assertL1ApplicationAction(req: Request): void {
+  if (!userHasPermission(req, 'applications.approve_l1')) {
+    throw new ForbiddenError('This action requires L1 (first-line) approval permission');
+  }
+}
+
+function assertL2ApplicationAction(req: Request): void {
+  if (!userHasPermission(req, 'applications.approve_l2')) {
+    throw new ForbiddenError('This action requires L2 (final) approval permission');
+  }
+}
+
+function getRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
 type StatusEvaluationRepayment = {
   status: string;
   dueDate: Date;
@@ -592,12 +637,19 @@ async function resolveValidGuarantors(
  * Get loan counts for action-needed badges (PENDING_DISBURSEMENT)
  * GET /api/loans/counts
  */
-router.get('/counts', async (req, res, next) => {
+router.get(
+  '/counts',
+  requireAnyPermission('loans.view', 'loans.disburse', 'loans.manage'),
+  async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const pendingDisbursement = await prisma.loan.count({
-      where: { tenantId, status: 'PENDING_DISBURSEMENT' },
-    });
+    const canDisburseOrManage =
+      userHasPermission(req, 'loans.disburse') || userHasPermission(req, 'loans.manage');
+    const pendingDisbursement = canDisburseOrManage
+      ? await prisma.loan.count({
+          where: { tenantId, status: 'PENDING_DISBURSEMENT' },
+        })
+      : 0;
     res.json({
       success: true,
       data: { pendingDisbursement },
@@ -611,20 +663,37 @@ router.get('/counts', async (req, res, next) => {
  * Get application counts for action-needed badges (SUBMITTED, UNDER_REVIEW)
  * GET /api/loans/applications/counts
  */
-router.get('/applications/counts', async (req, res, next) => {
+router.get(
+  '/applications/counts',
+  requireAnyPermission('applications.view', 'applications.approve_l1', 'applications.approve_l2', 'applications.reject'),
+  async (req, res, next) => {
   try {
     const tenantId = req.tenantId!;
-    const [submitted, underReview] = await Promise.all([
-      prisma.loanApplication.count({
-        where: { tenantId, status: 'SUBMITTED' },
-      }),
-      prisma.loanApplication.count({
-        where: { tenantId, status: 'UNDER_REVIEW' },
-      }),
+    const canL1 = userHasPermission(req, 'applications.approve_l1');
+    const canL2 = userHasPermission(req, 'applications.approve_l2');
+
+    const [submitted, underReview, pendingL2Approval] = await Promise.all([
+      canL1
+        ? prisma.loanApplication.count({ where: { tenantId, status: 'SUBMITTED' } })
+        : Promise.resolve(0),
+      canL1
+        ? prisma.loanApplication.count({ where: { tenantId, status: 'UNDER_REVIEW' } })
+        : Promise.resolve(0),
+      canL2
+        ? prisma.loanApplication.count({ where: { tenantId, status: 'PENDING_L2_APPROVAL' } })
+        : Promise.resolve(0),
     ]);
+
+    const l1QueueCount = submitted + underReview;
     res.json({
       success: true,
-      data: { submitted, underReview },
+      data: {
+        submitted,
+        underReview,
+        pendingL2Approval,
+        l1QueueCount,
+        actionableTotal: l1QueueCount + pendingL2Approval,
+      },
     });
   } catch (error) {
     next(error);
@@ -635,15 +704,21 @@ router.get('/applications/counts', async (req, res, next) => {
  * List loan applications
  * GET /api/loans/applications
  */
-router.get('/applications', async (req, res, next) => {
+router.get('/applications', requirePermission('applications.view'), async (req, res, next) => {
   try {
     const { status, search, page = '1', pageSize = '20' } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(pageSize as string);
     const take = parseInt(pageSize as string);
 
+    const statusStr = typeof status === 'string' && status.length > 0 ? status : undefined;
+    const l1QueueStatuses: ApplicationStatusFilter[] = ['SUBMITTED', 'UNDER_REVIEW'];
     const where = {
       tenantId: req.tenantId,
-      ...(status && { status: status as 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'CANCELLED' }),
+      ...(statusStr === 'L1_QUEUE'
+        ? { status: { in: l1QueueStatuses } }
+        : statusStr
+          ? { status: statusStr as ApplicationStatusFilter }
+          : {}),
       ...(search && {
         borrower: {
           OR: [
@@ -711,7 +786,7 @@ router.get('/applications', async (req, res, next) => {
  * Preview loan calculation (fees, monthly payment, net disbursement)
  * POST /api/loans/applications/preview
  */
-router.post('/applications/preview', async (req, res, next) => {
+router.post('/applications/preview', requirePermission('applications.create'), async (req, res, next) => {
   try {
     const data = previewSchema.parse(req.body);
 
@@ -808,7 +883,7 @@ router.post('/applications/preview', async (req, res, next) => {
  * Create loan application
  * POST /api/loans/applications
  */
-router.post('/applications', async (req, res, next) => {
+router.post('/applications', requirePermission('applications.create'), async (req, res, next) => {
   try {
     const data = createApplicationSchema.parse(req.body);
     const tenantId = req.tenantId!;
@@ -1007,11 +1082,11 @@ router.post('/applications', async (req, res, next) => {
  * GET /api/loans/applications/:applicationId
  * Includes documents to avoid a separate round-trip.
  */
-router.get('/applications/:applicationId', async (req, res, next) => {
+router.get('/applications/:applicationId', requirePermission('applications.view'), async (req, res, next) => {
   try {
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: getRouteParam(req.params.applicationId),
         tenantId: req.tenantId,
       },
       include: {
@@ -1109,13 +1184,13 @@ router.get('/applications/:applicationId', async (req, res, next) => {
  * Update application
  * PATCH /api/loans/applications/:applicationId
  */
-router.patch('/applications/:applicationId', async (req, res, next) => {
+router.patch('/applications/:applicationId', requirePermission('applications.edit'), async (req, res, next) => {
   try {
     const data = updateApplicationSchema.parse(req.body);
 
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: getRouteParam(req.params.applicationId),
         tenantId: req.tenantId,
       },
       include: { product: true },
@@ -1156,7 +1231,7 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
     };
 
     const updated = await prisma.loanApplication.update({
-      where: { id: req.params.applicationId },
+      where: { id: getRouteParam(req.params.applicationId) },
       data,
       include: {
         borrower: { select: { id: true, name: true, borrowerType: true, icNumber: true, documentType: true, companyName: true } },
@@ -1188,12 +1263,12 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
  * Submit application for approval
  * POST /api/loans/applications/:applicationId/submit
  */
-router.post('/applications/:applicationId/submit', async (req, res, next) => {
+router.post('/applications/:applicationId/submit', requirePermission('applications.edit'), async (req, res, next) => {
   try {
     const submitData = submitApplicationSchema.parse(req.body);
     const application = await prisma.loanApplication.findFirst({
       where: {
-        id: req.params.applicationId,
+        id: getRouteParam(req.params.applicationId),
         tenantId: req.tenantId,
       },
       include: {
@@ -1233,7 +1308,7 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
     }
 
     const updated = await prisma.loanApplication.update({
-      where: { id: req.params.applicationId },
+      where: { id: getRouteParam(req.params.applicationId) },
       data: {
         status: 'SUBMITTED',
         actualInterestRate,
@@ -1271,12 +1346,67 @@ router.post('/applications/:applicationId/submit', async (req, res, next) => {
 });
 
 /**
- * Approve application and create loan with schedule
+ * L1: send application to L2 queue (no loan created)
+ * POST /api/loans/applications/:applicationId/send-to-l2
+ */
+router.post('/applications/:applicationId/send-to-l2', requirePermission('applications.approve_l1'), async (req, res, next) => {
+  try {
+    const applicationId = getRouteParam(req.params.applicationId);
+    const body = sendToL2Schema.parse(req.body ?? {});
+
+    const application = await prisma.loanApplication.findFirst({
+      where: { id: applicationId, tenantId: req.tenantId },
+    });
+
+    if (!application) {
+      throw new NotFoundError('Application');
+    }
+
+    if (!isL1QueueStatus(application.status)) {
+      throw new BadRequestError('Can only send to L2 from submitted or under-review applications');
+    }
+
+    const previousStatus = application.status;
+    const noteTrim = body.note?.trim() || null;
+
+    const updated = await prisma.loanApplication.update({
+      where: { id: applicationId },
+      data: {
+        status: 'PENDING_L2_APPROVAL',
+        l1ReviewedAt: new Date(),
+        l1ReviewedByMemberId: req.memberId ?? null,
+        l1DecisionNote: noteTrim,
+        l2ReviewedAt: null,
+        l2ReviewedByMemberId: null,
+        l2DecisionNote: null,
+      },
+    });
+
+    await AuditService.log({
+      tenantId: req.tenantId!,
+      memberId: req.memberId,
+      action: 'APPLICATION_SEND_TO_L2',
+      entityType: 'LoanApplication',
+      entityId: application.id,
+      previousData: { status: previousStatus },
+      newData: { status: 'PENDING_L2_APPROVAL', l1DecisionNote: noteTrim },
+      ipAddress: req.ip,
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * L2: approve application and create loan with schedule
  * POST /api/loans/applications/:applicationId/approve
  */
-router.post('/applications/:applicationId/approve', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/approve', requirePermission('applications.approve_l2'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId as string;
+    const applicationId = getRouteParam(req.params.applicationId);
+    const approveBody = finalApproveSchema.parse(req.body ?? {});
     const application = await prisma.loanApplication.findFirst({
       where: {
         id: applicationId,
@@ -1309,8 +1439,8 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
       throw new NotFoundError('Application');
     }
 
-    if (application.status !== 'SUBMITTED' && application.status !== 'UNDER_REVIEW') {
-      throw new BadRequestError('Can only approve submitted applications');
+    if (application.status !== 'PENDING_L2_APPROVAL') {
+      throw new BadRequestError('Final approval is only available for applications pending L2 review');
     }
 
     const previousStatus = application.status;
@@ -1341,15 +1471,19 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
       derivedTerm = compliantStructure.compliantTerm;
     }
 
-    // Create loan with initial schedule in a transaction
+    const noteTrim = approveBody.note?.trim() || null;
+
     const result = await prisma.$transaction(async (tx) => {
-      // Update application status
       await tx.loanApplication.update({
         where: { id: application.id },
-        data: { status: 'APPROVED' },
+        data: {
+          status: 'APPROVED',
+          l2ReviewedAt: new Date(),
+          l2ReviewedByMemberId: req.memberId ?? null,
+          l2DecisionNote: noteTrim,
+        },
       });
 
-      // Create loan (copy collateral fields for Jadual K products)
       const loan = await tx.loan.create({
         data: {
           tenantId: req.tenantId!,
@@ -1387,7 +1521,6 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
       return loan;
     });
 
-    // Log application approval to audit trail
     await AuditService.log({
       tenantId: req.tenantId!,
       memberId: req.memberId,
@@ -1395,11 +1528,10 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
       entityType: 'LoanApplication',
       entityId: application.id,
       previousData: { status: previousStatus },
-      newData: { status: 'APPROVED', loanId: result.id },
+      newData: { status: 'APPROVED', loanId: result.id, l2DecisionNote: noteTrim },
       ipAddress: req.ip,
     });
 
-    // Log loan creation to audit trail
     await AuditService.log({
       tenantId: req.tenantId!,
       memberId: req.memberId,
@@ -1438,9 +1570,9 @@ router.post('/applications/:applicationId/approve', requireAdmin, async (req, re
  * Reject application
  * POST /api/loans/applications/:applicationId/reject
  */
-router.post('/applications/:applicationId/reject', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/reject', requirePermission('applications.reject'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId as string;
+    const applicationId = getRouteParam(req.params.applicationId);
     const { reason } = req.body;
 
     const application = await prisma.loanApplication.findFirst({
@@ -1458,17 +1590,37 @@ router.post('/applications/:applicationId/reject', requireAdmin, async (req, res
       throw new BadRequestError('Cannot reject this application');
     }
 
+    if (application.status === 'DRAFT' || application.status === 'CANCELLED') {
+      throw new BadRequestError('Cannot reject this application in its current state');
+    }
+
+    if (isL1QueueStatus(application.status)) {
+      assertL1ApplicationAction(req);
+    } else if (application.status === 'PENDING_L2_APPROVAL') {
+      assertL2ApplicationAction(req);
+    } else {
+      throw new BadRequestError('Cannot reject this application in its current state');
+    }
+
     const previousStatus = application.status;
+    const reasonStr = typeof reason === 'string' ? reason : '';
+    const wasPendingL2 = application.status === 'PENDING_L2_APPROVAL';
 
     const updated = await prisma.loanApplication.update({
       where: { id: applicationId },
       data: {
         status: 'REJECTED',
-        notes: reason ? `${application.notes || ''}\n\nRejection reason: ${reason}` : application.notes,
+        notes: reasonStr ? `${application.notes || ''}\n\nRejection reason: ${reasonStr}` : application.notes,
+        ...(wasPendingL2
+          ? {
+              l2ReviewedAt: new Date(),
+              l2ReviewedByMemberId: req.memberId ?? null,
+              l2DecisionNote: reasonStr.trim() || null,
+            }
+          : {}),
       },
     });
 
-    // Log to audit trail
     await AuditService.log({
       tenantId: req.tenantId!,
       memberId: req.memberId,
@@ -1476,7 +1628,7 @@ router.post('/applications/:applicationId/reject', requireAdmin, async (req, res
       entityType: 'LoanApplication',
       entityId: application.id,
       previousData: { status: previousStatus },
-      newData: { status: 'REJECTED', reason: reason || null },
+      newData: { status: 'REJECTED', reason: reasonStr || null },
       ipAddress: req.ip,
     });
 
@@ -1493,9 +1645,9 @@ router.post('/applications/:applicationId/reject', requireAdmin, async (req, res
  * Return application to draft (amendments needed)
  * POST /api/loans/applications/:applicationId/return-to-draft
  */
-router.post('/applications/:applicationId/return-to-draft', requireAdmin, async (req, res, next) => {
+router.post('/applications/:applicationId/return-to-draft', requireAnyPermission('applications.approve_l1', 'applications.approve_l2'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId as string;
+    const applicationId = getRouteParam(req.params.applicationId);
     const { reason } = req.body;
 
     const application = await prisma.loanApplication.findFirst({
@@ -1509,8 +1661,12 @@ router.post('/applications/:applicationId/return-to-draft', requireAdmin, async 
       throw new NotFoundError('Application');
     }
 
-    if (application.status !== 'SUBMITTED' && application.status !== 'UNDER_REVIEW') {
-      throw new BadRequestError('Can only return submitted or under-review applications to draft');
+    if (isL1QueueStatus(application.status)) {
+      assertL1ApplicationAction(req);
+    } else if (application.status === 'PENDING_L2_APPROVAL') {
+      assertL2ApplicationAction(req);
+    } else {
+      throw new BadRequestError('Can only return submitted, under-review, or pending-L2 applications to draft');
     }
 
     const previousStatus = application.status;
@@ -1522,10 +1678,15 @@ router.post('/applications/:applicationId/return-to-draft', requireAdmin, async 
         notes: reason
           ? `${application.notes || ''}\n\nReturned for amendments: ${reason}`
           : application.notes,
+        l1ReviewedAt: null,
+        l1ReviewedByMemberId: null,
+        l1DecisionNote: null,
+        l2ReviewedAt: null,
+        l2ReviewedByMemberId: null,
+        l2DecisionNote: null,
       },
     });
 
-    // Log to audit trail
     await AuditService.log({
       tenantId: req.tenantId!,
       memberId: req.memberId,
@@ -1554,9 +1715,9 @@ router.post('/applications/:applicationId/return-to-draft', requireAdmin, async 
  * Get application activity timeline
  * GET /api/loans/applications/:applicationId/timeline
  */
-router.get('/applications/:applicationId/timeline', async (req, res, next) => {
+router.get('/applications/:applicationId/timeline', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const { cursor, limit: limitStr = '10' } = req.query;
     const limit = Math.min(parseInt(limitStr as string, 10), 50);
 
@@ -1644,9 +1805,9 @@ function mapApplicationStaffNoteAuthor(createdBy: {
  * Staff internal notes on an application
  * GET /api/loans/applications/:applicationId/staff-notes
  */
-router.get('/applications/:applicationId/staff-notes', async (req, res, next) => {
+router.get('/applications/:applicationId/staff-notes', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const { cursor, limit: limitStr = '30' } = req.query;
     const limit = Math.min(Math.max(parseInt(limitStr as string, 10) || 30, 1), 100);
 
@@ -1696,9 +1857,9 @@ router.get('/applications/:applicationId/staff-notes', async (req, res, next) =>
 /**
  * POST /api/loans/applications/:applicationId/staff-notes
  */
-router.post('/applications/:applicationId/staff-notes', async (req, res, next) => {
+router.post('/applications/:applicationId/staff-notes', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
     const parsed = applicationStaffNoteBodySchema.parse(req.body);
 
     const application = await prisma.loanApplication.findFirst({
@@ -1758,9 +1919,9 @@ router.post('/applications/:applicationId/staff-notes', async (req, res, next) =
  * Upload document to application
  * POST /api/loans/applications/:applicationId/documents
  */
-router.post('/applications/:applicationId/documents', async (req, res, next) => {
+router.post('/applications/:applicationId/documents', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -1834,9 +1995,9 @@ router.post('/applications/:applicationId/documents', async (req, res, next) => 
  * List documents for application
  * GET /api/loans/applications/:applicationId/documents
  */
-router.get('/applications/:applicationId/documents', async (req, res, next) => {
+router.get('/applications/:applicationId/documents', requirePermission('applications.view'), async (req, res, next) => {
   try {
-    const applicationId = req.params.applicationId;
+    const applicationId = getRouteParam(req.params.applicationId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -1871,9 +2032,10 @@ router.get('/applications/:applicationId/documents', async (req, res, next) => {
  * Delete document from application
  * DELETE /api/loans/applications/:applicationId/documents/:documentId
  */
-router.delete('/applications/:applicationId/documents/:documentId', async (req, res, next) => {
+router.delete('/applications/:applicationId/documents/:documentId', requirePermission('applications.edit'), async (req, res, next) => {
   try {
-    const { applicationId, documentId } = req.params;
+    const applicationId = getRouteParam(req.params.applicationId);
+    const documentId = getRouteParam(req.params.documentId);
 
     // Verify application exists and belongs to tenant
     const application = await prisma.loanApplication.findFirst({
@@ -2358,7 +2520,10 @@ router.get('/:loanId', async (req, res, next) => {
   }
 });
 
-router.get('/:loanId/schedule/internal', requireAdmin, async (req, res, next) => {
+router.get(
+  '/:loanId/schedule/internal',
+  requireAnyPermission('applications.approve_l1', 'applications.approve_l2', 'loans.manage', 'loans.disburse'),
+  async (req, res, next) => {
   try {
     const loanId = req.params.loanId as string;
     const loan = await prisma.loan.findFirst({

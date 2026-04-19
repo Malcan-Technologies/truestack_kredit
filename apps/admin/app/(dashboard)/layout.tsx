@@ -52,8 +52,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { AccessDeniedCard } from "@/components/role-gate";
 import { canAccessPage } from "@/lib/permissions";
-import type { TenantRole } from "@/lib/permissions";
 import { api } from "@/lib/api";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -63,6 +63,9 @@ import { APP_VERSION } from "@/lib/version";
 
 interface Membership {
   role: string;
+  roleId?: string | null;
+  roleName?: string;
+  permissions?: string[];
   tenantName?: string;
 }
 
@@ -127,6 +130,7 @@ const navigationSections: NavSection[] = [
       { name: "Plan", href: "/dashboard/plan", icon: Layers },
       { name: "Promotions", href: "/dashboard/promotions", icon: Megaphone },
       { name: "Admin Logs", href: "/dashboard/admin-logs", icon: ScrollText },
+      { name: "Roles & Access", href: "/dashboard/roles", icon: Lock },
       { name: "Settings", href: "/dashboard/settings", icon: Settings },
     ],
   },
@@ -148,6 +152,7 @@ const PATHS_REQUIRING_MEMBERSHIP = [
   "/dashboard/subscription",
   "/dashboard/add-ons",
   "/dashboard/modules",
+  "/dashboard/roles",
 ];
 
 // Paths that require PAID subscription; FREE users can only access dashboard, billing, plan, promotions, help, settings, and subscription (to subscribe)
@@ -196,6 +201,7 @@ export default function DashboardLayout({
   const [loansPendingDisbursementCount, setLoansPendingDisbursementCount] = useState(0);
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const memberPermissions = membership?.permissions ?? [];
 
   // Avoid hydration mismatch by waiting for mount
   useEffect(() => {
@@ -267,19 +273,29 @@ export default function DashboardLayout({
   }, [pathname]);
 
   const fetchApplicationsPendingCount = useCallback(async () => {
-    if (!hasTenants || subscriptionStatus === "FREE" || subscriptionStatus === "SUSPENDED") {
+    if (
+      !hasTenants ||
+      subscriptionStatus === "FREE" ||
+      subscriptionStatus === "SUSPENDED" ||
+      !canAccessPage(memberPermissions, "/dashboard/applications")
+    ) {
       setApplicationsPendingCount(0);
       return;
     }
     api
-      .get<{ submitted: number; underReview: number }>("/api/loans/applications/counts")
+      .get<{
+        actionableTotal: number;
+        submitted?: number;
+        underReview?: number;
+        pendingL2Approval?: number;
+      }>("/api/loans/applications/counts")
       .then((res) => {
         if (res.success && res.data) {
-          setApplicationsPendingCount(res.data.submitted + res.data.underReview);
+          setApplicationsPendingCount(res.data.actionableTotal ?? 0);
         }
       })
       .catch(() => setApplicationsPendingCount(0));
-  }, [hasTenants, subscriptionStatus]);
+  }, [hasTenants, subscriptionStatus, memberPermissions]);
 
   // Fetch applications pending count on mount and when count may have changed
   useEffect(() => {
@@ -287,7 +303,11 @@ export default function DashboardLayout({
   }, [fetchApplicationsPendingCount]);
 
   const fetchLoansPendingDisbursementCount = useCallback(async () => {
-    if (!hasTenants || subscriptionStatus !== "PAID") {
+    if (
+      !hasTenants ||
+      subscriptionStatus !== "PAID" ||
+      !canAccessPage(memberPermissions, "/dashboard/loans")
+    ) {
       setLoansPendingDisbursementCount(0);
       return;
     }
@@ -299,7 +319,7 @@ export default function DashboardLayout({
         }
       })
       .catch(() => setLoansPendingDisbursementCount(0));
-  }, [hasTenants, subscriptionStatus]);
+  }, [hasTenants, subscriptionStatus, memberPermissions]);
 
   // Fetch loans pending disbursement count on mount and when count may have changed
   useEffect(() => {
@@ -327,7 +347,7 @@ export default function DashboardLayout({
       });
 
       if (membershipsRes.status === 401) {
-        setMembership({ role: "NONE", tenantName: undefined });
+        setMembership({ role: "NONE", permissions: [], tenantName: undefined });
         setHasTenants(false);
         setMembershipCheckComplete(true);
         return;
@@ -337,7 +357,7 @@ export default function DashboardLayout({
       try {
         membershipsData = await membershipsRes.json();
       } catch {
-        setMembership({ role: "NONE", tenantName: undefined });
+        setMembership({ role: "NONE", permissions: [], tenantName: undefined });
         setHasTenants(false);
         setMembershipCheckComplete(true);
         return;
@@ -347,7 +367,7 @@ export default function DashboardLayout({
         !membershipsData.success ||
         !membershipsData.data?.memberships?.length
       ) {
-        setMembership({ role: "NONE", tenantName: undefined });
+        setMembership({ role: "NONE", permissions: [], tenantName: undefined });
         setHasTenants(false);
         setMembershipCheckComplete(true);
         return;
@@ -363,8 +383,31 @@ export default function DashboardLayout({
           credentials: "include",
           body: JSON.stringify({ tenantId: firstTenant.tenantId }),
         });
+        const meAfterSwitch = await fetch("/api/proxy/auth/me", { credentials: "include" });
+        if (meAfterSwitch.ok) {
+          const meJson = await meAfterSwitch.json();
+          if (meJson.success && meJson.data?.user) {
+            const u = meJson.data.user;
+            setMembership({
+              role: u.role,
+              roleId: u.roleId ?? null,
+              roleName: u.roleName,
+              permissions: u.permissions ?? [],
+              tenantName: firstTenant.tenantName ?? u.tenantName,
+            });
+            const status = meJson.data.tenant?.subscriptionStatus;
+            if (status === "PAID" || status === "OVERDUE" || status === "SUSPENDED") {
+              setSubscriptionStatus(status);
+            } else {
+              setSubscriptionStatus("FREE");
+            }
+            setMembershipCheckComplete(true);
+            return;
+          }
+        }
         setMembership({
           role: firstTenant.role,
+          permissions: [],
           tenantName: firstTenant.tenantName,
         });
         setMembershipCheckComplete(true);
@@ -381,10 +424,14 @@ export default function DashboardLayout({
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
+          const u = data.data.user;
           setMembership({
-            role: data.data.user.role,
+            role: u.role,
+            roleId: u.roleId ?? null,
+            roleName: u.roleName,
+            permissions: u.permissions ?? [],
             tenantName:
-              activeMembership?.tenantName || data.data.user.tenantName,
+              activeMembership?.tenantName || u.tenantName,
           });
           const status = data.data.tenant?.subscriptionStatus;
           if (status === "PAID" || status === "OVERDUE" || status === "SUSPENDED") {
@@ -396,7 +443,7 @@ export default function DashboardLayout({
       }
     } catch (error) {
       console.error("Failed to fetch membership:", error);
-      setMembership({ role: "NONE", tenantName: undefined });
+      setMembership({ role: "NONE", permissions: [], tenantName: undefined });
       setHasTenants(false);
     } finally {
       setMembershipCheckComplete(true);
@@ -451,8 +498,17 @@ export default function DashboardLayout({
     notFound();
   }
 
+  const hasCurrentPathAccess = canAccessPage(memberPermissions, pathname);
+
   return (
-    <TenantProvider role={(membership?.role as TenantRole) || "STAFF"} hasTenants={hasTenants} subscriptionStatus={subscriptionStatus}>
+    <TenantProvider
+      role={membership?.role || "GENERAL_STAFF"}
+      roleName={membership?.roleName}
+      roleId={membership?.roleId ?? null}
+      permissions={membership?.permissions}
+      hasTenants={hasTenants}
+      subscriptionStatus={subscriptionStatus}
+    >
       <div className="min-h-screen bg-background">
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
@@ -509,8 +565,7 @@ export default function DashboardLayout({
                             const isChildActive =
                               pathname === child.href ||
                               pathname.startsWith(child.href + "/");
-                            const memberRole = (membership?.role as TenantRole) || "STAFF";
-                            const hasAccess = canAccessPage(memberRole, child.href);
+                            const hasAccess = canAccessPage(memberPermissions, child.href);
                             const requiresMembership = pathRequiresMembership(child.href);
                             const requiresPaid = pathRequiresPaid(child.href);
                             const disabledNoMembership = !hasTenants && requiresMembership;
@@ -673,8 +728,7 @@ export default function DashboardLayout({
                           // Plan: also highlight when on subscription or payment pages
                           (item.href === "/dashboard/plan" &&
                             pathname.startsWith("/dashboard/subscription"));
-                        const memberRole = (membership?.role as TenantRole) || "STAFF";
-                        const hasAccess = canAccessPage(memberRole, item.href);
+                        const hasAccess = canAccessPage(memberPermissions, item.href);
                         const requiresMembership = pathRequiresMembership(item.href);
                         const requiresPaid = pathRequiresPaid(item.href);
                         const disabledNoMembership = !hasTenants && requiresMembership;
@@ -856,7 +910,7 @@ export default function DashboardLayout({
                             {user.name || user.email}
                           </p>
                           <Badge variant="outline" className="text-xs">
-                            {membership?.role || "STAFF"}
+                            {membership?.roleName || membership?.role || "Member"}
                           </Badge>
                         </div>
 
@@ -971,7 +1025,9 @@ export default function DashboardLayout({
           </header>
 
           {/* Page content */}
-          <main id="dashboard-main" className="p-4 lg:p-8">{children}</main>
+          <main id="dashboard-main" className="p-4 lg:p-8">
+            {hasCurrentPathAccess ? children : <AccessDeniedCard />}
+          </main>
         </div>
       </div>
     </TenantProvider>

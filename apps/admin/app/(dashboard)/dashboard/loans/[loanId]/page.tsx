@@ -101,6 +101,7 @@ import {
   formatSmartDateTime,
   formatDateForInput,
 } from "@/lib/utils";
+import { formatLoanStatusLabelForDisplay } from "@/lib/loan-status-label";
 import { TrueSendEmailLog } from "@/components/truesend-email-log";
 import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel";
 import { TrueSendBadge } from "@/components/truesend-badge";
@@ -156,6 +157,8 @@ interface Loan {
   interestRate: string;
   term: number;
   status: string;
+  loanChannel?: "ONLINE" | "PHYSICAL";
+  attestationCompletedAt?: string | null;
   disbursementDate: string | null;
   disbursementReference: string | null;
   disbursementProofPath: string | null;
@@ -365,6 +368,7 @@ function parseLetterDate(letterPath: string): Date | null {
 // ============================================
 
 const loanStatusColors: Record<string, "default" | "success" | "warning" | "destructive" | "info"> = {
+  PENDING_ATTESTATION: "warning",
   PENDING_DISBURSEMENT: "warning",
   ACTIVE: "info",
   IN_ARREARS: "warning",
@@ -1662,7 +1666,7 @@ export default function LoanDetailPage() {
               <h1 className="text-2xl font-heading font-bold text-gradient">Loan</h1>
               <Badge variant={loanStatusColors[loan.status]} className="flex items-center gap-1">
                 {getStatusIcon(loan.status)}
-                {loan.status.replace(/_/g, " ")}
+                {formatLoanStatusLabelForDisplay(loan)}
               </Badge>
             </div>
             <p className="text-muted-foreground">

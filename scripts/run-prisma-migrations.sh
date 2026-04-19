@@ -25,6 +25,23 @@ if [ "$RESET_DATABASE" = "true" ]; then
   echo ""
 fi
 
+if [ -n "$RESOLVE_ROLLED_BACK_MIGRATIONS" ]; then
+  echo "Resolving migrations as rolled-back: $RESOLVE_ROLLED_BACK_MIGRATIONS"
+  OLD_IFS="$IFS"
+  IFS=','
+  for migration in $RESOLVE_ROLLED_BACK_MIGRATIONS; do
+    trimmed=$(echo "$migration" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [ -n "$trimmed" ]; then
+      echo "  -> prisma migrate resolve --rolled-back $trimmed"
+      npx prisma migrate resolve --rolled-back "$trimmed" --schema=prisma/schema.prisma || {
+        echo "WARNING: failed to mark $trimmed as rolled-back (it may not be in a failed state). Continuing."
+      }
+    fi
+  done
+  IFS="$OLD_IFS"
+  echo ""
+fi
+
 if [ "$SKIP_MIGRATIONS" = "true" ]; then
   echo "Skipping migrations (SKIP_MIGRATIONS=true)"
 else

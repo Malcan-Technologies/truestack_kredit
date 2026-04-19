@@ -510,7 +510,7 @@ export function SelectField({
         </ThemedText>
       ) : null}
 
-      <Modal transparent animationType="fade" visible={open} onRequestClose={handleClose}>
+      <Modal transparent animationType="slide" visible={open} onRequestClose={handleClose}>
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose} />
           <View
@@ -521,9 +521,10 @@ export function SelectField({
                 borderColor: theme.border,
               },
             ]}>
+            <View style={[styles.dragHandle, { backgroundColor: theme.border }]} />
             <View style={styles.selectModalHeader}>
               <ThemedText type="smallBold">{label}</ThemedText>
-              <Pressable onPress={handleClose}>
+              <Pressable onPress={handleClose} hitSlop={12}>
                 <ThemedText type="small" themeColor="primary">
                   Close
                 </ThemedText>
@@ -549,10 +550,14 @@ export function SelectField({
               />
             ) : null}
 
-            <ScrollView style={styles.selectList} contentContainerStyle={styles.selectListContent}>
+            <ScrollView
+              style={styles.selectList}
+              contentContainerStyle={styles.selectListContent}
+              keyboardShouldPersistTaps="handled">
               {filteredOptions.length > 0 ? (
-                filteredOptions.map((option) => {
+                filteredOptions.map((option, index) => {
                   const selected = option.value === value;
+                  const isLast = index === filteredOptions.length - 1;
 
                   return (
                     <Pressable
@@ -560,10 +565,13 @@ export function SelectField({
                       onPress={() => handleSelect(option.value)}
                       style={({ pressed }) => [
                         styles.selectOption,
+                        !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
                         {
-                          borderColor: selected ? theme.primary : theme.border,
-                          backgroundColor: selected ? theme.backgroundSelected : theme.background,
-                          opacity: pressed ? 0.8 : 1,
+                          backgroundColor: selected
+                            ? theme.backgroundSelected
+                            : pressed
+                              ? theme.backgroundSelected
+                              : 'transparent',
                         },
                       ]}>
                       <ThemedText
@@ -578,7 +586,7 @@ export function SelectField({
                   );
                 })
               ) : (
-                <ThemedText type="small" themeColor="textSecondary">
+                <ThemedText type="small" themeColor="textSecondary" style={{ padding: Spacing.two }}>
                   {emptyText}
                 </ThemedText>
               )}
@@ -712,7 +720,7 @@ export function PhoneField({
 
       <Modal
         transparent
-        animationType="fade"
+        animationType="slide"
         visible={pickerOpen}
         onRequestClose={() => setPickerOpen(false)}>
         <View style={styles.modalOverlay}>
@@ -722,9 +730,10 @@ export function PhoneField({
               styles.selectModal,
               { backgroundColor: theme.backgroundElement, borderColor: theme.border },
             ]}>
+            <View style={[styles.dragHandle, { backgroundColor: theme.border }]} />
             <View style={styles.selectModalHeader}>
               <ThemedText type="smallBold">Country / Region</ThemedText>
-              <Pressable onPress={() => { setPickerOpen(false); setPickerQuery(''); }}>
+              <Pressable hitSlop={12} onPress={() => { setPickerOpen(false); setPickerQuery(''); }}>
                 <ThemedText type="small" themeColor="primary">
                   Close
                 </ThemedText>
@@ -742,19 +751,26 @@ export function PhoneField({
                 { borderColor: theme.border, backgroundColor: theme.background, color: theme.text },
               ]}
             />
-            <ScrollView style={styles.selectList} contentContainerStyle={styles.selectListContent}>
-              {filteredOptions.map((option) => {
+            <ScrollView
+              style={styles.selectList}
+              contentContainerStyle={styles.selectListContent}
+              keyboardShouldPersistTaps="handled">
+              {filteredOptions.map((option, index) => {
                 const selected = option.code === country;
+                const isLast = index === filteredOptions.length - 1;
                 return (
                   <Pressable
                     key={option.code}
                     onPress={() => handleCountrySelect(option.code)}
                     style={({ pressed }) => [
                       styles.selectOption,
+                      !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
                       {
-                        borderColor: selected ? theme.primary : theme.border,
-                        backgroundColor: selected ? theme.backgroundSelected : theme.background,
-                        opacity: pressed ? 0.8 : 1,
+                        backgroundColor: selected
+                          ? theme.backgroundSelected
+                          : pressed
+                            ? theme.backgroundSelected
+                            : 'transparent',
                       },
                     ]}>
                     <ThemedText
@@ -863,22 +879,33 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    justifyContent: 'center',
-    padding: Spacing.four,
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   selectModal: {
-    maxHeight: '75%',
+    maxHeight: '80%',
     borderWidth: 1,
-    borderRadius: 20,
-    padding: Spacing.three,
+    borderBottomWidth: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.four,
     gap: Spacing.two,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: Spacing.one,
   },
   selectModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: Spacing.two,
+    paddingVertical: Spacing.one,
   },
   searchInput: {
     minHeight: 44,
@@ -891,17 +918,16 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   selectListContent: {
-    gap: Spacing.two,
     paddingBottom: Spacing.one,
   },
   selectOption: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
+    minHeight: 48,
+    borderRadius: 10,
   },
   switchRow: {
     borderWidth: 1,

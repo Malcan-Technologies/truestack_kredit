@@ -23,6 +23,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Signature, { type SignatureViewRef } from 'react-native-signature-canvas';
 
 import { PageScreen } from '@/components/page-screen';
@@ -181,6 +182,17 @@ export default function SignAgreementScreen() {
   const handleRequestCapture = useCallback(() => {
     sigRef.current?.readSignature();
   }, []);
+
+  // Claim horizontal motion inside the canvas early so the iOS stack's
+  // edge-swipe-back gesture yields when the user signs left-to-right.
+  // Scoped to the canvas only — back-swipe still works anywhere else on the screen.
+  const canvasPanGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-2, 2])
+        .failOffsetY([-12, 12]),
+    [],
+  );
 
   const handleOpenPdf = useCallback(async () => {
     if (!pdfFileUri) return;
@@ -425,44 +437,44 @@ export default function SignAgreementScreen() {
     return (
       <PageScreen title="Sign agreement" showBackButton backFallbackHref={backHref}>
         <SectionCard hideHeader>
-          <View style={styles.successStack}>
-            <View
-              style={[
-                styles.successIconWrap,
-                { backgroundColor: theme.background, borderColor: theme.success },
-              ]}>
-              <MaterialIcons name="check-circle" size={40} color={theme.success} />
-            </View>
-            <ThemedText type="subtitle">Agreement signed</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.successCopy}>
-              Your digitally signed loan agreement has been submitted for lender review. A signed
-              copy has been emailed to you.
-            </ThemedText>
-            <View style={styles.successMetaRow}>
-              <MaterialIcons name="verified-user" size={14} color={theme.success} />
-              <ThemedText type="small" themeColor="textSecondary">
-                PKI digital signature applied
+            <View style={styles.successStack}>
+              <View
+                style={[
+                  styles.successIconWrap,
+                  { backgroundColor: theme.background, borderColor: theme.success },
+                ]}>
+                <MaterialIcons name="check-circle" size={40} color={theme.success} />
+              </View>
+              <ThemedText type="subtitle">Agreement signed</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.successCopy}>
+                Your digitally signed loan agreement has been submitted for lender review. A signed
+                copy has been emailed to you.
               </ThemedText>
-            </View>
-            <View style={styles.successMetaRow}>
-              <MaterialIcons name="mail" size={14} color={theme.textSecondary} />
-              <ThemedText type="small" themeColor="textSecondary">
-                Copy emailed to you
+              <View style={styles.successMetaRow}>
+                <MaterialIcons name="verified-user" size={14} color={theme.success} />
+                <ThemedText type="small" themeColor="textSecondary">
+                  PKI digital signature applied
+                </ThemedText>
+              </View>
+              <View style={styles.successMetaRow}>
+                <MaterialIcons name="mail" size={14} color={theme.textSecondary} />
+                <ThemedText type="small" themeColor="textSecondary">
+                  Copy emailed to you
+                </ThemedText>
+              </View>
+              <ThemedText type="small" themeColor="textSecondary" style={{ marginTop: Spacing.two }}>
+                Returning to loan in {countdown}s…
               </ThemedText>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.replace(backHref)}
+                style={({ pressed }) => [
+                  styles.goNowBtn,
+                  { borderColor: theme.border, opacity: pressed ? 0.8 : 1 },
+                ]}>
+                <ThemedText type="smallBold">Go now</ThemedText>
+              </Pressable>
             </View>
-            <ThemedText type="small" themeColor="textSecondary" style={{ marginTop: Spacing.two }}>
-              Returning to loan in {countdown}s…
-            </ThemedText>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.replace(backHref)}
-              style={({ pressed }) => [
-                styles.goNowBtn,
-                { borderColor: theme.border, opacity: pressed ? 0.8 : 1 },
-              ]}>
-              <ThemedText type="smallBold">Go now</ThemedText>
-            </Pressable>
-          </View>
         </SectionCard>
       </PageScreen>
     );
@@ -555,20 +567,24 @@ export default function SignAgreementScreen() {
               styles.canvasWrap,
               { borderColor: theme.border, backgroundColor: '#ffffff' },
             ]}>
-            <Signature
-              ref={sigRef}
-              onOK={handleSignatureCaptured}
-              onEmpty={() => toast.error('Please draw your signature first.')}
-              onBegin={() => setIsDrawing(true)}
-              onEnd={() => setIsDrawing(false)}
-              webStyle={SIGNATURE_WEB_STYLE}
-              descriptionText=""
-              imageType="image/png"
-              trimWhitespace
-              penColor="#1a1a2e"
-              backgroundColor="rgba(255,255,255,0)"
-              style={styles.canvas}
-            />
+            <GestureDetector gesture={canvasPanGesture}>
+              <View collapsable={false}>
+                <Signature
+                  ref={sigRef}
+                  onOK={handleSignatureCaptured}
+                  onEmpty={() => toast.error('Please draw your signature first.')}
+                  onBegin={() => setIsDrawing(true)}
+                  onEnd={() => setIsDrawing(false)}
+                  webStyle={SIGNATURE_WEB_STYLE}
+                  descriptionText=""
+                  imageType="image/png"
+                  trimWhitespace
+                  penColor="#1a1a2e"
+                  backgroundColor="rgba(255,255,255,0)"
+                  style={styles.canvas}
+                />
+              </View>
+            </GestureDetector>
             <Pressable
               accessibilityRole="button"
               onPress={() => sigRef.current?.clearSignature()}
@@ -793,8 +809,17 @@ function FooterButton({
 const SIGNATURE_WEB_STYLE = `
   .m-signature-pad { box-shadow: none; border: none; margin: 0; }
   .m-signature-pad--body { border: none; }
+  .m-signature-pad--body canvas { touch-action: none; }
   .m-signature-pad--footer { display: none; margin: 0; }
-  body, html { background: transparent; }
+  html, body {
+    background: transparent;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+  }
 `;
 
 const styles = StyleSheet.create({

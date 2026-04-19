@@ -1,27 +1,36 @@
+-- Idempotent version: this migration may have partially applied in some
+-- environments (e.g. when `verified` was added out-of-band), so guard each
+-- DDL so re-running after a failed `prisma migrate deploy` succeeds.
+
 -- CreateEnum
-CREATE TYPE "LoanChannel" AS ENUM ('ONLINE', 'PHYSICAL');
+DO $$ BEGIN
+    CREATE TYPE "LoanChannel" AS ENUM ('ONLINE', 'PHYSICAL');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- AlterEnum
-ALTER TYPE "ApplicationStatus" ADD VALUE 'PENDING_L2_APPROVAL';
+ALTER TYPE "ApplicationStatus" ADD VALUE IF NOT EXISTS 'PENDING_L2_APPROVAL';
 
 -- AlterTable
-ALTER TABLE "LoanApplication" ADD COLUMN     "l1DecisionNote" TEXT,
-ADD COLUMN     "l1ReviewedAt" TIMESTAMP(3),
-ADD COLUMN     "l1ReviewedByMemberId" TEXT,
-ADD COLUMN     "l2DecisionNote" TEXT,
-ADD COLUMN     "l2ReviewedAt" TIMESTAMP(3),
-ADD COLUMN     "l2ReviewedByMemberId" TEXT,
-ADD COLUMN     "loanChannel" "LoanChannel" NOT NULL DEFAULT 'PHYSICAL';
+ALTER TABLE "LoanApplication"
+    ADD COLUMN IF NOT EXISTS "l1DecisionNote" TEXT,
+    ADD COLUMN IF NOT EXISTS "l1ReviewedAt" TIMESTAMP(3),
+    ADD COLUMN IF NOT EXISTS "l1ReviewedByMemberId" TEXT,
+    ADD COLUMN IF NOT EXISTS "l2DecisionNote" TEXT,
+    ADD COLUMN IF NOT EXISTS "l2ReviewedAt" TIMESTAMP(3),
+    ADD COLUMN IF NOT EXISTS "l2ReviewedByMemberId" TEXT,
+    ADD COLUMN IF NOT EXISTS "loanChannel" "LoanChannel" NOT NULL DEFAULT 'PHYSICAL';
 
 -- AlterTable
-ALTER TABLE "TenantMember" ADD COLUMN     "roleId" TEXT,
-ALTER COLUMN "role" SET DEFAULT 'GENERAL_STAFF';
+ALTER TABLE "TenantMember" ADD COLUMN IF NOT EXISTS "roleId" TEXT;
+ALTER TABLE "TenantMember" ALTER COLUMN "role" SET DEFAULT 'GENERAL_STAFF';
 
 -- AlterTable
-ALTER TABLE "TwoFactor" ADD COLUMN     "verified" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "TwoFactor" ADD COLUMN IF NOT EXISTS "verified" BOOLEAN NOT NULL DEFAULT false;
 
 -- CreateTable
-CREATE TABLE "TenantRole" (
+CREATE TABLE IF NOT EXISTS "TenantRole" (
     "id" TEXT NOT NULL,
     "tenantId" TEXT NOT NULL,
     "key" TEXT NOT NULL,
@@ -38,16 +47,24 @@ CREATE TABLE "TenantRole" (
 );
 
 -- CreateIndex
-CREATE INDEX "TenantRole_tenantId_idx" ON "TenantRole"("tenantId");
+CREATE INDEX IF NOT EXISTS "TenantRole_tenantId_idx" ON "TenantRole"("tenantId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "TenantRole_tenantId_key_key" ON "TenantRole"("tenantId", "key");
+CREATE UNIQUE INDEX IF NOT EXISTS "TenantRole_tenantId_key_key" ON "TenantRole"("tenantId", "key");
 
 -- CreateIndex
-CREATE INDEX "TenantMember_roleId_idx" ON "TenantMember"("roleId");
+CREATE INDEX IF NOT EXISTS "TenantMember_roleId_idx" ON "TenantMember"("roleId");
 
 -- AddForeignKey
-ALTER TABLE "TenantMember" ADD CONSTRAINT "TenantMember_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "TenantRole"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "TenantMember" ADD CONSTRAINT "TenantMember_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "TenantRole"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "TenantRole" ADD CONSTRAINT "TenantRole_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "TenantRole" ADD CONSTRAINT "TenantRole_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;

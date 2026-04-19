@@ -31,12 +31,17 @@ import {
 } from '@/components/activity-timeline';
 import { HorizontalSnapCarousel } from '@/components/horizontal-snap-carousel';
 import { MetaBadge } from '@/components/meta-badge';
+import { LoanCertEnrollmentCard } from '@/components/loan-cert-enrollment-card';
+import { LoanEkycProfileCard } from '@/components/loan-ekyc-profile-card';
 import { PageHeaderToolbarButton, PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
 import { ThemedText } from '@/components/themed-text';
+import { TruestackKycMobileCard } from '@/components/truestack-kyc-mobile-card';
+import { InlineStatusRow } from '@/components/verified-status-row';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { loansClient } from '@/lib/api/borrower';
+import { borrowerClient, loansClient } from '@/lib/api/borrower';
+import { isBorrowerKycComplete } from '@/lib/borrower-verification';
 import { getEnv } from '@/lib/config/env';
 import { formatDate } from '@/lib/format/date';
 import { formatICForDisplay } from '@/lib/format/borrower';
@@ -64,6 +69,7 @@ import {
   getAuditChanges,
   type MaterialIconName,
 } from '@/lib/loans/timeline';
+import { getStoredItem, setStoredItem } from '@/lib/storage/app-storage';
 import { toast } from '@/lib/toast';
 import {
   borrowerDisbursementProofUrl,
@@ -74,9 +80,12 @@ import {
 } from '@kredit/borrower';
 import type {
   AttestationStatus,
+  BorrowerDetail,
   BorrowerLoanDetail,
   BorrowerLoanMetrics,
   BorrowerLoanTimelineEvent,
+  SignedAgreementReviewStatus,
+  TruestackKycStatusData,
 } from '@kredit/borrower';
 
 const PAYABLE_STATUSES = new Set(['ACTIVE', 'IN_ARREARS', 'DEFAULTED']);
@@ -1446,6 +1455,12 @@ function formatMalaysiaTime(iso: string): string {
   });
 }
 
+type JourneyStepId = 'attestation' | 'ekyc' | 'certificate' | 'sign' | 'review';
+
+function certDoneKey(loanId: string) {
+  return `cert_done_${loanId}`;
+}
+
 function PreDisbursementPlaceholder({
   loan,
   loanId,
@@ -1455,6 +1470,14 @@ function PreDisbursementPlaceholder({
   loanId: string;
   onRefresh: () => void | Promise<void>;
 }) {
+  // Physical loans skip the borrower-signed flow entirely (lender handles disbursement).
+  if (loan.loanChannel === 'PHYSICAL') {
+    return <PhysicalLoanAwaitingCard loan={loan} />;
+  }
+  return <PreDisbursementJourney loan={loan} loanId={loanId} onRefresh={onRefresh} />;
+}
+
+function PhysicalLoanAwaitingCard({ loan }: { loan: BorrowerLoanDetail }) {
   const router = useRouter();
   const theme = useTheme();
   const statusInput: BorrowerLoanStatusLabelInput = {
@@ -1462,11 +1485,6 @@ function PreDisbursementPlaceholder({
     attestationCompletedAt: loan.attestationCompletedAt ?? null,
     loanChannel: loan.loanChannel,
   };
-
-  const requiresAttestation = loan.loanChannel !== 'PHYSICAL';
-  const attestationDone = Boolean(loan.attestationCompletedAt);
-  const showAttestation = requiresAttestation && !attestationDone;
-
   return (
     <PageScreen title="Loan" showBackButton backFallbackHref="/loans">
       <View style={styles.headerWrap}>
@@ -1478,17 +1496,11 @@ function PreDisbursementPlaceholder({
           <MetaBadge label={loanStatusBadgeLabelFromDb(statusInput)} />
         </View>
       </View>
-
-      {showAttestation ? (
-        <AttestationStateCard loan={loan} loanId={loanId} onRefresh={onRefresh} />
-      ) : null}
-
-      <SectionCard
-        title={showAttestation ? 'Remaining steps — continue on web' : 'Continue on web'}>
+      <SectionCard title="Awaiting disbursement">
         <ThemedText type="small">
-          {showAttestation
-            ? 'The mobile flow supports attestation. Continue the remaining pre-disbursement steps (e-KYC, agreement signing) in the web portal.'
-            : 'The mobile flow for finishing pre-disbursement steps (e-KYC, agreement signing) is on its way. For now, please finish these steps in the web portal.'}
+          This physical loan does not require any more borrower action here. Your lender will
+          handle the remaining disbursement steps. Your repayment schedule will appear once funds
+          are released.
         </ThemedText>
         <Pressable
           accessibilityRole="button"
@@ -1502,6 +1514,598 @@ function PreDisbursementPlaceholder({
         </Pressable>
       </SectionCard>
     </PageScreen>
+  );
+}
+
+function PreDisbursementJourney({
+  loan,
+  loanId,
+  onRefresh,
+}: {
+  loan: BorrowerLoanDetail;
+  loanId: string;
+  onRefresh: () => void | Promise<void>;
+}) {
+  const theme = useTheme();
+  const statusInput: BorrowerLoanStatusLabelInput = {
+    status: loan.status,
+    attestationCompletedAt: loan.attestationCompletedAt ?? null,
+    loanChannel: loan.loanChannel,
+  };
+
+  const requiresAttestation = loan.loanChannel !== 'PHYSICAL';
+  const attestationDone = Boolean(loan.attestationCompletedAt);
+  const review: SignedAgreementReviewStatus = loan.signedAgreementReviewStatus ?? 'NONE';
+  const awaitingLenderReview = review === 'PENDING' || review === 'APPROVED';
+
+  const [borrower, setBorrower] = useState<BorrowerDetail | null>(null);
+  const [kyc, setKyc] = useState<TruestackKycStatusData | null>(null);
+  const [kycLoading, setKycLoading] = useState(true);
+  const [certDone, setCertDone] = useState(false);
+  const [activeStep, setActiveStep] = useState<JourneyStepId>('attestation');
+  const [kycActionBusy, setKycActionBusy] = useState(false);
+
+  const loadKycData = useCallback(async () => {
+    setKycLoading(true);
+    try {
+      const [borrowerRes, kycRes] = await Promise.all([
+        borrowerClient.fetchBorrower(),
+        borrowerClient.getTruestackKycStatus().catch(() => null),
+      ]);
+      setBorrower(borrowerRes.data);
+      setKyc(kycRes?.success ? kycRes.data : null);
+    } catch {
+      setBorrower(null);
+      setKyc(null);
+    } finally {
+      setKycLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadKycData();
+  }, [loadKycData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const stored = await getStoredItem(certDoneKey(loanId));
+      if (!cancelled && stored === '1') setCertDone(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loanId]);
+
+  const handleCertReady = useCallback(() => {
+    setCertDone(true);
+    void setStoredItem(certDoneKey(loanId), '1');
+  }, [loanId]);
+
+  const kycDone = Boolean(borrower) && isBorrowerKycComplete(borrower!, kyc);
+
+  // Clear persisted certDone if the lender review lifecycle resets (e.g. REJECTED → re-sign).
+  useEffect(() => {
+    if (review === 'APPROVED') {
+      // Done. Leave stored value so we don't re-check.
+      return;
+    }
+    if (review === 'REJECTED') {
+      // Keep certDone true; certificate doesn't need re-issuing.
+      return;
+    }
+  }, [review]);
+
+  // Auto-advance active step as conditions are satisfied.
+  useEffect(() => {
+    if (awaitingLenderReview) {
+      setActiveStep('review');
+      return;
+    }
+    if (requiresAttestation && !attestationDone) {
+      setActiveStep('attestation');
+      return;
+    }
+    if (kycLoading) return;
+    if (!kycDone) {
+      setActiveStep('ekyc');
+      return;
+    }
+    if (!certDone) {
+      setActiveStep('certificate');
+      return;
+    }
+    setActiveStep('sign');
+  }, [
+    awaitingLenderReview,
+    requiresAttestation,
+    attestationDone,
+    kycDone,
+    kycLoading,
+    certDone,
+  ]);
+
+  const handleRefreshAll = useCallback(async () => {
+    await Promise.all([onRefresh(), loadKycData()]);
+  }, [onRefresh, loadKycData]);
+
+  const openExternalLink = useCallback(async (url: string) => {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) throw new Error('Unable to open the verification link on this device.');
+    await Linking.openURL(url);
+  }, []);
+
+  const handleStartIndividualKyc = useCallback(async () => {
+    setKycActionBusy(true);
+    try {
+      const response = await borrowerClient.startTruestackKycSession();
+      await openExternalLink(response.data.onboardingUrl);
+      await loadKycData();
+    } catch (e) {
+      Alert.alert(
+        'Unable to start e-KYC',
+        e instanceof Error ? e.message : 'Please try again.',
+      );
+    } finally {
+      setKycActionBusy(false);
+    }
+  }, [loadKycData, openExternalLink]);
+
+  const handleStartDirectorKyc = useCallback(
+    async (directorId: string) => {
+      setKycActionBusy(true);
+      try {
+        const response = await borrowerClient.startTruestackKycSession({ directorId });
+        await openExternalLink(response.data.onboardingUrl);
+        await loadKycData();
+      } catch (e) {
+        Alert.alert(
+          'Unable to start e-KYC',
+          e instanceof Error ? e.message : 'Please try again.',
+        );
+      } finally {
+        setKycActionBusy(false);
+      }
+    },
+    [loadKycData, openExternalLink],
+  );
+
+  const handleOpenKycLink = useCallback(
+    async (url: string) => {
+      try {
+        await openExternalLink(url);
+      } catch (e) {
+        Alert.alert(
+          'Unable to open link',
+          e instanceof Error ? e.message : 'Please try again.',
+        );
+      }
+    },
+    [openExternalLink],
+  );
+
+  const steps = useMemo<{ id: JourneyStepId; label: string; done: boolean }[]>(() => {
+    const out: { id: JourneyStepId; label: string; done: boolean }[] = [];
+    if (requiresAttestation) out.push({ id: 'attestation', label: 'Attestation', done: attestationDone });
+    out.push({ id: 'ekyc', label: 'e-KYC', done: kycDone });
+    out.push({ id: 'certificate', label: 'Certificate', done: certDone });
+    out.push({
+      id: 'sign',
+      label: 'Sign',
+      done: awaitingLenderReview,
+    });
+    out.push({ id: 'review', label: 'Review', done: review === 'APPROVED' });
+    return out;
+  }, [requiresAttestation, attestationDone, kycDone, certDone, awaitingLenderReview, review]);
+
+  const handleStepperPress = useCallback(
+    (stepId: JourneyStepId) => {
+      if (stepId === 'attestation') {
+        setActiveStep('attestation');
+        return;
+      }
+      if (stepId === 'ekyc') {
+        if (requiresAttestation && !attestationDone) {
+          toast.error('Complete attestation first.');
+          return;
+        }
+        setActiveStep('ekyc');
+        return;
+      }
+      if (stepId === 'certificate') {
+        if (requiresAttestation && !attestationDone) {
+          toast.error('Complete attestation first.');
+          return;
+        }
+        if (!kycDone) {
+          toast.error('Complete e-KYC first.');
+          setActiveStep('ekyc');
+          return;
+        }
+        setActiveStep('certificate');
+        return;
+      }
+      if (stepId === 'sign') {
+        if (requiresAttestation && !attestationDone) {
+          toast.error('Complete attestation first.');
+          return;
+        }
+        if (!kycDone) {
+          toast.error('Complete e-KYC first.');
+          setActiveStep('ekyc');
+          return;
+        }
+        if (!certDone) {
+          toast.error('Get your digital certificate first.');
+          setActiveStep('certificate');
+          return;
+        }
+        if (awaitingLenderReview) {
+          setActiveStep('review');
+          return;
+        }
+        setActiveStep('sign');
+        return;
+      }
+      if (stepId === 'review') {
+        if (!awaitingLenderReview) {
+          toast.error('Sign your agreement first.');
+          return;
+        }
+        setActiveStep('review');
+      }
+    },
+    [requiresAttestation, attestationDone, kycDone, certDone, awaitingLenderReview],
+  );
+
+  const stepNumber = (id: JourneyStepId): number =>
+    steps.findIndex((s) => s.id === id) + 1;
+
+  return (
+    <PageScreen
+      title="Before payout"
+      showBackButton
+      backFallbackHref="/loans"
+      refreshControl={
+        <RefreshControl refreshing={false} onRefresh={handleRefreshAll} tintColor={theme.primary} />
+      }>
+      <View style={styles.headerWrap}>
+        <ThemedText type="subtitle">{formatRm(loan.principalAmount)}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          {loan.product?.name ?? 'Loan'} · {loan.term} months
+        </ThemedText>
+        <View style={styles.headerBadges}>
+          <MetaBadge label={loanStatusBadgeLabelFromDb(statusInput)} />
+          <MetaBadge icon="computer" label="Online" />
+        </View>
+      </View>
+
+      <JourneyStepper steps={steps} activeStep={activeStep} onPress={handleStepperPress} />
+
+      {activeStep === 'attestation' && requiresAttestation ? (
+        attestationDone ? (
+          <SectionCard
+            title={`Step ${stepNumber('attestation')} — Attestation complete`}
+            description="You can revisit earlier steps anytime from the progress bar above."
+            action={<InlineStatusRow tone="success" label="Done" />}>
+            {loan.attestationCompletedAt ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                Completed: {formatMalaysiaDateTime(loan.attestationCompletedAt)}
+              </ThemedText>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                setActiveStep(kycDone ? (certDone ? 'sign' : 'certificate') : 'ekyc')
+              }
+              style={({ pressed }) => [
+                styles.ctaPrimary,
+                { backgroundColor: theme.primary, opacity: pressed ? 0.85 : 1 },
+              ]}>
+              <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>
+                {kycDone ? (certDone ? 'Go to sign agreement' : 'Go to certificate') : 'Go to e-KYC'}
+              </ThemedText>
+              <MaterialIcons name="chevron-right" size={18} color={theme.primaryForeground} />
+            </Pressable>
+          </SectionCard>
+        ) : (
+          <AttestationStateCard loan={loan} loanId={loanId} onRefresh={onRefresh} />
+        )
+      ) : null}
+
+      {activeStep === 'ekyc' ? (
+        <>
+          {borrower ? (
+            <LoanEkycProfileCard borrower={borrower} loanId={loanId} />
+          ) : kycLoading ? (
+            <SectionCard title={`Step ${stepNumber('ekyc')} — e-KYC`}>
+              <View style={styles.inlineLoading}>
+                <ActivityIndicator color={theme.primary} size="small" />
+                <ThemedText type="small" themeColor="textSecondary">
+                  Loading your profile…
+                </ThemedText>
+              </View>
+            </SectionCard>
+          ) : (
+            <SectionCard title={`Step ${stepNumber('ekyc')} — e-KYC`}>
+              <ThemedText type="small" style={{ color: theme.error }}>
+                Could not load your borrower profile. Pull down to refresh.
+              </ThemedText>
+            </SectionCard>
+          )}
+          {borrower ? (
+            <TruestackKycMobileCard
+              borrower={borrower}
+              kyc={kyc}
+              onStartIndividualSession={handleStartIndividualKyc}
+              onStartDirectorSession={handleStartDirectorKyc}
+              onOpenLink={handleOpenKycLink}
+            />
+          ) : null}
+          {kycDone ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setActiveStep('certificate')}
+              disabled={kycActionBusy}
+              style={({ pressed }) => [
+                styles.ctaPrimary,
+                { backgroundColor: theme.primary, opacity: pressed ? 0.85 : 1 },
+              ]}>
+              <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>
+                Continue to certificate
+              </ThemedText>
+              <MaterialIcons name="chevron-right" size={18} color={theme.primaryForeground} />
+            </Pressable>
+          ) : null}
+        </>
+      ) : null}
+
+      {activeStep === 'certificate' ? (
+        <LoanCertEnrollmentCard
+          stepLabel={`Step ${stepNumber('certificate')} — Digital certificate`}
+          onCertReady={handleCertReady}
+        />
+      ) : null}
+
+      {activeStep === 'sign' ? (
+        <SignAgreementCta
+          loanId={loanId}
+          stepNumber={stepNumber('sign')}
+          review={review}
+          canSign={(!requiresAttestation || attestationDone) && kycDone && certDone}
+        />
+      ) : null}
+
+      {activeStep === 'review' ? (
+        <LenderReviewCard
+          stepNumber={stepNumber('review')}
+          review={review}
+          loan={loan}
+          onEditAndResign={() => setActiveStep('sign')}
+        />
+      ) : null}
+    </PageScreen>
+  );
+}
+
+/*  Compact journey stepper  */
+
+function JourneyStepper({
+  steps,
+  activeStep,
+  onPress,
+}: {
+  steps: { id: JourneyStepId; label: string; done: boolean }[];
+  activeStep: JourneyStepId;
+  onPress: (id: JourneyStepId) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <SectionCard hideHeader>
+      <ThemedText type="small" themeColor="textSecondary">
+        Your progress
+      </ThemedText>
+      <View style={styles.stepperRow}>
+        {steps.map((step, i) => {
+          const isActive = step.id === activeStep;
+          const isFirst = i === 0;
+          const isLast = i === steps.length - 1;
+          const prev = steps[i - 1];
+          const circleBg = step.done
+            ? theme.success
+            : isActive
+              ? theme.primary
+              : 'transparent';
+          const circleBorder = step.done
+            ? theme.success
+            : isActive
+              ? theme.primary
+              : theme.border;
+          const circleFg = step.done || isActive ? theme.primaryForeground : theme.textSecondary;
+          const leftConnectorColor = prev?.done ? theme.success : theme.border;
+          const rightConnectorColor = step.done ? theme.success : theme.border;
+          return (
+            <Pressable
+              key={step.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Step ${i + 1}: ${step.label}`}
+              onPress={() => onPress(step.id)}
+              style={styles.stepperColumn}>
+              <View style={styles.stepperCircleRow}>
+                <View
+                  style={[
+                    styles.stepperConnector,
+                    {
+                      backgroundColor: leftConnectorColor,
+                      opacity: isFirst ? 0 : 1,
+                    },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.stepperCircle,
+                    { backgroundColor: circleBg, borderColor: circleBorder },
+                  ]}>
+                  {step.done ? (
+                    <MaterialIcons name="check" size={14} color={circleFg} />
+                  ) : (
+                    <ThemedText
+                      type="smallBold"
+                      style={{ color: circleFg, fontSize: 12, lineHeight: 14 }}>
+                      {i + 1}
+                    </ThemedText>
+                  )}
+                </View>
+                <View
+                  style={[
+                    styles.stepperConnector,
+                    {
+                      backgroundColor: rightConnectorColor,
+                      opacity: isLast ? 0 : 1,
+                    },
+                  ]}
+                />
+              </View>
+              <ThemedText
+                type="small"
+                themeColor={isActive ? 'text' : 'textSecondary'}
+                numberOfLines={2}
+                style={[styles.stepperLabel, isActive ? { fontWeight: '600' } : undefined]}>
+                {step.label}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+      </View>
+    </SectionCard>
+  );
+}
+
+/*  Sign-agreement CTA — leads to the pushed /sign-agreement route  */
+
+function SignAgreementCta({
+  loanId,
+  stepNumber,
+  review,
+  canSign,
+}: {
+  loanId: string;
+  stepNumber: number;
+  review: SignedAgreementReviewStatus;
+  canSign: boolean;
+}) {
+  const router = useRouter();
+  const theme = useTheme();
+  const rejected = review === 'REJECTED';
+  return (
+    <SectionCard
+      title={`Step ${stepNumber} — Sign agreement`}
+      description={
+        rejected
+          ? 'Your lender rejected the previous signature. Review their note and re-sign.'
+          : 'Review the agreement PDF, capture your signature, then confirm with an OTP.'
+      }>
+      <View
+        style={[
+          styles.attestInfoBox,
+          { borderColor: theme.border, backgroundColor: theme.background },
+        ]}>
+        <View style={styles.inlineLoading}>
+          <MaterialIcons name="description" size={18} color={theme.primary} />
+          <ThemedText type="smallBold">PDF + signature + email OTP</ThemedText>
+        </View>
+        <ThemedText type="small" themeColor="textSecondary">
+          We&apos;ll generate a preview of your agreement and seal it with your MTSA certificate
+          when you finish.
+        </ThemedText>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        disabled={!canSign}
+        onPress={() => router.push(`/loans/${loanId}/sign-agreement` as Href)}
+        style={({ pressed }) => [
+          styles.ctaPrimary,
+          {
+            backgroundColor: theme.primary,
+            opacity: !canSign ? 0.5 : pressed ? 0.85 : 1,
+          },
+        ]}>
+        <MaterialIcons name="edit" size={16} color={theme.primaryForeground} />
+        <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>
+          {rejected ? 'Re-sign agreement' : 'Open signing'}
+        </ThemedText>
+      </Pressable>
+      {!canSign ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          Finish the previous steps to unlock signing.
+        </ThemedText>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+/*  Lender review status  */
+
+function LenderReviewCard({
+  stepNumber,
+  review,
+  loan,
+  onEditAndResign,
+}: {
+  stepNumber: number;
+  review: SignedAgreementReviewStatus;
+  loan: BorrowerLoanDetail;
+  onEditAndResign: () => void;
+}) {
+  const theme = useTheme();
+  const tone = review === 'APPROVED' ? 'success' : review === 'REJECTED' ? 'error' : 'warning';
+  const label =
+    review === 'APPROVED'
+      ? 'Approved'
+      : review === 'REJECTED'
+        ? 'Rejected'
+        : 'Awaiting lender review';
+
+  return (
+    <SectionCard
+      title={`Step ${stepNumber} — Lender review`}
+      description={
+        review === 'APPROVED'
+          ? 'Your lender approved the signed agreement. Disbursement is being scheduled.'
+          : review === 'REJECTED'
+            ? 'Your lender rejected the signed agreement. Review their note and re-sign.'
+            : 'Your signed agreement is with your lender. No action needed from you right now.'
+      }
+      action={<InlineStatusRow tone={tone} label={label} />}>
+      {review === 'REJECTED' && loan.signedAgreementReviewNotes ? (
+        <View
+          style={[
+            styles.attestNoteBox,
+            { borderColor: theme.error, backgroundColor: theme.background },
+          ]}>
+          <ThemedText type="smallBold" style={{ color: theme.error }}>
+            Lender note
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {loan.signedAgreementReviewNotes}
+          </ThemedText>
+        </View>
+      ) : null}
+      {review === 'REJECTED' ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onEditAndResign}
+          style={({ pressed }) => [
+            styles.ctaPrimary,
+            { backgroundColor: theme.primary, opacity: pressed ? 0.85 : 1 },
+          ]}>
+          <MaterialIcons name="edit" size={16} color={theme.primaryForeground} />
+          <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>
+            Re-sign agreement
+          </ThemedText>
+        </Pressable>
+      ) : null}
+    </SectionCard>
   );
 }
 
@@ -2327,5 +2931,56 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
     padding: Spacing.two,
+    gap: Spacing.one,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: Spacing.two,
+  },
+  stepperColumn: {
+    flex: 1,
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingVertical: Spacing.one,
+  },
+  stepperCircleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
+  stepperCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperLabel: {
+    textAlign: 'center',
+    fontSize: 11,
+    lineHeight: 14,
+    minHeight: 28,
+    paddingHorizontal: 2,
+  },
+  stepperConnector: {
+    flex: 1,
+    height: 2,
+    borderRadius: 1,
+  },
+  inlineLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  ctaPrimary: {
+    minHeight: 48,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.four,
   },
 });

@@ -215,6 +215,8 @@ interface PageScreenProps {
   stickyFooter?: React.ReactNode;
   /** Override the default back navigation. When provided, called instead of `navigation.goBack()`. */
   onBack?: () => void | Promise<void>;
+  /** When false, disables the main scroll view — e.g. while the user is drawing on a signature canvas. */
+  scrollEnabled?: boolean;
 }
 
 export function PageScreen({
@@ -232,6 +234,7 @@ export function PageScreen({
   collapseTitleOnScroll = true,
   stickyFooter,
   onBack,
+  scrollEnabled = true,
 }: PageScreenProps) {
   const theme = useTheme();
   const { resolvedScheme } = useThemePreference();
@@ -462,6 +465,7 @@ export function PageScreen({
             ],
             refreshControl: refreshControl ?? op.refreshControl,
             showsVerticalScrollIndicator: op.showsVerticalScrollIndicator ?? true,
+            scrollEnabled,
           } as never);
         })()
       ) : (
@@ -481,6 +485,7 @@ export function PageScreen({
           onScroll={onScroll}
           refreshControl={refreshControl}
           scrollEventThrottle={16}
+          scrollEnabled={scrollEnabled}
           showsVerticalScrollIndicator>
           <View style={[styles.body, contentStyle]}>{children}</View>
         </Animated.ScrollView>

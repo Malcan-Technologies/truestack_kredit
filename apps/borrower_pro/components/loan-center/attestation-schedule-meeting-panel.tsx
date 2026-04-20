@@ -335,7 +335,10 @@ export function AttestationScheduleMeetingPanel() {
                       role="tab"
                       aria-selected={active}
                       disabled={busy}
-                      onClick={() => setSelectedDateKey(dateKey)}
+                      onClick={() => {
+                        setSelectedDateKey(dateKey);
+                        setSelectedSlotStart(null);
+                      }}
                       className={cn(
                         "min-w-[80px] min-h-[80px] shrink-0 flex flex-col items-center justify-center gap-0.5 rounded-xl border-2 px-3 py-2 text-center transition-colors",
                         active

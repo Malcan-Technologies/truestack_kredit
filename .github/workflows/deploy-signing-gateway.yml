@@ -223,6 +223,30 @@ jobs:
 
           echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Build and push MTSA pilot image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ needs.resolve-release.outputs.image_tag }}
+          USE_SEMVER: ${{ needs.resolve-release.outputs.use_semver }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          MTSA_TAG="mtsa-${IMAGE_TAG}"
+          docker build -f apps/signing-gateway/mtsa-pilot/Dockerfile \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$MTSA_TAG" \
+            apps/signing-gateway/mtsa-pilot
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$MTSA_TAG"
+
+          if [ "$USE_SEMVER" = "true" ]; then
+            docker tag "$ECR_REGISTRY/$ECR_REPOSITORY:$MTSA_TAG" \
+              "$ECR_REGISTRY/$ECR_REPOSITORY:mtsa-${IMAGE_TAG}-${SHORT_SHA}"
+            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:mtsa-${IMAGE_TAG}-${SHORT_SHA}"
+          else
+            docker tag "$ECR_REGISTRY/$ECR_REPOSITORY:$MTSA_TAG" \
+              "$ECR_REGISTRY/$ECR_REPOSITORY:mtsa-latest"
+            docker push "$ECR_REGISTRY/$ECR_REPOSITORY:mtsa-latest"
+          fi
+
   deploy-to-onprem:
     name: Deploy to On-Prem Server
     runs-on: ubuntu-latest
@@ -281,6 +305,20 @@ jobs:
             echo "wsdl_path=/MTSAPilot/MyTrustSignerAgentWSAPv2?wsdl" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve MTSA Docker image for on-prem
+        id: mtsa_image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+          ONPREM_MTSA_IMAGE: ${{ secrets.ONPREM_MTSA_IMAGE }}
+        run: |
+          if [ -n "${ONPREM_MTSA_IMAGE}" ]; then
+            echo "ref=${ONPREM_MTSA_IMAGE}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${ECR_REGISTRY}/${ECR_REPOSITORY}:mtsa-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build on-prem .env file
         id: envfile
         env:
@@ -294,7 +332,7 @@ jobs:
           MTSA_SOAP_USERNAME=${{ secrets.ONPREM_MTSA_USERNAME }}
           MTSA_SOAP_PASSWORD=${{ secrets.ONPREM_MTSA_PASSWORD }}
           MTSA_WSDL_PATH=${{ steps.mtsa.outputs.wsdl_path }}
-          MTSA_IMAGE=${{ secrets.ONPREM_MTSA_IMAGE || 'mtsa-pilot:latest' }}
+          MTSA_IMAGE=${{ steps.mtsa_image.outputs.ref }}
           SIGNING_API_KEY=${{ secrets.ONPREM_SIGNING_API_KEY }}
           GATEWAY_PORT=3100
           BACKUP_ENABLED=true

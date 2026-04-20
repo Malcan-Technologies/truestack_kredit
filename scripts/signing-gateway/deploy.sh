@@ -17,8 +17,20 @@ docker pull "$FULL_IMAGE"
 
 cd /opt/signing-stack
 
+MTSA_IMAGE_VALUE=""
+if [ -f .env ]; then
+  MTSA_IMAGE_VALUE=$(grep -E '^MTSA_IMAGE=' .env | head -1 | cut -d= -f2- | tr -d '\r' || true)
+fi
+
+if [ -n "$MTSA_IMAGE_VALUE" ]; then
+  docker pull "$MTSA_IMAGE_VALUE" || {
+    echo "Warning: could not pull MTSA_IMAGE=$MTSA_IMAGE_VALUE (using local image if present)"
+  }
+fi
+
 export GATEWAY_TAG="$TAG"
-docker compose up -d --no-deps signing-gateway
+docker compose up -d signing-gateway mtsa
+
 docker image prune -f
 
 echo "Deploy complete: $FULL_IMAGE"

@@ -81,6 +81,9 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
           },
         },
       ],
+      [
+        'expo-video'
+      ]
     ],
     experiments: {
       typedRoutes: true,

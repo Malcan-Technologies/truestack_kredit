@@ -3,7 +3,19 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Users, Building2, UserX, UserCheck, Upload, X, ImageIcon, Crown, AlertTriangle, Plus } from "lucide-react";
+import {
+  Users,
+  Building2,
+  UserX,
+  UserCheck,
+  Upload,
+  X,
+  ImageIcon,
+  Crown,
+  AlertTriangle,
+  Plus,
+  ArrowLeftRight,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,10 +41,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import Link from "next/link";
 import { useSession } from "@/lib/auth-client";
 import { useTenantContext } from "@/components/tenant-context";
-import { formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, formatSmartDateTime } from "@/lib/utils";
 import { canManageSettings, hasAnyPermission, hasPermission } from "@/lib/permissions";
 import {
   Select,
@@ -41,6 +62,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 interface TenantInfo {
   id: string;
@@ -123,6 +145,12 @@ export default function SettingsPage() {
   const [transferringOwnership, setTransferringOwnership] = useState(false);
   const [selectedNewOwner, setSelectedNewOwner] = useState<User | null>(null);
 
+  const [showChangeRoleDialog, setShowChangeRoleDialog] = useState(false);
+  const [roleDialogUser, setRoleDialogUser] = useState<User | null>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState("");
+  const [toggleActiveConfirmUser, setToggleActiveConfirmUser] = useState<User | null>(null);
+  const [toggleActiveSubmitting, setToggleActiveSubmitting] = useState(false);
+
   const router = useRouter();
   const { data: session, isPending: sessionLoading, refetch: refetchSession } = useSession();
   const { refreshTenantData, hasTenants, permissions } = useTenantContext();
@@ -133,8 +161,13 @@ export default function SettingsPage() {
   const canInvite = hasPermission(permissions, "team.invite");
   const canEditMemberRoles = hasPermission(permissions, "team.edit_roles");
   const canDeactivateMembers = hasPermission(permissions, "team.deactivate");
+  const canToggleUsers = canDeactivateMembers;
   const canViewRolesPage = hasAnyPermission(permissions, "roles.view", "roles.manage");
-  const assignableRoles = roleCatalog.filter((r) => r.key !== "OWNER" && r.key !== "SUPER_ADMIN");
+  const assignableRoles = roleCatalog.filter((r) => {
+    if (r.key === "OWNER") return false;
+    if (r.key === "SUPER_ADMIN") return isOwnerOrSuperAdmin;
+    return true;
+  });
   const defaultInviteRoleId =
     assignableRoles.find((r) => r.key === "GENERAL_STAFF")?.id ?? assignableRoles[0]?.id ?? "";
 
@@ -221,6 +254,7 @@ export default function SettingsPage() {
   };
 
   const handleToggleUserActive = async (user: User) => {
+    setToggleActiveSubmitting(true);
     try {
       const response = await fetch(`/api/proxy/tenants/users/${user.id}`, {
         method: "PATCH",
@@ -229,9 +263,10 @@ export default function SettingsPage() {
         body: JSON.stringify({ isActive: !user.isActive }),
       });
       const res = await response.json();
-      
+
       if (res.success) {
         toast.success(`User ${user.isActive ? "deactivated" : "activated"}`);
+        setToggleActiveConfirmUser(null);
         fetchData();
       } else {
         toast.error(res.error || "Failed to update user");
@@ -239,21 +274,32 @@ export default function SettingsPage() {
     } catch (error) {
       toast.error("Failed to update user");
     }
+    setToggleActiveSubmitting(false);
   };
 
-  const handleChangeMemberRole = async (user: User, roleId: string) => {
+  const handleChangeRole = async () => {
+    if (!roleDialogUser || !selectedRoleId) {
+      toast.error("Select a role before saving");
+      return;
+    }
+
+    const selectedRole = assignableRoles.find((r) => r.id === selectedRoleId);
     try {
-      const response = await fetch(`/api/proxy/tenants/users/${user.id}`, {
+      const response = await fetch(`/api/proxy/tenants/users/${roleDialogUser.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ roleId }),
+        body: JSON.stringify({ roleId: selectedRoleId }),
       });
       const res = await response.json();
 
       if (res.success) {
-        const label = assignableRoles.find((r) => r.id === roleId)?.name ?? "updated role";
-        toast.success(`${user.name || user.email} is now ${label}`);
+        toast.success(
+          `${roleDialogUser.name || roleDialogUser.email} is now ${selectedRole?.name ?? "updated"}`
+        );
+        setShowChangeRoleDialog(false);
+        setRoleDialogUser(null);
+        setSelectedRoleId("");
         fetchData();
       } else {
         toast.error(res.error || "Failed to change role");
@@ -861,46 +907,50 @@ export default function SettingsPage() {
             </TableHeader>
             <TableBody>
               {users.map((user) => (
-                <TableRow key={user.id}>
+                <TableRow
+                  key={user.id}
+                  className={
+                    !user.isActive
+                      ? "text-muted-foreground [&>td:last-child]:text-foreground hover:bg-transparent"
+                      : undefined
+                  }
+                >
                   <TableCell>
                     <div>
                       <p className="font-medium">{user.name || "—"}</p>
-                      <p className="text-sm text-muted">{user.email}</p>
+                      <p
+                        className={
+                          user.isActive ? "text-sm text-muted-foreground" : "text-sm opacity-80"
+                        }
+                      >
+                        {user.email}
+                      </p>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <Badge variant={user.role === "OWNER" ? "default" : "outline"}>
-                        {user.role === "OWNER" && <Crown className="h-3 w-3 mr-1" />}
-                        {user.roleName || user.role}
-                      </Badge>
-                      {canEditMemberRoles && user.role !== "OWNER" && user.isActive && (
-                        <Select
-                          value={user.roleId || ""}
-                          onValueChange={(roleId) => handleChangeMemberRole(user, roleId)}
-                        >
-                          <SelectTrigger className="h-8 w-[180px] text-xs">
-                            <SelectValue placeholder="Change role" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {assignableRoles.map((r) => (
-                              <SelectItem key={r.id} value={r.id}>
-                                {r.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        user.role === "OWNER" &&
+                          "border-purple-500/45 bg-purple-500/15 text-purple-800 dark:border-purple-500/50 dark:bg-purple-500/15 dark:text-purple-300",
+                        !user.isActive && "opacity-80"
                       )}
-                    </div>
+                    >
+                      {user.role === "OWNER" && <Crown className="h-3 w-3 mr-1" />}
+                      {user.roleName || user.role}
+                    </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={user.isActive ? "success" : "secondary"}>
+                    <Badge
+                      variant={user.isActive ? "success" : "secondary"}
+                      className={!user.isActive ? "opacity-80" : undefined}
+                    >
                       {user.isActive ? "Active" : "Inactive"}
                     </Badge>
                   </TableCell>
                   <TableCell>{formatDate(user.createdAt)}</TableCell>
                   <TableCell
-                    className="text-muted"
+                    className={user.isActive ? "text-muted-foreground" : undefined}
                     title={
                       user.lastLoginAt
                         ? formatDateTime(user.lastLoginAt)
@@ -914,29 +964,40 @@ export default function SettingsPage() {
                   <TableCell>
                     <div className="flex items-center gap-1">
                       {user.role !== "OWNER" &&
-                        (canDeactivateMembers || isOwnerOrSuperAdmin) && (
-                        <>
-                          {canDeactivateMembers && (
-                            <TableActionButton
-                              icon={user.isActive ? UserX : UserCheck}
-                              label={user.isActive ? "Deactivate" : "Activate"}
-                              variant={user.isActive ? "destructive" : "success"}
-                              onClick={() => handleToggleUserActive(user)}
-                            />
-                          )}
-                          {user.isActive && isOwnerOrSuperAdmin && (
-                            <TableActionButton
-                              icon={Crown}
-                              label="Transfer Ownership"
-                              variant="warning"
-                              onClick={() => {
-                                setSelectedNewOwner(user);
-                                setShowTransferOwnership(true);
-                              }}
-                            />
-                          )}
-                        </>
-                      )}
+                        (canToggleUsers || canEditMemberRoles || currentRole === "OWNER") && (
+                          <>
+                            {canToggleUsers && (
+                              <TableActionButton
+                                icon={user.isActive ? UserX : UserCheck}
+                                label={user.isActive ? "Deactivate" : "Activate"}
+                                variant={user.isActive ? "destructive" : "success"}
+                                onClick={() => setToggleActiveConfirmUser(user)}
+                              />
+                            )}
+                            {user.isActive && canEditMemberRoles && (
+                              <TableActionButton
+                                icon={ArrowLeftRight}
+                                label="Change role"
+                                onClick={() => {
+                                  setRoleDialogUser(user);
+                                  setSelectedRoleId(user.roleId || "");
+                                  setShowChangeRoleDialog(true);
+                                }}
+                              />
+                            )}
+                            {user.isActive && currentRole === "OWNER" && (
+                              <TableActionButton
+                                icon={Crown}
+                                label="Transfer Ownership"
+                                variant="warning"
+                                onClick={() => {
+                                  setSelectedNewOwner(user);
+                                  setShowTransferOwnership(true);
+                                }}
+                              />
+                            )}
+                          </>
+                        )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -945,6 +1006,122 @@ export default function SettingsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={showChangeRoleDialog}
+        onOpenChange={(open) => {
+          setShowChangeRoleDialog(open);
+          if (!open) {
+            setRoleDialogUser(null);
+            setSelectedRoleId("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change member role</DialogTitle>
+            <DialogDescription>
+              Update the role assigned to {roleDialogUser?.name || roleDialogUser?.email || "this user"}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Assigned role</Label>
+              <Select value={selectedRoleId || undefined} onValueChange={setSelectedRoleId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {assignableRoles.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedRoleId && (
+              <p className="text-sm text-muted-foreground">
+                This role controls which areas this team member can access and edit.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowChangeRoleDialog(false);
+                setRoleDialogUser(null);
+                setSelectedRoleId("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleChangeRole()} disabled={!selectedRoleId}>
+              Save role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Activate / deactivate member confirmation */}
+      <AlertDialog
+        open={!!toggleActiveConfirmUser}
+        onOpenChange={(open) => {
+          if (!open && !toggleActiveSubmitting) {
+            setToggleActiveConfirmUser(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {toggleActiveConfirmUser?.isActive ? "Deactivate team member?" : "Activate team member?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {toggleActiveConfirmUser?.isActive ? (
+                  <p>
+                    This user will no longer be able to sign in or access this organization until they are activated
+                    again.
+                  </p>
+                ) : (
+                  <p>This user will be able to sign in and access the organization according to their role.</p>
+                )}
+                <div>
+                  <span className="font-medium text-foreground">
+                    {toggleActiveConfirmUser?.name || toggleActiveConfirmUser?.email || "This user"}
+                  </span>
+                  {toggleActiveConfirmUser?.name && toggleActiveConfirmUser?.email ? (
+                    <span className="mt-0.5 block text-muted-foreground">{toggleActiveConfirmUser.email}</span>
+                  ) : null}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={toggleActiveSubmitting}>Cancel</AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={toggleActiveSubmitting}
+              variant={toggleActiveConfirmUser?.isActive ? "destructive" : "default"}
+              onClick={() => {
+                if (toggleActiveConfirmUser) {
+                  void handleToggleUserActive(toggleActiveConfirmUser);
+                }
+              }}
+            >
+              {toggleActiveSubmitting
+                ? "Saving…"
+                : toggleActiveConfirmUser?.isActive
+                  ? "Deactivate"
+                  : "Activate"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Transfer Ownership Confirmation Dialog */}
       <Dialog open={showTransferOwnership} onOpenChange={setShowTransferOwnership}>

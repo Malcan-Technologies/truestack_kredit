@@ -29,6 +29,10 @@ export interface BorrowerProduct {
   maxAmount: unknown;
   minTerm: number;
   maxTerm: number;
+  /** Months between allowed terms when `allowedTerms` is empty (default 1). */
+  termInterval?: number;
+  /** Explicit allowed tenures; when set, borrower may only pick these values. */
+  allowedTerms?: number[] | null;
   legalFeeType: string;
   legalFeeValue: unknown;
   stampingFeeType: string;

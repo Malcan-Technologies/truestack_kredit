@@ -62,6 +62,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     },
     plugins: [
       'expo-router',
+      'expo-video',
       [
         'expo-notifications',
         {

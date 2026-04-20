@@ -14,7 +14,9 @@ import {
 import { Field } from "./field";
 import { DOCUMENT_TYPE_OPTIONS } from "../../lib/borrower-form-options";
 import { extractDateFromIC, extractGenderFromIC } from "../../lib/borrower-form-helpers";
+import { isIndividualIdentityFieldsComplete } from "../../lib/borrower-form-validation";
 import type { IndividualFormData } from "../../lib/borrower-form-types";
+import { SectionCompleteBadge, VerifiedBadge } from "../ui/status-row";
 
 interface IdentityCardProps {
   data: Pick<IndividualFormData, "name" | "icNumber" | "documentType">;
@@ -69,24 +71,28 @@ export function IdentityCard({
     }
   };
 
+  const identityComplete = identityLocked || isIndividualIdentityFieldsComplete(data);
+  const v = identityLocked ? <VerifiedBadge /> : undefined;
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-2">
         <CardTitle className="flex items-center gap-2">
           <User className="h-5 w-5 text-muted-foreground" />
           Identity Information
         </CardTitle>
+        <SectionCompleteBadge complete={identityComplete} />
       </CardHeader>
       <CardContent>
         {identityLocked && (
           <p className="text-xs text-muted-foreground mb-4 rounded-md border border-border bg-muted/40 px-3 py-2">
-            Identity details are locked because your profile is verified. To change them, start a new TrueStack
-            KYC session and complete verification again.
+            Your identity has been verified by e-KYC. Your name, IC, date of birth and gender are locked. Contact
+            support or redo KYC from your Profile if any of these need updating.
           </p>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field
-            label="Name"
+            label="Full name"
             value={data.name}
             onChange={(val) => {
               onChange({ name: val });
@@ -95,9 +101,13 @@ export function IdentityCard({
             error={errors.name}
             placeholder="Full name"
             disabled={identityLocked}
+            labelSuffix={v}
           />
           <div>
-            <Label className="text-xs text-muted-foreground">Document Type *</Label>
+            <Label className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+              <span>Document type *</span>
+              {identityLocked ? <VerifiedBadge /> : null}
+            </Label>
             <Select
               value={data.documentType}
               onValueChange={handleDocumentTypeChange}
@@ -116,8 +126,9 @@ export function IdentityCard({
             </Select>
           </div>
           <div className="md:col-span-2">
-            <Label className="text-xs text-muted-foreground">
-              {isIC ? "IC Number" : "Passport Number"} *
+            <Label className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+              <span>{isIC ? "IC / Passport number" : "Passport number"} *</span>
+              {identityLocked ? <VerifiedBadge /> : null}
             </Label>
             <Input
               value={data.icNumber}

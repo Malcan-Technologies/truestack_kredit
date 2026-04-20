@@ -61,8 +61,11 @@ const createProductSchema = z.object({
   defaultPeriod: z.number().int().min(1).max(365).default(28),
   minAmount: z.number().positive(),
   maxAmount: z.number().positive(),
-  minTerm: z.number().int().positive(),
-  maxTerm: z.number().int().positive(),
+  minTerm: z.number().int().min(2).max(600),
+  maxTerm: z.number().int().min(2).max(600),
+  termInterval: z.number().int().min(1).max(60).default(1),
+  /** When set, only these month values are allowed (must align with min/max). */
+  allowedTerms: z.array(z.number().int().min(2).max(600)).optional(),
   // Fee configuration
   legalFeeType: z.enum(['FIXED', 'PERCENTAGE']).default('FIXED'),
   legalFeeValue: z.number().min(0).default(0),
@@ -85,6 +88,19 @@ const createProductSchema = z.object({
 }).refine(data => data.minTerm <= data.maxTerm, {
   message: 'minTerm must be less than or equal to maxTerm',
   path: ['minTerm'],
+}).refine((data) => {
+  const at = data.allowedTerms;
+  if (!at?.length) return true;
+  const lower = Math.min(...at);
+  const upper = Math.max(...at);
+  return (
+    lower === data.minTerm &&
+    upper === data.maxTerm &&
+    at.every((t) => t >= data.minTerm && t <= data.maxTerm)
+  );
+}, {
+  message: 'allowedTerms must cover minTerm through maxTerm with only values in range',
+  path: ['allowedTerms'],
 }).refine(data => data.arrearsPeriod <= data.defaultPeriod, {
   message: 'Arrears period must be less than or equal to default period',
   path: ['arrearsPeriod'],
@@ -108,8 +124,10 @@ const updateProductSchema = z.object({
   defaultPeriod: z.number().int().min(1).max(365).optional(),
   minAmount: z.number().positive().optional(),
   maxAmount: z.number().positive().optional(),
-  minTerm: z.number().int().positive().optional(),
-  maxTerm: z.number().int().positive().optional(),
+  minTerm: z.number().int().min(2).max(600).optional(),
+  maxTerm: z.number().int().min(2).max(600).optional(),
+  termInterval: z.number().int().min(1).max(60).optional(),
+  allowedTerms: z.array(z.number().int().min(2).max(600)).optional(),
   isActive: z.boolean().optional(),
   // Fee configuration
   legalFeeType: z.enum(['FIXED', 'PERCENTAGE']).optional(),

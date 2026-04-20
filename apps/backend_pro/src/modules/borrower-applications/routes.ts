@@ -16,6 +16,7 @@ import {
   borrowerCounterOffer,
   rejectPendingOffers,
 } from '../loans/applicationNegotiationService.js';
+import { assertTermAllowedForProduct } from '../../lib/product-term-validation.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -172,9 +173,15 @@ router.post('/applications/preview', async (req, res, next) => {
       throw new BadRequestError(`Amount must be between ${product.minAmount} and ${product.maxAmount}`);
     }
 
-    if (data.term < product.minTerm || data.term > product.maxTerm) {
-      throw new BadRequestError(`Term must be between ${product.minTerm} and ${product.maxTerm} months`);
-    }
+    assertTermAllowedForProduct(
+      {
+        minTerm: product.minTerm,
+        maxTerm: product.maxTerm,
+        termInterval: product.termInterval,
+        allowedTerms: product.allowedTerms,
+      },
+      data.term
+    );
 
     const preview = computeLoanApplicationPreview(product, data.amount, data.term);
 
@@ -240,9 +247,15 @@ router.post('/applications', async (req, res, next) => {
       throw new BadRequestError(`Amount must be between ${product.minAmount} and ${product.maxAmount}`);
     }
 
-    if (data.term < product.minTerm || data.term > product.maxTerm) {
-      throw new BadRequestError(`Term must be between ${product.minTerm} and ${product.maxTerm} months`);
-    }
+    assertTermAllowedForProduct(
+      {
+        minTerm: product.minTerm,
+        maxTerm: product.maxTerm,
+        termInterval: product.termInterval,
+        allowedTerms: product.allowedTerms,
+      },
+      data.term
+    );
 
     const application = await prisma.loanApplication.create({
       data: {
@@ -614,9 +627,15 @@ router.patch('/applications/:applicationId', async (req, res, next) => {
       throw new BadRequestError(`Amount must be between ${product.minAmount} and ${product.maxAmount}`);
     }
 
-    if (nextTerm < product.minTerm || nextTerm > product.maxTerm) {
-      throw new BadRequestError(`Term must be between ${product.minTerm} and ${product.maxTerm} months`);
-    }
+    assertTermAllowedForProduct(
+      {
+        minTerm: product.minTerm,
+        maxTerm: product.maxTerm,
+        termInterval: product.termInterval,
+        allowedTerms: product.allowedTerms,
+      },
+      nextTerm
+    );
 
     const updated = await prisma.loanApplication.update({
       where: { id: applicationId },

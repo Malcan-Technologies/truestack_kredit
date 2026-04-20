@@ -27,6 +27,8 @@ export const BorrowerProductSchema = z.object({
   maxAmount: z.unknown(),
   minTerm: z.number(),
   maxTerm: z.number(),
+  termInterval: z.number().optional(),
+  allowedTerms: z.array(z.number()).nullable().optional(),
   legalFeeType: z.string(),
   legalFeeValue: z.unknown(),
   stampingFeeType: z.string(),

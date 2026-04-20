@@ -1,6 +1,6 @@
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
+import type * as NotificationsType from 'expo-notifications';
 import { Platform } from 'react-native';
 
 import { notificationsClient } from '@/lib/api/borrower';
@@ -11,6 +11,45 @@ import {
   setStoredPushToken,
 } from '@/lib/notifications/device-storage';
 
+/**
+ * Expo Go dropped support for remote (push) notifications in SDK 53+.
+ *
+ * The issue is deeper than "don't call push APIs in Expo Go":
+ * `expo-notifications`' own `DevicePushTokenAutoRegistration.fx` side-effect
+ * file calls `addPushTokenListener` unconditionally at module load, which
+ * throws on Android via `warnOfExpoGoPushUsage`. That means *importing*
+ * `expo-notifications` anywhere in the module graph crashes the JS bundle
+ * on Android-in-Expo-Go before any of our guards can run.
+ *
+ * Workaround: never import `expo-notifications` at module scope. Types are
+ * fine (`import type` is erased at runtime). All runtime access goes through
+ * `loadNotifications()` which `require`s the module on demand and returns
+ * `null` in Expo Go, so nothing is ever loaded there.
+ */
+export function isRunningInExpoGo(): boolean {
+  return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+}
+
+let cachedNotificationsModule: typeof NotificationsType | null | undefined;
+
+function loadNotifications(): typeof NotificationsType | null {
+  if (cachedNotificationsModule !== undefined) {
+    return cachedNotificationsModule;
+  }
+  if (isRunningInExpoGo()) {
+    cachedNotificationsModule = null;
+    return null;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    cachedNotificationsModule = require('expo-notifications') as typeof NotificationsType;
+  } catch (error) {
+    console.warn('[notifications] expo-notifications unavailable:', error);
+    cachedNotificationsModule = null;
+  }
+  return cachedNotificationsModule;
+}
+
 type NotificationData = {
   notificationId?: string;
   deepLink?: string | null;
@@ -20,9 +59,10 @@ export const ANDROID_ALERTS_CHANNEL_ID = 'borrower-alerts';
 export const ANDROID_ANNOUNCEMENTS_CHANNEL_ID = 'borrower-announcements';
 
 function hasNotificationAuthorization(
-  permissions: Notifications.NotificationPermissionsStatus
+  permissions: NotificationsType.NotificationPermissionsStatus,
+  Notifications: typeof NotificationsType
 ): boolean {
-  const normalized = permissions as Notifications.NotificationPermissionsStatus & {
+  const normalized = permissions as NotificationsType.NotificationPermissionsStatus & {
     granted?: boolean;
     status?: string;
   };
@@ -34,7 +74,9 @@ function hasNotificationAuthorization(
   );
 }
 
-async function ensureAndroidNotificationChannels(): Promise<void> {
+async function ensureAndroidNotificationChannels(
+  Notifications: typeof NotificationsType
+): Promise<void> {
   if (Platform.OS !== 'android') {
     return;
   }
@@ -73,7 +115,7 @@ function resolveExpoProjectId(): string | undefined {
 }
 
 export function getNotificationData(
-  notification: Notifications.Notification
+  notification: NotificationsType.Notification
 ): NotificationData {
   const raw = notification.request.content.data as Record<string, unknown>;
   return {
@@ -93,7 +135,9 @@ async function syncBorrowerPushToken(token: string): Promise<void> {
   await setStoredPushToken(token);
 }
 
-async function getCurrentExpoPushToken(): Promise<string | null> {
+async function getCurrentExpoPushToken(
+  Notifications: typeof NotificationsType
+): Promise<string | null> {
   const projectId = resolveExpoProjectId();
   const tokenResponse = projectId
     ? await Notifications.getExpoPushTokenAsync({ projectId })
@@ -115,10 +159,15 @@ export async function registerBorrowerPushDevice(): Promise<{
     return { token: null, registered: false, reason: 'physical_device_required' };
   }
 
-  await ensureAndroidNotificationChannels();
+  const Notifications = loadNotifications();
+  if (!Notifications) {
+    return { token: null, registered: false, reason: 'expo_go_unsupported' };
+  }
+
+  await ensureAndroidNotificationChannels(Notifications);
 
   const currentPermissions = await Notifications.getPermissionsAsync();
-  let hasAuthorization = hasNotificationAuthorization(currentPermissions);
+  let hasAuthorization = hasNotificationAuthorization(currentPermissions, Notifications);
 
   if (!hasAuthorization) {
     const requested = await Notifications.requestPermissionsAsync({
@@ -129,7 +178,7 @@ export async function registerBorrowerPushDevice(): Promise<{
         allowAnnouncements: false,
       },
     });
-    hasAuthorization = hasNotificationAuthorization(requested);
+    hasAuthorization = hasNotificationAuthorization(requested, Notifications);
   }
 
   if (!hasAuthorization) {
@@ -137,7 +186,7 @@ export async function registerBorrowerPushDevice(): Promise<{
     return { token: null, registered: false, reason: 'permission_denied' };
   }
 
-  const token = await getCurrentExpoPushToken();
+  const token = await getCurrentExpoPushToken(Notifications);
 
   if (!token) {
     return { token: null, registered: false, reason: 'missing_push_token' };
@@ -149,8 +198,14 @@ export async function registerBorrowerPushDevice(): Promise<{
 }
 
 export async function syncRefreshedBorrowerPushToken(): Promise<void> {
-  await ensureAndroidNotificationChannels();
-  const refreshedExpoToken = await getCurrentExpoPushToken();
+  const Notifications = loadNotifications();
+  if (!Notifications) {
+    // Remote push tokens are unavailable in Expo Go; silently skip.
+    return;
+  }
+
+  await ensureAndroidNotificationChannels(Notifications);
+  const refreshedExpoToken = await getCurrentExpoPushToken(Notifications);
   if (!refreshedExpoToken) {
     throw new Error('missing_push_token');
   }

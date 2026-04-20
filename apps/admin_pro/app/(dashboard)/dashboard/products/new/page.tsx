@@ -21,6 +21,7 @@ import {
   Sparkles,
   Check,
   Info,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,8 @@ interface ProductFormData {
   maxAmount: NumericValue;
   minTerm: NumericValue;
   maxTerm: NumericValue;
+  termInterval: NumericValue;
+  allowedTerms: number[];
   legalFeeType: string;
   legalFeeValue: NumericValue;
   stampingFeeType: string;
@@ -121,6 +124,8 @@ const defaultFormData: ProductFormData = {
   maxAmount: 50000,
   minTerm: 6,
   maxTerm: 60,
+  termInterval: 1,
+  allowedTerms: [],
   legalFeeType: "FIXED",
   legalFeeValue: 0,
   stampingFeeType: "PERCENTAGE",
@@ -218,6 +223,7 @@ export default function NewProductPage() {
   const [creating, setCreating] = useState(false);
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData);
   const [newDocLabel, setNewDocLabel] = useState("");
+  const [allowedTermDraft, setAllowedTermDraft] = useState("");
 
   const handleNext = () => {
     // Validation for each step
@@ -258,12 +264,17 @@ export default function NewProductPage() {
         toast.error("Maximum amount must be greater than or equal to minimum amount");
         return;
       }
-      if (Number.isNaN(minTerm) || minTerm <= 0) {
-        toast.error("Minimum term must be greater than 0");
+      if (Number.isNaN(minTerm) || minTerm < 2) {
+        toast.error("Minimum term must be at least 2 months");
         return;
       }
       if (Number.isNaN(maxTerm) || maxTerm < minTerm) {
         toast.error("Maximum term must be greater than or equal to minimum term");
+        return;
+      }
+      const termInterval = formData.termInterval === "" ? NaN : formData.termInterval;
+      if (Number.isNaN(termInterval) || termInterval < 1 || termInterval > 60) {
+        toast.error("Term interval must be between 1 and 60 months");
         return;
       }
       if (Number.isNaN(arrearsPeriod) || Number.isNaN(defaultPeriod) || arrearsPeriod > defaultPeriod) {
@@ -291,8 +302,10 @@ export default function NewProductPage() {
       defaultPeriod: toNum(formData.defaultPeriod, 28),
       minAmount: toNum(formData.minAmount, 0),
       maxAmount: toNum(formData.maxAmount, 0),
-      minTerm: toNum(formData.minTerm, 1),
-      maxTerm: toNum(formData.maxTerm, 1),
+      minTerm: toNum(formData.minTerm, 2),
+      maxTerm: toNum(formData.maxTerm, 2),
+      termInterval: toNum(formData.termInterval, 1),
+      allowedTerms: formData.allowedTerms,
       legalFeeValue: toNum(formData.legalFeeValue, 0),
       stampingFeeValue: toNum(formData.stampingFeeValue, 0),
       earlySettlementLockInMonths: toNum(formData.earlySettlementLockInMonths, 0),
@@ -771,21 +784,90 @@ export default function NewProductPage() {
                   <div className="space-y-2">
                     <Label>Minimum Term (months) *</Label>
                     <NumericInput
-                      min={1}
+                      min={2}
                       value={formData.minTerm}
                       onChange={(v: NumericInputValue) => setFormData({ ...formData, minTerm: toNumericValue(v) })}
-                      fallback={1}
+                      fallback={2}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Maximum Term (months) *</Label>
                     <NumericInput
-                      min={1}
+                      min={2}
                       value={formData.maxTerm}
                       onChange={(v: NumericInputValue) => setFormData({ ...formData, maxTerm: toNumericValue(v) })}
-                      fallback={1}
+                      fallback={2}
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Tenure options */}
+              <div className="space-y-4 rounded-lg border border-border p-4">
+                <h3 className="text-sm font-medium text-muted-foreground">Tenure options</h3>
+                <div className="space-y-2">
+                  <Label>Term interval (months)</Label>
+                  <NumericInput
+                    min={1}
+                    max={60}
+                    value={formData.termInterval}
+                    onChange={(v: NumericInputValue) => setFormData({ ...formData, termInterval: toNumericValue(v) })}
+                    fallback={1}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Months between selectable terms when no explicit list is set below.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Specific allowed tenures</Label>
+                  <Input
+                    placeholder="e.g. 24 — press Enter to add"
+                    value={allowedTermDraft}
+                    onChange={(e) => setAllowedTermDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      const n = parseInt(allowedTermDraft.trim(), 10);
+                      if (!Number.isFinite(n) || n < 2) {
+                        toast.error("Enter a whole number of months (at least 2)");
+                        return;
+                      }
+                      if (formData.allowedTerms.includes(n)) {
+                        setAllowedTermDraft("");
+                        return;
+                      }
+                      setFormData({
+                        ...formData,
+                        allowedTerms: [...formData.allowedTerms, n].sort((a, b) => a - b),
+                      });
+                      setAllowedTermDraft("");
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to use interval. When provided, only these exact tenures are offered to borrowers.
+                  </p>
+                  {formData.allowedTerms.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {formData.allowedTerms.map((m) => (
+                        <Badge key={m} variant="secondary" className="gap-1 pr-1">
+                          {m} mo
+                          <button
+                            type="button"
+                            className="rounded-sm p-0.5 hover:bg-muted"
+                            aria-label={`Remove ${m} months`}
+                            onClick={() =>
+                              setFormData({
+                                ...formData,
+                                allowedTerms: formData.allowedTerms.filter((x) => x !== m),
+                              })
+                            }
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1088,6 +1170,14 @@ export default function NewProductPage() {
                           {formData.minTerm === "" || formData.maxTerm === ""
                             ? "-"
                             : `${formData.minTerm} - ${formData.maxTerm} months`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground shrink-0">Tenure</span>
+                        <span className="font-medium text-right">
+                          {formData.allowedTerms.length > 0
+                            ? `Allowed: ${formData.allowedTerms.join(", ")} mo`
+                            : `Interval: every ${toNum(formData.termInterval, 1)} month(s)`}
                         </span>
                       </div>
                       <div className="flex justify-between">

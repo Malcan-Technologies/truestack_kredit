@@ -777,8 +777,12 @@ model Product {
   defaultPeriod   Int           @default(28) // Days after missed payment before loan is considered defaulted
   minAmount       Decimal       @db.Decimal(12, 2)
   maxAmount       Decimal       @db.Decimal(12, 2)
-  minTerm         Int // in months
+  minTerm         Int // in months (minimum >= 2 for new/edited products)
   maxTerm         Int // in months
+  /// Months between allowed terms when `allowedTerms` is empty (e.g. 6 => 6, 12, 18…).
+  termInterval    Int           @default(1)
+  /// Explicit allowed tenures (months). When non-empty, only these values are valid; overrides stepping.
+  allowedTerms    Json          @default("[]")
   isActive        Boolean       @default(true)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt

@@ -1159,7 +1159,13 @@ export default function SettingsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {roles
-                          .filter((role) => role.key !== "OWNER" && role.key !== "SUPER_ADMIN")
+                          .filter(
+                            (role) =>
+                              role.key !== "OWNER" &&
+                              (role.key !== "SUPER_ADMIN" ||
+                                currentRole === "OWNER" ||
+                                currentRole === "SUPER_ADMIN")
+                          )
                           .map((role) => (
                             <SelectItem key={role.id} value={role.id}>
                               {role.name}
@@ -1326,7 +1332,13 @@ export default function SettingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {roles
-                    .filter((role) => role.key !== "OWNER" && role.key !== "SUPER_ADMIN")
+                    .filter(
+                      (role) =>
+                        role.key !== "OWNER" &&
+                        (role.key !== "SUPER_ADMIN" ||
+                          currentRole === "OWNER" ||
+                          currentRole === "SUPER_ADMIN")
+                    )
                     .map((role) => (
                       <SelectItem key={role.id} value={role.id}>
                         {role.name}

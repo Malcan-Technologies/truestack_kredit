@@ -23,13 +23,26 @@ import {
 } from "../../lib/borrower-form-options";
 import { extractDateFromIC, extractGenderFromIC } from "../../lib/borrower-form-helpers";
 import { formatDate, formatICForDisplay, getOptionLabel } from "../../lib/borrower-form-display";
+import { isIndividualIdentityFieldsComplete, isIndividualPersonalInnerComplete } from "../../lib/borrower-form-validation";
 import type { IndividualFormData } from "../../lib/borrower-form-types";
+import { SectionCompleteBadge, VerifiedBadge } from "../ui/status-row";
 
-function InfoCell({ label, value }: { label: string; value: React.ReactNode }) {
+function InfoCell({
+  label,
+  value,
+  verified,
+}: {
+  label: string;
+  value: React.ReactNode;
+  verified?: boolean;
+}) {
   const display = value === null || value === undefined || value === "" ? "—" : value;
   return (
     <div className="space-y-1">
-      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
+        {label}
+        {verified ? <VerifiedBadge /> : null}
+      </p>
       <p className="text-sm font-medium text-foreground break-words">{display}</p>
     </div>
   );
@@ -104,19 +117,27 @@ export function IndividualPersonalInformationEdit({
   const dobReadOnly = identityLocked;
   const genderReadOnly = identityLocked;
 
+  const sectionComplete =
+    identityLocked ||
+    (isIndividualIdentityFieldsComplete(data) &&
+      isIndividualPersonalInnerComplete(data, noMonthlyIncome));
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <User className="h-5 w-5 text-muted-foreground" />
-          Personal Information
-        </CardTitle>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-2">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <User className="h-5 w-5 text-muted-foreground" />
+            Personal information
+          </CardTitle>
+        </div>
+        <SectionCompleteBadge complete={sectionComplete} />
       </CardHeader>
       <CardContent>
         {identityLocked && (
           <p className="text-xs text-muted-foreground mb-4 rounded-md border border-border bg-muted/40 px-3 py-2">
-            Identity details are locked because your profile is verified. To change them, start a new
-            TrueStack KYC session and complete verification again.
+            Your identity has been verified by e-KYC. Your name, IC, date of birth and gender are locked. Redo e-KYC
+            from your Profile if any of these need updating.
           </p>
         )}
 
@@ -124,10 +145,11 @@ export function IndividualPersonalInformationEdit({
           {/* Row 1 — matches view */}
           {identityLocked ? (
             <>
-              <InfoCell label="Name" value={data.name} />
+              <InfoCell label="Full name" value={data.name} verified />
               <InfoCell
-                label="Document Type"
+                label="Document type"
                 value={getOptionLabel("documentType", data.documentType)}
+                verified
               />
             </>
           ) : (
@@ -164,10 +186,11 @@ export function IndividualPersonalInformationEdit({
           {identityLocked ? (
             <>
               <InfoCell
-                label="IC / Passport"
+                label="IC / Passport number"
                 value={isIC ? formatICForDisplay(data.icNumber) : data.icNumber}
+                verified
               />
-              <InfoCell label="Date of Birth" value={formatDate(dobDisplay)} />
+              <InfoCell label="Date of birth" value={formatDate(dobDisplay)} verified />
             </>
           ) : (
             <>
@@ -208,7 +231,7 @@ export function IndividualPersonalInformationEdit({
           {/* Row 3 */}
           {identityLocked ? (
             <>
-              <InfoCell label="Gender" value={getOptionLabel("gender", genderDisplay)} />
+              <InfoCell label="Gender" value={getOptionLabel("gender", genderDisplay)} verified />
               <Field
                 label="Race"
                 value={data.race}

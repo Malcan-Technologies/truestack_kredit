@@ -82,6 +82,62 @@ function formatDate(iso: string | null): string {
   }
 }
 
+function formatInterestPct(v: unknown): string {
+  const n = toAmountNumber(v);
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toLocaleString("en-MY", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}% p.a.`;
+}
+
+/** Read-only summary shown at the attestation step so the borrower sees loan context before video or meeting. */
+function AttestationLoanDetails({ loan }: { loan: BorrowerLoanDetail }) {
+  const borrowerName =
+    loan.borrower?.borrowerType === "CORPORATE"
+      ? loan.borrower?.companyName ?? "—"
+      : loan.borrower?.name ?? "—";
+  const channelLabel = loan.loanChannel === "PHYSICAL" ? "Physical loan" : "Online loan";
+  const monthly =
+    "monthlyPayment" in loan && loan.monthlyPayment != null
+      ? formatRm((loan as BorrowerLoanDetail & { monthlyPayment?: unknown }).monthlyPayment)
+      : null;
+
+  return (
+    <div className="rounded-lg border bg-muted/20 p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+      <div className="flex justify-between gap-4 sm:block">
+        <span className="text-muted-foreground">Borrower</span>
+        <span className="font-medium text-foreground text-right sm:text-left">{borrowerName}</span>
+      </div>
+      <div className="flex justify-between gap-4 sm:block">
+        <span className="text-muted-foreground">Product</span>
+        <span className="font-medium text-foreground text-right sm:text-left">{loan.product?.name ?? "Loan"}</span>
+      </div>
+      <div className="flex justify-between gap-4 sm:block">
+        <span className="text-muted-foreground">Principal</span>
+        <span className="font-medium text-foreground text-right sm:text-left tabular-nums">{formatRm(loan.principalAmount)}</span>
+      </div>
+      <div className="flex justify-between gap-4 sm:block">
+        <span className="text-muted-foreground">Term</span>
+        <span className="font-medium text-foreground text-right sm:text-left">{loan.term} months</span>
+      </div>
+      <div className="flex justify-between gap-4 sm:block">
+        <span className="text-muted-foreground">Interest rate</span>
+        <span className="font-medium text-foreground text-right sm:text-left tabular-nums">{formatInterestPct(loan.interestRate)}</span>
+      </div>
+      {monthly ? (
+        <div className="flex justify-between gap-4 sm:block">
+          <span className="text-muted-foreground">Monthly payment</span>
+          <span className="font-medium text-foreground text-right sm:text-left tabular-nums">{monthly}</span>
+        </div>
+      ) : null}
+      <div className="flex justify-between gap-4 sm:col-span-2 sm:flex sm:items-center sm:justify-between">
+        <span className="text-muted-foreground">Channel</span>
+        <Badge variant="outline" className="w-fit shrink-0">
+          {channelLabel}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
 function reviewBadge(status: SignedAgreementReviewStatus | undefined) {
   const s = status ?? "NONE";
   switch (s) {
@@ -705,6 +761,7 @@ export function LoanPendingAgreementPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <AttestationLoanDetails loan={loan} />
             {attestationStatus === "NOT_STARTED" && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Link

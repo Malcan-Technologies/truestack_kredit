@@ -7,7 +7,6 @@ import { ArrowLeft, Calendar, Loader2, RotateCcw, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import { Label } from "../ui/label";
 import { cn } from "../../lib/utils";
 import {
   getBorrowerLoan,
@@ -37,17 +36,30 @@ function malaysiaDateKey(iso: string): string {
 
 function formatDateGroupHeading(dateKey: string): string {
   const d = new Date(`${dateKey}T12:00:00+08:00`);
-  const weekday = d.toLocaleDateString("en-MY", {
+  return d.toLocaleDateString("en-MY", {
     timeZone: MALAYSIA_TZ,
     weekday: "long",
-  });
-  const dateStr = d.toLocaleDateString("en-MY", {
-    timeZone: MALAYSIA_TZ,
     day: "numeric",
-    month: "numeric",
+    month: "short",
     year: "numeric",
   });
-  return `${weekday}, ${dateStr}`;
+}
+
+function formatWeekdayShort(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00+08:00`);
+  return d.toLocaleDateString("en-MY", {
+    timeZone: MALAYSIA_TZ,
+    weekday: "short",
+  });
+}
+
+function formatDateShort(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00+08:00`);
+  return d.toLocaleDateString("en-MY", {
+    timeZone: MALAYSIA_TZ,
+    day: "numeric",
+    month: "short",
+  });
 }
 
 function formatSlotTimeRange(startIso: string, endIso: string): string {
@@ -71,6 +83,7 @@ export function AttestationScheduleMeetingPanel() {
   const [slots, setSlots] = useState<Array<{ startAt: string; endAt: string }>>([]);
   const [slotsSource, setSlotsSource] = useState<string>("");
   const [selectedSlotStart, setSelectedSlotStart] = useState<string | null>(null);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
@@ -135,8 +148,26 @@ export function AttestationScheduleMeetingPanel() {
       if (existing) existing.push(s);
       else map.set(key, [s]);
     }
-    return map;
+    return [...map.entries()];
   }, [slots]);
+
+  useEffect(() => {
+    if (slotsByDate.length === 0) {
+      if (selectedDateKey !== null) setSelectedDateKey(null);
+      return;
+    }
+    const availableKeys = slotsByDate.map(([key]) => key);
+    if (!selectedDateKey || !availableKeys.includes(selectedDateKey)) {
+      const preferred = selectedSlotStart ? malaysiaDateKey(selectedSlotStart) : availableKeys[0];
+      setSelectedDateKey(availableKeys.includes(preferred) ? preferred : availableKeys[0]);
+    }
+  }, [slotsByDate, selectedDateKey, selectedSlotStart]);
+
+  const visibleSlots = useMemo(() => {
+    if (!selectedDateKey) return [];
+    const entry = slotsByDate.find(([key]) => key === selectedDateKey);
+    return entry ? entry[1] : [];
+  }, [slotsByDate, selectedDateKey]);
 
   const onPropose = async () => {
     if (!loanId || !selectedSlotStart) {
@@ -293,41 +324,74 @@ export function AttestationScheduleMeetingPanel() {
           ) : slots.length === 0 ? (
             <p className="text-sm text-amber-700 dark:text-amber-200">No open slots right now. Try again later.</p>
           ) : (
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Available slots</Label>
-              <div className="max-h-[min(75vh,42rem)] overflow-y-auto rounded-md border border-border/60 bg-muted/20 pr-1">
-                <div className="space-y-6 p-3 sm:p-4">
-                  {[...slotsByDate.entries()].map(([dateKey, daySlots]) => (
-                    <section key={dateKey} className="space-y-2">
-                      <h3 className="sticky top-0 z-[1] -mx-3 px-3 py-2 text-sm font-semibold tracking-tight text-foreground sm:-mx-4 sm:px-4 bg-muted/20 border-b border-border">
-                        {formatDateGroupHeading(dateKey)}
-                      </h3>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {daySlots.map((s) => (
-                          <label
-                            key={s.startAt}
-                            className={cn(
-                              "flex items-center gap-2 rounded-md border p-2.5 text-sm cursor-pointer min-w-0",
-                              selectedSlotStart === s.startAt
-                                ? "border-primary bg-primary/5"
-                                : "border-border bg-background/80"
-                            )}
-                          >
-                            <input
-                              type="radio"
-                              name="slot"
-                              className="shrink-0"
-                              checked={selectedSlotStart === s.startAt}
-                              onChange={() => setSelectedSlotStart(s.startAt)}
-                            />
-                            <span className="tabular-nums">{formatSlotTimeRange(s.startAt, s.endAt)}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </section>
-                  ))}
-                </div>
+            <div className="space-y-4">
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                {slotsByDate.map(([dateKey, daySlots]) => {
+                  const active = selectedDateKey === dateKey;
+                  return (
+                    <button
+                      key={dateKey}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      disabled={busy}
+                      onClick={() => setSelectedDateKey(dateKey)}
+                      className={cn(
+                        "min-w-[80px] min-h-[80px] shrink-0 flex flex-col items-center justify-center gap-0.5 rounded-xl border-2 px-3 py-2 text-center transition-colors",
+                        active
+                          ? "border-primary bg-primary/5 text-primary"
+                          : "border-border bg-background hover:bg-muted/40",
+                        busy && "opacity-60 pointer-events-none"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "text-[10px] font-semibold uppercase tracking-wider",
+                          active ? "text-primary" : "text-muted-foreground"
+                        )}
+                      >
+                        {formatWeekdayShort(dateKey)}
+                      </span>
+                      <span className={cn("text-sm font-semibold tabular-nums", active ? "text-primary" : "text-foreground")}>
+                        {formatDateShort(dateKey)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {daySlots.length} slot{daySlots.length === 1 ? "" : "s"}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
+
+              {selectedDateKey ? (
+                <>
+                  <p className="text-sm text-muted-foreground">{formatDateGroupHeading(selectedDateKey)}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {visibleSlots.map((s) => {
+                      const selected = selectedSlotStart === s.startAt;
+                      return (
+                        <button
+                          key={s.startAt}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          disabled={busy}
+                          onClick={() => setSelectedSlotStart(s.startAt)}
+                          className={cn(
+                            "min-h-11 rounded-xl border-2 px-3 py-2.5 text-sm font-semibold tabular-nums text-center transition-colors",
+                            selected
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border bg-background/80 hover:bg-muted/40",
+                            busy && "opacity-55"
+                          )}
+                        >
+                          {formatSlotTimeRange(s.startAt, s.endAt)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : null}
             </div>
           )}
           <Button type="button" onClick={() => void onPropose()} disabled={busy || !selectedSlotStart}>

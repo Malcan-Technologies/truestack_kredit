@@ -249,7 +249,8 @@ async function resolveInviteAssignedRole(
     roleKey?: string;
     role?: string;
   },
-  canAssignCustomRoles: boolean
+  canAssignCustomRoles: boolean,
+  actorRoleKey?: string | null
 ) {
   const assignedRole = await resolveAssignableTenantRole(
     db,
@@ -272,9 +273,12 @@ async function resolveInviteAssignedRole(
   }
 
   if (assignedRole.key === 'SUPER_ADMIN') {
-    throw new BadRequestError(
-      'Super Admin is assigned automatically when someone transfers ownership away from the current owner'
-    );
+    const canAssignSuperAdmin = actorRoleKey === 'OWNER' || actorRoleKey === 'SUPER_ADMIN';
+    if (!canAssignSuperAdmin) {
+      throw new BadRequestError(
+        'Super Admin is assigned automatically when someone transfers ownership away from the current owner'
+      );
+    }
   }
 
   if (!canAssignCustomRoles && assignedRole.key !== 'GENERAL_STAFF') {
@@ -1136,7 +1140,8 @@ router.post('/users', requirePermission('team.invite'), async (req, res, next) =
       prisma,
       req.tenantId!,
       data,
-      canAssignCustomRoles
+      canAssignCustomRoles,
+      req.user?.role
     );
 
     // Check if user already exists
@@ -1223,7 +1228,8 @@ router.post('/users', requirePermission('team.invite'), async (req, res, next) =
         tx,
         req.tenantId!,
         data,
-        canAssignCustomRoles
+        canAssignCustomRoles,
+        req.user?.role
       );
 
       // Create user
@@ -1359,9 +1365,12 @@ router.patch('/users/:userId', requireAnyPermission('team.deactivate', 'team.edi
       }
 
       if (nextRole.key === 'SUPER_ADMIN') {
-        throw new BadRequestError(
-          'Super Admin is assigned automatically when someone transfers ownership away from the current owner'
-        );
+        const actor = req.user?.role;
+        if (actor !== 'OWNER' && actor !== 'SUPER_ADMIN') {
+          throw new BadRequestError(
+            'Super Admin is assigned automatically when someone transfers ownership away from the current owner'
+          );
+        }
       }
     }
 

@@ -181,6 +181,58 @@ export function validateCorporateFormStep(
   return errors;
 }
 
+/** Identity fields only (name, document type, IC/passport) — for section completion UI. */
+export function isIndividualIdentityFieldsComplete(
+  data: Pick<IndividualFormData, "name" | "icNumber" | "documentType">
+): boolean {
+  if (!data.name.trim()) return false;
+  if (!data.documentType) return false;
+  if (!data.icNumber.trim()) return false;
+  if (data.documentType === "IC") {
+    const cleanIC = data.icNumber.replace(/\D/g, "");
+    if (cleanIC.length !== 12) return false;
+  }
+  return true;
+}
+
+/** Personal block fields for step 1 (excluding identity card fields). */
+export function isIndividualPersonalInnerComplete(
+  data: IndividualFormData,
+  noMonthlyIncome: boolean
+): boolean {
+  if (!data.dateOfBirth) return false;
+  if (!data.gender) return false;
+  if (!data.race) return false;
+  if (!data.educationLevel) return false;
+  if (!data.occupation.trim()) return false;
+  if (!data.employmentStatus) return false;
+  if (!noMonthlyIncome) {
+    if (!data.monthlyIncome.trim()) return false;
+    if (isNaN(parseFloat(data.monthlyIncome)) || parseFloat(data.monthlyIncome) < 0) return false;
+  }
+  return true;
+}
+
+export function isIndividualEmergencyContactComplete(data: IndividualFormData): boolean {
+  return Boolean(
+    data.emergencyContactName?.trim() &&
+      data.emergencyContactPhone?.trim() &&
+      data.emergencyContactRelationship
+  );
+}
+
+/** Any social field filled (optional section “complete”). */
+export function isIndividualSocialComplete(data: IndividualFormData): boolean {
+  const fields = [
+    data.instagram,
+    data.tiktok,
+    data.facebook,
+    data.linkedin,
+    data.xTwitter,
+  ];
+  return fields.some((f) => Boolean(f?.trim()));
+}
+
 export function validateCorporateForm(
   data: CorporateFormData
 ): Record<string, string> {

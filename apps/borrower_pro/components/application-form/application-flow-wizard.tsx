@@ -27,13 +27,6 @@ import { Label } from "../ui/label";
 import { Input } from "../ui/input";
 import { Checkbox } from "../ui/checkbox";
 import { NumericInput } from "../ui/numeric-input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
 import { cn } from "../../lib/utils";
 import { formatCurrency } from "../../lib/borrower-form-display";
 import type { BorrowerProduct, LoanPreviewData, ApplicationStep } from "@kredit/borrower";
@@ -47,10 +40,15 @@ import {
 } from "../../lib/borrower-applications-client";
 import {
   validateLoanDetailsStep,
+  isLoanDetailsStepComplete,
+  termValidationError,
   toAmountNumber,
   requiredDocumentsSatisfied,
   allDocumentsOptional,
 } from "../../lib/application-form-validation";
+import { Slider } from "../ui/slider";
+import { isIndividualIdentityLocked } from "../../lib/borrower-verification";
+import { SectionCompleteBadge } from "../ui/status-row";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "../../lib/borrower-auth-client";
 import { fetchBorrower, updateBorrower } from "../../lib/borrower-api-client";
 import {
@@ -117,6 +115,7 @@ export function ApplicationFlowWizard() {
   const [reviewPreview, setReviewPreview] = useState<LoanPreviewData | null>(null);
 
   const [docDialog, setDocDialog] = useState<"none" | "optional">("none");
+  const [borrowerIdentityLocked, setBorrowerIdentityLocked] = useState(false);
 
   const selectedProduct = useMemo(
     () => products.find((p) => p.id === selectedProductId) ?? null,
@@ -158,6 +157,7 @@ export function ApplicationFlowWizard() {
     setIndividualForm(initialIndividualFormData);
     setCorporateForm(initialCorporateFormData);
     setNoMonthlyIncome(false);
+    setBorrowerIdentityLocked(false);
   }, []);
 
   useEffect(() => {
@@ -254,6 +254,7 @@ export function ApplicationFlowWizard() {
     const bt = res.data.borrowerType as "INDIVIDUAL" | "CORPORATE";
     setBorrowerType(bt);
     if (bt === "INDIVIDUAL") {
+      setBorrowerIdentityLocked(isIndividualIdentityLocked(res.data));
       setIndividualForm(borrowerToIndividualForm(res.data));
       const inc = res.data.monthlyIncome;
       if (inc === null || inc === undefined) {
@@ -264,6 +265,7 @@ export function ApplicationFlowWizard() {
         setNoMonthlyIncome(false);
       }
     } else {
+      setBorrowerIdentityLocked(false);
       setCorporateForm(borrowerToCorporateForm(res.data));
     }
   }, []);
@@ -283,14 +285,28 @@ export function ApplicationFlowWizard() {
     };
   }, [step, loadBorrowerForPersonal]);
 
-  const termOptions = useMemo(() => {
-    if (!selectedProduct) return [];
-    const opts: number[] = [];
-    for (let m = selectedProduct.minTerm; m <= selectedProduct.maxTerm; m += 1) {
-      opts.push(m);
-    }
-    return opts;
+  const allowedTermList = useMemo(() => {
+    const raw = selectedProduct?.allowedTerms;
+    if (!raw?.length) return null;
+    return [...new Set(raw.filter((n) => typeof n === "number"))].sort((a, b) => a - b);
   }, [selectedProduct]);
+
+  useEffect(() => {
+    if (!selectedProduct) return;
+    setTerm((prev) => {
+      const t = prev === "" ? selectedProduct.minTerm : Number(prev);
+      if (termValidationError(selectedProduct, t)) {
+        return selectedProduct.minTerm;
+      }
+      return prev;
+    });
+  }, [
+    selectedProduct?.id,
+    selectedProduct?.minTerm,
+    selectedProduct?.maxTerm,
+    selectedProduct?.termInterval,
+    allowedTermList,
+  ]);
 
   /** Derived on each render on the loan details step so inline errors and Continue disabled state stay in sync. */
   const loanDetailsErrors = useMemo(() => {
@@ -305,6 +321,20 @@ export function ApplicationFlowWizard() {
   }, [step, selectedProduct, amount, term, collateralType, collateralValue]);
 
   const loanDetailsHasErrors = Object.keys(loanDetailsErrors).length > 0;
+
+  const loanDetailsComplete = useMemo(
+    () =>
+      step === 1 && selectedProduct
+        ? isLoanDetailsStepComplete({
+            product: selectedProduct,
+            amount,
+            term,
+            collateralType,
+            collateralValue,
+          })
+        : false,
+    [step, selectedProduct, amount, term, collateralType, collateralValue]
+  );
 
   const handleNextFromLoanDetails = async () => {
     if (!selectedProduct) {
@@ -612,11 +642,14 @@ export function ApplicationFlowWizard() {
 
           {step === 1 && selectedProduct && (
             <Card>
-              <CardHeader>
-                <CardTitle>Loan details — {selectedProduct.name}</CardTitle>
-                <CardDescription>
-                  Enter amount and term. We&apos;ll show your estimated repayment and fees.
-                </CardDescription>
+              <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+                <div>
+                  <CardTitle>Loan amount & term — {selectedProduct.name}</CardTitle>
+                  <CardDescription>
+                    Enter amount and term. We&apos;ll show your estimated repayment and fees.
+                  </CardDescription>
+                </div>
+                <SectionCompleteBadge complete={loanDetailsComplete} />
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
@@ -634,23 +667,46 @@ export function ApplicationFlowWizard() {
                     <p className="text-xs text-destructive mt-1">{loanDetailsErrors.amount}</p>
                   )}
                 </div>
-                <div>
-                  <Label>Loan term (months)</Label>
-                  <Select
-                    value={term === "" ? "" : String(term)}
-                    onValueChange={(v) => setTerm(parseInt(v, 10))}
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select term" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {termOptions.map((m) => (
-                        <SelectItem key={m} value={String(m)}>
-                          {m} months
-                        </SelectItem>
+                <div className="space-y-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <Label>Loan term</Label>
+                    <span className="text-sm font-medium">
+                      {term === "" ? "—" : `${term} ${term === 1 ? "month" : "months"}`}
+                    </span>
+                  </div>
+                  {allowedTermList && allowedTermList.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {allowedTermList.map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setTerm(m)}
+                          className={cn(
+                            "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                            term === m
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-background hover:bg-muted"
+                          )}
+                        >
+                          {m} mo
+                        </button>
                       ))}
-                    </SelectContent>
-                  </Select>
+                    </div>
+                  ) : (
+                    <>
+                      <Slider
+                        min={selectedProduct.minTerm}
+                        max={selectedProduct.maxTerm}
+                        step={selectedProduct.termInterval ?? 1}
+                        value={[Number(term) || selectedProduct.minTerm]}
+                        onValueChange={([v]) => setTerm(v)}
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>{selectedProduct.minTerm} mo</span>
+                        <span>{selectedProduct.maxTerm} mo</span>
+                      </div>
+                    </>
+                  )}
                   {loanDetailsErrors.term && (
                     <p className="text-xs text-destructive mt-1">{loanDetailsErrors.term}</p>
                   )}
@@ -720,6 +776,7 @@ export function ApplicationFlowWizard() {
                     onChange={(u) => setIndividualForm((prev) => ({ ...prev, ...u }))}
                     errors={formErrors}
                     onErrorClear={clearFieldError}
+                    identityLocked={borrowerIdentityLocked}
                   />
                   <PersonalCard
                     data={individualForm}
@@ -728,6 +785,7 @@ export function ApplicationFlowWizard() {
                     onErrorClear={clearFieldError}
                     noMonthlyIncome={noMonthlyIncome}
                     onNoMonthlyIncomeChange={setNoMonthlyIncome}
+                    identityLocked={borrowerIdentityLocked}
                   />
                   <ContactCard
                     data={individualForm}

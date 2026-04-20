@@ -29,8 +29,22 @@ if [ -n "$MTSA_IMAGE_VALUE" ]; then
 fi
 
 export GATEWAY_TAG="$TAG"
-docker compose up -d signing-gateway mtsa
+
+# Resolve compose file (provisioned as docker-compose.yml per docs)
+COMPOSE=(docker compose)
+if [ -f docker-compose.yml ]; then
+  COMPOSE=(docker compose -f docker-compose.yml)
+elif [ -f compose.yml ]; then
+  COMPOSE=(docker compose -f compose.yml)
+fi
+
+echo "Pulling signing-gateway and mtsa images via compose (picks up MTSA_IMAGE and ECR_REGISTRY from .env)..."
+"${COMPOSE[@]}" pull signing-gateway mtsa
+
+echo "Recreating signing-gateway and mtsa (so :latest / mtsa-latest digest changes always apply)..."
+"${COMPOSE[@]}" up -d --force-recreate signing-gateway mtsa
 
 docker image prune -f
 
 echo "Deploy complete: $FULL_IMAGE"
+echo "MTSA_IMAGE from .env: ${MTSA_IMAGE_VALUE:-<unset>}"

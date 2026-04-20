@@ -360,6 +360,9 @@ jobs:
             -o /usr/local/bin/cloudflared
           chmod +x /usr/local/bin/cloudflared
 
+      - name: Checkout code (sync deploy script to on-prem)
+        uses: actions/checkout@v5
+
       - name: Deploy via SSH through Cloudflare Tunnel
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -382,6 +385,8 @@ jobs:
             StrictHostKeyChecking no
           EOF
 
+          scp scripts/signing-gateway/deploy.sh onprem-signing:/opt/signing-stack/deploy.sh
+          ssh onprem-signing "chmod +x /opt/signing-stack/deploy.sh"
           ssh onprem-signing "echo '$ENV_B64' | base64 -d > /opt/signing-stack/.env && ECR_REGISTRY='$ECR_REGISTRY' ECR_REPOSITORY='$ECR_REPOSITORY' ECR_PASSWORD='$ECR_PASSWORD' /opt/signing-stack/deploy.sh '$IMAGE_TAG'"
 
   summary:

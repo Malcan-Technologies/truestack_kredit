@@ -1685,17 +1685,32 @@ function PreDisbursementJourney({
   );
 
   const steps = useMemo<{ id: JourneyStepId; label: string; done: boolean }[]>(() => {
-    const out: { id: JourneyStepId; label: string; done: boolean }[] = [];
-    if (requiresAttestation) out.push({ id: 'attestation', label: 'Attestation', done: attestationDone });
-    out.push({ id: 'ekyc', label: 'e-KYC', done: kycDone });
-    out.push({ id: 'certificate', label: 'Certificate', done: certDone });
-    out.push({
-      id: 'sign',
-      label: 'Sign',
-      done: awaitingLenderReview,
+    const raw: { id: JourneyStepId; label: string; done: boolean }[] = [];
+    if (requiresAttestation) raw.push({ id: 'attestation', label: 'Attestation', done: attestationDone });
+    raw.push({ id: 'ekyc', label: 'e-KYC', done: kycDone });
+    raw.push({ id: 'certificate', label: 'Certificate', done: certDone });
+    raw.push({ id: 'sign', label: 'Sign', done: awaitingLenderReview });
+    raw.push({ id: 'review', label: 'Review', done: review === 'APPROVED' });
+
+    // Backward cascade: when a later step is objectively done (e.g. signed
+    // agreement is awaiting lender review), every earlier step must also be
+    // done — even if a local-only flag like `certDone` (AsyncStorage) is
+    // missing because the borrower signed on another device.
+    let laterDone = false;
+    for (let i = raw.length - 1; i >= 0; i--) {
+      if (raw[i].done) laterDone = true;
+      else if (laterDone) raw[i] = { ...raw[i], done: true };
+    }
+
+    // Forward cascade: hide "ahead-of-self" greens. e.g. e-KYC done from a
+    // previous loan should still appear white until the borrower clears the
+    // current loan's attestation step.
+    let blocked = false;
+    return raw.map((s) => {
+      if (blocked) return { ...s, done: false };
+      if (!s.done) blocked = true;
+      return s;
     });
-    out.push({ id: 'review', label: 'Review', done: review === 'APPROVED' });
-    return out;
   }, [requiresAttestation, attestationDone, kycDone, certDone, awaitingLenderReview, review]);
 
   const handleStepperPress = useCallback(
@@ -2058,6 +2073,7 @@ function LenderReviewCard({
   onEditAndResign: () => void;
 }) {
   const theme = useTheme();
+  const [downloading, setDownloading] = useState(false);
   const tone = review === 'APPROVED' ? 'success' : review === 'REJECTED' ? 'error' : 'warning';
   const label =
     review === 'APPROVED'
@@ -2065,6 +2081,27 @@ function LenderReviewCard({
       : review === 'REJECTED'
         ? 'Rejected'
         : 'Awaiting lender review';
+
+  const onViewSignedAgreement = useCallback(async () => {
+    if (downloading || !loan.agreementPath) return;
+    setDownloading(true);
+    try {
+      await downloadAndShareDocument({
+        url: borrowerLoanViewSignedAgreementUrl(SERVICING_BASE_URL, loan.id),
+        filename: loan.agreementOriginalName || `loan-agreement-${loan.id}.pdf`,
+        mimeType: mimeFromFilename(loan.agreementOriginalName, 'application/pdf'),
+        dialogTitle: 'Signed loan agreement',
+      });
+    } catch (e) {
+      const message =
+        e instanceof DocumentDownloadError
+          ? e.message
+          : 'Could not open the signed agreement. Please try again.';
+      toast.error(message);
+    } finally {
+      setDownloading(false);
+    }
+  }, [downloading, loan.agreementOriginalName, loan.agreementPath, loan.id]);
 
   return (
     <SectionCard
@@ -2090,6 +2127,16 @@ function LenderReviewCard({
             {loan.signedAgreementReviewNotes}
           </ThemedText>
         </View>
+      ) : null}
+      {loan.agreementPath ? (
+        <AttestActionButton
+          label="View signed agreement"
+          icon="file-download"
+          onPress={() => void onViewSignedAgreement()}
+          disabled={false}
+          busy={downloading}
+          variant="outline"
+        />
       ) : null}
       {review === 'REJECTED' ? (
         <Pressable
@@ -2175,6 +2222,30 @@ function AttestationStateCard({
       ],
     );
   }, [onRequestMeeting]);
+
+  const onSwitchToVideo = useCallback(
+    () =>
+      runAction(
+        () => loansClient.postAttestationRestart(loanId),
+        'Attestation reset — choose video or meeting again.',
+      ),
+    [loanId, runAction],
+  );
+
+  const confirmSwitchToVideo = useCallback(() => {
+    const hasProposal =
+      status === 'SLOT_PROPOSED' || status === 'COUNTER_PROPOSED';
+    Alert.alert(
+      'Switch to video attestation?',
+      hasProposal
+        ? 'This will withdraw your proposed time and reset the attestation step. You can then watch the video to continue immediately.'
+        : 'This will reset the attestation step so you can watch the video and continue immediately instead of waiting for a meeting.',
+      [
+        { text: 'Stay here', style: 'cancel' },
+        { text: 'Switch to video', onPress: () => void onSwitchToVideo() },
+      ],
+    );
+  }, [onSwitchToVideo, status]);
 
   const onAcceptCounter = useCallback(
     () =>
@@ -2331,6 +2402,14 @@ function AttestationStateCard({
             disabled={busy}
             variant="primary"
           />
+          <AttestActionButton
+            label="Switch to video attestation"
+            icon="restart-alt"
+            busy={busy}
+            onPress={confirmSwitchToVideo}
+            disabled={busy}
+            variant="outline"
+          />
         </View>
       ) : null}
 
@@ -2356,6 +2435,14 @@ function AttestationStateCard({
             A Google Meet link appears here only after your lender accepts this time. We will also
             email the same link to your account email.
           </ThemedText>
+          <AttestActionButton
+            label="Switch to video attestation"
+            icon="restart-alt"
+            busy={busy}
+            onPress={confirmSwitchToVideo}
+            disabled={busy}
+            variant="outline"
+          />
         </View>
       ) : null}
 
@@ -2395,6 +2482,14 @@ function AttestationStateCard({
               label="Decline and pick another slot"
               busy={busy}
               onPress={() => void onDeclineCounter()}
+              disabled={busy}
+              variant="outline"
+            />
+            <AttestActionButton
+              label="Switch to video attestation"
+              icon="restart-alt"
+              busy={busy}
+              onPress={confirmSwitchToVideo}
               disabled={busy}
               variant="outline"
             />

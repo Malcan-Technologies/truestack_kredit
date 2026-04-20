@@ -53,31 +53,36 @@ export function SectionCard({
     );
   }
 
+  const showCollapsedSummary = collapsible && !expanded && !!collapsedSummary;
+  const showDescription = showBody && !!description;
+
   const headerInner = (
-    <View style={styles.headerRow}>
-      <View style={styles.headerCopy}>
-        <ThemedText type="smallBold">{title}</ThemedText>
-        {collapsible && !expanded && collapsedSummary ? (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.description}>
-            {collapsedSummary}
-          </ThemedText>
-        ) : null}
-        {showBody && description ? (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.description}>
-            {description}
-          </ThemedText>
-        ) : null}
+    <View style={styles.headerStack}>
+      <View style={styles.headerRow}>
+        <View style={styles.headerCopy}>
+          <ThemedText type="smallBold">{title}</ThemedText>
+        </View>
+        <View style={styles.headerTrailing}>
+          {action ? <View style={styles.action}>{action}</View> : null}
+          {collapsible ? (
+            <MaterialIcons
+              name={expanded ? 'expand-less' : 'expand-more'}
+              size={22}
+              color={theme.textSecondary}
+            />
+          ) : null}
+        </View>
       </View>
-      <View style={styles.headerTrailing}>
-        {action ? <View style={styles.action}>{action}</View> : null}
-        {collapsible ? (
-          <MaterialIcons
-            name={expanded ? 'expand-less' : 'expand-more'}
-            size={22}
-            color={theme.textSecondary}
-          />
-        ) : null}
-      </View>
+      {showCollapsedSummary ? (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.description}>
+          {collapsedSummary}
+        </ThemedText>
+      ) : null}
+      {showDescription ? (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.description}>
+          {description}
+        </ThemedText>
+      ) : null}
     </View>
   );
 
@@ -127,16 +132,18 @@ const styles = StyleSheet.create({
   headerPressed: {
     opacity: 0.85,
   },
+  headerStack: {
+    gap: Spacing.one,
+  },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
   headerCopy: {
     flex: 1,
     minWidth: 0,
-    gap: Spacing.one,
   },
   headerTrailing: {
     flexDirection: 'row',

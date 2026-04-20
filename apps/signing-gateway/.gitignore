@@ -7,5 +7,5 @@ dist/
 # the one filename CI expects. (Historically WARs were gitignored mainly because they are
 # large proprietary vendor binaries—not because our app secrets live in git; avoid committing
 # scratch WARs or alternate filenames by keeping the broad *.war rule.)
-mtsa-pilot/webapps/*.war
-!mtsa-pilot/webapps/MTSAPilot.war
+# mtsa-pilot/webapps/*.war
+# !mtsa-pilot/webapps/MTSAPilot.war

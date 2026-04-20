@@ -41,6 +41,7 @@ import {
   postAttestationAcceptCounter,
   postAttestationDeclineCounter,
   postAttestationCancelLoan,
+  postAttestationRestart,
 } from "../../lib/borrower-loans-client";
 import {
   fetchBorrower,
@@ -109,6 +110,7 @@ export function LoanPendingAgreementPage() {
   const [journeyUiStep, setJourneyUiStep] = useState<"attestation" | "ekyc" | "certificate" | "sign" | "lender_review">("attestation");
   const [showMeetingConfirm, setShowMeetingConfirm] = useState(false);
   const [showVideoWithdrawConfirm, setShowVideoWithdrawConfirm] = useState(false);
+  const [showSwitchToVideoConfirm, setShowSwitchToVideoConfirm] = useState(false);
   const [preDisbursementTab, setPreDisbursementTab] = useState<"loan" | "agreement">("agreement");
   const attestationDoneSeenRef = useRef(false);
   const [kycDone, setKycDone] = useState(false);
@@ -267,6 +269,25 @@ export function LoanPendingAgreementPage() {
     stepCursor++;
     s[stepCursor].done = review === "APPROVED";
 
+    // Backward cascade: when a later step is objectively done (e.g. signed
+    // agreement is awaiting lender review), every earlier step must also be
+    // done — even if a local-only flag like `certDone` (sessionStorage) is
+    // missing because the borrower signed in another tab/session.
+    let laterDone = false;
+    for (let i = s.length - 1; i >= 0; i--) {
+      if (s[i].done) laterDone = true;
+      else if (laterDone) s[i].done = true;
+    }
+
+    // Forward cascade: hide "ahead-of-self" greens. e.g. e-KYC done from a
+    // previous loan should still appear white until the borrower clears the
+    // current loan's attestation step.
+    let blocked = false;
+    for (let i = 0; i < s.length; i++) {
+      if (blocked) s[i].done = false;
+      else if (!s[i].done) blocked = true;
+    }
+
     const stepIdToIdx = new Map(s.map((st, i) => [st.id, i]));
     let activeIdx = 0;
     if (requiresAttestation && !attestationDone) {
@@ -400,6 +421,12 @@ export function LoanPendingAgreementPage() {
       await postAttestationCancelLoan(loanId, { reason });
       router.push("/loans");
     }, "Loan cancelled.");
+
+  const onSwitchToVideo = () =>
+    runAttest(
+      () => postAttestationRestart(loanId),
+      "Attestation reset — choose video or meeting again.",
+    );
 
   if (loading) {
     return <LoanDetailSkeleton />;
@@ -772,14 +799,25 @@ export function LoanPendingAgreementPage() {
                 <p className="text-xs text-muted-foreground">
                   Pick an available slot on the scheduling page (one proposal per loan).
                 </p>
-                <Button type="button" asChild>
-                  <Link href={`/loans/${loanId}/schedule-meeting`}>Open schedule page</Link>
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" asChild>
+                    <Link href={`/loans/${loanId}/schedule-meeting`}>Open schedule page</Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowSwitchToVideoConfirm(true)}
+                    disabled={attestBusy}
+                  >
+                    <Video className="h-4 w-4 mr-2" />
+                    Switch to video attestation
+                  </Button>
+                </div>
               </div>
             )}
 
             {attestationStatus === "SLOT_PROPOSED" && (
-              <div className="rounded-lg border border-warning/30 bg-warning/5 p-4 space-y-2">
+              <div className="rounded-lg border border-warning/30 bg-warning/5 p-4 space-y-3">
                 <p className="text-sm font-medium">Waiting for lender confirmation</p>
                 {loan.attestationProposalStartAt && (
                   <p className="text-xs text-muted-foreground">
@@ -799,6 +837,18 @@ export function LoanPendingAgreementPage() {
                   )}
                   .
                 </p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowSwitchToVideoConfirm(true)}
+                    disabled={attestBusy}
+                  >
+                    <Video className="h-4 w-4 mr-2" />
+                    Switch to video attestation
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -829,6 +879,15 @@ export function LoanPendingAgreementPage() {
                   </Button>
                   <Button type="button" variant="outline" onClick={() => void onDeclineCounter()} disabled={attestBusy}>
                     Decline and pick another slot
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowSwitchToVideoConfirm(true)}
+                    disabled={attestBusy}
+                  >
+                    <Video className="h-4 w-4 mr-2" />
+                    Switch to video attestation
                   </Button>
                 </div>
               </div>
@@ -914,6 +973,39 @@ export function LoanPendingAgreementPage() {
               disabled={attestBusy}
             >
               Yes, withdraw and cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showSwitchToVideoConfirm} onOpenChange={setShowSwitchToVideoConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Switch to video attestation?</DialogTitle>
+            <DialogDescription>
+              {attestationStatus === "SLOT_PROPOSED" || attestationStatus === "COUNTER_PROPOSED"
+                ? "This will withdraw your proposed time and reset the attestation step. You can then watch the video to continue immediately."
+                : "This will reset the attestation step so you can watch the video and continue immediately instead of waiting for a meeting."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowSwitchToVideoConfirm(false)}
+              disabled={attestBusy}
+            >
+              Stay here
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setShowSwitchToVideoConfirm(false);
+                void onSwitchToVideo();
+              }}
+              disabled={attestBusy}
+            >
+              Switch to video
             </Button>
           </DialogFooter>
         </DialogContent>

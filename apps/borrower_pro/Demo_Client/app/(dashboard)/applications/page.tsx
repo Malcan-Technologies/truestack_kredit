@@ -368,71 +368,61 @@ export default function ApplicationsPage() {
       )}
 
       {amendmentCount > 0 && (
-        <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold">Amendment requested by your lender</span>
-                <Badge
-                  variant="outline"
-                  className="border-amber-300 bg-white/80 text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-100"
-                >
-                  {amendmentCount} application{amendmentCount !== 1 ? "s" : ""}
-                </Badge>
-              </div>
-              <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
-                Open the application to read your lender&apos;s message, then edit and resubmit when ready.
-              </p>
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold">Amendment requested by your lender</span>
+              <Badge
+                variant="outline"
+                className="border-amber-300 bg-white/80 text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-100"
+              >
+                {amendmentCount} application{amendmentCount !== 1 ? "s" : ""}
+              </Badge>
             </div>
+            <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
+              Open the application to read your lender&apos;s message, then edit and resubmit when ready.
+            </p>
           </div>
-
-          <div className="flex justify-start sm:justify-end">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="border-amber-300 bg-white/80 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
-              onClick={() => applyFilterFromBanner("AMENDMENT")}
-            >
-              Review now
-            </Button>
-          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0 self-start border-amber-300 bg-white/80 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
+            onClick={() => applyFilterFromBanner("AMENDMENT")}
+          >
+            Review now
+          </Button>
         </div>
       )}
 
       {counterOfferCount > 0 && (
-        <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold">Counter-offer waiting for your response</span>
-                <Badge
-                  variant="outline"
-                  className="border-amber-300 bg-white/80 text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-100"
-                >
-                  {counterOfferCount} application{counterOfferCount !== 1 ? "s" : ""}
-                </Badge>
-              </div>
-              <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
-                Review the proposed amount and term on the application page, then accept, reject, or respond with your
-                own counter-offer.
-              </p>
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold">Counter-offer waiting for your response</span>
+              <Badge
+                variant="outline"
+                className="border-amber-300 bg-white/80 text-amber-900 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-100"
+              >
+                {counterOfferCount} application{counterOfferCount !== 1 ? "s" : ""}
+              </Badge>
             </div>
+            <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
+              Review the proposed amount and term on the application page, then accept, reject, or respond with your own
+              counter-offer.
+            </p>
           </div>
-
-          <div className="flex justify-start sm:justify-end">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="border-amber-300 bg-white/80 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
-              onClick={() => applyFilterFromBanner("COUNTER_OFFER")}
-            >
-              Review now
-            </Button>
-          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0 self-start border-amber-300 bg-white/80 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
+            onClick={() => applyFilterFromBanner("COUNTER_OFFER")}
+          >
+            Review now
+          </Button>
         </div>
       )}
 

@@ -11,11 +11,12 @@ on:
   workflow_dispatch:
     inputs:
       client_id:
-        description: "Client to deploy. Add new clients to config/clients/<id>.yaml AND to this list. (demo-client is excluded — it auto-deploys on push to main when apps/signing-gateway/** or its config changes.)"
+        description: "Client to deploy. Add new clients to config/clients/<id>.yaml AND to this list. Push to main still auto-deploys demo-client when apps/signing-gateway/** or config/clients/demo-client.yaml changes."
         required: true
         default: "proficient-premium"
         type: choice
         options:
+          - demo-client
           - proficient-premium
       platform_version:
         description: "Semantic version for the shared Pro platform (for example 1.2.3)"

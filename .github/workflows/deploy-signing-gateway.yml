@@ -230,6 +230,11 @@ jobs:
           USE_SEMVER: ${{ needs.resolve-release.outputs.use_semver }}
         run: |
           set -euo pipefail
+          WAR_PATH="apps/signing-gateway/mtsa-pilot/webapps/MTSAPilot.war"
+          if [ ! -f "$WAR_PATH" ]; then
+            echo "::error::Missing $WAR_PATH — pilot MTSA image cannot build. Add the Trustgate MTSAPilot.war to that path and commit (see apps/signing-gateway/.gitignore: MTSAPilot.war is tracked for CI)."
+            exit 1
+          fi
           SHORT_SHA=$(git rev-parse --short HEAD)
           MTSA_TAG="mtsa-${IMAGE_TAG}"
           docker build -f apps/signing-gateway/mtsa-pilot/Dockerfile \

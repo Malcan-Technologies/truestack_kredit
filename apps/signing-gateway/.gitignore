@@ -2,6 +2,10 @@ node_modules/
 dist/
 .env
 
-# MTSA WAR: tracked so CI can build the pilot image; other WARs stay ignored.
+# MTSA pilot WAR (Trustgate): must be committed so GitHub Actions can docker-build
+# apps/signing-gateway/mtsa-pilot. We ignore arbitrary *.war drops locally but force-track
+# the one filename CI expects. (Historically WARs were gitignored mainly because they are
+# large proprietary vendor binaries—not because our app secrets live in git; avoid committing
+# scratch WARs or alternate filenames by keeping the broad *.war rule.)
 mtsa-pilot/webapps/*.war
 !mtsa-pilot/webapps/MTSAPilot.war

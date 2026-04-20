@@ -233,6 +233,78 @@ export function isIndividualSocialComplete(data: IndividualFormData): boolean {
   return fields.some((f) => Boolean(f?.trim()));
 }
 
+/** All social fields filled — profile “Complete” badge for optional social section. */
+export function isIndividualSocialFullyComplete(data: IndividualFormData): boolean {
+  const fields = [
+    data.instagram,
+    data.tiktok,
+    data.facebook,
+    data.linkedin,
+    data.xTwitter,
+  ];
+  return fields.every((f) => Boolean(f?.trim()));
+}
+
+export function isIndividualAddressComplete(data: IndividualFormData): boolean {
+  if (!data.addressLine1.trim()) return false;
+  if (!data.city.trim()) return false;
+  if (!data.postcode.trim()) return false;
+  if (!POSTCODE_REGEX.test(data.postcode)) return false;
+  if (!data.country) return false;
+  if (
+    data.country &&
+    getStateOptions(data.country).length > 0 &&
+    !data.state
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function isIndividualContactComplete(data: IndividualFormData): boolean {
+  return Boolean(data.phone.trim() && data.email.trim());
+}
+
+export function isIndividualBankComplete(data: IndividualFormData): boolean {
+  if (!data.bankName) return false;
+  if (data.bankName === "OTHER" && !data.bankNameOther.trim()) return false;
+  if (!data.bankAccountNo.trim()) return false;
+  return BANK_ACCOUNT_REGEX.test(data.bankAccountNo.replace(/\D/g, ""));
+}
+
+export function isCorporateAddressComplete(data: CorporateFormData): boolean {
+  if (!data.addressLine1.trim()) return false;
+  if (!data.city.trim()) return false;
+  if (!data.postcode.trim()) return false;
+  if (!POSTCODE_REGEX.test(data.postcode)) return false;
+  if (!data.country) return false;
+  if (
+    data.country &&
+    getStateOptions(data.country).length > 0 &&
+    !data.state
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function isCorporateCompanyContactComplete(data: CorporateFormData): boolean {
+  return Boolean(data.companyPhone.trim() && data.companyEmail.trim());
+}
+
+export function isCorporateBankComplete(data: CorporateFormData): boolean {
+  if (!data.bankName) return false;
+  if (data.bankName === "OTHER" && !data.bankNameOther.trim()) return false;
+  if (!data.bankAccountNo.trim()) return false;
+  return BANK_ACCOUNT_REGEX.test(data.bankAccountNo.replace(/\D/g, ""));
+}
+
+export function isCorporateSocialFullyComplete(data: CorporateFormData): boolean {
+  return [data.instagram, data.tiktok, data.facebook, data.linkedin, data.xTwitter].every((f) =>
+    Boolean(f?.trim())
+  );
+}
+
 export function validateCorporateForm(
   data: CorporateFormData
 ): Record<string, string> {

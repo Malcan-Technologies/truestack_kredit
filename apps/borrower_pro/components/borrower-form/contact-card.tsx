@@ -6,7 +6,12 @@ import { Label } from "../ui/label";
 import { PhoneInput } from "../ui/phone-input";
 import { Field } from "./field";
 import { getCountryOptions, getStateOptions } from "../../lib/address-options";
+import {
+  isIndividualAddressComplete,
+  isIndividualContactComplete,
+} from "../../lib/borrower-form-validation";
 import type { IndividualFormData } from "../../lib/borrower-form-types";
+import { SectionCompleteBadge } from "../ui/status-row";
 
 interface ContactCardProps {
   data: Pick<
@@ -37,13 +42,19 @@ export function ContactCard({
   const countryOptions = getCountryOptions();
   const stateOptions = getStateOptions(data.country);
 
+  const asFull = data as IndividualFormData;
+  const sectionComplete = includeAddress
+    ? isIndividualContactComplete(asFull) && isIndividualAddressComplete(asFull)
+    : isIndividualContactComplete(asFull);
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-2">
         <CardTitle className="flex items-center gap-2">
           <Phone className="h-5 w-5 text-muted-foreground" />
           Contact Information
         </CardTitle>
+        <SectionCompleteBadge complete={sectionComplete} />
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 gap-4">

@@ -7,6 +7,7 @@ import {
   useRef,
   forwardRef,
   useImperativeHandle,
+  useMemo,
 } from "react";
 import {
   Pencil,
@@ -68,6 +69,15 @@ import {
 import {
   validateIndividualForm,
   validateCorporateForm,
+  isIndividualAddressComplete,
+  isIndividualContactComplete,
+  isIndividualBankComplete,
+  isIndividualEmergencyContactComplete,
+  isIndividualSocialFullyComplete,
+  isCorporateAddressComplete,
+  isCorporateCompanyContactComplete,
+  isCorporateBankComplete,
+  isCorporateSocialFullyComplete,
 } from "../lib/borrower-form-validation";
 import type { IndividualFormData, CorporateFormData } from "../lib/borrower-form-types";
 import {
@@ -87,7 +97,7 @@ import { PhoneDisplay } from "./ui/phone-display";
 import { cn } from "../lib/utils";
 import { toast } from "sonner";
 import { isIndividualIdentityLocked } from "../lib/borrower-verification";
-import { SectionCompleteBadge, VerifiedBadge } from "./ui/status-row";
+import { SectionCompleteBadge, SectionOptionalBadge, VerifiedBadge } from "./ui/status-row";
 
 function InfoField({
   label,
@@ -184,6 +194,27 @@ export const BorrowerDetailCard = forwardRef<
   const isIndividual = borrower?.borrowerType === "INDIVIDUAL";
   const identityLocked =
     Boolean(borrower && isIndividual && isIndividualIdentityLocked(borrower));
+
+  const individualSectionBadges = useMemo(() => {
+    if (!individualForm) return null;
+    return {
+      address: isIndividualAddressComplete(individualForm),
+      emergency: isIndividualEmergencyContactComplete(individualForm),
+      contact: isIndividualContactComplete(individualForm),
+      social: isIndividualSocialFullyComplete(individualForm),
+      bank: isIndividualBankComplete(individualForm),
+    };
+  }, [individualForm]);
+
+  const corporateSectionBadges = useMemo(() => {
+    if (!corporateForm) return null;
+    return {
+      address: isCorporateAddressComplete(corporateForm),
+      companyContact: isCorporateCompanyContactComplete(corporateForm),
+      social: isCorporateSocialFullyComplete(corporateForm),
+      bank: isCorporateBankComplete(corporateForm),
+    };
+  }, [corporateForm]);
 
   const onBorrowerLoadedRef = useRef(onBorrowerLoaded);
   useEffect(() => {
@@ -686,26 +717,31 @@ export const BorrowerDetailCard = forwardRef<
             icon={MapPin}
             title="Address"
             headerAction={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  const full = formatFullAddress(form);
-                  if (!full) {
-                    toast.error("No address to copy");
-                    return;
-                  }
-                  try {
-                    await navigator.clipboard.writeText(full);
-                    toast.success("Full address copied to clipboard");
-                  } catch {
-                    toast.error("Failed to copy to clipboard");
-                  }
-                }}
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Copy full address
-              </Button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {individualSectionBadges ? (
+                  <SectionCompleteBadge complete={individualSectionBadges.address} />
+                ) : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    const full = formatFullAddress(form);
+                    if (!full) {
+                      toast.error("No address to copy");
+                      return;
+                    }
+                    try {
+                      await navigator.clipboard.writeText(full);
+                      toast.success("Full address copied to clipboard");
+                    } catch {
+                      toast.error("Failed to copy to clipboard");
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy full address
+                </Button>
+              </div>
             }
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -726,14 +762,30 @@ export const BorrowerDetailCard = forwardRef<
 
           {/* 3 & 4. Emergency Contact + Contact Information side by side (stack on mobile) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <SectionCard icon={Users} title="Emergency Contact">
+            <SectionCard
+              icon={Users}
+              title="Emergency Contact"
+              headerAction={
+                individualSectionBadges ? (
+                  <SectionOptionalBadge complete={individualSectionBadges.emergency} />
+                ) : null
+              }
+            >
               <div className="grid grid-cols-1 gap-4">
                 <InfoField label="Name" value={form.emergencyContactName} />
                 <InfoField label="Phone" value={form.emergencyContactPhone} />
                 <InfoField label="Relationship" value={getOptionLabel("emergencyContactRelationship", form.emergencyContactRelationship)} />
               </div>
             </SectionCard>
-            <SectionCard icon={Phone} title="Contact Information">
+            <SectionCard
+              icon={Phone}
+              title="Contact Information"
+              headerAction={
+                individualSectionBadges ? (
+                  <SectionCompleteBadge complete={individualSectionBadges.contact} />
+                ) : null
+              }
+            >
               <div className="grid grid-cols-1 gap-4">
                 <PhoneDisplay label="Phone" value={form.phone} toastMessage="Phone number copied" />
                 <CopyField label="Email" value={form.email} toastMessage="Email copied" />
@@ -742,7 +794,15 @@ export const BorrowerDetailCard = forwardRef<
           </div>
 
           {/* 5. Social Media Profiles */}
-          <SectionCard icon={Share2} title="Social Media Profiles">
+          <SectionCard
+            icon={Share2}
+            title="Social Media Profiles"
+            headerAction={
+              individualSectionBadges ? (
+                <SectionOptionalBadge complete={individualSectionBadges.social} />
+              ) : null
+            }
+          >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <InfoField label="Instagram" value={form.instagram} />
               <InfoField label="TikTok" value={form.tiktok} />
@@ -753,7 +813,15 @@ export const BorrowerDetailCard = forwardRef<
           </SectionCard>
 
           {/* 6. Bank Information */}
-          <SectionCard icon={Banknote} title="Bank Information">
+          <SectionCard
+            icon={Banknote}
+            title="Bank Information"
+            headerAction={
+              individualSectionBadges ? (
+                <SectionCompleteBadge complete={individualSectionBadges.bank} />
+              ) : null
+            }
+          >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <InfoField label="Bank" value={getOptionLabel("bankName", form.bankName)} />
               <InfoField label="Account No" value={form.bankAccountNo} />
@@ -779,26 +847,31 @@ export const BorrowerDetailCard = forwardRef<
             icon={MapPin}
             title="Address"
             headerAction={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  const full = formatFullAddress(form);
-                  if (!full) {
-                    toast.error("No address to copy");
-                    return;
-                  }
-                  try {
-                    await navigator.clipboard.writeText(full);
-                    toast.success("Full address copied to clipboard");
-                  } catch {
-                    toast.error("Failed to copy to clipboard");
-                  }
-                }}
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Copy full address
-              </Button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {corporateSectionBadges ? (
+                  <SectionCompleteBadge complete={corporateSectionBadges.address} />
+                ) : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    const full = formatFullAddress(form);
+                    if (!full) {
+                      toast.error("No address to copy");
+                      return;
+                    }
+                    try {
+                      await navigator.clipboard.writeText(full);
+                      toast.success("Full address copied to clipboard");
+                    } catch {
+                      toast.error("Failed to copy to clipboard");
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy full address
+                </Button>
+              </div>
             }
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -824,7 +897,15 @@ export const BorrowerDetailCard = forwardRef<
                 <InfoField label="Number of Employees" value={form.numberOfEmployees} />
               </div>
             </SectionCard>
-            <SectionCard icon={Phone} title="Company Contact">
+            <SectionCard
+              icon={Phone}
+              title="Company Contact"
+              headerAction={
+                corporateSectionBadges ? (
+                  <SectionCompleteBadge complete={corporateSectionBadges.companyContact} />
+                ) : null
+              }
+            >
               <div className="grid grid-cols-1 gap-4">
                 <InfoField label="Phone" value={form.companyPhone} />
                 <InfoField label="Email" value={form.companyEmail} />
@@ -852,14 +933,30 @@ export const BorrowerDetailCard = forwardRef<
             </div>
           </SectionCard>
 
-          <SectionCard icon={Banknote} title="Bank">
+          <SectionCard
+            icon={Banknote}
+            title="Bank"
+            headerAction={
+              corporateSectionBadges ? (
+                <SectionCompleteBadge complete={corporateSectionBadges.bank} />
+              ) : null
+            }
+          >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <InfoField label="Bank" value={getOptionLabel("bankName", form.bankName)} />
               <InfoField label="Account No" value={form.bankAccountNo} />
             </div>
           </SectionCard>
 
-          <SectionCard icon={Share2} title="Social Media">
+          <SectionCard
+            icon={Share2}
+            title="Social Media"
+            headerAction={
+              corporateSectionBadges ? (
+                <SectionOptionalBadge complete={corporateSectionBadges.social} />
+              ) : null
+            }
+          >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <InfoField label="Instagram" value={form.instagram} />
               <InfoField label="TikTok" value={form.tiktok} />

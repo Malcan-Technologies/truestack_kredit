@@ -21,7 +21,6 @@ import {
   Sparkles,
   Check,
   Info,
-  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { RoleGate } from "@/components/role-gate";
 
 // ============================================
@@ -49,6 +48,22 @@ type NumericValue = number | "";
 function toNumericValue(v: NumericInputValue): NumericValue {
   return v === "" ? "" : typeof v === "number" ? v : (Number(v) || 0);
 }
+
+function parseAllowedTermsFromCommaText(text: string): number[] {
+  if (!text.trim()) return [];
+  return [
+    ...new Set(
+      text
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => parseInt(s, 10))
+        .filter((n) => Number.isFinite(n) && n >= 2)
+    ),
+  ].sort((a, b) => a - b);
+}
+
+type TenureMode = "interval" | "list";
 
 interface ProductFormData {
   name: string;
@@ -223,7 +238,8 @@ export default function NewProductPage() {
   const [creating, setCreating] = useState(false);
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData);
   const [newDocLabel, setNewDocLabel] = useState("");
-  const [allowedTermDraft, setAllowedTermDraft] = useState("");
+  const [tenureMode, setTenureMode] = useState<TenureMode>("interval");
+  const [allowedTermsText, setAllowedTermsText] = useState("");
 
   const handleNext = () => {
     // Validation for each step
@@ -272,11 +288,29 @@ export default function NewProductPage() {
         toast.error("Maximum term must be greater than or equal to minimum term");
         return;
       }
-      const termInterval = formData.termInterval === "" ? NaN : formData.termInterval;
-      if (Number.isNaN(termInterval) || termInterval < 1 || termInterval > 60) {
-        toast.error("Term interval must be between 1 and 60 months");
-        return;
+      if (tenureMode === "list") {
+        const parsed = parseAllowedTermsFromCommaText(allowedTermsText);
+        if (parsed.length === 0) {
+          toast.error("Enter at least one allowed term (e.g. 6, 12, 24) or switch to step mode.");
+          return;
+        }
+        if (parsed.some((t) => t < minTerm || t > maxTerm)) {
+          toast.error(
+            `Each allowed term must be between ${minTerm} and ${maxTerm} months (within your min/max above).`
+          );
+          return;
+        }
+      } else {
+        const termInterval = formData.termInterval === "" ? NaN : formData.termInterval;
+        if (Number.isNaN(termInterval) || termInterval < 1 || termInterval > 60) {
+          toast.error("Step size must be between 1 and 60 months");
+          return;
+        }
       }
+      setFormData((fd) => ({
+        ...fd,
+        allowedTerms: tenureMode === "list" ? parseAllowedTermsFromCommaText(allowedTermsText) : [],
+      }));
       if (Number.isNaN(arrearsPeriod) || Number.isNaN(defaultPeriod) || arrearsPeriod > defaultPeriod) {
         toast.error("Arrears period must be less than or equal to default period");
         return;
@@ -293,6 +327,8 @@ export default function NewProductPage() {
   const displayNum = (v: NumericValue, suffix = "") => (v === "" ? "-" : `${v}${suffix}`);
 
   const handleCreate = async () => {
+    const allowedTermsPayload =
+      tenureMode === "list" ? parseAllowedTermsFromCommaText(allowedTermsText) : [];
     // Build payload with numbers (convert "" to defaults)
     const payload = {
       ...formData,
@@ -305,7 +341,7 @@ export default function NewProductPage() {
       minTerm: toNum(formData.minTerm, 2),
       maxTerm: toNum(formData.maxTerm, 2),
       termInterval: toNum(formData.termInterval, 1),
-      allowedTerms: formData.allowedTerms,
+      allowedTerms: allowedTermsPayload,
       legalFeeValue: toNum(formData.legalFeeValue, 0),
       stampingFeeValue: toNum(formData.stampingFeeValue, 0),
       earlySettlementLockInMonths: toNum(formData.earlySettlementLockInMonths, 0),
@@ -802,73 +838,88 @@ export default function NewProductPage() {
                 </div>
               </div>
 
-              {/* Tenure options */}
-              <div className="space-y-4 rounded-lg border border-border p-4">
-                <h3 className="text-sm font-medium text-muted-foreground">Tenure options</h3>
-                <div className="space-y-2">
-                  <Label>Term interval (months)</Label>
-                  <NumericInput
-                    min={1}
-                    max={60}
-                    value={formData.termInterval}
-                    onChange={(v: NumericInputValue) => setFormData({ ...formData, termInterval: toNumericValue(v) })}
-                    fallback={1}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Months between selectable terms when no explicit list is set below.
+              {/* Tenure options — pick one: equal steps, or a fixed list */}
+              <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Loan length options</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Choose one approach. Borrowers only see options that fall between your min and max term above.
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <Label>Specific allowed tenures</Label>
-                  <Input
-                    placeholder="e.g. 24 — press Enter to add"
-                    value={allowedTermDraft}
-                    onChange={(e) => setAllowedTermDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter") return;
-                      e.preventDefault();
-                      const n = parseInt(allowedTermDraft.trim(), 10);
-                      if (!Number.isFinite(n) || n < 2) {
-                        toast.error("Enter a whole number of months (at least 2)");
-                        return;
-                      }
-                      if (formData.allowedTerms.includes(n)) {
-                        setAllowedTermDraft("");
-                        return;
-                      }
-                      setFormData({
-                        ...formData,
-                        allowedTerms: [...formData.allowedTerms, n].sort((a, b) => a - b),
-                      });
-                      setAllowedTermDraft("");
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTenureMode("interval");
+                      setFormData((fd) => ({ ...fd, allowedTerms: [] }));
+                      setAllowedTermsText("");
                     }}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty to use interval. When provided, only these exact tenures are offered to borrowers.
-                  </p>
-                  {formData.allowedTerms.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {formData.allowedTerms.map((m) => (
-                        <Badge key={m} variant="secondary" className="gap-1 pr-1">
-                          {m} mo
-                          <button
-                            type="button"
-                            className="rounded-sm p-0.5 hover:bg-muted"
-                            aria-label={`Remove ${m} months`}
-                            onClick={() =>
-                              setFormData({
-                                ...formData,
-                                allowedTerms: formData.allowedTerms.filter((x) => x !== m),
-                              })
-                            }
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
+                    className={cn(
+                      "rounded-lg border p-4 text-left transition-colors",
+                      tenureMode === "interval"
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                        : "border-border hover:bg-muted/30 hover:border-muted-foreground/15"
+                    )}
+                  >
+                    <span className="text-sm font-medium">Equal steps</span>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      Terms from min to max, spaced evenly (e.g. every 6 months: 12, 18, 24…).
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTenureMode("list")}
+                    className={cn(
+                      "rounded-lg border p-4 text-left transition-colors",
+                      tenureMode === "list"
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                        : "border-border hover:bg-muted/30 hover:border-muted-foreground/15"
+                    )}
+                  >
+                    <span className="text-sm font-medium">Only these months</span>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      Borrowers can pick only the lengths you list (e.g. 6, 12, 24).
+                    </p>
+                  </button>
                 </div>
+
+                {tenureMode === "interval" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="new-term-step-size">Step size (months)</Label>
+                    <NumericInput
+                      id="new-term-step-size"
+                      min={1}
+                      max={60}
+                      value={formData.termInterval}
+                      onChange={(v: NumericInputValue) =>
+                        setFormData({ ...formData, termInterval: toNumericValue(v) })
+                      }
+                      fallback={1}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Example: min 12, max 60, step <strong>6</strong> → 12, 18, 24 … 60.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="new-allowed-terms-csv">Allowed terms (months)</Label>
+                    <Input
+                      id="new-allowed-terms-csv"
+                      value={allowedTermsText}
+                      onChange={(e) => setAllowedTermsText(e.target.value)}
+                      onBlur={() => {
+                        const next = parseAllowedTermsFromCommaText(allowedTermsText);
+                        setFormData((fd) => ({ ...fd, allowedTerms: next }));
+                      }}
+                      placeholder="6, 12, 24, 36"
+                      autoComplete="off"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Comma-separated. Each value must be between your min and max term, and at least 2 months.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Collection Settings */}

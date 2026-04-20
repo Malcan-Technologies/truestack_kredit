@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Video,
   Users,
+  Package,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
@@ -32,7 +33,7 @@ import {
 } from "../ui/dialog";
 import { Badge } from "../ui/badge";
 import { Skeleton } from "../ui/skeleton";
-import { cn } from "../../lib/utils";
+import { cn, formatCurrency } from "../../lib/utils";
 import {
   getBorrowerLoan,
   borrowerLoanViewSignedAgreementUrl,
@@ -88,8 +89,37 @@ function formatInterestPct(v: unknown): string {
   return `${n.toLocaleString("en-MY", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}% p.a.`;
 }
 
-/** Read-only summary shown at the attestation step so the borrower sees loan context before video or meeting. */
+/** Optional product fields the API may include beyond the typed borrower package (matches application-flow sidebar). */
+type AttestationProductExtra = {
+  minAmount?: unknown;
+  maxAmount?: unknown;
+  description?: string | null;
+  legalFeeType?: string;
+  legalFeeValue?: unknown;
+  stampingFeeType?: string;
+  stampingFeeValue?: unknown;
+};
+
+function AttestationDetailRow({
+  label,
+  children,
+  valueClassName,
+}: {
+  label: string;
+  children: ReactNode;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className={cn("text-sm font-medium leading-snug text-foreground", valueClassName)}>{children}</p>
+    </div>
+  );
+}
+
+/** Read-only card matching the application-flow product panel: vertical label → value, full Card wrapper. */
 function AttestationLoanDetails({ loan }: { loan: BorrowerLoanDetail }) {
+  const product = loan.product as BorrowerLoanDetail["product"] & AttestationProductExtra;
   const borrowerName =
     loan.borrower?.borrowerType === "CORPORATE"
       ? loan.borrower?.companyName ?? "—"
@@ -100,41 +130,107 @@ function AttestationLoanDetails({ loan }: { loan: BorrowerLoanDetail }) {
       ? formatRm((loan as BorrowerLoanDetail & { monthlyPayment?: unknown }).monthlyPayment)
       : null;
 
+  const minAmt = toAmountNumber(product.minAmount);
+  const maxAmt = toAmountNumber(product.maxAmount);
+  const hasAmountRange =
+    product.minAmount !== undefined &&
+    product.maxAmount !== undefined &&
+    Number.isFinite(minAmt) &&
+    Number.isFinite(maxAmt);
+
+  const lateRate = toAmountNumber(product.latePaymentRate);
+  const hasLatePayment = product.latePaymentRate !== undefined && Number.isFinite(lateRate);
+  const scheduleLabel = product.loanScheduleType === "JADUAL_K" ? "Jadual K" : "Jadual J";
+
+  const hasFees =
+    (product.legalFeeType && product.legalFeeValue !== undefined) ||
+    (product.stampingFeeType && product.stampingFeeValue !== undefined);
+
   return (
-    <div className="rounded-lg border bg-muted/20 p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-      <div className="flex justify-between gap-4 sm:block">
-        <span className="text-muted-foreground">Borrower</span>
-        <span className="font-medium text-foreground text-right sm:text-left">{borrowerName}</span>
-      </div>
-      <div className="flex justify-between gap-4 sm:block">
-        <span className="text-muted-foreground">Product</span>
-        <span className="font-medium text-foreground text-right sm:text-left">{loan.product?.name ?? "Loan"}</span>
-      </div>
-      <div className="flex justify-between gap-4 sm:block">
-        <span className="text-muted-foreground">Principal</span>
-        <span className="font-medium text-foreground text-right sm:text-left tabular-nums">{formatRm(loan.principalAmount)}</span>
-      </div>
-      <div className="flex justify-between gap-4 sm:block">
-        <span className="text-muted-foreground">Term</span>
-        <span className="font-medium text-foreground text-right sm:text-left">{loan.term} months</span>
-      </div>
-      <div className="flex justify-between gap-4 sm:block">
-        <span className="text-muted-foreground">Interest rate</span>
-        <span className="font-medium text-foreground text-right sm:text-left tabular-nums">{formatInterestPct(loan.interestRate)}</span>
-      </div>
-      {monthly ? (
-        <div className="flex justify-between gap-4 sm:block">
-          <span className="text-muted-foreground">Monthly payment</span>
-          <span className="font-medium text-foreground text-right sm:text-left tabular-nums">{monthly}</span>
+    <Card className="border-border/80 shadow-sm">
+      <CardHeader className="space-y-1.5 pb-2">
+        <CardTitle className="flex items-start gap-2 text-base font-semibold leading-snug">
+          <Package className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span>{product.name ?? "Loan"}</span>
+        </CardTitle>
+        {hasAmountRange ? (
+          <CardDescription>
+            {formatCurrency(minAmt)} – {formatCurrency(maxAmt)}
+          </CardDescription>
+        ) : (
+          <CardDescription className="text-muted-foreground">Your approved loan details</CardDescription>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        {product.description ? (
+          <p className="text-sm text-muted-foreground">{product.description}</p>
+        ) : null}
+
+        <div className="space-y-3 border-t border-border/60 pt-3">
+          <AttestationDetailRow label="Borrower">{borrowerName}</AttestationDetailRow>
+          <AttestationDetailRow label="Principal" valueClassName="tabular-nums">
+            {formatRm(loan.principalAmount)}
+          </AttestationDetailRow>
+          <AttestationDetailRow label="Term" valueClassName="tabular-nums">
+            {loan.term} {loan.term === 1 ? "month" : "months"}
+          </AttestationDetailRow>
+          <AttestationDetailRow label="Interest rate" valueClassName="tabular-nums">
+            {formatInterestPct(loan.interestRate)}
+          </AttestationDetailRow>
+          {monthly ? (
+            <AttestationDetailRow label="Monthly payment" valueClassName="tabular-nums">
+              {monthly}
+            </AttestationDetailRow>
+          ) : null}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Channel</p>
+            <Badge variant="outline" className="w-fit font-medium">
+              {channelLabel}
+            </Badge>
+          </div>
         </div>
-      ) : null}
-      <div className="flex justify-between gap-4 sm:col-span-2 sm:flex sm:items-center sm:justify-between">
-        <span className="text-muted-foreground">Channel</span>
-        <Badge variant="outline" className="w-fit shrink-0">
-          {channelLabel}
-        </Badge>
-      </div>
-    </div>
+
+        {(hasFees || hasLatePayment || product.loanScheduleType) && (
+          <div className="space-y-3 border-t border-border/60 pt-3">
+            {hasFees ? (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Fees</p>
+                <div className="mt-1 space-y-0.5 text-sm font-medium text-foreground">
+                  {product.legalFeeType && product.legalFeeValue !== undefined ? (
+                    <p>
+                      Legal:{" "}
+                      {product.legalFeeType === "PERCENTAGE"
+                        ? `${toAmountNumber(product.legalFeeValue)}%`
+                        : formatCurrency(toAmountNumber(product.legalFeeValue))}
+                    </p>
+                  ) : null}
+                  {product.stampingFeeType && product.stampingFeeValue !== undefined ? (
+                    <p>
+                      Stamping:{" "}
+                      {product.stampingFeeType === "PERCENTAGE"
+                        ? `${toAmountNumber(product.stampingFeeValue)}%`
+                        : formatCurrency(toAmountNumber(product.stampingFeeValue))}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            {hasLatePayment ? (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Late payment</p>
+                <p className="mt-1 text-sm font-medium">{lateRate}% p.a. after arrears period</p>
+              </div>
+            ) : null}
+            {product.loanScheduleType ? (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Schedule</p>
+                <p className="mt-1 text-sm font-medium">{scheduleLabel}</p>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -91,15 +91,9 @@ const createProductSchema = z.object({
 }).refine((data) => {
   const at = data.allowedTerms;
   if (!at?.length) return true;
-  const lower = Math.min(...at);
-  const upper = Math.max(...at);
-  return (
-    lower === data.minTerm &&
-    upper === data.maxTerm &&
-    at.every((t) => t >= data.minTerm && t <= data.maxTerm)
-  );
+  return at.every((t) => t >= data.minTerm && t <= data.maxTerm);
 }, {
-  message: 'allowedTerms must cover minTerm through maxTerm with only values in range',
+  message: 'allowedTerms must only contain values within minTerm and maxTerm',
   path: ['allowedTerms'],
 }).refine(data => data.arrearsPeriod <= data.defaultPeriod, {
   message: 'Arrears period must be less than or equal to default period',

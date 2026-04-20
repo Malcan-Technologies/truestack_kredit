@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -7,11 +7,19 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
+  Extrapolation,
   FadeOut,
+  interpolate,
+  runOnJS,
   SlideInDown,
   SlideInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,6 +38,8 @@ const DEFAULT_DURATION = 2400;
 const MAX_VISIBLE = 3;
 const ENTER_DURATION = 280;
 const EXIT_DURATION = 220;
+const SWIPE_DISMISS_DISTANCE = 48;
+const SWIPE_DISMISS_VELOCITY = 600;
 
 type ToastPosition = 'top' | 'bottom';
 
@@ -156,72 +166,136 @@ function ToastCard({ toast, position, onDismiss }: ToastCardProps) {
   const visuals = useToastVisuals(toast.type);
   const enter = position === 'top' ? SlideInUp : SlideInDown;
 
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(1);
+
+  // Swipe direction that dismisses the toast: up (-1) for top-anchored, down (+1) for bottom.
+  const dismissSign = position === 'top' ? -1 : 1;
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        // Only claim the gesture once the user has moved vertically — keeps tap-to-dismiss responsive.
+        .activeOffsetY(position === 'top' ? [-8, 8] : [-8, 8])
+        .failOffsetX([-20, 20])
+        .onUpdate((event) => {
+          const raw = event.translationY;
+          // Clamp to dismiss direction only; pulling the other way feels wrong.
+          const clamped =
+            position === 'top' ? Math.min(raw, 0) : Math.max(raw, 0);
+          translateY.value = clamped;
+          opacity.value = interpolate(
+            Math.abs(clamped),
+            [0, SWIPE_DISMISS_DISTANCE * 2],
+            [1, 0.4],
+            Extrapolation.CLAMP,
+          );
+        })
+        .onEnd((event) => {
+          const traveled = dismissSign * event.translationY;
+          const velocity = dismissSign * event.velocityY;
+          const shouldDismiss =
+            traveled > SWIPE_DISMISS_DISTANCE || velocity > SWIPE_DISMISS_VELOCITY;
+
+          if (shouldDismiss) {
+            translateY.value = withTiming(dismissSign * 240, { duration: 180 });
+            opacity.value = withTiming(0, { duration: 180 }, (finished) => {
+              if (finished) runOnJS(onDismiss)();
+            });
+          } else {
+            translateY.value = withSpring(0, { damping: 18, stiffness: 220 });
+            opacity.value = withTiming(1, { duration: 160 });
+          }
+        }),
+    [position, dismissSign, onDismiss, translateY, opacity],
+  );
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
+  }));
+
   return (
-    <Animated.View
-      entering={enter.duration(ENTER_DURATION).easing(Easing.out(Easing.cubic))}
-      exiting={FadeOut.duration(EXIT_DURATION).easing(Easing.out(Easing.cubic))}
-      style={[
-        styles.card,
-        {
-          backgroundColor: theme.backgroundElement,
-          borderColor: theme.border,
-        },
-        Platform.OS === 'ios' ? styles.cardShadowIOS : styles.cardShadowAndroid,
-      ]}>
-      <Pressable
-        accessibilityRole="alert"
-        accessibilityLabel={`${toast.message}${toast.description ? `. ${toast.description}` : ''}`}
-        onPress={onDismiss}
-        style={({ pressed }) => [styles.cardInner, { opacity: pressed ? 0.85 : 1 }]}>
-        {visuals.icon ? (
-          <View
-            style={[
-              styles.iconWrap,
-              {
-                backgroundColor: visuals.iconBackground ?? theme.backgroundSelected,
-              },
-            ]}>
-            <MaterialIcons
-              name={visuals.icon}
-              size={18}
-              color={visuals.iconColor ?? theme.text}
-            />
-          </View>
-        ) : null}
-
-        <View style={styles.copy}>
-          <ThemedText type="smallBold" numberOfLines={2} style={styles.message}>
-            {toast.message}
-          </ThemedText>
-          {toast.description ? (
-            <ThemedText
-              type="small"
-              themeColor="textSecondary"
-              numberOfLines={3}
-              style={styles.description}>
-              {toast.description}
-            </ThemedText>
+    <GestureDetector gesture={panGesture}>
+      <Animated.View
+        entering={enter.duration(ENTER_DURATION).easing(Easing.out(Easing.cubic))}
+        exiting={FadeOut.duration(EXIT_DURATION).easing(Easing.out(Easing.cubic))}
+        style={[
+          styles.card,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.border,
+          },
+          Platform.OS === 'ios' ? styles.cardShadowIOS : styles.cardShadowAndroid,
+          animatedStyle,
+        ]}>
+        <Pressable
+          accessibilityRole="alert"
+          accessibilityLabel={`${toast.message}${toast.description ? `. ${toast.description}` : ''}`}
+          onPress={onDismiss}
+          style={({ pressed }) => [styles.cardInner, { opacity: pressed ? 0.85 : 1 }]}>
+          {visuals.icon ? (
+            <View
+              style={[
+                styles.iconWrap,
+                {
+                  backgroundColor: visuals.iconBackground ?? theme.backgroundSelected,
+                },
+              ]}>
+              <MaterialIcons
+                name={visuals.icon}
+                size={18}
+                color={visuals.iconColor ?? theme.text}
+              />
+            </View>
           ) : null}
-        </View>
 
-        {toast.action ? (
-          <Pressable
-            onPress={async () => {
-              await Promise.resolve(toast.action?.onPress());
-              onDismiss();
-            }}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.actionButton,
-              { borderColor: theme.border, opacity: pressed ? 0.75 : 1 },
-            ]}>
-            <ThemedText type="smallBold" style={{ color: theme.text }}>
-              {toast.action.label}
+          <View style={styles.copy}>
+            <ThemedText type="smallBold" numberOfLines={2} style={styles.message}>
+              {toast.message}
             </ThemedText>
+            {toast.description ? (
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                numberOfLines={3}
+                style={styles.description}>
+                {toast.description}
+              </ThemedText>
+            ) : null}
+          </View>
+
+          {toast.action ? (
+            <Pressable
+              onPress={async () => {
+                await Promise.resolve(toast.action?.onPress());
+                onDismiss();
+              }}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.actionButton,
+                { borderColor: theme.border, opacity: pressed ? 0.75 : 1 },
+              ]}>
+              <ThemedText type="smallBold" style={{ color: theme.text }}>
+                {toast.action.label}
+              </ThemedText>
+            </Pressable>
+          ) : null}
+
+          <Pressable
+            onPress={onDismiss}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss notification"
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.closeButton,
+              { opacity: pressed ? 0.5 : 1 },
+            ]}>
+            <MaterialIcons name="close" size={18} color={theme.textSecondary} />
           </Pressable>
-        ) : null}
-      </Pressable>
-    </Animated.View>
+        </Pressable>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
@@ -324,6 +398,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: Spacing.two + 2,
     paddingVertical: Spacing.one + 2,
+    flexShrink: 0,
+  },
+  closeButton: {
+    padding: 4,
+    marginLeft: -Spacing.two,
     flexShrink: 0,
   },
 });

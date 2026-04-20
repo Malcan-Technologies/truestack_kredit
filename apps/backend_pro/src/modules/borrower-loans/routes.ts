@@ -123,6 +123,22 @@ async function createBorrowerManualPaymentRequest(params: {
     newData: { requestId: row.id, amount, reference: reference.trim() },
   });
 
+  try {
+    await NotificationOrchestrator.notifyBorrowerEvent({
+      tenantId,
+      borrowerId,
+      notificationKey: 'manual_payment_submitted',
+      category: 'payments',
+      title: 'Payment submitted',
+      body: `We received your RM ${amount.toFixed(2)} payment notification. Your lender will review and confirm shortly.`,
+      deepLink: `/loans/${loanId}`,
+      sourceType: 'BORROWER_MANUAL_PAYMENT_REQUEST',
+      sourceId: row.id,
+    });
+  } catch (notificationError) {
+    console.error(`[Notifications] Failed manual payment submitted notify ${loanId}:`, notificationError);
+  }
+
   return { id: row.id };
 }
 
@@ -1033,6 +1049,23 @@ router.post('/loans/:loanId/early-settlement/requests', async (req, res, next) =
         snapshotTotalSettlement: d.totalSettlement,
       },
     });
+
+    try {
+      const totalLabel = `RM ${(d.totalSettlement ?? 0).toFixed(2)}`;
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: tenant.id,
+        borrowerId,
+        notificationKey: 'early_settlement_submitted',
+        category: 'payments',
+        title: 'Early settlement request submitted',
+        body: `Your early settlement request for ${totalLabel} was received. Your lender will review and confirm shortly.`,
+        deepLink: `/loans/${loanId}`,
+        sourceType: 'BORROWER_EARLY_SETTLEMENT_REQUEST',
+        sourceId: row.id,
+      });
+    } catch (notificationError) {
+      console.error(`[Notifications] Failed early settlement submitted notify ${loanId}:`, notificationError);
+    }
 
     res.status(201).json({ success: true, data: row });
   } catch (e) {

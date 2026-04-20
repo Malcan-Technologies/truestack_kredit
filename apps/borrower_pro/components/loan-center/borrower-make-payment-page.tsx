@@ -17,6 +17,14 @@ import {
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Separator } from "../ui/separator";
@@ -27,6 +35,7 @@ import {
   fetchBorrowerLender,
   getBorrowerLoan,
   getBorrowerLoanSchedule,
+  listBorrowerEarlySettlementRequests,
   type BorrowerLenderInfo,
 } from "../../lib/borrower-loans-client";
 import type { BorrowerLoanDetail } from "@kredit/borrower";
@@ -122,17 +131,24 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [monthlyInstallment, setMonthlyInstallment] = useState<number | null>(null);
   const [nextDueDate, setNextDueDate] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTransferred, setConfirmTransferred] = useState(false);
+  const [hasPendingEarlySettlement, setHasPendingEarlySettlement] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [loanRes, schRes, lenderRes] = await Promise.all([
+      const [loanRes, schRes, lenderRes, earlyRes] = await Promise.all([
         getBorrowerLoan(loanId),
         getBorrowerLoanSchedule(loanId),
         fetchBorrowerLender().catch(() => null),
+        listBorrowerEarlySettlementRequests(loanId).catch(() => ({ data: [] as Array<{ status: string }> })),
       ]);
       setLoan(loanRes.data);
       setLender(lenderRes);
+      setHasPendingEarlySettlement(
+        Array.isArray(earlyRes?.data) && earlyRes.data.some((r) => r.status === "PENDING"),
+      );
 
       const sch = schRes.data as SchedulePayload | null;
       const reps = sch?.schedule?.repayments ?? [];
@@ -177,7 +193,8 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
     !!lender.lenderAccountHolderName?.trim() &&
     !!lender.lenderAccountNumber?.trim();
 
-  const canSubmit = resolvedAmount != null && reference.trim().length > 0;
+  const canSubmit =
+    resolvedAmount != null && reference.trim().length > 0 && !hasPendingEarlySettlement;
 
   const copyReference = async () => {
     if (!reference.trim()) return;
@@ -191,7 +208,32 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
     }
   };
 
+  const openConfirm = () => {
+    if (hasPendingEarlySettlement) {
+      toast.error("You have an early settlement request pending. Wait for it to be approved or rejected before making a new payment.");
+      return;
+    }
+    if (resolvedAmount == null) {
+      toast.error("Enter a valid payment amount");
+      return;
+    }
+    if (!bankConfigured) {
+      toast.error("Bank details are not available yet. Please contact the admin team.");
+      return;
+    }
+    if (!reference.trim()) {
+      toast.error("Payment reference is required");
+      return;
+    }
+    setConfirmTransferred(false);
+    setConfirmOpen(true);
+  };
+
   const submitManual = async () => {
+    if (hasPendingEarlySettlement) {
+      toast.error("You have an early settlement request pending. Wait for it to be approved or rejected before making a new payment.");
+      return;
+    }
     if (resolvedAmount == null) {
       toast.error("Enter a valid payment amount");
       return;
@@ -215,6 +257,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
       }
       await createBorrowerManualPaymentRequest(loanId, fd);
       toast.success("Payment submitted - pending admin review");
+      setConfirmOpen(false);
       router.push(`/loans/${loanId}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Submission failed");
@@ -253,6 +296,19 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
           admin team before your schedule updates.
         </p>
       </div>
+
+      {hasPendingEarlySettlement ? (
+        <div className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50">
+          <div className="font-semibold mb-1">Payments paused</div>
+          <p>
+            You have an early settlement request awaiting your lender&apos;s approval. New payments
+            cannot be submitted until that request is approved or rejected.
+          </p>
+          <Button variant="outline" size="sm" className="mt-3" asChild>
+            <Link href={`/loans/${loanId}`}>Back to loan</Link>
+          </Button>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">
         {/* ── Left column: form ── */}
@@ -487,7 +543,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
               {/* Desktop submit — visible in-form on lg+ */}
               <Button
                 className="w-full h-12 text-base font-semibold hidden lg:flex"
-                onClick={() => void submitManual()}
+                onClick={openConfirm}
                 disabled={submitting || !canSubmit || !bankConfigured}
               >
                 {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -570,7 +626,7 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
           </div>
           <Button
             className="h-11 px-6 font-semibold shrink-0"
-            onClick={() => void submitManual()}
+            onClick={openConfirm}
             disabled={submitting || !canSubmit || !bankConfigured}
           >
             {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -578,6 +634,88 @@ export function BorrowerMakePaymentPage({ loanId }: { loanId: string }) {
           </Button>
         </div>
       </div>
+
+      <Dialog open={confirmOpen} onOpenChange={(open) => (submitting ? null : setConfirmOpen(open))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm payment</DialogTitle>
+            <DialogDescription>
+              Please confirm you have transferred the exact amount to the company&apos;s bank account before submitting
+              this payment for review.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 text-sm">
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-muted-foreground">Amount transferred</span>
+                <span className="text-xl font-bold tabular-nums">
+                  {resolvedAmount != null ? formatRm(resolvedAmount) : "—"}
+                </span>
+              </div>
+              {bankConfigured && lender ? (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">To</span>
+                    <span className="text-right">
+                      {getBankLabel(lender.lenderBankCode, lender.lenderBankOtherName)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Account</span>
+                    <span className="font-mono text-xs text-right">{lender.lenderAccountNumber}</span>
+                  </div>
+                </>
+              ) : null}
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Reference</span>
+                <span className="font-mono text-xs text-right truncate max-w-[200px]">{reference.trim()}</span>
+              </div>
+            </div>
+
+            <label className="flex items-start gap-3 rounded-lg border border-border p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 shrink-0 rounded border-input"
+                checked={confirmTransferred}
+                onChange={(e) => setConfirmTransferred(e.target.checked)}
+                disabled={submitting}
+              />
+              <span className="text-sm leading-snug">
+                I confirm I have transferred the exact amount of{" "}
+                <span className="font-semibold">
+                  {resolvedAmount != null ? formatRm(resolvedAmount) : "—"}
+                </span>{" "}
+                to the company&apos;s bank account using the reference above.
+              </span>
+            </label>
+
+            <p className="text-xs text-muted-foreground">
+              False confirmations may delay approval or be rejected when the admin team reconciles incoming
+              transfers.
+            </p>
+          </div>
+
+          <DialogFooter className="sm:space-x-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void submitManual()}
+              disabled={submitting || !confirmTransferred}
+            >
+              {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Confirm and submit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -12,6 +12,8 @@ export interface CertStatusResult {
   certValidFrom: string | null;
   certValidTo: string | null;
   certSerialNo: string | null;
+  allowedToSign?: boolean | string | null;
+  authStatus?: string | null;
   statusCode: string;
   statusMsg?: string;
   errorDescription?: string;

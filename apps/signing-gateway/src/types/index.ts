@@ -139,6 +139,9 @@ export interface MtsaBaseResponse {
 
 export interface GetCertInfoResponse extends MtsaBaseResponse {
   certStatus?: string;
+  /** When present, together with `authStatus` reflects activation for the current Trustgate project. */
+  allowedToSign?: boolean | string;
+  authStatus?: string;
   certValidFrom?: string;
   certValidTo?: string;
   certSerialNo?: string;

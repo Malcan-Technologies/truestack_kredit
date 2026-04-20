@@ -56,6 +56,10 @@ export function borrowerTimelineActionInfo(action: string): TimelineActionInfo {
       return { label: 'Attestation slot accepted', icon: 'event' };
     case 'BORROWER_ATTESTATION_COMPLETE':
       return { label: 'Attestation completed', icon: 'check-circle' };
+    case 'BORROWER_ATTESTATION_VIDEO_COMPLETE':
+      return { label: 'Attestation video completed', icon: 'videocam' };
+    case 'LOAN_AUTO_APPROVED':
+      return { label: 'Disbursement approved', icon: 'check-circle' };
     case 'BORROWER_UPLOAD_AGREEMENT':
     case 'UPLOAD_AGREEMENT':
       return { label: 'Signed agreement uploaded', icon: 'description' };
@@ -124,6 +128,7 @@ export function borrowerTimelineActorLabel(event: {
     'INTERNAL_SIGN_WITNESS',
     'SIGNED_AGREEMENT_EMAILED',
     'SIGNED_AGREEMENT_EMAIL_FAILED',
+    'LOAN_AUTO_APPROVED',
   ];
 
   if (adminInitiatedActions.includes(event.action)) return 'Admin';

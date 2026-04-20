@@ -14,6 +14,8 @@ export const CertStatusResultSchema = z.object({
   certValidFrom: z.string().nullable(),
   certValidTo: z.string().nullable(),
   certSerialNo: z.string().nullable(),
+  allowedToSign: z.union([z.boolean(), z.string()]).nullable().optional(),
+  authStatus: z.string().nullable().optional(),
   statusCode: z.string(),
   statusMsg: z.string().optional(),
   errorDescription: z.string().optional(),

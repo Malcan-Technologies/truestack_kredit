@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as mtsa from '../services/MTSAClient.js';
-import { enrichResponse } from '../statusCodes.js';
+import { enrichResponse, enrichRevokeResponse } from '../statusCodes.js';
 import {
   storeSignedPdf,
   getLatestSignedPdf,
@@ -91,7 +91,18 @@ router.post('/cert/revoke', async (req, res) => {
       return;
     }
     const result = await mtsa.requestRevokeCert(body);
-    res.json(enrichResponse(result));
+    const out = enrichRevokeResponse(result);
+    console.log(
+      '[API] /cert/revoke MTSA result:',
+      JSON.stringify({
+        UserID: body.UserID,
+        statusCode: out.statusCode,
+        statusMsg: out.statusMsg,
+        success: out.success,
+        pendingAtTrustgate: out.pendingAtTrustgate,
+      }),
+    );
+    res.json(out);
   } catch (err: any) {
     console.error('[API] /cert/revoke error:', err.message);
     res.status(502).json({ success: false, error: 'MTSA call failed', detail: err.message });

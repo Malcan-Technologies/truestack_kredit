@@ -1,8 +1,10 @@
 import type {
+  BorrowerEarlySettlementRequest,
   BorrowerLoanDetail,
   BorrowerLoanListItem,
   BorrowerLoanMetrics,
   BorrowerLoanTimelineEvent,
+  EarlySettlementQuoteData,
   LoanCenterOverview,
   RecordBorrowerPaymentBody,
   LenderBankInfo,
@@ -494,6 +496,64 @@ export function createLoansApiClient(baseUrl: string, fetchFn: FetchFn) {
     return { success: true, data: json.data! };
   }
 
+  async function getBorrowerEarlySettlementQuote(loanId: string): Promise<{
+    success: boolean;
+    data: EarlySettlementQuoteData;
+  }> {
+    const res = await fetchFn(
+      `${baseUrl}/loans/${encodeURIComponent(loanId)}/early-settlement/quote`
+    );
+    const json = await parseJson<{
+      success: boolean;
+      data?: EarlySettlementQuoteData;
+      error?: string;
+    }>(res);
+    if (!res.ok) {
+      throw new Error(json.error || "Failed to load settlement quote");
+    }
+    if (!json.data) {
+      throw new Error("No quote data");
+    }
+    return { success: true, data: json.data };
+  }
+
+  async function createBorrowerEarlySettlementRequest(
+    loanId: string,
+    body: { borrowerNote?: string; reference?: string }
+  ): Promise<{ success: boolean; data: unknown }> {
+    const res = await fetchFn(
+      `${baseUrl}/loans/${encodeURIComponent(loanId)}/early-settlement/requests`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+    const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+    if (!res.ok) {
+      throw new Error(json.error || "Could not submit early settlement request");
+    }
+    return { success: true, data: json.data ?? json };
+  }
+
+  async function listBorrowerEarlySettlementRequests(loanId: string): Promise<{
+    success: boolean;
+    data: BorrowerEarlySettlementRequest[];
+  }> {
+    const res = await fetchFn(
+      `${baseUrl}/loans/${encodeURIComponent(loanId)}/early-settlement/requests`
+    );
+    const json = await parseJson<{
+      success: boolean;
+      data?: BorrowerEarlySettlementRequest[];
+      error?: string;
+    }>(res);
+    if (!res.ok) {
+      throw new Error(json.error || "Failed to load early settlement requests");
+    }
+    return { success: true, data: json.data ?? [] };
+  }
+
   async function fetchBorrowerLender(): Promise<LenderBankInfo> {
     const res = await fetchFn(`${baseUrl}/lender`);
     const json = await parseJson<{ success: boolean; data?: LenderBankInfo; error?: string }>(res);
@@ -531,5 +591,8 @@ export function createLoansApiClient(baseUrl: string, fetchFn: FetchFn) {
     getBorrowerApplicationTimeline,
     withdrawBorrowerApplication,
     fetchBorrowerLender,
+    getBorrowerEarlySettlementQuote,
+    createBorrowerEarlySettlementRequest,
+    listBorrowerEarlySettlementRequests,
   };
 }

@@ -128,6 +128,8 @@ function ProgressDonut({
     strokeColor = "stroke-error";
   } else if (status === "IN_ARREARS") {
     strokeColor = "stroke-warning";
+  } else if (readyToComplete) {
+    strokeColor = "stroke-success";
   }
 
   return (

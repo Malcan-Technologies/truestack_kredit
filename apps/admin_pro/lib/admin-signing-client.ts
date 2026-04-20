@@ -28,6 +28,8 @@ export interface StaffSigningProfile {
   designation?: string;
   certSerialNo?: string;
   certStatus?: string;
+  mtsaAllowedToSign?: boolean | null;
+  mtsaAuthStatus?: string | null;
   certValidFrom?: string;
   certValidTo?: string;
   kycComplete: boolean;
@@ -59,9 +61,13 @@ export interface CertInfo {
   statusMsg?: string;
   errorDescription?: string;
   certStatus?: string;
+  allowedToSign?: boolean | string | null;
+  authStatus?: string | null;
   certValidFrom?: string;
   certValidTo?: string;
   certSerialNo?: string;
+  certSubjectDN?: string;
+  certIssuer?: string;
 }
 
 export interface TenantSigner {
@@ -72,6 +78,8 @@ export interface TenantSigner {
   email: string;
   designation?: string;
   certStatus?: string;
+  mtsaAllowedToSign?: boolean | null;
+  mtsaAuthStatus?: string | null;
   certSerialNo?: string;
   certValidFrom?: string;
   certValidTo?: string;
@@ -252,6 +260,7 @@ export async function revokeCert(
   statusCode: string;
   statusMsg?: string;
   errorDescription?: string;
+  pendingAtTrustgate?: boolean;
 }> {
   const res = await fetch(`${BASE}/revoke`, {
     method: "POST",

@@ -208,6 +208,16 @@ export function LoanPendingAgreementPage() {
 
   useEffect(() => {
     if (!loan) return;
+    const review = loan.signedAgreementReviewStatus ?? "NONE";
+    // If the signed agreement is already with the lender (or approved), every
+    // earlier step is implicitly done — jump straight to the lender-review
+    // card. Skip the certDone / kycDone gates because their local flags may be
+    // missing on a fresh tab/session even though the work is complete.
+    if (review === "PENDING" || review === "APPROVED") {
+      setJourneyUiStep("lender_review");
+      attestationDoneSeenRef.current = true;
+      return;
+    }
     if (requiresAttestation && !attestationDone) {
       attestationDoneSeenRef.current = false;
       setJourneyUiStep("attestation");
@@ -223,12 +233,6 @@ export function LoanPendingAgreementPage() {
     }
     if (!certDone) {
       setJourneyUiStep("certificate");
-      return;
-    }
-    const review = loan.signedAgreementReviewStatus ?? "NONE";
-    if (review === "PENDING" || review === "APPROVED") {
-      setJourneyUiStep("lender_review");
-      attestationDoneSeenRef.current = true;
       return;
     }
     if (!attestationDoneSeenRef.current) {

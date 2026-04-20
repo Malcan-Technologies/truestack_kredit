@@ -18,6 +18,12 @@ import {
   updateMtsaEmail,
 } from '../../lib/signingGatewayClient.js';
 import type { CertInfoResponse } from '../../lib/signingGatewayClient.js';
+import {
+  certInfoToActivationSignals,
+  isMtsaSigningActiveForProject,
+  isStaffSigningActiveFromStored,
+  parseMtsaAllowedToSignForDb,
+} from '../../lib/mtsaCertActivation.js';
 import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { AuditService } from '../compliance/auditService.js';
 import { getFile, saveAgreementFile, saveFile } from '../../lib/storage.js';
@@ -37,14 +43,29 @@ async function persistStaffCertInfoFromMtsa(
   },
   certInfo: CertInfoResponse,
 ): Promise<void> {
-  if (!certInfo.certStatus) return;
+  const hasCertStatus = !!certInfo.certStatus;
+  const shouldPatchMtsaActivation =
+    certInfo.allowedToSign !== undefined ||
+    (certInfo.authStatus != null && String(certInfo.authStatus).trim() !== '');
+  if (!hasCertStatus && !shouldPatchMtsaActivation) return;
+
   await prisma.staffSigningProfile.update({
     where: { id: profile.id },
     data: {
-      certStatus: certInfo.certStatus,
-      certSerialNo: certInfo.certSerialNo || profile.certSerialNo,
-      certValidFrom: certInfo.certValidFrom ? new Date(certInfo.certValidFrom) : profile.certValidFrom,
-      certValidTo: certInfo.certValidTo ? new Date(certInfo.certValidTo) : profile.certValidTo,
+      ...(hasCertStatus
+        ? {
+            certStatus: certInfo.certStatus,
+            certSerialNo: certInfo.certSerialNo || profile.certSerialNo,
+            certValidFrom: certInfo.certValidFrom ? new Date(certInfo.certValidFrom) : profile.certValidFrom,
+            certValidTo: certInfo.certValidTo ? new Date(certInfo.certValidTo) : profile.certValidTo,
+          }
+        : {}),
+      ...(shouldPatchMtsaActivation
+        ? {
+            mtsaAllowedToSign: parseMtsaAllowedToSignForDb(certInfo.allowedToSign),
+            mtsaAuthStatus: certInfo.authStatus?.trim() || null,
+          }
+        : {}),
     },
   });
 }
@@ -366,7 +387,7 @@ router.post('/check-email-change', requireSigningCertificatesManage, async (req,
     }
 
     const certInfo = await getCertInfo(profile.icNumber);
-    if (!certInfo.success || certInfo.certStatus !== 'Valid') {
+    if (!isMtsaSigningActiveForProject(certInfoToActivationSignals(certInfo))) {
       res.json({ requiresOtp: false });
       return;
     }
@@ -585,6 +606,21 @@ router.post('/enroll', requireSigningCertificatesManage, async (req, res, next) 
         },
       });
 
+      try {
+        const refreshed = await getCertInfo(profile.icNumber);
+        await persistStaffCertInfoFromMtsa(
+          {
+            id: profile.id,
+            certSerialNo: enrollResult.certSerialNo ?? profile.certSerialNo,
+            certValidFrom: enrollResult.certValidFrom ? new Date(enrollResult.certValidFrom) : profile.certValidFrom,
+            certValidTo: enrollResult.certValidTo ? new Date(enrollResult.certValidTo) : profile.certValidTo,
+          },
+          refreshed,
+        );
+      } catch {
+        /* non-fatal — next cert-status refresh will sync MTSA activation fields */
+      }
+
       await AuditService.log({
         tenantId,
         action: 'STAFF_CERT_ENROLLED',
@@ -738,6 +774,7 @@ router.post('/revoke', requireSigningCertificatesManage, async (req, res, next) 
       statusCode: result.statusCode,
       statusMsg: result.statusMsg,
       errorDescription: result.errorDescription,
+      pendingAtTrustgate: result.pendingAtTrustgate === true,
     });
   } catch (err) {
     next(err);
@@ -767,8 +804,11 @@ router.post('/sign-agreement', requireAgreementSigning, async (req, res, next) =
     if (!profile || !profile.certSerialNo) {
       throw new BadRequestError('You need a valid signing certificate. Go to Signing Certificates to set up.');
     }
-    if (profile.certStatus !== 'Valid') {
-      throw new BadRequestError(`Your certificate status is "${profile.certStatus}". A valid certificate is required.`);
+    if (!isStaffSigningActiveFromStored(profile)) {
+      throw new BadRequestError(
+        `Your signing certificate is not active for this project (status: "${profile.certStatus ?? 'unknown'}"). ` +
+          `Complete enrollment on Signing certificates or contact support.`,
+      );
     }
 
     const loan = await prisma.loan.findFirst({
@@ -985,6 +1025,8 @@ router.get('/signers', requirePermission('signing_certificates.view'), async (re
         email: true,
         designation: true,
         certStatus: true,
+        mtsaAllowedToSign: true,
+        mtsaAuthStatus: true,
         certSerialNo: true,
         certValidFrom: true,
         certValidTo: true,
@@ -1020,6 +1062,8 @@ router.get('/signers', requirePermission('signing_certificates.view'), async (re
         email: true,
         designation: true,
         certStatus: true,
+        mtsaAllowedToSign: true,
+        mtsaAuthStatus: true,
         certSerialNo: true,
         certValidFrom: true,
         certValidTo: true,

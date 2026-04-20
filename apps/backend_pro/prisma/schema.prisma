@@ -1751,6 +1751,10 @@ model StaffSigningProfile {
   designation   String?  // e.g. "Director", "Authorised Signatory"
   certSerialNo  String?
   certStatus    String?  // Valid, Expired, Revoked, null
+  /// Last-seen MTSA GetCertInfo `allowedToSign` for this Trustgate project (null = SOAP did not send the field).
+  mtsaAllowedToSign Boolean?
+  /// Last-seen MTSA GetCertInfo `authStatus` (e.g. Active, Not Active, Revoked).
+  mtsaAuthStatus    String?
   certValidFrom DateTime?
   certValidTo   DateTime?
   kycComplete   Boolean  @default(false)

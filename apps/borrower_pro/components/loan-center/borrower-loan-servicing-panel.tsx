@@ -17,6 +17,7 @@ import {
   ExternalLink,
   FileCheck,
   Loader2,
+  Lock,
   MoreHorizontal,
   FileText,
   Shield,
@@ -24,6 +25,7 @@ import {
   Receipt,
   TrendingUp,
   User,
+  Video,
   XCircle,
   Percent,
 } from "lucide-react";
@@ -244,6 +246,10 @@ function borrowerTimelineActionInfo(action: string): {
       return { icon: Calendar, label: "Attestation slot accepted" };
     case "BORROWER_ATTESTATION_COMPLETE":
       return { icon: CheckCircle, label: "Attestation completed" };
+    case "BORROWER_ATTESTATION_VIDEO_COMPLETE":
+      return { icon: Video, label: "Attestation video completed" };
+    case "LOAN_AUTO_APPROVED":
+      return { icon: CheckCircle, label: "Disbursement approved" };
     case "BORROWER_UPLOAD_AGREEMENT":
       return { icon: FileText, label: "Signed agreement uploaded" };
     case "UPLOAD_AGREEMENT":
@@ -303,7 +309,8 @@ function borrowerTimelineActorLabel(event: BorrowerLoanTimelineEvent): string | 
     event.action === "INTERNAL_SIGN_COMPANY_REP" ||
     event.action === "INTERNAL_SIGN_WITNESS" ||
     event.action === "SIGNED_AGREEMENT_EMAILED" ||
-    event.action === "SIGNED_AGREEMENT_EMAIL_FAILED"
+    event.action === "SIGNED_AGREEMENT_EMAIL_FAILED" ||
+    event.action === "LOAN_AUTO_APPROVED"
   ) {
     return "Admin";
   }
@@ -512,6 +519,37 @@ function BorrowerTimelineItem({ event }: { event: BorrowerLoanTimelineEvent }) {
               </>
             ) : null}
           </p>
+        </div>
+      );
+    }
+
+    if (event.action === "BORROWER_ATTESTATION_VIDEO_COMPLETE" && nd) {
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          <p className="text-xs text-muted-foreground">
+            You finished watching the required attestation video
+            {typeof nd.watchedPercent === "number" ? (
+              <span className="text-foreground"> ({nd.watchedPercent}%)</span>
+            ) : null}
+            .
+          </p>
+        </div>
+      );
+    }
+
+    if (event.action === "LOAN_AUTO_APPROVED" && nd) {
+      const reason = nd.reason != null ? String(nd.reason).trim() : "";
+      return (
+        <div className="space-y-1 rounded-lg border border-border bg-secondary p-3">
+          {reason ? (
+            <p className="text-xs text-muted-foreground">
+              <span className="text-foreground">{reason}</span>
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Triggered once all required internal signatures were applied.
+            </p>
+          )}
         </div>
       );
     }
@@ -876,33 +914,47 @@ export function BorrowerLoanServicingPanel({
             </p>
           </div>
         </div>
-        {pendingManualPayments > 0 ? (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-50">
-            <span className="font-medium">Pending payment approval: </span>
-            {pendingManualPayments} manual payment notification(s) awaiting your lender. Your schedule will update after
-            approval.
-          </div>
-        ) : null}
-        {pendingEarlySettlement > 0 ? (
-          <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm text-blue-950 dark:text-blue-50">
-            <span className="font-medium">Early settlement: </span>
-            {pendingEarlySettlement} request(s) awaiting lender approval. You will be notified when the loan is settled.
-          </div>
-        ) : null}
         <div className="flex flex-wrap gap-2 justify-end">
           <RefreshButton
             onRefresh={() => void handleRefreshPage()}
             showLabel
             showToast
             successMessage="Loan data refreshed"
+            className="h-9 px-3"
           />
           {canPay ? (
-            <Button size="sm" asChild>
-              <Link href={`/loans/${loanId}/payment`}>
-                <CreditCard className="h-4 w-4 mr-2" />
-                Make payment
-              </Link>
-            </Button>
+            pendingEarlySettlement > 0 ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span tabIndex={0} className="inline-flex">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled
+                        className="pointer-events-none opacity-50">
+                        <CreditCard className="h-4 w-4 mr-2" />
+                        Make payment
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>
+                      Payments are paused while your early settlement request is awaiting your
+                      lender&apos;s approval. Wait for it to be approved or rejected before making a
+                      new payment.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <Button size="sm" asChild>
+                <Link href={`/loans/${loanId}/payment`}>
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Make payment
+                </Link>
+              </Button>
+            )
           ) : null}
           {showEarlySettlementHeader ? (
             <TooltipProvider>
@@ -940,6 +992,20 @@ export function BorrowerLoanServicingPanel({
           ) : null}
         </div>
       </div>
+
+      {pendingManualPayments > 0 ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-50">
+          <span className="font-medium">Pending payment approval: </span>
+          {pendingManualPayments} manual payment notification(s) awaiting your lender. Your schedule will update after
+          approval.
+        </div>
+      ) : null}
+      {pendingEarlySettlement > 0 ? (
+        <div className="rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm text-blue-950 dark:text-blue-50">
+          <span className="font-medium">Early settlement: </span>
+          {`${pendingEarlySettlement} request${pendingEarlySettlement === 1 ? "" : "s"} awaiting lender approval. New payments are paused until it's approved or rejected.`}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -1050,14 +1116,47 @@ export function BorrowerLoanServicingPanel({
           {showEarlySettlementCard ? (
             <Card id="borrower-early-settlement">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Percent className="h-5 w-5 text-muted-foreground" />
-                  Early settlement
-                </CardTitle>
-                <CardDescription>
-                  Settle your loan in full using your product&apos;s discounted early settlement amount — same steps as
-                  making a payment (bank transfer + request for lender approval).
-                </CardDescription>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Percent className="h-5 w-5 text-muted-foreground" />
+                      Early settlement
+                    </CardTitle>
+                    <CardDescription>
+                      Settle your loan in full using your product&apos;s discounted early settlement amount — same
+                      steps as making a payment (bank transfer + request for lender approval).
+                    </CardDescription>
+                  </div>
+                  {(() => {
+                    if (!earlyQuote) return null;
+                    if (pendingEarlySettlement > 0) {
+                      return (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 gap-1 border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                          <Clock className="h-3 w-3" />
+                          Pending
+                        </Badge>
+                      );
+                    }
+                    if (earlyQuote.eligible) {
+                      return (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 gap-1 border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                          <CheckCircle className="h-3 w-3" />
+                          Eligible
+                        </Badge>
+                      );
+                    }
+                    return (
+                      <Badge variant="outline" className="shrink-0 gap-1 text-muted-foreground">
+                        <Lock className="h-3 w-3" />
+                        Not eligible
+                      </Badge>
+                    );
+                  })()}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 {loading && !earlyQuote ? (

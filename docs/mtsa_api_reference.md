@@ -4,7 +4,7 @@
 
 This document defines the SOAP API contract for the MyTrustSigner Agent (MTSA), a proprietary Java/Tomcat service provided by MSC Trustgate for PKI (Public Key Infrastructure) digital signing operations in Malaysia.
 
-This reference is extracted from the official Trustgate ICD specification (v1.0, dated 19-Jan-2026) and validated against the working `creditxpress_aws` implementation. It serves as the canonical API contract for building the Signing Gateway in `truestack_kredit`.
+This reference is extracted from the official Trustgate ICD specification (v1.0, dated 19-Jan-2026), supplemented with the **MTSA v1.1** package update (additional `GetCertInfo` fields and refined signing-readiness semantics — see the v1.1 callouts below), and validated against the working `creditxpress_aws` implementation. It serves as the canonical API contract for building the Signing Gateway in `truestack_kredit`.
 
 ---
 
@@ -221,13 +221,39 @@ Retrieves the current status and details of a user's digital certificate.
 |-------|------|-------------|
 | `statusCode` | string | `"000"` = success |
 | `statusMsg` | string | Status message |
-| `certStatus` | string | Certificate status: `Valid`, `Expired`, `Revoked` |
+| `certStatus` | string | Credential lifecycle state: `Valid`, `Expired`, `Revoked`. **`Valid` alone does not imply the cert can sign right now** — see `allowedToSign` / `authStatus` below. |
 | `certValidFrom` | string | Validity start. Example: `2020-07-01 08:00:00` |
 | `certValidTo` | string | Validity end. Example: `2020-08-29 07:59:59` |
 | `certSerialNo` | string | Certificate serial number |
 | `certX509` | string | Certificate in base64 format |
 | `certIssuer` | string | Certificate issuer DN |
-| `certSubjectDN` | string | Certificate subject DN |
+| `certSubjectDN` | string | Certificate subject DN. **Used to distinguish internal vs external signers** — see [Internal vs External Signers](#internal-vs-external-signers-from-certsubjectdn). |
+| `allowedToSign` | boolean \| string | **(MTSA v1.1)** `true` (or `"true"` as string) → the certificate is allowed to sign. SOAP serialisation may emit this as a string; treat both forms equally. |
+| `authStatus` | string | **(MTSA v1.1)** Authorisation state: `Active` means the certificate is currently usable for signing. Other values (e.g. `Inactive`, `Suspended`, `Revoked`) mean it is not. |
+
+> **MTSA v1.1 — Signing-Readiness Semantics**
+>
+> Per Trustgate's clarification, signing-readiness is universal for **both internal and external users** and is determined by the new fields:
+>
+> - `allowedToSign === true` **AND** `authStatus === Active` → the certificate is valid and ready for signing. Proceed with `RequestEmailOTP`/`RequestSMSOTP`/`VerifyCertPin` and then `SignPDF`.
+> - Otherwise (any of: `allowedToSign` is false, `authStatus` is not `Active`, or the cert is `Revoked` / `Expired`) → the certificate cannot be used for signing. For a brand-new user, call `RequestCertificate` to enroll.
+>
+> Important nuances:
+>
+> - `certStatus === Valid` only confirms a credential exists for the user — it may have been issued under another project or otherwise not enabled here. Always combine it with `allowedToSign` + `authStatus`.
+> - Older MTSA responses (pre-v1.1) may omit `allowedToSign` and `authStatus`. In that case, fall back to `certStatus === Valid` for readiness.
+> - Internal vs external is **not** encoded by these fields — it is derived from the `certSubjectDN` (next section).
+
+##### Internal vs External Signers (from `certSubjectDN`)
+
+The same `GetCertInfo` response can describe either an internal (organisational) signer or an external (personal) signer. The distinction is in the Subject DN attributes, not in the status fields:
+
+| Type | Marker in `certSubjectDN` | Example |
+|------|---------------------------|---------|
+| **Internal** (UserType 2) | Carries organisation attributes — typically `O=…` and often `T=…` (title) and `OID.2.5.4.97=…` (org registration number) | `CN=ROWAN SEBASTIAN ATKINSON, SERIALNUMBER=IDC-550106125821, O=ANDAS EL, OID.2.5.4.97=NTRMY-202001000123, T=Director, L=Kuala Lumpur, ST=Kuala Lumpur, C=MY` |
+| **External** (UserType 1) | Personal cert — only `CN`, `SERIALNUMBER`, `C` (no organisation attributes) | `CN=NUURAL ATIQULLAH BIN RAHAIMI, SERIALNUMBER=991117035967, C=MY` |
+
+Heuristic: presence of `O=`, `T=`, or `OID.2.5.4.97=` in the DN ⇒ internal; otherwise ⇒ external.
 
 #### SOAP Envelope
 
@@ -964,13 +990,16 @@ MTSA must **never** be exposed to external networks. It should only be reachable
 
 ## Typical Signing Flows
 
+> **All flows below assume MTSA v1.1 signing-readiness semantics.** Treat a certificate as ready to sign when `success === true`, `certStatus === Valid`, `allowedToSign === true`, **and** `authStatus === Active`. If any of those is missing/false, route the user to enrollment (or surface a "not active — contact admin" state for a stranded credential).
+
 ### Borrower (UserType 1 — External, Email OTP)
 
-1. **Certificate Check** — `GetCertInfo` to check if borrower already has a valid certificate
-2. **Certificate Enrollment** (if needed):
+1. **Certificate Check** — `GetCertInfo`. If the cert is signing-ready (per the v1.1 rule above), skip enrollment.
+2. **Certificate Enrollment** (if not signing-ready):
    a. `RequestEmailOTP` with `OTPUsage = "NU"` and `EmailAddress` to send enrollment OTP
    b. User enters OTP
    c. `RequestCertificate` with the OTP as `AuthFactor`, identity documents, and KYC images
+   d. After enrollment completes, optionally call `GetCertInfo` again to confirm `allowedToSign` + `authStatus === Active`
 3. **Signing**:
    a. `RequestEmailOTP` with `OTPUsage = "DS"` (no `EmailAddress` — MTSA uses registered email)
    b. User enters OTP
@@ -980,11 +1009,12 @@ MTSA must **never** be exposed to external networks. It should only be reachable
 
 ### Internal Staff (UserType 2 — Internal, PIN-based)
 
-1. **Certificate Check** — `GetCertInfo` to check if staff member already has a valid certificate
-2. **Certificate Enrollment** (if needed):
+1. **Certificate Check** — `GetCertInfo`. Apply the same v1.1 readiness rule. The `certSubjectDN` should additionally show organisation attributes (`O=`, `T=`, `OID.2.5.4.97=`); if not, the cert was issued as an external personal cert and should not be used for internal signing.
+2. **Certificate Enrollment** (if not signing-ready):
    a. `RequestEmailOTP` with `OTPUsage = "NU"` and `EmailAddress` to send enrollment OTP
    b. Staff enters OTP
    c. `RequestCertificate` with PIN as `AuthFactor`, UserType `2`, identity documents, `OrganisationInfo`, and `VerificationData`
+   d. After enrollment completes, optionally call `GetCertInfo` to persist the v1.1 fields and confirm activation
 3. **Signing** (triggered from `backend_pro`, not directly from frontend):
    a. `VerifyCertPin` to validate the staff member's PIN
    b. `SignPDF` with the PIN as `AuthFactor`, the already-signed PDF (from borrower step), signature image, and role-specific coordinates

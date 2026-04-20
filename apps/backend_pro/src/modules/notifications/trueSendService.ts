@@ -970,8 +970,12 @@ export class TrueSendService {
     receiptNumber: string,
     isEarlySettlement: boolean = false
   ): Promise<boolean> {
-    const isActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
-    if (!isActive) return false;
+    /**
+     * `payment_receipt` is the unified "payment recorded" notification: in-app + push always
+     * fan out (subject to per-channel toggles), while the receipt email is additionally gated
+     * by the TRUESEND add-on so tenants without TrueSend can still receive in-app/push alerts.
+     */
+    const trueSendActive = await AddOnService.hasActiveAddOn(tenantId, 'TRUESEND');
 
     const loan = await this.getLoanContext(tenantId, loanId);
     if (!loan) return false;
@@ -979,39 +983,11 @@ export class TrueSendService {
     const tenantName = loan.tenant.name;
     const amountFormatted = formatCurrency(safeRound(paymentAmount, 2));
 
-    const content = `
-      <h2>Payment Receipt${isEarlySettlement ? ' — Early Settlement' : ''}</h2>
-      <p>Dear ${loan.borrower.name},</p>
-      <p>We acknowledge receipt of your ${isEarlySettlement ? 'early settlement ' : ''}payment. Thank you for your prompt payment.</p>
-      <div class="highlight">
-        <table class="details">
-          <tr><td>Receipt Number</td><td>${receiptNumber}</td></tr>
-          <tr><td>Amount Paid</td><td>${amountFormatted}</td></tr>
-          ${isEarlySettlement ? '<tr><td>Payment Type</td><td>Early Settlement</td></tr>' : ''}
-        </table>
-      </div>
-      <p>Attached to this email is your official <strong>payment receipt</strong> for your records.</p>
-      <p>If you have any questions regarding this payment, please contact ${tenantName} directly.</p>
-      <p>Thank you.</p>
-    `;
-
-    const receiptFilename = receiptPath.split('/').pop() || `receipt-${receiptNumber}.pdf`;
-
-    const emailResult = await this.sendAutomationEmail({
-      tenantId,
-      loanId,
-      borrowerId: loan.borrowerId,
-      notificationKey: 'payment_receipt',
-      emailType: 'PAYMENT_RECEIPT',
-      recipientEmail: loan.borrower.email ?? null,
-      recipientName: loan.borrower.name,
-      subject: `Payment Receipt — ${amountFormatted} (${receiptNumber})`,
-      htmlBody: await buildEmailWrapper(loan.tenant, content),
-      attachmentPath: receiptPath,
-      attachmentFilename: receiptFilename,
-      requireAllAttachments: true,
-    });
-
+    /**
+     * In-app + push and email are independent channels: attempt both and only escalate
+     * failures after both have run, so a notification outage cannot block the receipt
+     * email and an email outage cannot suppress the inbox/push entry.
+     */
     const borrowerNotificationProcessed = await this.fanOutBorrowerNotification(
       {
           tenantId,
@@ -1027,15 +1003,54 @@ export class TrueSendService {
       `[TrueSend] Failed to fan out payment receipt for loan ${loanId}:`,
     );
 
-    if (emailResult.required && !emailResult.delivered) {
+    let emailRequired = false;
+    let emailDelivered = false;
+    if (trueSendActive) {
+      const content = `
+        <h2>Payment Receipt${isEarlySettlement ? ' — Early Settlement' : ''}</h2>
+        <p>Dear ${loan.borrower.name},</p>
+        <p>We acknowledge receipt of your ${isEarlySettlement ? 'early settlement ' : ''}payment. Thank you for your prompt payment.</p>
+        <div class="highlight">
+          <table class="details">
+            <tr><td>Receipt Number</td><td>${receiptNumber}</td></tr>
+            <tr><td>Amount Paid</td><td>${amountFormatted}</td></tr>
+            ${isEarlySettlement ? '<tr><td>Payment Type</td><td>Early Settlement</td></tr>' : ''}
+          </table>
+        </div>
+        <p>Attached to this email is your official <strong>payment receipt</strong> for your records.</p>
+        <p>If you have any questions regarding this payment, please contact ${tenantName} directly.</p>
+        <p>Thank you.</p>
+      `;
+
+      const receiptFilename = receiptPath.split('/').pop() || `receipt-${receiptNumber}.pdf`;
+
+      const emailResult = await this.sendAutomationEmail({
+        tenantId,
+        loanId,
+        borrowerId: loan.borrowerId,
+        notificationKey: 'payment_receipt',
+        emailType: 'PAYMENT_RECEIPT',
+        recipientEmail: loan.borrower.email ?? null,
+        recipientName: loan.borrower.name,
+        subject: `Payment Receipt — ${amountFormatted} (${receiptNumber})`,
+        htmlBody: await buildEmailWrapper(loan.tenant, content),
+        attachmentPath: receiptPath,
+        attachmentFilename: receiptFilename,
+        requireAllAttachments: true,
+      });
+      emailRequired = emailResult.required;
+      emailDelivered = emailResult.delivered;
+    }
+
+    /** Defer escalation until both channels have been attempted so they remain independent. */
+    if (emailRequired && !emailDelivered) {
       throw new Error(`TrueSend failed to deliver email for payment receipt on loan ${loanId}`);
     }
-
     if (!borrowerNotificationProcessed) {
-      throw new Error(`TrueSend failed to deliver borrower notification for payment receipt on loan ${loanId}`);
+      throw new Error(`Failed to deliver borrower notification for payment receipt on loan ${loanId}`);
     }
 
-    return emailResult.delivered;
+    return emailDelivered;
   }
 
   /**

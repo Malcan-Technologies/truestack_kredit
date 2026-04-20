@@ -81,9 +81,11 @@ import {
 import type {
   AttestationStatus,
   BorrowerDetail,
+  BorrowerEarlySettlementRequest,
   BorrowerLoanDetail,
   BorrowerLoanMetrics,
   BorrowerLoanTimelineEvent,
+  EarlySettlementQuoteData,
   SignedAgreementReviewStatus,
   TruestackKycStatusData,
 } from '@kredit/borrower';
@@ -146,6 +148,8 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
   const [timelineCursor, setTimelineCursor] = useState<string | null>(null);
   const [hasMoreTimeline, setHasMoreTimeline] = useState(false);
   const [loadingMoreTimeline, setLoadingMoreTimeline] = useState(false);
+  const [earlyQuote, setEarlyQuote] = useState<EarlySettlementQuoteData | null>(null);
+  const [earlyRequests, setEarlyRequests] = useState<BorrowerEarlySettlementRequest[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -165,6 +169,8 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
         setTimeline([]);
         setHasMoreTimeline(false);
         setTimelineCursor(null);
+        setEarlyQuote(null);
+        setEarlyRequests([]);
         return;
       }
 
@@ -190,6 +196,27 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
       setTimeline(timelineRes.data ?? []);
       setHasMoreTimeline(timelineRes.pagination?.hasMore ?? false);
       setTimelineCursor(timelineRes.pagination?.nextCursor ?? null);
+
+      // Early settlement quote + history (only when product enabled and loan is payable).
+      if (
+        nextLoan.product?.earlySettlementEnabled &&
+        (nextLoan.status === 'ACTIVE' || nextLoan.status === 'IN_ARREARS')
+      ) {
+        const [quoteRes, reqRes] = await Promise.all([
+          loansClient
+            .getBorrowerEarlySettlementQuote(loanId)
+            .catch(() => ({ success: false as const, data: null as EarlySettlementQuoteData | null })),
+          loansClient.listBorrowerEarlySettlementRequests(loanId).catch(() => ({
+            success: true,
+            data: [] as BorrowerEarlySettlementRequest[],
+          })),
+        ]);
+        setEarlyQuote(quoteRes.data ?? null);
+        setEarlyRequests(reqRes.data ?? []);
+      } else {
+        setEarlyQuote(null);
+        setEarlyRequests([]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load loan');
     }
@@ -272,7 +299,11 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
 
   const canPay = PAYABLE_STATUSES.has(loan.status);
   const pendingManualPayments = manualPayments.filter((m) => m.status === 'PENDING').length;
+  const pendingEarlySettlements = earlyRequests.filter((r) => r.status === 'PENDING').length;
   const productScheduleType = loan.product?.loanScheduleType;
+  const showEarlySettlementCard =
+    Boolean(loan.product?.earlySettlementEnabled) &&
+    (loan.status === 'ACTIVE' || loan.status === 'IN_ARREARS');
 
   return (
     <PageScreen
@@ -283,7 +314,7 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
         <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.primary} />
       }
       stickyFooter={
-        canPay ? (
+        canPay && pendingEarlySettlements === 0 ? (
           <CtaButton
             label="Make payment"
             icon="credit-card"
@@ -304,7 +335,26 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
         />
       ) : null}
 
+      {pendingEarlySettlements > 0 ? (
+        <BannerCard
+          tone="info"
+          icon="schedule"
+          title="Early settlement pending"
+          description={`${pendingEarlySettlements} request${
+            pendingEarlySettlements === 1 ? '' : 's'
+          } awaiting lender approval. New payments are paused until it's approved or rejected.`}
+        />
+      ) : null}
+
       {metrics ? <ProgressCard loan={loan} metrics={metrics} /> : null}
+
+      {showEarlySettlementCard ? (
+        <EarlySettlementCard
+          loanId={loanId}
+          quote={earlyQuote}
+          pendingCount={pendingEarlySettlements}
+        />
+      ) : null}
 
       <RepaymentScheduleCard loan={loan} schedule={schedule} />
 
@@ -324,12 +374,6 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
         loadingMore={loadingMoreTimeline}
         onLoadMore={handleLoadMoreTimeline}
       />
-
-      {/* Helpful hint about active loan early settlement / web flows */}
-      <ThemedText type="small" themeColor="textSecondary" style={styles.bottomHint}>
-        Need early settlement, attestation, or document downloads? They&apos;re available in the web
-        portal while we finish bringing those flows to mobile.
-      </ThemedText>
 
       {Platform.OS === 'web' ? null : <View style={styles.spacer} />}
     </PageScreen>
@@ -647,6 +691,163 @@ function ProgressDonut({
         <ThemedText type="smallBold">{Math.round(percent)}%</ThemedText>
       </View>
     </View>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Early settlement card                                             */
+/* ------------------------------------------------------------------ */
+
+function EarlySettlementCard({
+  loanId,
+  quote,
+  pendingCount,
+}: {
+  loanId: string;
+  quote: EarlySettlementQuoteData | null;
+  pendingCount: number;
+}) {
+  const router = useRouter();
+  const theme = useTheme();
+  const hasPending = pendingCount > 0;
+  const totalSettlement =
+    quote?.eligible && quote.totalSettlement != null
+      ? toAmountNumber(quote.totalSettlement)
+      : null;
+  const savings =
+    quote?.eligible && quote.totalSavings != null && toAmountNumber(quote.totalSavings) > 0
+      ? toAmountNumber(quote.totalSavings)
+      : null;
+
+  const handleContinue = () => {
+    router.push(`/loans/${loanId}/early-settlement` as Href);
+  };
+
+  const statusPill: { label: string; tone: string; icon: MaterialIconName } | null = !quote
+    ? null
+    : hasPending
+      ? { label: 'Pending', tone: theme.warning, icon: 'schedule' }
+      : quote.eligible
+        ? { label: 'Eligible', tone: theme.success, icon: 'check-circle' }
+        : { label: 'Not eligible', tone: theme.textSecondary, icon: 'lock' };
+
+  return (
+    <SectionCard
+      title="Early settlement"
+      description="Settle your loan in full using your product's discounted early-settlement amount."
+      action={
+        statusPill ? (
+          <View
+            style={[
+              styles.earlyStatusPill,
+              {
+                borderColor: statusPill.tone + '55',
+                backgroundColor: statusPill.tone + '1A',
+              },
+            ]}>
+            <MaterialIcons name={statusPill.icon} size={12} color={statusPill.tone} />
+            <ThemedText
+              type="small"
+              style={[styles.earlyStatusPillText, { color: statusPill.tone }]}>
+              {statusPill.label}
+            </ThemedText>
+          </View>
+        ) : null
+      }>
+      {!quote ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          Loading settlement quote…
+        </ThemedText>
+      ) : !quote.eligible ? (
+        <View
+          style={[
+            styles.earlyNotEligible,
+            { borderColor: theme.border, backgroundColor: theme.backgroundElement },
+          ]}>
+          <MaterialIcons name="lock" size={18} color={theme.textSecondary} />
+          <View style={styles.earlyNotEligibleCopy}>
+            <ThemedText type="smallBold">Not available right now</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {quote.reason ?? 'See your product terms or contact your lender.'}
+            </ThemedText>
+          </View>
+        </View>
+      ) : (
+        <>
+          <View
+            style={[
+              styles.earlyQuoteBox,
+              { borderColor: theme.primary + '40', backgroundColor: theme.primary + '0F' },
+            ]}>
+            <ThemedText type="small" themeColor="textSecondary">
+              Estimated total
+            </ThemedText>
+            <ThemedText
+              type="subtitle"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+              style={styles.earlyQuoteTotal}>
+              {totalSettlement != null ? formatRm(totalSettlement) : 'RM —'}
+            </ThemedText>
+            {savings != null ? (
+              <ThemedText type="small" style={{ color: theme.success, fontWeight: '600' }}>
+                Includes {formatRm(savings)} interest discount
+              </ThemedText>
+            ) : null}
+            <View style={styles.earlyQuoteBreakdown}>
+              <View style={styles.earlyQuoteBreakdownRow}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Principal
+                </ThemedText>
+                <ThemedText type="small">
+                  {formatRm(toAmountNumber(quote.remainingPrincipal ?? 0))}
+                </ThemedText>
+              </View>
+              <View style={styles.earlyQuoteBreakdownRow}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Late fees
+                </ThemedText>
+                <ThemedText type="small">
+                  {formatRm(toAmountNumber(quote.outstandingLateFees ?? 0))}
+                </ThemedText>
+              </View>
+              <View style={styles.earlyQuoteBreakdownRow}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Unpaid instalments
+                </ThemedText>
+                <ThemedText type="small">{quote.unpaidInstallments ?? '—'}</ThemedText>
+              </View>
+            </View>
+          </View>
+
+          {hasPending ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              You already have a pending request. Tap below to view the details.
+            </ThemedText>
+          ) : null}
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              hasPending ? 'View early settlement request' : 'Continue to early settlement'
+            }
+            onPress={handleContinue}
+            style={({ pressed }) => [
+              styles.earlyCta,
+              {
+                backgroundColor: theme.primary,
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}>
+            <MaterialIcons name="payments" size={18} color={theme.primaryForeground} />
+            <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>
+              {hasPending ? 'View early settlement' : 'Continue to early settlement'}
+            </ThemedText>
+          </Pressable>
+        </>
+      )}
+    </SectionCard>
   );
 }
 
@@ -1410,6 +1611,28 @@ function renderTimelineDetail(event: BorrowerLoanTimelineEvent): React.ReactNode
           </ThemedText>
         ) : null}
       </>
+    );
+  }
+
+  if (event.action === 'BORROWER_ATTESTATION_VIDEO_COMPLETE' && nd) {
+    const pct = typeof nd.watchedPercent === 'number' ? ` (${nd.watchedPercent}%)` : '';
+    return (
+      <ThemedText type="small" themeColor="textSecondary">
+        {`You finished watching the required attestation video${pct}.`}
+      </ThemedText>
+    );
+  }
+
+  if (event.action === 'LOAN_AUTO_APPROVED' && nd) {
+    const reason = nd.reason != null ? String(nd.reason).trim() : '';
+    return reason ? (
+      <ThemedText type="small" themeColor="textSecondary">
+        {reason}
+      </ThemedText>
+    ) : (
+      <ThemedText type="small" themeColor="textSecondary">
+        Triggered once all required internal signatures were applied.
+      </ThemedText>
     );
   }
 
@@ -2937,9 +3160,60 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  bottomHint: {
-    textAlign: 'center',
-    paddingHorizontal: Spacing.three,
+  earlyStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+  },
+  earlyStatusPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  earlyNotEligible: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    alignItems: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: Spacing.three,
+  },
+  earlyNotEligibleCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  earlyQuoteBox: {
+    borderWidth: 1.5,
+    borderRadius: 14,
+    padding: Spacing.three,
+    gap: Spacing.one,
+  },
+  earlyQuoteTotal: {
+    fontWeight: '700',
+  },
+  earlyQuoteBreakdown: {
+    marginTop: Spacing.one,
+    gap: Spacing.half,
+  },
+  earlyQuoteBreakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  earlyCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    borderRadius: 14,
+    paddingVertical: Spacing.three,
   },
   spacer: {
     height: Spacing.four,

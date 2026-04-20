@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/select";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 import { useSession } from "@/lib/auth-client";
 import {
   getSigningProfile,
@@ -89,6 +90,98 @@ import { subscribeAdminTruestackKycSse } from "@/lib/truestack-kyc-sse";
 
 /** Certificate lookup by Malaysian IC (MyKad): exactly 12 numeric digits */
 const CERT_LOOKUP_IC_REGEX = /^\d{12}$/;
+
+/** PKI "Valid" and signing "Active" share the same emerald palette (Badge is already `font-medium`). */
+const CERT_ACTIVE_BADGE_CLASS =
+  "border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400";
+
+const SIGNING_NOT_ACTIVE_BADGE_CLASS =
+  "border-amber-300 bg-amber-100 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100";
+
+const SIGNING_REVOKED_BADGE_CLASS =
+  "border-red-300 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200";
+
+/**
+ * Project-level signing state derived from the v1.1 `authStatus` (and `allowedToSign` as a fallback).
+ * Lets us render `Revoked` distinctly from generic `Not active`.
+ */
+type SigningProjectState = "active" | "revoked" | "inactive" | "unknown";
+
+function deriveSigningProjectState(input: {
+  allowedToSign?: boolean | string | null;
+  authStatus?: string | null;
+}): SigningProjectState {
+  const auth = String(input.authStatus ?? "")
+    .trim()
+    .toLowerCase();
+  if (auth === "active") return "active";
+  if (auth === "revoked") return "revoked";
+  if (auth === "suspended" || auth === "inactive" || auth === "expired")
+    return "inactive";
+  if (auth) return "inactive";
+  const allowed =
+    typeof input.allowedToSign === "boolean"
+      ? input.allowedToSign
+      : typeof input.allowedToSign === "string"
+        ? input.allowedToSign.trim().toLowerCase() === "true"
+        : undefined;
+  if (allowed === true) return "active";
+  if (allowed === false) return "inactive";
+  return "unknown";
+}
+
+/**
+ * Per Trustgate (latest MTSA): signing-ready is universal — both `allowedToSign === true` AND
+ * `authStatus === Active` must hold. The internal/external distinction is separate (see
+ * {@link parseSignerTypeFromSubjectDN}). For older SOAP responses lacking these fields, fall
+ * back to `certStatus === Valid`.
+ */
+function mtsaSigningReady(s: {
+  success?: boolean;
+  certStatus?: string | null;
+  allowedToSign?: boolean | string | null;
+  authStatus?: string | null;
+}): boolean {
+  if (s.success === false) return false;
+  if (s.certStatus !== "Valid") return false;
+  const hasAllowed =
+    s.allowedToSign !== undefined &&
+    s.allowedToSign !== null &&
+    !(typeof s.allowedToSign === "string" && s.allowedToSign.trim() === "");
+  const hasAuth = s.authStatus != null && String(s.authStatus).trim() !== "";
+  if (!hasAllowed && !hasAuth) return true;
+  const allowed =
+    typeof s.allowedToSign === "boolean"
+      ? s.allowedToSign
+      : typeof s.allowedToSign === "string"
+        ? s.allowedToSign.trim().toLowerCase() === "true"
+        : undefined;
+  const auth = String(s.authStatus ?? "")
+    .trim()
+    .toLowerCase();
+  if (hasAllowed && hasAuth) return allowed === true && auth === "active";
+  if (hasAllowed) return allowed === true;
+  return auth === "active";
+}
+
+export type MtsaSignerType = "internal" | "external" | "unknown";
+
+/**
+ * Internal vs external is derived from the certificate Subject DN:
+ *   Internal → has organisation attributes (e.g. `O=ANDAS EL, T=Director, OID.2.5.4.97=NTRMY-...`).
+ *   External → personal cert with only `CN`, `SERIALNUMBER`, `C=…`.
+ */
+function parseSignerTypeFromSubjectDN(
+  subjectDN: string | null | undefined,
+): MtsaSignerType {
+  if (!subjectDN || typeof subjectDN !== "string") return "unknown";
+  const dn = subjectDN.trim();
+  if (!dn) return "unknown";
+  if (/(^|,\s*)O\s*=/i.test(dn)) return "internal";
+  if (/(^|,\s*)OID\.2\.5\.4\.97\s*=/i.test(dn)) return "internal";
+  if (/(^|,\s*)T\s*=/i.test(dn)) return "internal";
+  return "external";
+}
 
 const TRUSTGATE_PROCESS_STEPS = [
   {
@@ -219,14 +312,18 @@ export default function SigningCertificatesPage() {
   const [deleteTarget, setDeleteTarget] = useState<TenantSigner | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const hasCert = certInfo?.certStatus === "Valid";
+  /** PKI certificate exists (may be for another Trustgate project). */
+  const globalValidCert = certInfo?.certStatus === "Valid";
+  /** Allowed to sign loan agreements for this Trustgate project. */
+  const signingReadyForMe = certInfo
+    ? mtsaSigningReady({
+        success: certInfo.success,
+        certStatus: certInfo.certStatus,
+        allowedToSign: certInfo.allowedToSign,
+        authStatus: certInfo.authStatus,
+      })
+    : false;
   const hasProfile = !!profile;
-
-  // Find current user's row in the signers table
-  const currentUserSigner = tenantSigners.find(
-    (s) => s.userId === currentUserId,
-  );
-  const currentUserHasCert = currentUserSigner?.certStatus === "Valid";
 
   // ---- Data Loading ----
   const fetchSigners = useCallback(async () => {
@@ -269,7 +366,15 @@ export default function SigningCertificatesPage() {
             // table badge matches MTSA (otherwise tenantSigners was loaded before the write).
             await fetchSigners();
 
-            if (certRes.certInfo?.certStatus !== "Valid") {
+            if (
+              !certRes.certInfo ||
+              !mtsaSigningReady({
+                success: certRes.certInfo.success,
+                certStatus: certRes.certInfo.certStatus,
+                allowedToSign: certRes.certInfo.allowedToSign,
+                authStatus: certRes.certInfo.authStatus,
+              })
+            ) {
               const kycRes = await getStaffKycStatus();
               setKycComplete(kycRes.kycComplete);
               if (kycRes.latestSession) {
@@ -338,7 +443,7 @@ export default function SigningCertificatesPage() {
     const emailChanged =
       profile && profileForm.email.trim().toLowerCase() !== profile.email.toLowerCase();
 
-    if (emailChanged && hasCert) {
+    if (emailChanged && signingReadyForMe) {
       setSavingProfile(true);
       try {
         const check = await checkStaffEmailChange(profileForm.email.trim());
@@ -408,8 +513,20 @@ export default function SigningCertificatesPage() {
       const res = await getCertStatus();
       setCertInfo(res.certInfo);
       await fetchSigners();
-      if (res.certInfo?.certStatus === "Valid") {
-        toast.success("Valid certificate found!");
+      if (
+        res.certInfo &&
+        mtsaSigningReady({
+          success: res.certInfo.success,
+          certStatus: res.certInfo.certStatus,
+          allowedToSign: res.certInfo.allowedToSign,
+          authStatus: res.certInfo.authStatus,
+        })
+      ) {
+        toast.success("Signer is active for this project.");
+      } else if (res.certInfo?.certStatus === "Valid") {
+        toast.warning(
+          "A valid certificate exists for this IC, but the signer is not activated for this project. Use Enroll to request project access.",
+        );
       } else {
         const kycRes = await getStaffKycStatus();
         setKycComplete(kycRes.kycComplete);
@@ -560,11 +677,15 @@ export default function SigningCertificatesPage() {
         setRevokeReason("keyCompromise");
         setRevokeDialogOpen(false);
         await loadData();
-      } else if (res.statusCode === "RV116") {
-        toast.error(
-          res.errorDescription ||
-            "A revoke may already be pending at Trustgate, or your certificate was not issued from a completed enrolment. Wait, check Trustgate request status, or contact support.",
-        );
+      } else if (res.pendingAtTrustgate) {
+        const msg =
+          res.statusCode === "RV116"
+            ? "A revoke is already pending at Trustgate."
+            : "Revoke request sent—pending Trustgate processing.";
+        toast.warning(msg);
+        setRevokePin("");
+        setRevokeDialogOpen(false);
+        await loadData();
       } else {
         toast.error(
           res.errorDescription || res.statusMsg || "Revocation failed",
@@ -707,7 +828,7 @@ export default function SigningCertificatesPage() {
   const certStatusBadge = (status: string | undefined | null) => {
     if (status === "Valid")
       return (
-        <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800">
+        <Badge variant="outline" className={CERT_ACTIVE_BADGE_CLASS}>
           <CheckCircle2 className="h-3 w-3 mr-1" />
           Valid
         </Badge>
@@ -724,6 +845,140 @@ export default function SigningCertificatesPage() {
         <AlertTriangle className="h-3 w-3 mr-1" />
         {status || "None"}
       </Badge>
+    );
+  };
+
+  /** Active / Revoked / Not active for any signer (internal or external) — uses `allowedToSign` + `authStatus`. */
+  const lookupSigningBadge = (lookup: CertInfo) => {
+    if (lookup.certStatus !== "Valid") {
+      return (
+        <Badge variant="secondary" className="text-muted-foreground">
+          <AlertTriangle className="h-3 w-3 mr-1" />
+          Unavailable
+        </Badge>
+      );
+    }
+    const state = deriveSigningProjectState({
+      allowedToSign: lookup.allowedToSign,
+      authStatus: lookup.authStatus,
+    });
+    const ready =
+      state === "active" &&
+      mtsaSigningReady({
+        success: lookup.success,
+        certStatus: lookup.certStatus,
+        allowedToSign: lookup.allowedToSign,
+        authStatus: lookup.authStatus,
+      });
+    if (ready) {
+      return (
+        <Badge variant="outline" className={CERT_ACTIVE_BADGE_CLASS}>
+          <CheckCircle2 className="h-3 w-3 mr-1" />
+          Active
+        </Badge>
+      );
+    }
+    if (state === "revoked") {
+      return (
+        <Badge variant="outline" className={SIGNING_REVOKED_BADGE_CLASS}>
+          <XCircle className="h-3 w-3 mr-1" />
+          Revoked
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="outline" className={SIGNING_NOT_ACTIVE_BADGE_CLASS}>
+        <AlertTriangle className="h-3 w-3 mr-1" />
+        Not active
+      </Badge>
+    );
+  };
+
+  /** Internal vs external badge derived from `certSubjectDN`. */
+  const signerTypeBadge = (subjectDN: string | null | undefined) => {
+    const type = parseSignerTypeFromSubjectDN(subjectDN);
+    if (type === "internal") {
+      return (
+        <Badge
+          variant="outline"
+          className="border-blue-300 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200"
+        >
+          <ShieldCheck className="h-3 w-3 mr-1" />
+          Internal
+        </Badge>
+      );
+    }
+    if (type === "external") {
+      return (
+        <Badge
+          variant="outline"
+          className="border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
+        >
+          <Mail className="h-3 w-3 mr-1" />
+          External
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="secondary" className="text-muted-foreground">
+        <AlertTriangle className="h-3 w-3 mr-1" />
+        Unknown
+      </Badge>
+    );
+  };
+
+  /** Signers table: PKI status drives the primary cell; if Valid, show signing readiness (with Revoked surfaced separately). */
+  const signerTableSigningCell = (s: TenantSigner) => {
+    const ready = mtsaSigningReady({
+      success: true,
+      certStatus: s.certStatus,
+      allowedToSign: s.mtsaAllowedToSign,
+      authStatus: s.mtsaAuthStatus,
+    });
+    if (s.certStatus !== "Valid") {
+      return (
+        <div className="flex flex-col items-start gap-0.5">
+          {certStatusBadge(s.certStatus)}
+        </div>
+      );
+    }
+    const state = deriveSigningProjectState({
+      allowedToSign: s.mtsaAllowedToSign,
+      authStatus: s.mtsaAuthStatus,
+    });
+    if (ready) {
+      return (
+        <div className="flex flex-col items-start gap-1">
+          <Badge variant="outline" className={CERT_ACTIVE_BADGE_CLASS}>
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            Active
+          </Badge>
+        </div>
+      );
+    }
+    if (state === "revoked") {
+      return (
+        <div className="flex flex-col items-start gap-1">
+          <Badge variant="outline" className={SIGNING_REVOKED_BADGE_CLASS}>
+            <XCircle className="h-3 w-3 mr-1" />
+            Revoked
+          </Badge>
+          <span className="text-[10px] leading-tight text-muted-foreground">
+            PKI valid
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <Badge variant="outline" className={SIGNING_NOT_ACTIVE_BADGE_CLASS}>
+          <AlertTriangle className="h-3 w-3 mr-1" />
+          Not active
+        </Badge>
+        <span className="text-[10px] leading-tight text-muted-foreground">
+          PKI valid
+        </span>
+      </div>
     );
   };
 
@@ -825,7 +1080,7 @@ export default function SigningCertificatesPage() {
                 "Name",
                 "IC Number",
                 "Designation",
-                "Certificate",
+                "Signing",
                 "Valid Until",
                 "KYC",
                 "Actions",
@@ -862,7 +1117,7 @@ export default function SigningCertificatesPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>IC Number</TableHead>
                   <TableHead>Designation</TableHead>
-                  <TableHead>Certificate</TableHead>
+                  <TableHead>Signing</TableHead>
                   <TableHead>Valid Until</TableHead>
                   <TableHead>KYC</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -871,7 +1126,12 @@ export default function SigningCertificatesPage() {
               <TableBody>
                 {tenantSigners.map((s) => {
                   const isMe = s.userId === currentUserId;
-                  const isValid = s.certStatus === "Valid";
+                  const signingReady = mtsaSigningReady({
+                    success: true,
+                    certStatus: s.certStatus,
+                    allowedToSign: s.mtsaAllowedToSign,
+                    authStatus: s.mtsaAuthStatus,
+                  });
                   return (
                     <TableRow key={s.id}>
                       <TableCell>
@@ -896,7 +1156,7 @@ export default function SigningCertificatesPage() {
                         {s.icNumber}
                       </TableCell>
                       <TableCell>{s.designation || "—"}</TableCell>
-                      <TableCell>{certStatusBadge(s.certStatus)}</TableCell>
+                      <TableCell>{signerTableSigningCell(s)}</TableCell>
                       <TableCell className="text-sm">
                         {s.certValidTo
                           ? formatDate(s.certValidTo)
@@ -920,7 +1180,7 @@ export default function SigningCertificatesPage() {
                               >
                                 Edit
                               </Button>
-                              {isValid ? (
+                              {signingReady ? (
                                 <>
                                   <Button
                                     size="sm"
@@ -1041,28 +1301,146 @@ export default function SigningCertificatesPage() {
           )}
 
           {!loading && lookupResult && (
-            <div className="rounded-lg border p-4 space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                {certStatusBadge(lookupResult.certStatus)}
+            <div className="rounded-lg border p-4 space-y-3 text-sm">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Certificate (PKI)
+                  </span>
+                  {certStatusBadge(lookupResult.certStatus)}
+                </div>
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground leading-snug">
+                  <ShieldCheck
+                    className="mt-0.5 size-3.5 shrink-0 opacity-80"
+                    aria-hidden
+                  />
+                  <span>Trustgate-issued credential exists for this IC.</span>
+                </p>
               </div>
-              {lookupResult.certSerialNo && (
-                <p className="text-muted-foreground">
-                  Serial: {lookupResult.certSerialNo}
+
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Signing
+                  </span>
+                  {lookupSigningBadge(lookupResult)}
+                </div>
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground leading-snug">
+                  <LockKeyhole
+                    className="mt-0.5 size-3.5 shrink-0 opacity-80"
+                    aria-hidden
+                  />
+                  <span>
+                    Active when <code className="text-foreground/80">allowedToSign</code> is
+                    true and <code className="text-foreground/80">authStatus</code> is Active.
+                  </span>
                 </p>
-              )}
-              {lookupResult.certValidFrom && (
-                <p className="text-muted-foreground">
-                  Valid:{" "}
-                  {formatDate(lookupResult.certValidFrom)} —{" "}
-                  {lookupResult.certValidTo
-                    ? formatDate(lookupResult.certValidTo)
-                    : "N/A"}
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Signer type
+                  </span>
+                  {signerTypeBadge(lookupResult.certSubjectDN)}
+                </div>
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground leading-snug">
+                  <Mail
+                    className="mt-0.5 size-3.5 shrink-0 opacity-80"
+                    aria-hidden
+                  />
+                  <span>
+                    Internal certs carry organisation attributes in the Subject DN; external
+                    certs are personal (CN + SERIALNUMBER + C only).
+                  </span>
                 </p>
-              )}
-              {lookupResult.errorDescription && (
-                <p className="text-muted-foreground">
-                  {lookupResult.errorDescription}
-                </p>
+              </div>
+
+              {(lookupResult.certSerialNo ||
+                lookupResult.certValidFrom ||
+                lookupResult.certSubjectDN ||
+                lookupResult.certIssuer ||
+                lookupResult.authStatus !== undefined ||
+                lookupResult.allowedToSign !== undefined ||
+                lookupResult.errorDescription) && (
+                <>
+                  <Separator />
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+                    {lookupResult.certSerialNo && (
+                      <>
+                        <dt className="font-medium text-muted-foreground/80">
+                          Serial
+                        </dt>
+                        <dd className="font-mono text-foreground/90 break-all">
+                          {lookupResult.certSerialNo}
+                        </dd>
+                      </>
+                    )}
+                    {lookupResult.certValidFrom && (
+                      <>
+                        <dt className="font-medium text-muted-foreground/80">
+                          Valid
+                        </dt>
+                        <dd>
+                          {formatDate(lookupResult.certValidFrom)} —{" "}
+                          {lookupResult.certValidTo
+                            ? formatDate(lookupResult.certValidTo)
+                            : "N/A"}
+                        </dd>
+                      </>
+                    )}
+                    {lookupResult.authStatus !== undefined &&
+                      lookupResult.authStatus !== null && (
+                        <>
+                          <dt className="font-medium text-muted-foreground/80">
+                            Auth status
+                          </dt>
+                          <dd className="font-mono text-foreground/90">
+                            {String(lookupResult.authStatus) || "—"}
+                          </dd>
+                        </>
+                      )}
+                    {lookupResult.allowedToSign !== undefined &&
+                      lookupResult.allowedToSign !== null && (
+                        <>
+                          <dt className="font-medium text-muted-foreground/80">
+                            Allowed to sign
+                          </dt>
+                          <dd className="font-mono text-foreground/90">
+                            {String(lookupResult.allowedToSign)}
+                          </dd>
+                        </>
+                      )}
+                    {lookupResult.certSubjectDN && (
+                      <>
+                        <dt className="font-medium text-muted-foreground/80">
+                          Subject DN
+                        </dt>
+                        <dd className="font-mono text-foreground/90 break-all leading-snug">
+                          {lookupResult.certSubjectDN}
+                        </dd>
+                      </>
+                    )}
+                    {lookupResult.certIssuer && (
+                      <>
+                        <dt className="font-medium text-muted-foreground/80">
+                          Issuer
+                        </dt>
+                        <dd className="font-mono text-foreground/90 break-all leading-snug">
+                          {lookupResult.certIssuer}
+                        </dd>
+                      </>
+                    )}
+                    {lookupResult.errorDescription && (
+                      <>
+                        <dt className="font-medium text-muted-foreground/80">
+                          Error
+                        </dt>
+                        <dd>{lookupResult.errorDescription}</dd>
+                      </>
+                    )}
+                  </dl>
+                </>
               )}
             </div>
           )}
@@ -1142,7 +1520,7 @@ export default function SigningCertificatesPage() {
               {hasProfile ? "Edit signing profile" : "Create signing profile"}
             </DialogTitle>
             <DialogDescription>
-              {hasCert
+              {globalValidCert
                 ? "Identity fields (IC, name, document type) are locked while your certificate is active. Email changes require OTP verification."
                 : "Enter your identity details for certificate management. These details are submitted to the Certificate Authority."}
             </DialogDescription>
@@ -1157,7 +1535,7 @@ export default function SigningCertificatesPage() {
                     setProfileForm({ ...profileForm, icNumber: e.target.value })
                   }
                   placeholder="e.g. 891114075601"
-                  disabled={hasCert}
+                  disabled={globalValidCert}
                 />
               </div>
               <div className="space-y-2">
@@ -1167,7 +1545,7 @@ export default function SigningCertificatesPage() {
                   onChange={(e) =>
                     setProfileForm({ ...profileForm, fullName: e.target.value })
                   }
-                  disabled={hasCert}
+                  disabled={globalValidCert}
                 />
               </div>
               <div className="space-y-2">
@@ -1179,7 +1557,7 @@ export default function SigningCertificatesPage() {
                     setProfileForm({ ...profileForm, email: e.target.value })
                   }
                 />
-                {hasCert && (
+                {signingReadyForMe && (
                   <p className="text-xs text-muted-foreground">
                     Changing your email will require OTP verification to the new
                     address.
@@ -1215,7 +1593,7 @@ export default function SigningCertificatesPage() {
                   onValueChange={(v) =>
                     setProfileForm({ ...profileForm, documentType: v })
                   }
-                  disabled={hasCert}
+                  disabled={globalValidCert}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -2016,8 +2394,17 @@ export default function SigningCertificatesPage() {
                 <span className="font-mono">{deleteTarget.icNumber}</span>
               </p>
               <p>
-                <span className="text-muted-foreground">Certificate:</span>{" "}
-                {deleteTarget.certStatus || "None"}
+                <span className="text-muted-foreground">Signing:</span>{" "}
+                {deleteTarget.certStatus === "Valid"
+                  ? mtsaSigningReady({
+                      success: true,
+                      certStatus: deleteTarget.certStatus,
+                      allowedToSign: deleteTarget.mtsaAllowedToSign,
+                      authStatus: deleteTarget.mtsaAuthStatus,
+                    })
+                    ? "Active"
+                    : "Not active (PKI valid)"
+                  : deleteTarget.certStatus || "None"}
               </p>
             </div>
           )}

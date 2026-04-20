@@ -26,6 +26,38 @@ export const NOTIFICATION_DEFINITIONS: NotificationDefinition[] = [
     channels: ['email', 'in_app', 'push'],
   },
   {
+    key: 'manual_payment_submitted',
+    label: 'Manual payment submitted',
+    description:
+      'Acknowledgement to the borrower that their bank-transfer payment notification was received and is awaiting lender review. Approvals are covered by Payment receipts.',
+    category: 'payments',
+    channels: ['in_app', 'push'],
+  },
+  {
+    key: 'manual_payment_rejected',
+    label: 'Manual payment rejected',
+    description:
+      'Borrower update when the lender rejects a submitted manual payment, including the lender-provided reason.',
+    category: 'payments',
+    channels: ['in_app', 'push'],
+  },
+  {
+    key: 'early_settlement_submitted',
+    label: 'Early settlement request submitted',
+    description:
+      'Acknowledgement to the borrower that their early settlement request was received and is awaiting lender review. Approvals are covered by Payment receipts.',
+    category: 'payments',
+    channels: ['in_app', 'push'],
+  },
+  {
+    key: 'early_settlement_rejected',
+    label: 'Early settlement rejected',
+    description:
+      'Borrower update when the lender rejects an early settlement request, including the lender-provided reason.',
+    category: 'payments',
+    channels: ['in_app', 'push'],
+  },
+  {
     key: 'payment_reminder',
     label: 'Payment reminders',
     description: 'Upcoming repayment reminders before the due date.',

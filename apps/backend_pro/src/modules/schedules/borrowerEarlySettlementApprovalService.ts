@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { confirmEarlySettlement } from '../loans/earlySettlementConfirmService.js';
 import { AuditService } from '../compliance/auditService.js';
+import { NotificationOrchestrator } from '../notifications/orchestrator.js';
 
 export async function approveBorrowerEarlySettlementRequest(params: {
   tenantId: string;
@@ -146,4 +147,20 @@ export async function rejectBorrowerEarlySettlementRequest(params: {
     newData: { requestId, reason: rejectionReason },
     ipAddress: ip,
   });
+
+  try {
+    await NotificationOrchestrator.notifyBorrowerEvent({
+      tenantId,
+      borrowerId: reqRow.borrowerId,
+      notificationKey: 'early_settlement_rejected',
+      category: 'payments',
+      title: 'Early settlement rejected',
+      body: `Your early settlement request was rejected. Reason: ${rejectionReason}`,
+      deepLink: `/loans/${reqRow.loanId}`,
+      sourceType: 'BORROWER_EARLY_SETTLEMENT_REQUEST',
+      sourceId: requestId,
+    });
+  } catch (notificationError) {
+    console.error(`[Notifications] Failed early settlement rejected notify ${reqRow.loanId}:`, notificationError);
+  }
 }

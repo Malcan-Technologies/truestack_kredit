@@ -1,14 +1,17 @@
 /**
- * Make payment screen — borrower-facing manual bank transfer flow.
+ * Early settlement screen — borrower-facing flow to settle a loan in full.
  *
- * Mirrors `apps/borrower_pro/components/loan-center/borrower-make-payment-page.tsx`
- * but adapted for mobile UX: vertical step cards, sticky summary footer with the
- * primary CTA, large tap targets and copy-to-clipboard rows for bank details.
+ * Mirrors `apps/borrower_pro/components/loan-center/borrower-early-settlement-page.tsx`
+ * but adapted for mobile UX: stacked step cards, hero settlement total, copyable bank
+ * rows, copy-to-clipboard transfer reference and sticky footer with the submit CTA.
+ *
+ * Like the web version, this is the manual-payment flow with early-settlement pricing
+ * applied: borrower transfers the discounted total to the lender's bank account, then
+ * submits this request for the lender to approve.
  */
 
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import * as DocumentPicker from 'expo-document-picker';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -27,105 +30,80 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { loansClient } from '@/lib/api/borrower';
 import { formatBankLabel } from '@/lib/format/borrower';
-import { formatDate } from '@/lib/format/date';
-import { formatRm } from '@/lib/loans/currency';
-import {
-  findNextPayableInstalment,
-  formatMalaysiaMoneyInput,
-  generateTransferReference,
-  parseMoneyStringToNumber,
-} from '@/lib/loans/payment';
-import type { SchedulePayload } from '@/lib/loans/repayment';
+import { formatRm, toAmountNumber } from '@/lib/loans/currency';
+import { generateTransferReference } from '@/lib/loans/payment';
 import { toast } from '@/lib/toast';
-import type { BorrowerLoanDetail, LenderBankInfo } from '@kredit/borrower';
+import type {
+  BorrowerEarlySettlementRequest,
+  BorrowerLoanDetail,
+  EarlySettlementQuoteData,
+  LenderBankInfo,
+} from '@kredit/borrower';
 
 type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 
-const PAYABLE_STATUSES = new Set(['ACTIVE', 'IN_ARREARS', 'DEFAULTED']);
-const RECEIPT_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-
-interface ReceiptAsset {
-  uri: string;
-  name: string;
-  mimeType?: string;
-  size?: number;
-}
+const SETTLEMENT_STATUSES = new Set(['ACTIVE', 'IN_ARREARS']);
 
 /* ------------------------------------------------------------------ */
 /*  Route entry                                                       */
 /* ------------------------------------------------------------------ */
 
-export default function MakePaymentScreen() {
+export default function EarlySettlementScreen() {
   const params = useLocalSearchParams<{ loanId: string }>();
   const loanId = typeof params.loanId === 'string' ? params.loanId : '';
 
   if (!loanId) {
     return (
-      <PageScreen title="Make payment" showBackButton backFallbackHref="/loans">
+      <PageScreen title="Early settlement" showBackButton backFallbackHref="/loans">
         <NotFoundState />
       </PageScreen>
     );
   }
 
-  return <MakePaymentContent loanId={loanId} />;
+  return <EarlySettlementContent loanId={loanId} />;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Main content                                                      */
 /* ------------------------------------------------------------------ */
 
-function MakePaymentContent({ loanId }: { loanId: string }) {
+function EarlySettlementContent({ loanId }: { loanId: string }) {
   const theme = useTheme();
   const router = useRouter();
 
   const [loan, setLoan] = useState<BorrowerLoanDetail | null>(null);
   const [lender, setLender] = useState<LenderBankInfo | null>(null);
-  const [monthlyInstallment, setMonthlyInstallment] = useState<number | null>(null);
-  const [nextDueDate, setNextDueDate] = useState<string | null>(null);
+  const [quote, setQuote] = useState<EarlySettlementQuoteData | null>(null);
+  const [requests, setRequests] = useState<BorrowerEarlySettlementRequest[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const [amountMode, setAmountMode] = useState<'monthly' | 'custom'>('monthly');
-  const [customAmount, setCustomAmount] = useState('');
   const [reference, setReference] = useState('');
   const [referenceCopied, setReferenceCopied] = useState(false);
-  const [receiptFile, setReceiptFile] = useState<ReceiptAsset | null>(null);
+  const [borrowerNote, setBorrowerNote] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmTransferred, setConfirmTransferred] = useState(false);
-  const [hasPendingEarlySettlement, setHasPendingEarlySettlement] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [loanRes, schRes, lenderRes, earlyRes] = await Promise.all([
+      const [loanRes, lenderRes, quoteRes, reqRes] = await Promise.all([
         loansClient.getBorrowerLoan(loanId),
-        loansClient.getBorrowerLoanSchedule(loanId).catch(() => ({
-          success: true,
-          data: null as SchedulePayload | null,
-        })),
         loansClient.fetchBorrowerLender().catch(() => null),
+        loansClient
+          .getBorrowerEarlySettlementQuote(loanId)
+          .catch(() => ({ success: false as const, data: null as EarlySettlementQuoteData | null })),
         loansClient.listBorrowerEarlySettlementRequests(loanId).catch(() => ({
-          data: [] as { status: string }[],
+          success: true,
+          data: [] as BorrowerEarlySettlementRequest[],
         })),
       ]);
 
       setLoan(loanRes.data);
       setLender(lenderRes);
-      setHasPendingEarlySettlement(
-        Array.isArray(earlyRes?.data) && earlyRes.data.some((r) => r.status === 'PENDING'),
-      );
-
-      const sch = schRes.data as SchedulePayload | null;
-      const repayments = sch?.schedule?.repayments ?? [];
-      const next = findNextPayableInstalment(repayments);
-      if (next) {
-        setMonthlyInstallment(next.balance);
-        setNextDueDate(next.dueDate);
-      } else {
-        setMonthlyInstallment(null);
-        setNextDueDate(null);
-      }
+      setQuote(quoteRes.data ?? null);
+      setRequests(reqRes.data ?? []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load loan');
     } finally {
@@ -141,27 +119,30 @@ function MakePaymentContent({ loanId }: { loanId: string }) {
     setReference((current) => current || generateTransferReference(loanId));
   }, [loanId]);
 
-  const resolvedAmount = useMemo<number | null>(() => {
-    if (amountMode === 'monthly') {
-      return monthlyInstallment;
-    }
-    return parseMoneyStringToNumber(customAmount);
-  }, [amountMode, monthlyInstallment, customAmount]);
+  const pendingRequest = useMemo(
+    () => requests.some((r) => r.status === 'PENDING'),
+    [requests],
+  );
+
+  const productAllowsEarly = loan?.product?.earlySettlementEnabled === true;
+  const statusOk = loan ? SETTLEMENT_STATUSES.has(loan.status) : false;
 
   const bankConfigured = Boolean(
     lender?.lenderBankCode &&
       lender.lenderAccountHolderName?.trim() &&
       lender.lenderAccountNumber?.trim(),
   );
-  const canPayLoanStatus = loan ? PAYABLE_STATUSES.has(loan.status) : false;
-  const canSubmit =
-    resolvedAmount != null &&
-    reference.trim().length > 0 &&
-    bankConfigured &&
-    canPayLoanStatus &&
-    !hasPendingEarlySettlement;
 
-  const dueDateLabel = nextDueDate ? formatDate(nextDueDate) : null;
+  const totalSettlement =
+    quote?.eligible && quote.totalSettlement != null
+      ? toAmountNumber(quote.totalSettlement)
+      : null;
+
+  const canSubmit =
+    quote?.eligible === true &&
+    !pendingRequest &&
+    reference.trim().length > 0 &&
+    bankConfigured;
 
   /* --- Actions ------------------------------------------------- */
 
@@ -177,90 +158,44 @@ function MakePaymentContent({ loanId }: { loanId: string }) {
     }
   }, [reference]);
 
-  const pickReceipt = useCallback(async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: RECEIPT_MIME_TYPES,
-        multiple: false,
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) return;
-      const asset = result.assets?.[0];
-      if (!asset) return;
-      setReceiptFile({
-        uri: asset.uri,
-        name: asset.name,
-        mimeType: asset.mimeType,
-        size: asset.size,
-      });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not open file picker');
-    }
-  }, []);
-
-  const clearReceipt = useCallback(() => setReceiptFile(null), []);
-
   const openConfirm = useCallback(() => {
-    if (hasPendingEarlySettlement) {
-      toast.error(
-        'You have an early settlement request pending. Wait for it to be approved or rejected before making a new payment.',
-      );
-      return;
-    }
-    if (resolvedAmount == null) {
-      toast.error('Enter a valid payment amount');
+    if (!quote?.eligible || totalSettlement == null) {
+      toast.error('Settlement is not available');
       return;
     }
     if (!bankConfigured) {
-      toast.error('Bank details are not available yet. Please contact the admin team.');
+      toast.error('Bank details are not available yet. Please contact your lender.');
       return;
     }
     if (!reference.trim()) {
-      toast.error('Payment reference is required');
+      toast.error('Transfer reference is required');
       return;
     }
     setConfirmTransferred(false);
     setConfirmOpen(true);
-  }, [bankConfigured, hasPendingEarlySettlement, reference, resolvedAmount]);
+  }, [bankConfigured, quote?.eligible, reference, totalSettlement]);
 
-  const submitManual = useCallback(async () => {
-    if (hasPendingEarlySettlement) {
-      toast.error(
-        'You have an early settlement request pending. Wait for it to be approved or rejected before making a new payment.',
-      );
-      return;
-    }
-    if (resolvedAmount == null) {
-      toast.error('Enter a valid payment amount');
+  const submitRequest = useCallback(async () => {
+    if (!quote?.eligible || totalSettlement == null) {
+      toast.error('Settlement is not available');
       return;
     }
     if (!bankConfigured) {
-      toast.error('Bank details are not available yet. Please contact the admin team.');
+      toast.error('Bank details are not available yet. Please contact your lender.');
       return;
     }
     if (!reference.trim()) {
-      toast.error('Payment reference is required');
+      toast.error('Transfer reference is required');
       return;
     }
 
     setSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append('amount', String(resolvedAmount));
-      fd.append('reference', reference.trim());
-      if (receiptFile) {
-        // RN's FormData accepts a `{ uri, name, type }` blob shape for file uploads.
-        fd.append(
-          'receipt',
-          {
-            uri: receiptFile.uri,
-            name: receiptFile.name,
-            type: receiptFile.mimeType ?? 'application/octet-stream',
-          } as unknown as Blob,
-        );
-      }
-      await loansClient.createBorrowerManualPaymentRequest(loanId, fd);
-      toast.success('Payment submitted', {
+      await loansClient.createBorrowerEarlySettlementRequest(loanId, {
+        reference: reference.trim(),
+        borrowerNote: borrowerNote.trim() || undefined,
+      });
+      toast.success('Early settlement submitted', {
         description: 'Your lender will review it shortly.',
       });
       setConfirmOpen(false);
@@ -272,22 +207,57 @@ function MakePaymentContent({ loanId }: { loanId: string }) {
     }
   }, [
     bankConfigured,
-    hasPendingEarlySettlement,
+    borrowerNote,
     loanId,
-    receiptFile,
+    quote?.eligible,
     reference,
-    resolvedAmount,
     router,
+    totalSettlement,
   ]);
 
-  /* --- Loading ------------------------------------------------- */
+  /* --- Loading / gating ---------------------------------------- */
 
   if (loading || !loan) {
     return (
-      <PageScreen title="Make payment" showBackButton backFallbackHref={`/loans/${loanId}` as Href}>
+      <PageScreen
+        title="Early settlement"
+        showBackButton
+        backFallbackHref={`/loans/${loanId}` as Href}>
         <View style={styles.centered}>
           <ActivityIndicator color={theme.primary} />
         </View>
+      </PageScreen>
+    );
+  }
+
+  if (!statusOk) {
+    return (
+      <PageScreen
+        title="Early settlement"
+        showBackButton
+        backFallbackHref={`/loans/${loanId}` as Href}>
+        <BannerCard
+          tone="warning"
+          icon="info"
+          title="Not available"
+          description="Early settlement is only available for active or in-arrears loans."
+        />
+      </PageScreen>
+    );
+  }
+
+  if (!productAllowsEarly) {
+    return (
+      <PageScreen
+        title="Early settlement"
+        showBackButton
+        backFallbackHref={`/loans/${loanId}` as Href}>
+        <BannerCard
+          tone="warning"
+          icon="info"
+          title="Not enabled"
+          description="Early settlement is not enabled for this product. Contact your lender if you have questions."
+        />
       </PageScreen>
     );
   }
@@ -296,81 +266,60 @@ function MakePaymentContent({ loanId }: { loanId: string }) {
 
   return (
     <PageScreen
-      title="Make payment"
+      title="Early settlement"
       showBackButton
       backFallbackHref={`/loans/${loanId}` as Href}
       stickyFooter={
-        <SubmitFooter
-          amount={resolvedAmount}
-          onSubmit={openConfirm}
-          submitting={submitting}
-          disabled={!canSubmit}
-        />
+        quote?.eligible && !pendingRequest ? (
+          <SubmitFooter
+            amount={totalSettlement}
+            onSubmit={openConfirm}
+            submitting={submitting}
+            disabled={!canSubmit}
+          />
+        ) : undefined
       }>
-      {!canPayLoanStatus ? (
-        <BannerCard
-          tone="warning"
-          icon="info"
-          title="Payments are paused"
-          description="This loan is not currently accepting payments. Contact the admin team if you believe this is an error."
-        />
-      ) : null}
-
-      {hasPendingEarlySettlement ? (
+      {pendingRequest ? (
         <BannerCard
           tone="warning"
           icon="schedule"
-          title="Payments paused"
-          description="You have an early settlement request awaiting your lender's approval. New payments cannot be submitted until that request is approved or rejected."
+          title="Pending request"
+          description="You already have a pending early settlement request. Please wait for your lender to respond."
         />
       ) : null}
 
-      <SummaryHero
-        amount={resolvedAmount}
-        amountMode={amountMode}
-        dueDateLabel={dueDateLabel}
-      />
+      <SummaryHero quote={quote} amount={totalSettlement} />
 
-      <AmountStep
-        amountMode={amountMode}
-        onChangeMode={setAmountMode}
-        monthlyInstallment={monthlyInstallment}
-        dueDateLabel={dueDateLabel}
-        customAmount={customAmount}
-        onChangeCustomAmount={setCustomAmount}
-      />
+      <SettlementBreakdownCard quote={quote} />
 
-      <BankAccountStep
-        lender={lender}
-        bankConfigured={bankConfigured}
-        amount={resolvedAmount}
-      />
+      <BankAccountStep lender={lender} bankConfigured={bankConfigured} amount={totalSettlement} />
 
       <ReferenceStep
         reference={reference}
         onCopy={copyReference}
         copied={referenceCopied}
-        disabled={!bankConfigured}
+        disabled={!bankConfigured || pendingRequest}
       />
 
-      <ReceiptStep
-        file={receiptFile}
-        onPick={pickReceipt}
-        onClear={clearReceipt}
-        disabled={!bankConfigured}
+      <NoteStep
+        value={borrowerNote}
+        onChange={setBorrowerNote}
+        disabled={!bankConfigured || pendingRequest}
       />
+
+      {requests.length > 0 ? <RequestsHistoryCard requests={requests} /> : null}
 
       <DisclaimerCard />
 
       <ConfirmTransferSheet
         visible={confirmOpen}
         onClose={() => setConfirmOpen(false)}
-        onConfirm={() => void submitManual()}
+        onConfirm={() => void submitRequest()}
         submitting={submitting}
-        title="Confirm payment"
-        description="Confirm you've already transferred the exact amount to the company's bank account before submitting this payment for review."
+        title="Confirm early settlement"
+        description="Confirm you've already transferred the exact settlement amount to your lender's bank account before submitting this request."
         amountLabel="Amount transferred"
-        amountText={resolvedAmount != null ? formatRm(resolvedAmount) : 'RM —'}
+        amountText={totalSettlement != null ? formatRm(totalSettlement) : 'RM —'}
         rows={[
           ...(bankConfigured && lender
             ? [
@@ -386,21 +335,20 @@ function MakePaymentContent({ loanId }: { loanId: string }) {
               ]
             : []),
           { label: 'Reference', value: reference.trim(), mono: true },
-          ...(receiptFile ? [{ label: 'Receipt', value: receiptFile.name }] : []),
         ]}
         checkboxLabel={
           <>
             I confirm I have transferred the exact amount of{' '}
             <ThemedText type="smallBold">
-              {resolvedAmount != null ? formatRm(resolvedAmount) : 'RM —'}
+              {totalSettlement != null ? formatRm(totalSettlement) : 'RM —'}
             </ThemedText>{' '}
-            to the company&apos;s bank account using the reference above.
+            to the lender&apos;s bank account using the reference above.
           </>
         }
         confirmLabel="Confirm and submit"
         confirmed={confirmTransferred}
         onConfirmedChange={setConfirmTransferred}
-        warning="False confirmations may delay approval or be rejected when the admin team reconciles incoming transfers."
+        warning="False confirmations may delay approval or be rejected when your lender reconciles incoming transfers."
       />
     </PageScreen>
   );
@@ -427,7 +375,7 @@ function SubmitFooter({
     <View style={styles.footerRow}>
       <View style={styles.footerTotal}>
         <ThemedText type="small" themeColor="textSecondary">
-          Total
+          Settlement total
         </ThemedText>
         <ThemedText
           type="smallBold"
@@ -456,7 +404,7 @@ function SubmitFooter({
           <>
             <MaterialIcons name="check-circle" size={18} color={theme.primaryForeground} />
             <ThemedText type="smallBold" style={{ color: theme.primaryForeground }}>
-              Submit payment
+              Submit request
             </ThemedText>
           </>
         )}
@@ -470,15 +418,18 @@ function SubmitFooter({
 /* ------------------------------------------------------------------ */
 
 function SummaryHero({
+  quote,
   amount,
-  amountMode,
-  dueDateLabel,
 }: {
+  quote: EarlySettlementQuoteData | null;
   amount: number | null;
-  amountMode: 'monthly' | 'custom';
-  dueDateLabel: string | null;
 }) {
   const theme = useTheme();
+  const savings =
+    quote?.eligible && quote.totalSavings != null && toAmountNumber(quote.totalSavings) > 0
+      ? toAmountNumber(quote.totalSavings)
+      : null;
+
   return (
     <View
       style={[
@@ -489,7 +440,7 @@ function SummaryHero({
         },
       ]}>
       <ThemedText type="small" themeColor="textSecondary" style={styles.heroLabel}>
-        You&apos;re paying
+        Settlement total
       </ThemedText>
       <ThemedText
         type="title"
@@ -499,153 +450,160 @@ function SummaryHero({
         style={styles.heroAmount}>
         {amount != null ? formatRm(amount) : 'RM —'}
       </ThemedText>
-      <ThemedText type="small" themeColor="textSecondary">
-        {amountMode === 'monthly'
-          ? dueDateLabel
-            ? `Instalment due ${dueDateLabel}`
-            : 'Next instalment balance'
-          : 'Custom amount'}
-      </ThemedText>
+      {savings != null ? (
+        <ThemedText type="small" style={{ color: theme.success, fontWeight: '600' }}>
+          Includes {formatRm(savings)} interest discount
+        </ThemedText>
+      ) : (
+        <ThemedText type="small" themeColor="textSecondary">
+          Pay your loan off in one lump sum
+        </ThemedText>
+      )}
     </View>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 1 — Amount                                                   */
+/*  Step 1 — Settlement breakdown                                     */
 /* ------------------------------------------------------------------ */
 
-function AmountStep({
-  amountMode,
-  onChangeMode,
-  monthlyInstallment,
-  dueDateLabel,
-  customAmount,
-  onChangeCustomAmount,
-}: {
-  amountMode: 'monthly' | 'custom';
-  onChangeMode: (mode: 'monthly' | 'custom') => void;
-  monthlyInstallment: number | null;
-  dueDateLabel: string | null;
-  customAmount: string;
-  onChangeCustomAmount: (value: string) => void;
-}) {
+function SettlementBreakdownCard({ quote }: { quote: EarlySettlementQuoteData | null }) {
+  const theme = useTheme();
+
+  if (!quote) {
+    return (
+      <SectionCard title="1. Settlement amount">
+        <ThemedText type="small" themeColor="textSecondary">
+          Could not load settlement quote. Pull down to refresh or try again later.
+        </ThemedText>
+      </SectionCard>
+    );
+  }
+
+  if (!quote.eligible) {
+    return (
+      <SectionCard
+        title="1. Settlement amount"
+        description="Not available right now.">
+        <View
+          style={[
+            styles.notEligibleBox,
+            { borderColor: theme.border, backgroundColor: theme.backgroundElement },
+          ]}>
+          <MaterialIcons name="lock" size={18} color={theme.textSecondary} />
+          <ThemedText type="small" themeColor="textSecondary" style={styles.notEligibleText}>
+            {quote.reason ?? 'See your product terms or contact your lender.'}
+          </ThemedText>
+        </View>
+      </SectionCard>
+    );
+  }
+
+  const remainingPrincipal = toAmountNumber(quote.remainingPrincipal ?? 0);
+  const remainingInterest = toAmountNumber(quote.remainingInterest ?? 0);
+  const remainingFutureInterest = toAmountNumber(quote.remainingFutureInterest ?? 0);
+  const discountAmount = toAmountNumber(quote.discountAmount ?? 0);
+  const lateFees = toAmountNumber(quote.outstandingLateFees ?? 0);
+  const totalSettlement = toAmountNumber(quote.totalSettlement ?? 0);
+
+  const discountSummary =
+    quote.discountType === 'PERCENTAGE'
+      ? `${toAmountNumber(quote.discountValue ?? 0)}% off future interest`
+      : 'Fixed discount on interest';
+
   return (
     <SectionCard
-      title="1. Amount"
-      description="Pay the next instalment balance or enter a custom amount.">
-      <ChoiceCard
-        active={amountMode === 'monthly'}
-        onPress={() => onChangeMode('monthly')}
-        label="Instalment balance"
-        primary={monthlyInstallment != null ? formatRm(monthlyInstallment) : '—'}
-        helper={dueDateLabel ? `Due ${dueDateLabel}` : 'No payable instalment'}
-        disabled={monthlyInstallment == null}
-      />
-      <ChoiceCard
-        active={amountMode === 'custom'}
-        onPress={() => onChangeMode('custom')}
-        label="Custom amount"
-        primary="Enter your own"
-        helper="Any amount you prefer"
-      />
-      {amountMode === 'custom' ? (
-        <CustomAmountField value={customAmount} onChangeText={onChangeCustomAmount} />
-      ) : null}
+      title="1. Settlement amount"
+      description="Based on your loan schedule, unpaid instalments, late fees and your product's early settlement discount.">
+      <View
+        style={[
+          styles.breakdownBox,
+          { borderColor: theme.primary + '40', backgroundColor: theme.primary + '0F' },
+        ]}>
+        <BreakdownRow label="Remaining principal" value={formatRm(remainingPrincipal)} />
+        <BreakdownRow label="Interest (unpaid portion)" value={formatRm(remainingInterest)} />
+        {remainingFutureInterest > 0 ? (
+          <BreakdownRow
+            label="Of which future-scheduled interest"
+            value={formatRm(remainingFutureInterest)}
+            subtle
+          />
+        ) : null}
+        {discountAmount > 0 ? (
+          <BreakdownRow
+            label="Early settlement discount"
+            sublabel={discountSummary}
+            value={`− ${formatRm(discountAmount)}`}
+            accent={theme.success}
+            bold
+          />
+        ) : null}
+        <BreakdownRow label="Outstanding late fees" value={formatRm(lateFees)} />
+        <View style={[styles.breakdownDivider, { backgroundColor: theme.border }]} />
+        <View style={styles.breakdownTotalRow}>
+          <ThemedText type="smallBold" style={styles.breakdownTotalLabel}>
+            Total to transfer
+          </ThemedText>
+          <ThemedText
+            type="subtitle"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+            style={styles.breakdownTotalAmount}>
+            {formatRm(totalSettlement)}
+          </ThemedText>
+        </View>
+      </View>
+      <ThemedText type="small" themeColor="textSecondary">
+        Figures follow the same rules as your lender&apos;s admin portal. The final amount may
+        adjust slightly when your lender approves, if the schedule has changed.
+      </ThemedText>
     </SectionCard>
   );
 }
 
-function ChoiceCard({
-  active,
-  onPress,
+function BreakdownRow({
   label,
-  primary,
-  helper,
-  disabled = false,
+  sublabel,
+  value,
+  accent,
+  bold,
+  subtle,
 }: {
-  active: boolean;
-  onPress: () => void;
   label: string;
-  primary: string;
-  helper?: string | null;
-  disabled?: boolean;
+  sublabel?: string;
+  value: string;
+  accent?: string;
+  bold?: boolean;
+  subtle?: boolean;
 }) {
-  const theme = useTheme();
   return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected: active, disabled }}
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => [
-        styles.choiceCard,
-        {
-          borderColor: active ? theme.primary : theme.border,
-          backgroundColor: active ? theme.backgroundSelected : theme.background,
-          opacity: disabled ? 0.55 : pressed ? 0.9 : 1,
-        },
-      ]}>
-      <View style={styles.choiceCopy}>
-        <ThemedText type="small" themeColor="textSecondary" style={styles.choiceLabel}>
-          {label.toUpperCase()}
+    <View style={styles.breakdownRow}>
+      <View style={styles.breakdownLabelWrap}>
+        <ThemedText
+          type={bold ? 'smallBold' : 'small'}
+          themeColor={subtle ? 'textSecondary' : undefined}
+          style={accent ? { color: accent } : undefined}>
+          {label}
         </ThemedText>
-        <ThemedText type="subtitle" style={styles.choicePrimary}>
-          {primary}
-        </ThemedText>
-        {helper ? (
-          <ThemedText type="small" themeColor="textSecondary">
-            {helper}
+        {sublabel ? (
+          <ThemedText type="small" themeColor="textSecondary" style={styles.breakdownSublabel}>
+            {sublabel}
           </ThemedText>
         ) : null}
       </View>
-      {active ? (
-        <MaterialIcons name="check-circle" size={22} color={theme.primary} />
-      ) : (
-        <MaterialIcons
-          name="radio-button-unchecked"
-          size={22}
-          color={theme.textSecondary}
-        />
-      )}
-    </Pressable>
-  );
-}
-
-function CustomAmountField({
-  value,
-  onChangeText,
-}: {
-  value: string;
-  onChangeText: (value: string) => void;
-}) {
-  const theme = useTheme();
-  return (
-    <View style={styles.fieldWrap}>
-      <ThemedText type="smallBold">Amount</ThemedText>
-      <View
+      <ThemedText
+        type={bold ? 'smallBold' : 'small'}
+        themeColor={subtle ? 'textSecondary' : undefined}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
         style={[
-          styles.amountInputWrap,
-          {
-            borderColor: theme.border,
-            backgroundColor: theme.background,
-          },
+          styles.breakdownValue,
+          accent ? { color: accent } : undefined,
+          subtle ? { fontSize: 12 } : undefined,
         ]}>
-        <ThemedText type="smallBold" themeColor="textSecondary" style={styles.amountPrefix}>
-          RM
-        </ThemedText>
-        <TextInput
-          value={value}
-          onChangeText={(next) => onChangeText(formatMalaysiaMoneyInput(next))}
-          placeholder="0.00"
-          placeholderTextColor={theme.textSecondary}
-          keyboardType="decimal-pad"
-          inputMode="decimal"
-          autoCorrect={false}
-          style={[styles.amountInput, { color: theme.text }]}
-        />
-      </View>
-      <ThemedText type="small" themeColor="textSecondary">
-        Use a dot for cents (e.g. 1,234.56). Up to two decimal places.
+        {value}
       </ThemedText>
     </View>
   );
@@ -666,12 +624,12 @@ function BankAccountStep({
 }) {
   if (!bankConfigured || !lender) {
     return (
-      <SectionCard title="2. Pay to" description="Bank details for the company account.">
+      <SectionCard title="2. Pay to" description="Bank details for the lender's account.">
         <BannerCard
           tone="error"
           icon="error-outline"
-          title="Bank details not set up yet"
-          description="The company bank account is not available. Please contact the admin team before making payment."
+          title="Bank details not available"
+          description="Contact your lender before transferring any funds."
         />
       </SectionCard>
     );
@@ -682,14 +640,9 @@ function BankAccountStep({
   return (
     <SectionCard
       title="2. Pay to"
-      description="Open your bank app and transfer to the account below.">
+      description="Open your bank app and transfer the settlement total to the account below.">
       <View style={styles.bankRowGroup}>
-        <BankCopyRow
-          icon="account-balance"
-          label="Bank"
-          value={bankLabel}
-          copyLabel="Bank name"
-        />
+        <BankCopyRow icon="account-balance" label="Bank" value={bankLabel} copyLabel="Bank name" />
         <BankCopyRow
           icon="person"
           label="Account name"
@@ -842,77 +795,113 @@ function ReferenceStep({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 4 — Receipt                                                  */
+/*  Step 4 — Optional note                                            */
 /* ------------------------------------------------------------------ */
 
-function ReceiptStep({
-  file,
-  onPick,
-  onClear,
+function NoteStep({
+  value,
+  onChange,
   disabled,
 }: {
-  file: ReceiptAsset | null;
-  onPick: () => void;
-  onClear: () => void;
+  value: string;
+  onChange: (value: string) => void;
   disabled: boolean;
 }) {
   const theme = useTheme();
   return (
     <SectionCard
-      title="4. Payment receipt"
-      description="Optional — speeds up review when your lender can match the transfer to a screenshot or PDF.">
-      {file ? (
-        <View
-          style={[
-            styles.receiptPill,
-            { borderColor: theme.border, backgroundColor: theme.backgroundSelected },
-          ]}>
-          <View style={[styles.receiptIconWrap, { backgroundColor: theme.background }]}>
-            <MaterialIcons name="description" size={18} color={theme.primary} />
-          </View>
-          <View style={styles.receiptCopy}>
-            <ThemedText type="smallBold" numberOfLines={1}>
-              {file.name}
-            </ThemedText>
-            {file.size != null ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                {formatFileSize(file.size)}
-              </ThemedText>
-            ) : null}
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Remove receipt"
-            onPress={onClear}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.receiptClear,
-              { backgroundColor: theme.background, opacity: pressed ? 0.7 : 1 },
-            ]}>
-            <MaterialIcons name="close" size={16} color={theme.text} />
-          </Pressable>
-        </View>
-      ) : (
-        <Pressable
-          accessibilityRole="button"
-          disabled={disabled}
-          onPress={onPick}
-          style={({ pressed }) => [
-            styles.uploadDropzone,
-            {
-              borderColor: theme.border,
-              backgroundColor: theme.background,
-              opacity: disabled ? 0.55 : pressed ? 0.85 : 1,
-            },
-          ]}>
-          <MaterialIcons name="cloud-upload" size={28} color={theme.primary} />
-          <ThemedText type="smallBold">Attach receipt</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.uploadHint}>
-            PNG, JPG, WEBP or PDF
-          </ThemedText>
-        </Pressable>
-      )}
+      title="4. Note to lender"
+      description="Optional — include a transfer date, bank used or anything that helps your lender match your payment.">
+      <View
+        style={[
+          styles.noteBox,
+          {
+            borderColor: theme.border,
+            backgroundColor: theme.background,
+            opacity: disabled ? 0.6 : 1,
+          },
+        ]}>
+        <TextInput
+          value={value}
+          onChangeText={onChange}
+          editable={!disabled}
+          placeholder="e.g. Transferred from Maybank on 20 Apr 2026"
+          placeholderTextColor={theme.textSecondary}
+          multiline
+          numberOfLines={4}
+          maxLength={1000}
+          style={[styles.noteInput, { color: theme.text }]}
+        />
+      </View>
     </SectionCard>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Requests history                                                  */
+/* ------------------------------------------------------------------ */
+
+function RequestsHistoryCard({ requests }: { requests: BorrowerEarlySettlementRequest[] }) {
+  return (
+    <SectionCard
+      title="Your requests"
+      description="History of early settlement requests for this loan.">
+      <View style={styles.requestsList}>
+        {requests.map((r) => (
+          <RequestRow key={r.id} request={r} />
+        ))}
+      </View>
+    </SectionCard>
+  );
+}
+
+function RequestRow({ request }: { request: BorrowerEarlySettlementRequest }) {
+  const theme = useTheme();
+  const tone =
+    request.status === 'APPROVED'
+      ? theme.success
+      : request.status === 'REJECTED'
+        ? theme.error
+        : theme.warning;
+  const settlementAmount =
+    request.snapshotTotalSettlement != null
+      ? toAmountNumber(request.snapshotTotalSettlement)
+      : null;
+
+  return (
+    <View style={[styles.requestRow, { borderColor: theme.border }]}>
+      <View style={styles.requestRowHeader}>
+        <View style={[styles.requestStatusPill, { backgroundColor: tone + '1A', borderColor: tone + '55' }]}>
+          <ThemedText type="small" style={{ color: tone, fontWeight: '700' }}>
+            {request.status}
+          </ThemedText>
+        </View>
+        {settlementAmount != null ? (
+          <ThemedText type="smallBold">{formatRm(settlementAmount)}</ThemedText>
+        ) : null}
+      </View>
+      <ThemedText type="small" themeColor="textSecondary">
+        {new Date(request.createdAt).toLocaleString('en-MY', {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        })}
+      </ThemedText>
+      {request.reference ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          Ref: <ThemedText type="code">{request.reference}</ThemedText>
+        </ThemedText>
+      ) : null}
+      {request.status === 'REJECTED' && request.rejectionReason ? (
+        <ThemedText type="small" style={{ color: theme.error }}>
+          Reason: {request.rejectionReason}
+        </ThemedText>
+      ) : null}
+      {request.status === 'APPROVED' && request.paymentTransaction?.receiptNumber ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          Receipt {request.paymentTransaction.receiptNumber}
+        </ThemedText>
+      ) : null}
+    </View>
   );
 }
 
@@ -930,8 +919,8 @@ function DisclaimerCard() {
       ]}>
       <MaterialIcons name="shield" size={18} color={theme.textSecondary} />
       <ThemedText type="small" themeColor="textSecondary" style={styles.disclaimerText}>
-        Your payment will be reviewed by the admin team before your repayment schedule is updated.
-        You&apos;ll see a pending payment on your loan in the meantime.
+        Your lender will confirm the settlement amount and complete the loan after approval — same
+        process as a manual payment, with early settlement pricing applied.
       </ThemedText>
     </View>
   );
@@ -983,16 +972,6 @@ function NotFoundState() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Helpers                                                           */
-/* ------------------------------------------------------------------ */
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Styles                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1024,49 +1003,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
-  choiceCard: {
-    borderWidth: 2,
-    borderRadius: 16,
-    padding: Spacing.three,
+  notEligibleBox: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
+    gap: Spacing.two,
+    alignItems: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: Spacing.three,
   },
-  choiceCopy: {
+  notEligibleText: {
+    flex: 1,
+  },
+  breakdownBox: {
+    borderWidth: 1.5,
+    borderRadius: 14,
+    padding: Spacing.three,
+    gap: Spacing.two,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  breakdownLabelWrap: {
     flex: 1,
     minWidth: 0,
     gap: 2,
   },
-  choiceLabel: {
+  breakdownSublabel: {
     fontSize: 11,
-    letterSpacing: 0.6,
   },
-  choicePrimary: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '700',
+  breakdownValue: {
+    textAlign: 'right',
   },
-  fieldWrap: {
-    gap: Spacing.one,
+  breakdownDivider: {
+    height: StyleSheet.hairlineWidth,
+    width: '100%',
+    marginVertical: Spacing.one,
   },
-  amountInputWrap: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+  breakdownTotalRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
     gap: Spacing.two,
-    minHeight: 56,
   },
-  amountPrefix: {
-    fontSize: 16,
+  breakdownTotalLabel: {
+    flexShrink: 0,
   },
-  amountInput: {
+  breakdownTotalAmount: {
     flex: 1,
-    fontSize: 22,
+    minWidth: 0,
+    textAlign: 'right',
     fontWeight: '700',
-    paddingVertical: 0,
   },
   bankRowGroup: {
     marginHorizontal: -Spacing.three,
@@ -1127,45 +1116,39 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: Spacing.three,
   },
-  uploadDropzone: {
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderRadius: 14,
-    paddingVertical: Spacing.four,
-    alignItems: 'center',
-    justifyContent: 'center',
+  noteBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    minHeight: 96,
+  },
+  noteInput: {
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  requestsList: {
+    gap: Spacing.two,
+  },
+  requestRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: Spacing.three,
     gap: Spacing.one,
   },
-  uploadHint: {
-    textAlign: 'center',
-  },
-  receiptPill: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
+  requestRowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
+    justifyContent: 'space-between',
+    gap: Spacing.two,
   },
-  receiptIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  receiptCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  receiptClear: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+  requestStatusPill: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   disclaimer: {
     flexDirection: 'row',

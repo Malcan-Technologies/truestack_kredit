@@ -16,6 +16,14 @@ import {
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Separator } from "../ui/separator";
@@ -64,6 +72,8 @@ export function BorrowerEarlySettlementPage({ loanId }: { loanId: string }) {
   const [reference, setReference] = useState("");
   const [referenceCopied, setReferenceCopied] = useState(false);
   const [borrowerNote, setBorrowerNote] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTransferred, setConfirmTransferred] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +128,23 @@ export function BorrowerEarlySettlementPage({ loanId }: { loanId: string }) {
     }
   };
 
+  const openConfirm = () => {
+    if (!quote?.eligible || totalSettlement == null) {
+      toast.error("Settlement is not available");
+      return;
+    }
+    if (!bankConfigured) {
+      toast.error("Bank details are not available yet. Please contact your lender.");
+      return;
+    }
+    if (!reference.trim()) {
+      toast.error("Transfer reference is required");
+      return;
+    }
+    setConfirmTransferred(false);
+    setConfirmOpen(true);
+  };
+
   const submitRequest = async () => {
     if (!quote?.eligible || totalSettlement == null) {
       toast.error("Settlement is not available");
@@ -139,6 +166,7 @@ export function BorrowerEarlySettlementPage({ loanId }: { loanId: string }) {
         borrowerNote: borrowerNote.trim() || undefined,
       });
       toast.success("Early settlement request submitted. Your lender will review it.");
+      setConfirmOpen(false);
       router.push(`/loans/${loanId}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Submission failed");
@@ -427,7 +455,7 @@ export function BorrowerEarlySettlementPage({ loanId }: { loanId: string }) {
 
                 <Button
                   className="w-full h-12 text-base font-semibold hidden lg:flex"
-                  onClick={() => void submitRequest()}
+                  onClick={openConfirm}
                   disabled={submitting || !canSubmit || pendingRequest}
                 >
                   {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -506,7 +534,7 @@ export function BorrowerEarlySettlementPage({ loanId }: { loanId: string }) {
             </div>
             <Button
               className="h-11 px-6 font-semibold shrink-0"
-              onClick={() => void submitRequest()}
+              onClick={openConfirm}
               disabled={submitting || !canSubmit}
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -515,6 +543,87 @@ export function BorrowerEarlySettlementPage({ loanId }: { loanId: string }) {
           </div>
         </div>
       ) : null}
+
+      <Dialog open={confirmOpen} onOpenChange={(open) => (submitting ? null : setConfirmOpen(open))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm early settlement</DialogTitle>
+            <DialogDescription>
+              Please confirm you have transferred the exact settlement amount to your lender&apos;s bank account before
+              submitting this request.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 text-sm">
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-muted-foreground">Amount transferred</span>
+                <span className="text-xl font-bold tabular-nums">
+                  {totalSettlement != null ? formatRm(totalSettlement) : "—"}
+                </span>
+              </div>
+              {bankConfigured && lender ? (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">To</span>
+                    <span className="text-right">
+                      {getBankLabel(lender.lenderBankCode, lender.lenderBankOtherName)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Account</span>
+                    <span className="font-mono text-xs text-right">{lender.lenderAccountNumber}</span>
+                  </div>
+                </>
+              ) : null}
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Reference</span>
+                <span className="font-mono text-xs text-right truncate max-w-[200px]">{reference.trim()}</span>
+              </div>
+            </div>
+
+            <label className="flex items-start gap-3 rounded-lg border border-border p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 shrink-0 rounded border-input"
+                checked={confirmTransferred}
+                onChange={(e) => setConfirmTransferred(e.target.checked)}
+                disabled={submitting}
+              />
+              <span className="text-sm leading-snug">
+                I confirm I have transferred the exact amount of{" "}
+                <span className="font-semibold">
+                  {totalSettlement != null ? formatRm(totalSettlement) : "—"}
+                </span>{" "}
+                to the lender&apos;s bank account using the reference above.
+              </span>
+            </label>
+
+            <p className="text-xs text-muted-foreground">
+              False confirmations may delay approval or be rejected when the lender reconciles incoming transfers.
+            </p>
+          </div>
+
+          <DialogFooter className="sm:space-x-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void submitRequest()}
+              disabled={submitting || !confirmTransferred}
+            >
+              {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Confirm and submit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

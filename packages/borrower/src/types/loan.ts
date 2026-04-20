@@ -187,3 +187,31 @@ export interface LenderBankInfo {
   lenderAccountHolderName?: string | null;
   lenderAccountNumber?: string | null;
 }
+
+export interface EarlySettlementQuoteData {
+  eligible: boolean;
+  reason?: string;
+  lockInEndDate?: string | null;
+  remainingPrincipal?: number;
+  remainingInterest?: number;
+  remainingFutureInterest?: number;
+  discountType?: string;
+  discountValue?: number;
+  discountAmount?: number;
+  outstandingLateFees?: number;
+  totalWithoutLateFees?: number;
+  totalSettlement?: number;
+  totalSavings?: number;
+  unpaidInstallments?: number;
+}
+
+export interface BorrowerEarlySettlementRequest {
+  id: string;
+  status: string;
+  borrowerNote?: string | null;
+  reference?: string | null;
+  rejectionReason?: string | null;
+  createdAt: string;
+  snapshotTotalSettlement?: unknown;
+  paymentTransaction?: { id: string; receiptNumber?: string | null } | null;
+}

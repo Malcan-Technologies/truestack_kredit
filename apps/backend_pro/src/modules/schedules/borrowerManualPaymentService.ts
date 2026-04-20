@@ -3,6 +3,7 @@ import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 import { toSafeNumber } from '../../lib/math.js';
 import { handleRecordLoanSpilloverPayment } from './recordLoanSpilloverPayment.js';
 import { AuditService } from '../compliance/auditService.js';
+import { NotificationOrchestrator } from '../notifications/orchestrator.js';
 import type { IncomingHttpHeaders } from 'http';
 
 type SpilloverSuccessBody = {
@@ -164,4 +165,21 @@ export async function rejectBorrowerManualPaymentRequest(params: {
     },
     ipAddress: ip,
   });
+
+  try {
+    const amountLabel = `RM ${toSafeNumber(reqRow.amount).toFixed(2)}`;
+    await NotificationOrchestrator.notifyBorrowerEvent({
+      tenantId,
+      borrowerId: reqRow.borrowerId,
+      notificationKey: 'manual_payment_rejected',
+      category: 'payments',
+      title: 'Payment rejected',
+      body: `Your ${amountLabel} payment was rejected. Reason: ${rejectionReason}`,
+      deepLink: `/loans/${reqRow.loanId}`,
+      sourceType: 'BORROWER_MANUAL_PAYMENT_REQUEST',
+      sourceId: requestId,
+    });
+  } catch (notificationError) {
+    console.error(`[Notifications] Failed manual payment rejected notify ${reqRow.loanId}:`, notificationError);
+  }
 }

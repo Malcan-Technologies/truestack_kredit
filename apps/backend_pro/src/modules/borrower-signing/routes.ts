@@ -14,6 +14,10 @@ import {
   signAndStorePdf,
   updateMtsaEmail,
 } from '../../lib/signingGatewayClient.js';
+import {
+  certInfoToActivationSignals,
+  isMtsaSigningActiveForProject,
+} from '../../lib/mtsaCertActivation.js';
 import { buildLoanAgreementPdfBuffer } from '../loans/loanAgreementPdfService.js';
 import { AuditService } from '../compliance/auditService.js';
 import { TrueSendService } from '../notifications/trueSendService.js';
@@ -126,7 +130,7 @@ router.post('/cert-status', async (req, res, next) => {
 
     const userId = requireMtsaUserId(borrower, 'Borrower IC number is required for certificate check');
     const result = await getCertInfo(userId);
-    const hasCert = result.success && result.certStatus === 'Valid';
+    const hasCert = isMtsaSigningActiveForProject(certInfoToActivationSignals(result));
 
     res.json({
       success: true,
@@ -135,6 +139,8 @@ router.post('/cert-status', async (req, res, next) => {
       certValidFrom: result.certValidFrom ?? null,
       certValidTo: result.certValidTo ?? null,
       certSerialNo: result.certSerialNo ?? null,
+      allowedToSign: result.allowedToSign ?? null,
+      authStatus: result.authStatus ?? null,
       statusCode: result.statusCode,
       statusMsg: result.statusMsg,
       errorDescription: result.errorDescription,
@@ -363,7 +369,7 @@ router.post('/check-email-change', async (req, res, next) => {
     }
 
     const certResult = await getCertInfo(userId);
-    const hasCert = certResult.success && certResult.certStatus === 'Valid';
+    const hasCert = isMtsaSigningActiveForProject(certInfoToActivationSignals(certResult));
     if (!hasCert) {
       res.json({ success: true, requiresOtp: false });
       return;

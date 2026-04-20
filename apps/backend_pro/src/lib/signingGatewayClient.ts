@@ -28,6 +28,9 @@ export interface CertInfoResponse {
   statusMsg?: string;
   errorDescription?: string;
   certStatus?: string;
+  /** Project activation (latest MTSA); may be string "true"/"false" from SOAP/JSON. */
+  allowedToSign?: boolean | string;
+  authStatus?: string;
   certValidFrom?: string;
   certValidTo?: string;
   certSerialNo?: string;
@@ -448,6 +451,8 @@ export interface RevokeCertResponse {
   statusCode: string;
   statusMsg?: string;
   errorDescription?: string;
+  /** Revoke accepted for Trustgate processing (or duplicate pending) — cert not revoked in our DB yet. */
+  pendingAtTrustgate?: boolean;
 }
 
 export async function revokeCertificate(body: RevokeCertBody): Promise<RevokeCertResponse> {

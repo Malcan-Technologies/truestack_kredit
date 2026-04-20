@@ -151,6 +151,7 @@ function ProgressDonut({
   if (status === 'COMPLETED') strokeColor = theme.success;
   else if (status === 'DEFAULTED' || status === 'WRITTEN_OFF') strokeColor = theme.error;
   else if (status === 'IN_ARREARS') strokeColor = theme.warning;
+  else if (readyToComplete) strokeColor = theme.success;
 
   return (
     <View style={[styles.donutWrap, { width: size, height: size }]}>

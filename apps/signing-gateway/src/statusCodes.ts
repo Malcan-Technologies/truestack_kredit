@@ -103,9 +103,9 @@ const STATUS_CODES: Record<string, string> = {
   RV113: 'AuthFactor has expired',
   RV114: 'AuthFactor validation failed',
   RV115: 'Failed to retrieve certificate request record',
-  // MTSA often emits this when MTIDA already has a request in "Pending Revoke", or enrolment never completed — the stock text is misleading.
+  /** Shown as a warning: another revoke is already in flight at Trustgate. */
   RV116:
-    'Trustgate cannot accept another revoke right now: a revoke may already be pending, or your certificate was not issued from a completed enrolment request. Wait for an in-flight revoke to finish, check status with Trustgate, or contact support.',
+    'A revoke is already pending at Trustgate. Wait for it to finish or check status with Trustgate.',
   RV117: 'MyTrustID Service returns error',
   RV118: 'Document size is bigger than the limit',
   RV119: 'No document to upload',
@@ -141,6 +141,56 @@ const STATUS_CODES: Record<string, string> = {
 export interface EnrichedFields {
   success: boolean;
   errorDescription?: string;
+}
+
+export interface RevokeEnrichedFields extends EnrichedFields {
+  /** True when the request was accepted for Trustgate workflow but the cert is not revoked yet (or a duplicate pending). */
+  pendingAtTrustgate?: boolean;
+}
+
+/** MTIDA / MTSA text meaning the revoke is queued for Trustgate manual processing (not an immediate failure). */
+export function isTrustgatePendingRevokeStatusMsg(statusMsg: string | undefined): boolean {
+  if (!statusMsg) return false;
+  const m = statusMsg.toLowerCase();
+  return (
+    m.includes('pending manual process revocation') ||
+    m.includes('pending revoke') ||
+    m.includes('manual process revocation')
+  );
+}
+
+/**
+ * Revoke has a two-step lifecycle: user submits → Trustgate processes.
+ * MTSA often returns statusCode `000` with a "pending … revocation" message; that must not be treated as `success: true`
+ * (which would imply the certificate is already revoked).
+ */
+export function enrichRevokeResponse<T extends { statusCode?: string; statusMsg?: string }>(
+  raw: T
+): T & RevokeEnrichedFields {
+  const code = String(raw.statusCode ?? 'ERR').trim();
+  const msg = raw.statusMsg;
+
+  if (code === '000' && isTrustgatePendingRevokeStatusMsg(msg)) {
+    return {
+      ...raw,
+      success: false,
+      pendingAtTrustgate: true,
+    };
+  }
+
+  const base = enrichResponse(raw) as T & RevokeEnrichedFields;
+  if (code === 'RV116') {
+    return {
+      ...base,
+      success: false,
+      pendingAtTrustgate: true,
+    };
+  }
+
+  return {
+    ...base,
+    pendingAtTrustgate: false,
+  };
 }
 
 export function enrichResponse<T extends { statusCode?: string; statusMsg?: string }>(

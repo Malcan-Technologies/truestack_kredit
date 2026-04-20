@@ -16,6 +16,7 @@
     "dev:backend_pro": "npm run dev -w apps/backend_pro",
     "dev:borrower_pro": "npm run dev -w apps/borrower_pro/Demo_Client",
     "dev:borrower_pro_mobile": "npm run dev -w demo_client",
+    "dev:demo_client": "concurrently --handle-input --default-input-target mobile -c blue,green,cyan,magenta -n backend,admin,borrower,mobile \"npm run dev:backend_pro\" \"npm run dev:admin_pro\" \"npm run dev:borrower_pro\" \"npm run dev:borrower_pro_mobile\"",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "db:generate": "npm run db:generate -w apps/backend",
@@ -30,6 +31,9 @@
     "db:reset:pro": "npm run db:reset -w apps/backend_pro",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   },
   "engines": {
     "node": ">=20.0.0"

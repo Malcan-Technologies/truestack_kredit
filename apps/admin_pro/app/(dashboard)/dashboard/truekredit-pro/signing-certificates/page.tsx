@@ -265,6 +265,9 @@ export default function SigningCertificatesPage() {
           try {
             const certRes = await getCertStatus();
             setCertInfo(certRes.certInfo);
+            // POST /cert-status updates StaffSigningProfile in DB; refetch signers so the
+            // table badge matches MTSA (otherwise tenantSigners was loaded before the write).
+            await fetchSigners();
 
             if (certRes.certInfo?.certStatus !== "Valid") {
               const kycRes = await getStaffKycStatus();
@@ -404,6 +407,7 @@ export default function SigningCertificatesPage() {
     try {
       const res = await getCertStatus();
       setCertInfo(res.certInfo);
+      await fetchSigners();
       if (res.certInfo?.certStatus === "Valid") {
         toast.success("Valid certificate found!");
       } else {

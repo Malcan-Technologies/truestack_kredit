@@ -17,6 +17,7 @@ import {
   verifyPdfSignature,
   updateMtsaEmail,
 } from '../../lib/signingGatewayClient.js';
+import type { CertInfoResponse } from '../../lib/signingGatewayClient.js';
 import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { AuditService } from '../compliance/auditService.js';
 import { getFile, saveAgreementFile, saveFile } from '../../lib/storage.js';
@@ -25,6 +26,28 @@ import { subscribeTenantTruestackKyc } from '../../lib/truestackKycSseHub.js';
 
 const router = Router();
 router.use(authenticateToken);
+
+/** When GetCertInfo returns certStatus (e.g. Revoked), persist it even if success is false — signing-gateway sets success only for statusCode 000. */
+async function persistStaffCertInfoFromMtsa(
+  profile: {
+    id: string;
+    certSerialNo: string | null;
+    certValidFrom: Date | null;
+    certValidTo: Date | null;
+  },
+  certInfo: CertInfoResponse,
+): Promise<void> {
+  if (!certInfo.certStatus) return;
+  await prisma.staffSigningProfile.update({
+    where: { id: profile.id },
+    data: {
+      certStatus: certInfo.certStatus,
+      certSerialNo: certInfo.certSerialNo || profile.certSerialNo,
+      certValidFrom: certInfo.certValidFrom ? new Date(certInfo.certValidFrom) : profile.certValidFrom,
+      certValidTo: certInfo.certValidTo ? new Date(certInfo.certValidTo) : profile.certValidTo,
+    },
+  });
+}
 
 /** SSE: TrueStack KYC webhook updates for this tenant (staff + borrower sessions). */
 router.get('/kyc/stream', requireAnyPermission('trueidentity.view', 'trueidentity.manage'), async (req, res, next) => {
@@ -301,18 +324,7 @@ router.post('/cert-status', requireSigningCertificatesManage, async (req, res, n
     }
 
     const certInfo = await getCertInfo(profile.icNumber);
-
-    if (certInfo.success && certInfo.certStatus) {
-      await prisma.staffSigningProfile.update({
-        where: { id: profile.id },
-        data: {
-          certStatus: certInfo.certStatus,
-          certSerialNo: certInfo.certSerialNo || profile.certSerialNo,
-          certValidFrom: certInfo.certValidFrom ? new Date(certInfo.certValidFrom) : profile.certValidFrom,
-          certValidTo: certInfo.certValidTo ? new Date(certInfo.certValidTo) : profile.certValidTo,
-        },
-      });
-    }
+    await persistStaffCertInfoFromMtsa(profile, certInfo);
 
     res.json({ success: true, certInfo });
   } catch (err) {
@@ -982,7 +994,42 @@ router.get('/signers', requirePermission('signing_certificates.view'), async (re
       orderBy: { fullName: 'asc' },
     });
 
-    res.json({ success: true, signers: profiles });
+    if (config.signing.enabled && profiles.length > 0) {
+      const health = await checkHealth();
+      if (health.online && health.mtsaConnected) {
+        await Promise.all(
+          profiles.map(async (p) => {
+            try {
+              const certInfo = await getCertInfo(p.icNumber);
+              await persistStaffCertInfoFromMtsa(p, certInfo);
+            } catch {
+              // Keep cached row if gateway hiccups for one IC
+            }
+          }),
+        );
+      }
+    }
+
+    const fresh = await prisma.staffSigningProfile.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        userId: true,
+        fullName: true,
+        icNumber: true,
+        email: true,
+        designation: true,
+        certStatus: true,
+        certSerialNo: true,
+        certValidFrom: true,
+        certValidTo: true,
+        kycComplete: true,
+        user: { select: { name: true, email: true } },
+      },
+      orderBy: { fullName: 'asc' },
+    });
+
+    res.json({ success: true, signers: fresh });
   } catch (err) {
     next(err);
   }

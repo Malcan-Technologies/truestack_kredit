@@ -77,11 +77,19 @@ export default function AppTabs() {
         selected: { color: colors.primary },
       }}
       shadowColor={Platform.OS === 'ios' ? colors.border : undefined}
-      indicatorColor={Platform.OS === 'android' ? colors.primary : undefined}>
+      // Android Material 3 NavigationBar:
+      // - `labeled` keeps every label visible (default 'auto' hides inactive labels with 4+ tabs,
+      //   violating navigation-ux §1 "always pair icons with labels").
+      // - The active indicator pill sits behind the selected icon. Using `primary` (near-black)
+      //   camouflages the selected icon/label (also primary), so we use a tonal `backgroundSelected`
+      //   tint — matches the subtle iOS pill and keeps content readable in both themes.
+      labelVisibilityMode={Platform.OS === 'android' ? 'labeled' : undefined}
+      rippleColor={Platform.OS === 'android' ? colors.backgroundSelected : undefined}
+      indicatorColor={Platform.OS === 'android' ? colors.backgroundSelected : undefined}>
       <NativeTabs.Trigger name="index" {...tabTriggerNative}>
         <NativeTabs.Trigger.Label>Dashboard</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          sf="house"
+          sf={{ default: 'house', selected: 'house.fill' }}
           md="home"
         />
       </NativeTabs.Trigger>
@@ -89,7 +97,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="applications" {...tabTriggerNative}>
         <NativeTabs.Trigger.Label>Applications</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          sf="doc.text"
+          sf={{ default: 'doc.text', selected: 'doc.text.fill' }}
           md="description"
         />
       </NativeTabs.Trigger>
@@ -97,7 +105,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="loans" {...tabTriggerNative}>
         <NativeTabs.Trigger.Label>Loans</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          sf="banknote"
+          sf={{ default: 'banknote', selected: 'banknote.fill' }}
           md="account_balance_wallet"
         />
       </NativeTabs.Trigger>
@@ -105,7 +113,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="borrower-profile" {...tabTriggerNative}>
         <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          sf="person.text.rectangle"
+          sf={{ default: 'person.text.rectangle', selected: 'person.text.rectangle.fill' }}
           md="badge"
         />
       </NativeTabs.Trigger>
@@ -113,7 +121,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="settings-menu" {...tabTriggerNative}>
         <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          sf="gearshape"
+          sf={{ default: 'gearshape', selected: 'gearshape.fill' }}
           md="settings"
         />
       </NativeTabs.Trigger>

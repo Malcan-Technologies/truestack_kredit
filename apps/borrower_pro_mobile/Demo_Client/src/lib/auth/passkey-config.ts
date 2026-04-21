@@ -41,7 +41,9 @@ export function isExpoGoRuntime() {
     return false;
   }
 
-  return Constants.appOwnership === 'expo';
+  // `appOwnership` is deprecated on SDK 55; `executionEnvironment === 'storeClient'`
+  // is the modern signal for Expo Go.
+  return Constants.executionEnvironment === 'storeClient';
 }
 
 export function shouldEnablePasskeyClientPlugin() {
@@ -53,12 +55,32 @@ export function hasNativePasskeyDomainConfig() {
   return Boolean(rpId && !isLoopbackHost(rpId));
 }
 
+/**
+ * Set by auth-client.ts after it tries to load `expo-better-auth-passkey`.
+ * The runtime-level probe is the only reliable signal on SDK 55: `appOwnership`
+ * is gone and `executionEnvironment === 'storeClient'` doesn't distinguish
+ * Expo Go (no module) from a dev client (module linked).
+ */
+let passkeyNativeModuleStatus: 'unknown' | 'available' | 'unavailable' = 'unknown';
+
+export function markPasskeyNativeModule(status: 'available' | 'unavailable') {
+  passkeyNativeModuleStatus = status;
+}
+
 export function getPasskeySupportMessage() {
-  if (isExpoGoRuntime()) {
+  if (Platform.OS === 'web') {
+    return null;
+  }
+
+  if (passkeyNativeModuleStatus === 'unavailable') {
+    return 'Passkeys need a development build with the native passkey module. Rebuild the app (expo prebuild && expo run:ios / run:android) — Expo Go does not include it.';
+  }
+
+  if (isExpoGoRuntime() && passkeyNativeModuleStatus === 'unknown') {
     return 'Passkeys require a native development build or production build. Expo Go does not include the passkey module.';
   }
 
-  if (Platform.OS !== 'web' && !hasNativePasskeyDomainConfig()) {
+  if (!hasNativePasskeyDomainConfig()) {
     return 'Native passkeys need an HTTPS relying-party domain. Set EXPO_PUBLIC_PASSKEY_RP_ID or point EXPO_PUBLIC_AUTH_BASE_URL to a tunneled/deployed HTTPS host. Plain localhost only works for the web flow.';
   }
 

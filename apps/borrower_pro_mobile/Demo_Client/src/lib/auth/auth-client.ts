@@ -12,7 +12,7 @@ import { twoFactorClient, organizationClient } from 'better-auth/client/plugins'
 import { expoClient } from '@better-auth/expo/client';
 import * as SecureStore from 'expo-secure-store';
 
-import { shouldEnablePasskeyClientPlugin } from './passkey-config';
+import { markPasskeyNativeModule, shouldEnablePasskeyClientPlugin } from './passkey-config';
 
 const backendUrl = (process.env.EXPO_PUBLIC_BACKEND_URL ?? '').replace(/\/$/, '');
 type AuthClientOptions = NonNullable<Parameters<typeof createAuthClient>[0]>;
@@ -20,6 +20,7 @@ type AuthClientPlugin = NonNullable<AuthClientOptions['plugins']>[number];
 
 function getPasskeyPlugin(): AuthClientPlugin | null {
   if (!shouldEnablePasskeyClientPlugin()) {
+    markPasskeyNativeModule('unavailable');
     return null;
   }
 
@@ -29,9 +30,12 @@ function getPasskeyPlugin(): AuthClientPlugin | null {
       expoPasskeyClient: () => AuthClientPlugin;
     };
 
-    return expoPasskeyClient();
+    const plugin = expoPasskeyClient();
+    markPasskeyNativeModule('available');
+    return plugin;
   } catch (error) {
     console.warn('[auth] Passkey plugin unavailable in this build:', error);
+    markPasskeyNativeModule('unavailable');
     return null;
   }
 }

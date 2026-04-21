@@ -120,7 +120,7 @@ const authClientUnsafe = authClient as unknown as {
   twoFactor: {
     enable: (opts: {
       password: string;
-    }) => Promise<BetterAuthResponse<unknown>>;
+    }) => Promise<BetterAuthResponse<{ totpURI?: string; backupCodes?: string[] }>>;
     disable: (opts: {
       password: string;
     }) => Promise<BetterAuthResponse<unknown>>;
@@ -280,14 +280,18 @@ export async function getSession(): Promise<GetSessionResult | null> {
 /**
  * Two-factor management helpers for the signed-in account screen.
  */
-export async function enableTwoFactor(password: string): Promise<void> {
-  const { error } = await authClientUnsafe.twoFactor.enable({
+export async function enableTwoFactor(
+  password: string,
+): Promise<{ totpURI?: string; backupCodes?: string[] }> {
+  const { data, error } = await authClientUnsafe.twoFactor.enable({
     password,
   });
 
   if (error) {
     throw new Error(resolveErrorMessage(error, 'Unable to start two-factor setup'));
   }
+
+  return data ?? {};
 }
 
 export async function getTotpUri(password: string): Promise<string> {

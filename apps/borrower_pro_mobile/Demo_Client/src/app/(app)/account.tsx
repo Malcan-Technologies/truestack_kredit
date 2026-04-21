@@ -477,8 +477,33 @@ function AccountSecuritySection() {
 
     setStartingTwoFactor(true);
     try {
-      await enableTwoFactor(trimmedPassword);
-      const totpUri = await getTotpUri(trimmedPassword);
+      let totpUri: string | null = null;
+
+      try {
+        const enableResult = await enableTwoFactor(trimmedPassword);
+        totpUri = enableResult.totpURI ?? null;
+      } catch (enableError) {
+        // If setup was previously started but never verified, the server rejects
+        // a fresh enable. Fall back to fetching the existing TOTP URI.
+        const message =
+          enableError instanceof Error ? enableError.message.toLowerCase() : '';
+        const canRecoverWithExistingSetup =
+          message.includes('already') ||
+          message.includes('enabled') ||
+          message.includes('exists');
+        if (!canRecoverWithExistingSetup) {
+          throw enableError;
+        }
+      }
+
+      if (!totpUri) {
+        totpUri = await getTotpUri(trimmedPassword);
+      }
+
+      if (!totpUri) {
+        throw new Error('Missing authenticator setup details');
+      }
+
       setSetupPassword('');
       setVerificationCode('');
       setSetupTotpUri(totpUri);

@@ -70,6 +70,19 @@ export function validateLoanDetails(
     errors.term = `Minimum term is ${product.minTerm} months`;
   } else if (trm > product.maxTerm) {
     errors.term = `Maximum term is ${product.maxTerm} months`;
+  } else {
+    const allowed = (product.allowedTerms ?? []).filter((n) => typeof n === 'number');
+    if (allowed.length > 0) {
+      if (!allowed.includes(trm)) {
+        const sorted = [...new Set(allowed)].sort((a, b) => a - b);
+        errors.term = `Term must be one of: ${sorted.join(', ')} months`;
+      }
+    } else {
+      const interval = product.termInterval && product.termInterval > 0 ? product.termInterval : 1;
+      if ((trm - product.minTerm) % interval !== 0) {
+        errors.term = `Term must increase in steps of ${interval} month(s) from ${product.minTerm}`;
+      }
+    }
   }
 
   if (product.loanScheduleType === 'JADUAL_K') {

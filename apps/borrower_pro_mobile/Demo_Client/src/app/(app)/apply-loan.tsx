@@ -520,6 +520,28 @@ export default function ApplyLoanScreen() {
   }, [step, profileLoaded]);
 
   useEffect(() => {
+    if (!selectedProduct) return;
+    const current = parseInt(draft.term, 10);
+    const allowed = (selectedProduct.allowedTerms ?? []).filter(
+      (n): n is number => typeof n === 'number',
+    );
+    const interval =
+      selectedProduct.termInterval && selectedProduct.termInterval > 0
+        ? selectedProduct.termInterval
+        : 1;
+    const isValid =
+      Number.isFinite(current) &&
+      current >= selectedProduct.minTerm &&
+      current <= selectedProduct.maxTerm &&
+      (allowed.length > 0
+        ? allowed.includes(current)
+        : (current - selectedProduct.minTerm) % interval === 0);
+    if (!isValid) {
+      setDraft((d) => ({ ...d, term: String(selectedProduct.minTerm) }));
+    }
+  }, [selectedProduct]);
+
+  useEffect(() => {
     if (step !== 1 || !selectedProduct || !draft.amount || !draft.term) {
       setPreview(null);
       return;
@@ -817,6 +839,13 @@ export default function ApplyLoanScreen() {
     const isJadualK = (selectedProduct as unknown as { loanScheduleType?: string })?.loanScheduleType === 'JADUAL_K';
     const termMin = selectedProduct?.minTerm ?? 1;
     const termMax = selectedProduct?.maxTerm ?? 12;
+    const termIntervalRaw = selectedProduct?.termInterval;
+    const termStep = termIntervalRaw && termIntervalRaw > 0 ? termIntervalRaw : 1;
+    const allowedTerms = selectedProduct?.allowedTerms
+      ? [...new Set((selectedProduct.allowedTerms ?? []).filter((n): n is number => typeof n === 'number'))].sort(
+          (a, b) => a - b,
+        )
+      : [];
     const parsedTerm = parseInt(draft.term, 10);
     const termValue = Number.isFinite(parsedTerm) ? parsedTerm : termMin;
     const formatMonths = (m: number) => `${m} ${m === 1 ? 'month' : 'months'}`;
@@ -842,16 +871,59 @@ export default function ApplyLoanScreen() {
             error={errors.amount}
           />
           {selectedProduct ? (
-            <SliderField
-              label="Loan term"
-              value={termValue}
-              onChange={(v) => setDraft((d) => ({ ...d, term: String(v) }))}
-              min={termMin}
-              max={termMax}
-              step={1}
-              formatValue={formatMonths}
-              error={errors.term}
-            />
+            allowedTerms.length > 0 ? (
+              <View style={{ gap: Spacing.one }}>
+                <View style={styles.termHeaderRow}>
+                  <ThemedText type="smallBold">Loan term</ThemedText>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                    {draft.term ? formatMonths(termValue) : '—'}
+                  </ThemedText>
+                </View>
+                <View style={styles.termChipWrap}>
+                  {allowedTerms.map((m) => {
+                    const selected = draft.term !== '' && termValue === m;
+                    return (
+                      <Pressable
+                        key={m}
+                        onPress={() => {
+                          setDraft((d) => ({ ...d, term: String(m) }));
+                          if (errors.term) setErrors((e) => ({ ...e, term: '' }));
+                        }}
+                        style={({ pressed }) => [
+                          styles.termChip,
+                          {
+                            borderColor: selected ? theme.primary : theme.border,
+                            backgroundColor: selected ? theme.backgroundSelected : theme.background,
+                            opacity: pressed ? 0.8 : 1,
+                          },
+                        ]}>
+                        <ThemedText
+                          type="smallBold"
+                          style={{ color: selected ? theme.primary : theme.text }}>
+                          {m} mo
+                        </ThemedText>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {errors.term ? (
+                  <ThemedText type="small" style={{ color: theme.error }}>
+                    {errors.term}
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : (
+              <SliderField
+                label="Loan term"
+                value={termValue}
+                onChange={(v) => setDraft((d) => ({ ...d, term: String(v) }))}
+                min={termMin}
+                max={termMax}
+                step={termStep}
+                formatValue={formatMonths}
+                error={errors.term}
+              />
+            )
           ) : null}
         </SectionCard>
 
@@ -1648,5 +1720,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: 'dashed',
     justifyContent: 'center',
+  },
+  termHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  termChipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  termChip: {
+    minWidth: 64,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one + 2,
   },
 });

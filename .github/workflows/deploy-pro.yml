@@ -844,6 +844,10 @@ jobs:
   # trigger; deploy-pro.yml is for external clients only.
   deploy-signing-gateway:
     name: Deploy Signing Gateway (on-prem)
+    # Reusable workflow jobs need id-token: write for AWS OIDC; caller must grant it.
+    permissions:
+      id-token: write
+      contents: read
     needs: [load-config, resolve-release]
     if: |
       always() &&

@@ -4,8 +4,10 @@ import path from 'path';
 
 const router = Router();
 
-// Path to user-guide docs (relative to project root)
-const DOCS_PATH = path.join(process.cwd(), '..', '..', 'docs', 'user-guide');
+// Path to the TrueKredit Pro user-guide docs (relative to project root).
+// Pro has its own help content (`docs/user-guide-pro`). The SaaS `docs/user-guide`
+// is intentionally NOT used here — see `apps/backend` for the SaaS help route.
+const DOCS_PATH = path.join(process.cwd(), '..', '..', 'docs', 'user-guide-pro');
 
 interface DocFile {
   slug: string;

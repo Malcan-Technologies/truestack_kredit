@@ -61,7 +61,9 @@ COPY --from=builder --chown=nodejs:nodejs /app/packages/shared /app/packages/sha
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend_pro/dist ./dist
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend_pro/prisma ./prisma
 COPY --from=builder --chown=nodejs:nodejs /app/apps/backend_pro/package.json ./package.json
-# User-guide docs for /api/docs - must be at /app/docs for path.join(process.cwd(), '..', '..', 'docs', 'user-guide')
+# Pro-specific user-guide docs for /api/docs (help center) - must be at /app/docs
+# for path.join(process.cwd(), '..', '..', 'docs', 'user-guide-pro'). The SaaS
+# user-guide is intentionally not used by backend_pro.
 COPY --from=builder --chown=nodejs:nodejs /app/docs /app/docs
 
 USER nodejs

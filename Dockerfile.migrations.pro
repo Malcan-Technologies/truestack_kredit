@@ -1,16 +1,13 @@
-FROM node:22-alpine
+# Node 24 ships with npm 11 built-in. Required because package-lock.json is
+# generated with npm >=11; older npm (e.g. 10.9.x in node:22-alpine) rejects
+# the lockfile with "Missing: <pkg> from lock file" during `npm ci`, and the
+# 10 -> 11 self-upgrade is itself broken ("Cannot find module 'promise-retry'").
+FROM node:24-alpine
 
 WORKDIR /app
 
 # Prisma engine dependency on Alpine.
 RUN apk add --no-cache openssl
-
-# package-lock.json is generated with npm >=11 on dev machines.
-# node:22-alpine ships with npm 10.9.x which can't read the newer lockfile
-# entries (e.g. `*--for-generate-function-map`), causing `npm ci` to fail
-# with "Missing: <pkg> from lock file". Pin npm to the lockfile-compatible
-# version.
-RUN npm install -g npm@11
 
 # Install workspace dependencies.
 # Include every npm workspace package.json so `npm ci` matches package-lock.json.

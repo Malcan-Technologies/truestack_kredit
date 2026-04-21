@@ -1,17 +1,14 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS base
+# Node 24 ships with npm 11 built-in. Required because package-lock.json is
+# generated with npm >=11; older npm (e.g. 10.9.x in node:22-alpine) rejects
+# the lockfile with "Missing: <pkg> from lock file" during `npm ci`, and the
+# 10 -> 11 self-upgrade is itself broken ("Cannot find module 'promise-retry'").
+FROM node:24-alpine AS base
 WORKDIR /app
 
 # Prisma engines on Alpine expect OpenSSL (matches borrower_pro image).
 RUN apk add --no-cache openssl
-
-# package-lock.json is generated with npm >=11 on dev machines.
-# node:22-alpine ships with npm 10.9.x which can't read the newer lockfile
-# entries (e.g. `*--for-generate-function-map`), causing `npm ci` to fail
-# with "Missing: <pkg> from lock file". Pin npm to the lockfile-compatible
-# version.
-RUN npm install -g npm@11
 
 FROM base AS deps
 

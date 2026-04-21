@@ -54,7 +54,7 @@ pro_tenant:
   email: info@ppsb-eloan.com.my
   contact_number: "+60300000000"
   business_address: TODO - Proficient Premium registered business address
-  seed_owner_email: Proficientpremium1@gmail.com
+  seed_owner_email: proficientpremium1@gmail.com
   seed_owner_name: Patricia
 
 enabled_modules:

@@ -2,7 +2,24 @@
 
 This document covers the complete setup for deploying the on-prem Signing Gateway stack to a new Pro client. It is designed to be followed by an AI assistant with CLI access, or manually by an operator.
 
-**Reference implementation**: `demo-client` — see `config/clients/demo-client.yaml` for a working example.
+**Reference implementation**: `demo-client` — see `config/clients/demo-client.yaml` for a Truestack-hosted example (`truestack.my`). External clients use their **own domain** in `signing.gateway_hostname` / `signing.ssh_host` (for example `sign.ppsb-eloan.com.my`); the Cloudflare steps are the same, only the zone and hostnames differ.
+
+---
+
+## Cloudflare: what you configure (per client)
+
+Each signing stack needs a **Cloudflare account** with permission to manage:
+
+1. **The DNS zone** that contains `signing.gateway_hostname` and `signing.ssh_host` (from `config/clients/<client-id>.yaml`). The zone must be **active** (nameservers at the registrar point to Cloudflare if Cloudflare is authoritative).
+2. A **Cloudflare Tunnel** (Zero Trust → Networks → Tunnels), name = `signing.tunnel_name`.
+3. **Public hostnames** on that tunnel (signing API → Docker service `signing-gateway:3100`; SSH → `host.docker.internal:22`).
+4. **DNS records** (usually proxied CNAME) from those hostnames to `<tunnel-id>.cfargotunnel.com`.
+5. **Cloudflare Access** (Zero Trust) applications on both hostnames, policy = **Service Auth** / **any valid service token**.
+6. A **service token** (Client ID + Secret) stored in GitHub and AWS Secrets Manager.
+
+**Who owns the zone:** may be the **client’s** Cloudflare account (typical for production) or **Truestack’s** zone for demos. The automation and runtime behavior are identical; only `CF_ZONE_ID`, hostnames, and which Cloudflare org you log into change.
+
+**Section 4** walks through dashboard and API/CLI steps using **`GATEWAY_HOSTNAME`** and **`SSH_HOSTNAME`** (copied from the client YAML), not hardcoded domains.
 
 ---
 
@@ -33,47 +50,53 @@ The stack runs on the client's on-prem server. GitHub Actions deploys updates vi
 Before starting, ensure you have:
 
 - [ ] The client's AWS account ID and OIDC deploy role ARN
-- [ ] Cloudflare account with `truestack.my` zone **active** (nameservers must point to Cloudflare)
-- [ ] Cloudflare API token with permissions: `Zone > DNS > Edit`, `Account > Cloudflare Tunnel > Edit`, `Account > Access: Apps and Policies > Edit`
+- [ ] Cloudflare access to the **zone** that will serve `signing.gateway_hostname` and `signing.ssh_host` — zone **active** (nameservers delegated to Cloudflare when Cloudflare is authoritative)
+- [ ] A **Cloudflare API token** (recommended) with the permissions in the matrix below — **not** the Global API Key unless you have no alternative
 - [ ] The MTSA Docker image: CI builds from `apps/signing-gateway/mtsa-pilot/` (demo) or `signing.mtsa_build_context` in the client YAML (e.g. Proficient Premium), or load from a Trustgate tarball if you are not using the Dockerfile path
 - [ ] MTSA SOAP credentials from Trustgate for the client
 - [ ] SSH access to the client's on-prem server (root or sudo-capable user)
 - [ ] GitHub CLI (`gh`) authenticated with repo access
 - [ ] AWS CLI configured with the client's profile
 
-### Cloudflare API Token
+### Cloudflare API token (for dashboard + CLI/API automation)
 
-If you don't have a Cloudflare API token yet, create one:
+Use a **Custom API token** (not the Global API Key) with the minimum scopes below. Tokens are created under **My Profile → API Tokens → Create Token → Create Custom Token**.
 
-1. Go to **[dash.cloudflare.com](https://dash.cloudflare.com) > My Profile > API Tokens > Create Token > Custom Token**
-2. Permissions:
-   - **Zone > DNS > Edit**
-   - **Account > Cloudflare Tunnel > Edit**
-   - **Account > Access: Apps and Policies > Edit**
-3. Zone Resources: **Include > Specific zone > truestack.my**
-4. Account Resources: **Include > your account**
+| Permission (as shown in Cloudflare) | Why you need it |
+|-------------------------------------|-----------------|
+| **Zone → DNS → Edit** | Create/update proxied **CNAME** records for `gateway_hostname` / `ssh_host` pointing at the tunnel target. |
+| **Account → Cloudflare Tunnel → Edit** | Create tunnels and **public hostname** (ingress) configuration via API or dashboard. |
+| **Account → Access: Apps and Policies → Edit** | Create **Zero Trust Access** applications and policies for the signing and SSH hostnames. |
 
-Store the token and account ID for CLI use:
+**Resource scopes**
+
+- **Zone resources:** **Include → Specific zone** → select the zone that contains both `signing.gateway_hostname` and `signing.ssh_host` (for example `client.com` if hostnames are `sign.client.com` and `ssh-sign.client.com`).
+- **Account resources:** **Include → This account** (or the account that owns Zero Trust / Tunnel).
+
+Optional (read-only) for safer debugging tokens: **Zone → Zone → Read**, **Account → Cloudflare Tunnel → Read**.
+
+**Account ID:** Cloudflare dashboard → any domain → right sidebar **Account ID**, or **Workers & Pages** overview.
+
+Store values for scripts in **Section 4**:
 
 ```bash
 export CF_API_TOKEN="<your-api-token>"
 export CF_ACCOUNT_ID="<your-account-id>"
-export CF_ZONE_ID="<zone-id-for-truestack.my>"
+export CF_ZONE_ID="<zone-id-for-the-parent-zone>"   # zone containing signing + SSH hostnames
 ```
 
-To find the zone ID:
+Resolve `CF_ZONE_ID` from the zone name (replace `example.com`):
 
 ```bash
+export PARENT_ZONE_NAME="example.com"
 curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-  "https://api.cloudflare.com/client/v4/zones?name=truestack.my" | \
-  python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])"
+  "https://api.cloudflare.com/client/v4/zones?name=${PARENT_ZONE_NAME}" | \
+  python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')"
 ```
 
-### Important: Domain Nameservers
+### DNS zone must be active
 
-The `truestack.my` zone **must be active** in Cloudflare (status: `active`, not `pending`) before you can create Access applications. If the zone is pending, update nameservers at your domain registrar to the ones Cloudflare assigned (visible in the Cloudflare dashboard under the zone overview).
-
-Access applications and DNS records can only work after nameserver propagation (typically 5-30 minutes, up to 24 hours).
+The zone must show **Active** in Cloudflare (not **Pending**) before Access applications and consistent DNS API calls work. If pending, set the registrar nameservers to the values Cloudflare shows for that zone, then wait for propagation (often minutes to hours).
 
 ---
 
@@ -81,16 +104,26 @@ Access applications and DNS records can only work after nameserver propagation (
 
 Create `config/clients/<client-id>.yaml`. Copy from `demo-client.yaml` and update.
 
-The `signing:` block is required:
+The `signing:` block is required. **Hostnames must match** what you configure in Cloudflare (tunnel public hostnames + DNS). Examples:
 
 ```yaml
+# Example A — Truestack demo zone (internal)
+# gateway_hostname: demo-sign.truestack.my
+# ssh_host: ssh-sign-demo.truestack.my
+
+# Example B — Client-owned domain (production)
+# gateway_hostname: sign.ppsb-eloan.com.my
+# ssh_host: ssh-sign.ppsb-eloan.com.my
+
 signing:
-  gateway_hostname: <client-id>-sign.truestack.my
-  ssh_host: ssh-sign-<client-id>.truestack.my
-  tunnel_name: <client-id>-onprem
-  mtsa_env: pilot                                    # "pilot" for testing, "prod" for production
+  gateway_hostname: <fqdn-for-signing-api>            # HTTPS host for gateway (Access-protected)
+  ssh_host: <fqdn-for-ssh-via-tunnel>                 # SSH host for CI through tunnel
+  tunnel_name: <client-id>-onprem                     # Cloudflare Tunnel name (unique per client)
+  mtsa_env: pilot                                     # "pilot" for testing, "prod" for production
   backup_bucket_prefix: <client-id>
-  ecr_repository: truekredit-pro-signing-gateway     # ECR repo in client's AWS account
+  ecr_repository: truekredit-pro-signing-gateway      # ECR repo in client's AWS account
+  # Optional: non-default MTSA pilot bundle (see apps/signing-gateway/mtsa-pilot-proficient-premium/)
+  # mtsa_build_context: apps/signing-gateway/mtsa-pilot-proficient-premium
 ```
 
 Also ensure `aws.github_environment` is set (e.g., `pro-<client-id>`).
@@ -274,14 +307,26 @@ rm deploy_key
 
 All steps below can be done via the Cloudflare dashboard **or** via CLI using the API token. CLI commands are provided for AI-assisted automation.
 
-### Environment variables for CLI
+Set hostnames from the client registry (same values as `config/clients/<client-id>.yaml`):
 
 ```bash
+export GATEWAY_HOSTNAME="<value of signing.gateway_hostname>"
+export SSH_HOSTNAME="<value of signing.ssh_host>"
+export CLIENT_ID="<client-id>"
 export CF_API_TOKEN="<your-api-token>"
 export CF_ACCOUNT_ID="<your-account-id>"
-export CF_ZONE_ID="<zone-id-for-truestack.my>"
-export CLIENT_ID="<client-id>"
+export CF_ZONE_ID="<zone-id-for-the-DNS-zone-that-contains-both-hostnames>"
 ```
+
+**DNS record names (for Section 4.3):** Cloudflare’s DNS API expects the **`name`** field as the record label **relative to the zone apex** (not always the left segment of the FQDN). Examples:
+
+| `signing.gateway_hostname` | Zone (`CF_ZONE_ID`) | Typical DNS `name` for CNAME |
+|-----------------------------|----------------------|--------------------------------|
+| `sign.client.com` | `client.com` | `sign` |
+| `sign.ppsb-eloan.com.my` | `ppsb-eloan.com.my` | `sign` |
+| `ssh-sign.client.com` | `client.com` | `ssh-sign` |
+
+If unsure, create records in the **dashboard** (DNS → Add record) and skip the API examples.
 
 ### 4.1 Create Tunnel
 
@@ -317,72 +362,70 @@ Add two routes to the tunnel. Note the SSH service URL uses `host.docker.interna
 
 | Public Hostname | Service | Notes |
 |----------------|---------|-------|
-| `<client-id>-sign.truestack.my` | `http://signing-gateway:3100` | Uses Docker service name (same compose network) |
-| `ssh-sign-<client-id>.truestack.my` | `ssh://host.docker.internal:22` | Reaches host SSH via Docker's host gateway |
+| `$GATEWAY_HOSTNAME` | `http://signing-gateway:3100` | Docker service name on the compose network |
+| `$SSH_HOSTNAME` | `ssh://host.docker.internal:22` | Host SSH via Docker `host-gateway` |
 
-**CLI**:
+**CLI** (hostname values must match the client YAML exactly):
 
 ```bash
 curl -s -X PUT \
   -H "Authorization: Bearer $CF_API_TOKEN" \
   -H "Content-Type: application/json" \
   "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID/configurations" \
-  -d "{
-    \"config\": {
-      \"ingress\": [
-        {
-          \"hostname\": \"${CLIENT_ID}-sign.truestack.my\",
-          \"service\": \"http://signing-gateway:3100\",
-          \"originRequest\": {}
-        },
-        {
-          \"hostname\": \"ssh-sign-${CLIENT_ID}.truestack.my\",
-          \"service\": \"ssh://host.docker.internal:22\",
-          \"originRequest\": {}
-        },
-        {
-          \"service\": \"http_status:404\"
-        }
-      ]
-    }
-  }"
+  -d "$(jq -n \
+    --arg gw "$GATEWAY_HOSTNAME" \
+    --arg ssh "$SSH_HOSTNAME" \
+    '{config: {ingress: [
+      {hostname: $gw, service: "http://signing-gateway:3100", originRequest: {}},
+      {hostname: $ssh, service: "ssh://host.docker.internal:22", originRequest: {}},
+      {service: "http_status:404"}
+    ]}}')"
 ```
+
+(`jq` is required for this one-liner; alternatively build the same JSON manually or use the dashboard.)
 
 ### 4.3 Create DNS Records
 
-CNAME records point the subdomains to the tunnel. Both must be proxied (orange cloud).
+CNAME records point the hostnames to the tunnel. Both should be **proxied** (orange cloud).
 
-**CLI**:
+Set short labels for your zone (see table in Section 4 intro), e.g.:
 
 ```bash
-# Signing API hostname
+export GATEWAY_DNS_NAME="sign"       # if GATEWAY_HOSTNAME is sign.example.com and zone is example.com
+export SSH_DNS_NAME="ssh-sign"       # if SSH_HOSTNAME is ssh-sign.example.com
+```
+
+**CLI** (adjust `GATEWAY_DNS_NAME` / `SSH_DNS_NAME` to match your zone):
+
+```bash
+# Signing API
 curl -s -X POST \
   -H "Authorization: Bearer $CF_API_TOKEN" \
   -H "Content-Type: application/json" \
   "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
   -d "{
     \"type\": \"CNAME\",
-    \"name\": \"${CLIENT_ID}-sign\",
+    \"name\": \"${GATEWAY_DNS_NAME}\",
     \"content\": \"${TUNNEL_ID}.cfargotunnel.com\",
     \"proxied\": true,
     \"ttl\": 1
   }"
 
-# SSH hostname
+# SSH
 curl -s -X POST \
   -H "Authorization: Bearer $CF_API_TOKEN" \
   -H "Content-Type: application/json" \
   "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
   -d "{
     \"type\": \"CNAME\",
-    \"name\": \"ssh-sign-${CLIENT_ID}\",
+    \"name\": \"${SSH_DNS_NAME}\",
     \"content\": \"${TUNNEL_ID}.cfargotunnel.com\",
     \"proxied\": true,
     \"ttl\": 1
   }"
 ```
 
-> **Note**: If the tunnel was created via the Cloudflare dashboard and public hostnames were added there, CNAME records are created automatically. Manual DNS creation is only needed when configuring tunnels via API.
+> **Note:** If public hostnames were added in the tunnel UI, Cloudflare may create DNS automatically. Use the dashboard if API record names are unclear for multi-label subdomains.
 
 ### 4.4 Create Service Token
 
@@ -414,7 +457,7 @@ Two Access applications are needed — one for SSH (CI/CD) and one for the signi
 **Dashboard**:
 
 1. Zero Trust > Access > Applications > Add an application > Self-hosted
-2. Application domain: `ssh-sign-<client-id>.truestack.my`
+2. Application domain: `$SSH_HOSTNAME` (same as `signing.ssh_host` in the client YAML)
 3. Session duration: 24 hours
 4. Create a policy:
    - Name: `Service Token Only`
@@ -431,7 +474,7 @@ curl -s -X POST \
   "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps" \
   -d "{
     \"name\": \"${CLIENT_ID} On-Prem SSH\",
-    \"domain\": \"ssh-sign-${CLIENT_ID}.truestack.my\",
+    \"domain\": \"${SSH_HOSTNAME}\",
     \"type\": \"ssh\",
     \"session_duration\": \"24h\",
     \"policies\": [
@@ -451,7 +494,7 @@ This blocks all public access to the signing gateway API. Only `backend_pro` (wi
 **Dashboard**:
 
 1. Zero Trust > Access > Applications > Add an application > Self-hosted
-2. Application domain: `<client-id>-sign.truestack.my`
+2. Application domain: `$GATEWAY_HOSTNAME` (same as `signing.gateway_hostname`)
 3. Session duration: 24 hours
 4. Create a policy:
    - Name: `Service Token Only`
@@ -468,7 +511,7 @@ curl -s -X POST \
   "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps" \
   -d "{
     \"name\": \"${CLIENT_ID} Signing Gateway API\",
-    \"domain\": \"${CLIENT_ID}-sign.truestack.my\",
+    \"domain\": \"${GATEWAY_HOSTNAME}\",
     \"type\": \"self_hosted\",
     \"session_duration\": \"24h\",
     \"policies\": [
@@ -485,13 +528,13 @@ curl -s -X POST \
 
 ```bash
 # Should return 403 (blocked)
-curl -s -o /dev/null -w "HTTP %{http_code}" https://<client-id>-sign.truestack.my/health
+curl -s -o /dev/null -w "HTTP %{http_code}" "https://${GATEWAY_HOSTNAME}/health"
 
 # Should return 200 (allowed with service token)
 curl -s -o /dev/null -w "HTTP %{http_code}" \
   -H "CF-Access-Client-Id: <client-id-value>" \
   -H "CF-Access-Client-Secret: <client-secret-value>" \
-  https://<client-id>-sign.truestack.my/health
+  "https://${GATEWAY_HOSTNAME}/health"
 ```
 
 > **Troubleshooting**: If Access app creation returns `"domain does not belong to zone"`, the zone is still in pending status. Wait for nameserver propagation and try again.
@@ -523,7 +566,7 @@ Save this value — it's used for both `ONPREM_SIGNING_API_KEY` and the `signing
 ### 5.3 Add All Secrets via CLI
 
 ```bash
-REPO="Malcan-Technologies/truestack_kredit"
+REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo '<owner>/<repo>')"
 ENV="pro-<client-id>"
 
 # AWS
@@ -580,7 +623,7 @@ The secret ARN is in the client YAML at `secrets.app_secrets_arn`.
 
 | Key | Value | Purpose |
 |-----|-------|---------|
-| `signing_gateway_url` | `https://<client-id>-sign.truestack.my` | Signing gateway endpoint |
+| `signing_gateway_url` | `https://<signing.gateway_hostname>` | Must match registry (include `https://`) |
 | `signing_api_key` | Same value as `ONPREM_SIGNING_API_KEY` | Must match on-prem gateway |
 | `signing_enabled` | `true` | Enables signing features in backend |
 | `CF_ACCESS_CLIENT_ID` | Service token Client ID (from Step 4.4) | Cloudflare Access auth for signing API |
@@ -590,6 +633,7 @@ The secret ARN is in the client YAML at `secrets.app_secrets_arn`.
 CLIENT_SECRET_ARN="<from client yaml: secrets.app_secrets_arn>"
 AWS_PROFILE="<client-aws-profile>"
 AWS_REGION="<client-aws-region>"
+GATEWAY_HOSTNAME="<from client yaml: signing.gateway_hostname>"
 SIGNING_API_KEY="<same value as ONPREM_SIGNING_API_KEY>"
 CF_CLIENT_ID="<service token client id>"
 CF_CLIENT_SECRET="<service token client secret>"
@@ -599,7 +643,7 @@ aws secretsmanager get-secret-value \
   --profile "$AWS_PROFILE" \
   --region "$AWS_REGION" \
   --query SecretString --output text | \
-  jq --arg url "https://${CLIENT_ID}-sign.truestack.my" \
+  jq --arg url "https://${GATEWAY_HOSTNAME}" \
      --arg key "$SIGNING_API_KEY" \
      --arg cfid "$CF_CLIENT_ID" \
      --arg cfsec "$CF_CLIENT_SECRET" \
@@ -661,7 +705,7 @@ Verify the tunnel is connected:
 
 ```bash
 gh workflow run deploy-signing-gateway.yml \
-  --repo Malcan-Technologies/truestack_kredit \
+  --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner)" \
   -f client_id=<client-id> \
   -f action=full
 ```
@@ -675,7 +719,7 @@ This will:
 
 ### 7.3 Verify
 
-After the workflow succeeds:
+After the workflow succeeds, set `GATEWAY_HOSTNAME` from the client YAML (`signing.gateway_hostname`) for the public check.
 
 ```bash
 # On the server
@@ -683,7 +727,8 @@ docker compose ps                              # All 3 containers should be "Up"
 curl http://localhost:3100/health               # Should return 200
 
 # From any machine (once DNS has propagated)
-curl https://<client-id>-sign.truestack.my/health
+export GATEWAY_HOSTNAME="<signing.gateway_hostname from config/clients/<client-id>.yaml>"
+curl "https://${GATEWAY_HOSTNAME}/health"
 ```
 
 ---
@@ -737,7 +782,7 @@ cd /opt/signing-stack && docker compose ps
 
 ```bash
 gh workflow run deploy-signing-gateway.yml \
-  --repo Malcan-Technologies/truestack_kredit \
+  --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner)" \
   -f client_id=<client-id> \
   -f action=deploy-only
 ```
@@ -812,10 +857,10 @@ docker logs cloudflared --tail 15
 
 ### 11.2 ECS DNS Staleness After DNS Provider Cutover
 
-This issue appeared in production after moving `truestack.my` DNS authority from Vercel to Cloudflare on the same day. Public DNS was already correct, the Cloudflare Tunnel and Access app were healthy, and direct `curl` requests using the real AWS runtime secrets returned `200` from the signing gateway. However, `backend_pro` running in ECS still resolved the signing hostname to a stale route and received:
+This issue can appear after **moving DNS** for the signing hostname from one provider to another (or a same-day cutover). Public DNS was already correct, the Cloudflare Tunnel and Access app were healthy, and direct `curl` requests using the real AWS runtime secrets returned `200` from the signing gateway. However, `backend_pro` running in ECS still resolved the signing hostname to a **stale** response from the **previous** DNS or edge provider and received:
 
 - `404 Not Found`
-- body preview similar to: `The deployment could not be found on Vercel. DEPLOYMENT_NOT_FOUND ...`
+- body preview similar to an error page from the **old** host (e.g. a previous CDN or serverless host), not from Cloudflare Tunnel
 
 In that state, the admin UI correctly shows the gateway as offline because `GET /api/admin/signing/health` is only reporting what `backend_pro` sees.
 
@@ -842,7 +887,7 @@ Do not add or keep this workaround just because the health check is offline. Fir
 
 **Workaround**
 
-`backend_pro` can bypass the ECS/VPC recursive resolver for signing-gateway calls only by resolving `*.truestack.my` through public DNS resolvers (for example `1.1.1.1` and `8.8.8.8`) before opening the HTTPS request. Keep the request hostname, SNI, and `Host` header unchanged so Cloudflare Access and the tunnel routing still work normally.
+`backend_pro` can bypass the ECS/VPC recursive resolver for signing-gateway calls only by resolving the **signing gateway hostname** through **public** DNS resolvers (for example `1.1.1.1` and `8.8.8.8`) before opening the HTTPS request. Keep the request hostname, SNI, and `Host` header unchanged so Cloudflare Access and the tunnel routing still work normally. (The implementation in-repo may scope this to your signing domain pattern — see `signingGatewayClient.ts`.)
 
 This is intentionally narrow:
 
@@ -866,7 +911,7 @@ curl \
   -H "X-API-Key: $SIGNING_API_KEY" \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
   -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-  "https://<client-id>-sign.truestack.my/health"
+  "https://${GATEWAY_HOSTNAME}/health"
 ```
 
 3. Compare with what `backend_pro` sees:
@@ -875,7 +920,7 @@ curl \
 curl "https://<client-api-domain>/api/admin/signing/health"
 ```
 
-4. If direct public access succeeds but ECS still logs stale-provider responses (for example Vercel `DEPLOYMENT_NOT_FOUND`), the resolver path inside ECS is the problem and the targeted public-DNS workaround is appropriate.
+4. If direct public access succeeds but ECS still logs stale-provider responses from the old stack, the resolver path inside ECS is the problem and the targeted public-DNS workaround is appropriate.
 
 **Operational note**
 
@@ -931,7 +976,7 @@ Use this checklist when onboarding a new client:
 - [ ] Start cloudflared + MTSA on server with minimal `.env` (use real tunnel token)
 - [ ] Verify tunnel shows "Healthy" in Cloudflare dashboard
 - [ ] Trigger first CI/CD deployment: `workflow_dispatch`, action: `full`
-- [ ] Verify health endpoint with service token: `curl -H "CF-Access-Client-Id: ..." -H "CF-Access-Client-Secret: ..." https://<client-id>-sign.truestack.my/health`
+- [ ] Verify health endpoint with service token: `curl -H "CF-Access-Client-Id: ..." -H "CF-Access-Client-Secret: ..." "https://<signing.gateway_hostname>/health"`
 - [ ] Force new ECS deployment for backend_pro to pick up signing secrets
 - [ ] Verify signing health check shows "connected" in admin_pro dashboard
 

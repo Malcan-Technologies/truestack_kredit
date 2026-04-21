@@ -1026,6 +1026,8 @@ signing:
 | `mtsa_env` | `pilot` or `prod` — determines which MTSA WSDL path to use |
 | `backup_bucket_prefix` | S3 key prefix for this client's signed document backups |
 
+**Cloudflare (operators):** For each client, create a **Tunnel**, **public hostnames** (signing API + SSH), **proxied DNS** to the tunnel, **Zero Trust Access** apps with a **service token** policy, and store tunnel token + service token in GitHub/AWS. The DNS zone may be the **client’s** (typical for production) or **Truestack’s** (e.g. demo on `truestack.my`). Use a **Custom API token** with at least **Zone → DNS → Edit**, **Account → Cloudflare Tunnel → Edit**, and **Account → Access: Apps and Policies → Edit**; full matrix and CLI steps are in `docs/signing-gateway-client-onboarding.md` (Section 4).
+
 ### 12.12 Deployment and Updates
 
 The Signing Gateway is deployed as a containerized appliance:

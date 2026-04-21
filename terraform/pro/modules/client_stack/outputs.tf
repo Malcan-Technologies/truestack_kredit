@@ -39,7 +39,23 @@ output "uploads_bucket_name" {
 }
 
 output "alb_dns_name" {
-  value = data.aws_lb.shared.dns_name
+  description = "Public ALB hostname (use as Route53/Cloudflare alias or CNAME target)."
+  value       = local.alb_dns_name
+}
+
+output "networking_mode" {
+  value = var.networking_mode
+}
+
+output "acm_certificate_validation_records" {
+  description = "When networking_mode=dedicated, add these CNAME records at your DNS provider so ACM can validate; required before HTTPS listener can be created."
+  value = var.networking_mode == "dedicated" ? [
+    for dvo in aws_acm_certificate.dedicated[0].domain_validation_options : {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  ] : []
 }
 
 output "rds_endpoint" {

@@ -690,14 +690,19 @@ Approved target location:
 
 ```txt
 terraform/pro/
-  modules/client-stack/
+  modules/client_stack/
   clients/<client-id>/
 ```
 
+**Networking:** The `client_stack` module implements two modes (see `docs/pro_client_deployment_guide.md`):
+
+- **`shared`** — Truestack `demo-client` looks up an existing VPC and ALB by name and adds listener rules (same account as other Truestack services).
+- **`dedicated`** — External clients in their own AWS account create a dedicated VPC, internet-facing ALB, and ACM for that client’s hostnames; ECS tasks use public subnets and public IPs to avoid NAT gateway cost unless you change the design.
+
 ### 11.3 Each Pro Client Stack Must Manage or Receive
 
-- VPC and subnets
-- ALB
+- VPC and subnets (created in **dedicated** mode, or supplied via lookup in **shared** mode)
+- ALB (created in **dedicated** mode, or supplied via lookup in **shared** mode)
 - ECS cluster and services
 - Pro migrations task
 - RDS
@@ -1703,8 +1708,8 @@ Use this when onboarding a **new external Pro client** that shares the same `adm
 ### 20.2 AWS account and infrastructure
 
 1. Create or designate the client’s AWS account; bootstrap Terraform remote state (S3 + lock table) and GitHub OIDC deploy role in that account.
-2. Instantiate `terraform/pro/clients/<client_id>/` from the `demo-client` pattern (`terraform/pro/clients/demo-client/`), with client-specific `*.tfvars` (names, domains, capacity).
-3. Apply Terraform to create VPC, ALB, ECS, RDS, S3, Secrets Manager, ACM/Route53 as required by the module.
+2. Instantiate `terraform/pro/clients/<client_id>/` from **`terraform/pro/clients/proficient-premium/`** (external clients: `networking_mode = "dedicated"` creates VPC + ALB + ACM in that account). Use the `demo-client` folder only when reusing Truestack shared VPC/ALB (`networking_mode = "shared"`).
+3. Apply Terraform to create VPC, ALB, ECS, RDS, S3, Secrets Manager, ACM/Route53 as required by the module and networking mode.
 4. Populate **AWS Secrets Manager** with runtime secrets (DB, auth, app keys, and if signing: `signing_gateway_url`, `signing_api_key`, `signing_backup_bucket` per Section 12.13).
 
 ### 20.3 Borrower frontend (`borrower_pro`)

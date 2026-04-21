@@ -2,12 +2,10 @@ project_name = "truekredit"
 environment  = "proficient-premium"
 aws_region   = "ap-southeast-5"
 
-# Pre-existing shared networking in the Proficient Premium AWS account.
-# Provision these once via the bootstrap stack (or manually) using the same
-# naming convention as demo-client. The client_stack module looks them up
-# via aws_vpc / aws_lb data sources.
-shared_vpc_name    = "trueidentity-prod-vpc"
-shared_alb_name    = "trueidentity-prod-alb"
+# Client-owned account: Terraform creates VPC, subnets, internet-facing ALB, and ACM (dedicated mode).
+networking_mode    = "dedicated"
+dedicated_vpc_cidr = "10.0.0.0/16"
+
 route53_zone_name  = "ppsb-eloan.com.my" # Only used if create_dns_records = true (Cloudflare currently owns DNS).
 create_dns_records = false               # Cloudflare manages DNS for ppsb-eloan.com.my; flip to true only to let Route53 own it.
 
@@ -15,8 +13,7 @@ admin_domain    = "admin.ppsb-eloan.com.my"
 api_domain      = "api.ppsb-eloan.com.my"
 borrower_domain = "ppsb-eloan.com.my"
 
-# ALB listener rule priorities. PP has its own ALB, so these can match
-# the demo-client values (different ALB = no collision).
+# Listener rule priorities on the dedicated ALB (only host rules; no collision with other accounts).
 https_api_priority      = 202
 https_admin_priority    = 203
 https_borrower_priority = 204

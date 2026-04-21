@@ -10,12 +10,33 @@ variable "aws_region" {
   type = string
 }
 
+variable "networking_mode" {
+  type        = string
+  description = "shared = look up existing VPC/ALB by name (Truestack demo lane). dedicated = create VPC, subnets, internet-facing ALB, and ACM in this account."
+  default     = "shared"
+
+  validation {
+    condition     = contains(["shared", "dedicated"], var.networking_mode)
+    error_message = "networking_mode must be \"shared\" or \"dedicated\"."
+  }
+}
+
+variable "dedicated_vpc_cidr" {
+  type        = string
+  description = "IPv4 CIDR for the dedicated VPC when networking_mode=dedicated."
+  default     = "10.0.0.0/16"
+}
+
 variable "shared_vpc_name" {
-  type = string
+  type        = string
+  description = "Existing VPC tag Name when networking_mode=shared. Ignored when dedicated."
+  default     = ""
 }
 
 variable "shared_alb_name" {
-  type = string
+  type        = string
+  description = "Existing ALB name when networking_mode=shared. Ignored when dedicated."
+  default     = ""
 }
 
 variable "route53_zone_name" {

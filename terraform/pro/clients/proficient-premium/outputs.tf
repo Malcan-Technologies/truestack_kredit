@@ -42,6 +42,15 @@ output "alb_dns_name" {
   value = module.client_stack.alb_dns_name
 }
 
+output "networking_mode" {
+  value = module.client_stack.networking_mode
+}
+
+output "acm_certificate_validation_records" {
+  value       = module.client_stack.acm_certificate_validation_records
+  description = "Add at Cloudflare/DNS before first apply completes, if Terraform is waiting on ACM."
+}
+
 output "rds_endpoint" {
   value = module.client_stack.rds_endpoint
 }

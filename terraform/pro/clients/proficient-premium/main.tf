@@ -30,6 +30,8 @@ module "client_stack" {
   environment  = var.environment
   aws_region   = var.aws_region
 
+  networking_mode    = var.networking_mode
+  dedicated_vpc_cidr = var.dedicated_vpc_cidr
   shared_vpc_name    = var.shared_vpc_name
   shared_alb_name    = var.shared_alb_name
   route53_zone_name  = var.route53_zone_name

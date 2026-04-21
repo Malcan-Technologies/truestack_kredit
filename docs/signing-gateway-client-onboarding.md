@@ -24,6 +24,8 @@ The stack runs on the client's on-prem server. GitHub Actions deploys updates vi
 - `config/clients/<client-id>.yaml` — per-client configuration
 - `.github/workflows/deploy-signing-gateway.yml` — CI/CD workflow
 
+**Per-client MTSA pilot bundle (CI):** The demo/canary lane builds MTSA from `apps/signing-gateway/mtsa-pilot/`. Other clients (e.g. Proficient Premium) use a separate directory such as `apps/signing-gateway/mtsa-pilot-proficient-premium/` and set `signing.mtsa_build_context` in that client’s YAML so demo builds are unchanged.
+
 ---
 
 ## Prerequisites
@@ -33,7 +35,7 @@ Before starting, ensure you have:
 - [ ] The client's AWS account ID and OIDC deploy role ARN
 - [ ] Cloudflare account with `truestack.my` zone **active** (nameservers must point to Cloudflare)
 - [ ] Cloudflare API token with permissions: `Zone > DNS > Edit`, `Account > Cloudflare Tunnel > Edit`, `Account > Access: Apps and Policies > Edit`
-- [ ] The MTSA Docker image (either a Trustgate tarball, or build from `apps/signing-gateway/mtsa-pilot/` with the WAR file)
+- [ ] The MTSA Docker image: CI builds from `apps/signing-gateway/mtsa-pilot/` (demo) or `signing.mtsa_build_context` in the client YAML (e.g. Proficient Premium), or load from a Trustgate tarball if you are not using the Dockerfile path
 - [ ] MTSA SOAP credentials from Trustgate for the client
 - [ ] SSH access to the client's on-prem server (root or sudo-capable user)
 - [ ] GitHub CLI (`gh`) authenticated with repo access

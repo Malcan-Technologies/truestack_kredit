@@ -6,6 +6,13 @@ WORKDIR /app
 # Prisma needs OpenSSL in Alpine images.
 RUN apk add --no-cache openssl
 
+# package-lock.json is generated with npm >=11 on dev machines.
+# node:22-alpine ships with npm 10.9.x which can't read the newer lockfile
+# entries (e.g. `*--for-generate-function-map`), causing `npm ci` to fail
+# with "Missing: <pkg> from lock file". Pin npm to the lockfile-compatible
+# version.
+RUN npm install -g npm@11
+
 FROM base AS deps
 
 # Copy workspace manifests first for better layer caching.

@@ -5,6 +5,13 @@ WORKDIR /app
 # Prisma engine dependency on Alpine.
 RUN apk add --no-cache openssl
 
+# package-lock.json is generated with npm >=11 on dev machines.
+# node:22-alpine ships with npm 10.9.x which can't read the newer lockfile
+# entries (e.g. `*--for-generate-function-map`), causing `npm ci` to fail
+# with "Missing: <pkg> from lock file". Pin npm to the lockfile-compatible
+# version.
+RUN npm install -g npm@11
+
 # Install workspace dependencies.
 # Include every npm workspace package.json so `npm ci` matches package-lock.json.
 COPY package.json package-lock.json ./

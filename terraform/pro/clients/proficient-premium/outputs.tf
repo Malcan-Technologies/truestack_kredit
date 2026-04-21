@@ -30,6 +30,11 @@ output "borrower_repository_url" {
   value = module.client_stack.borrower_repository_url
 }
 
+output "signing_gateway_repository_url" {
+  value       = module.client_stack.signing_gateway_repository_url
+  description = "ECR for signing-gateway image pushes (deploy-signing-gateway.yml)."
+}
+
 output "app_secret_arn" {
   value = module.client_stack.app_secret_arn
 }

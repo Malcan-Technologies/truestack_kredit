@@ -30,6 +30,11 @@ output "borrower_repository_url" {
   value = aws_ecr_repository.borrower.repository_url
 }
 
+output "signing_gateway_repository_url" {
+  value       = try(aws_ecr_repository.signing_gateway[0].repository_url, "")
+  description = "ECR URL for signing-gateway image when signing_gateway_repository_name is set."
+}
+
 output "app_secret_arn" {
   value = aws_secretsmanager_secret.app.arn
 }

@@ -266,6 +266,9 @@ jobs:
             "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION-$SHORT_SHA"
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION"
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION-$SHORT_SHA"
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest"
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$PLATFORM_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Use semantic version image for deploy-only
@@ -340,6 +343,9 @@ jobs:
             "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION-$SHORT_SHA"
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION"
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION-$SHORT_SHA"
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:latest"
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_ADMIN:$PLATFORM_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Use semantic version image for deploy-only
@@ -416,6 +422,9 @@ jobs:
             "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION-$SHORT_SHA"
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION"
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION-$SHORT_SHA"
+          docker tag "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:latest"
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BORROWER:$BORROWER_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Use semantic version image for deploy-only
@@ -531,17 +540,31 @@ jobs:
             --query 'taskDefinition.taskDefinitionArn' \
             --output text)
 
-          SUBNETS=$(aws ecs describe-services \
+          # Copy networking from the backend ECS service (dedicated VPC uses public subnets + assignPublicIp=ENABLED).
+          SVC_JSON=$(aws ecs describe-services \
             --cluster "${{ env.ECS_CLUSTER }}" \
             --services "${{ env.ECS_SERVICE_BACKEND }}" \
-            --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' \
-            --output text | tr '\t' ',')
+            --output json)
 
-          SECURITY_GROUPS=$(aws ecs describe-services \
-            --cluster "${{ env.ECS_CLUSTER }}" \
-            --services "${{ env.ECS_SERVICE_BACKEND }}" \
-            --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups' \
-            --output text | tr '\t' ',')
+          if [ "$(echo "$SVC_JSON" | jq '.services | length')" -eq 0 ]; then
+            echo "::error::ECS service '${{ env.ECS_SERVICE_BACKEND }}' was not found in cluster ${{ env.ECS_CLUSTER }}."
+            echo "Apply Terraform for this client (e.g. terraform/pro/clients/proficient-premium/) so backend/admin/borrower ECS services exist before running deploy-pro."
+            echo "$SVC_JSON" | jq '.failures'
+            exit 1
+          fi
+
+          SUBNETS=$(echo "$SVC_JSON" | jq -r '.services[0].networkConfiguration.awsvpcConfiguration.subnets | join(",")')
+          SECURITY_GROUPS=$(echo "$SVC_JSON" | jq -r '.services[0].networkConfiguration.awsvpcConfiguration.securityGroups | join(",")')
+          ASSIGN_PUBLIC=$(echo "$SVC_JSON" | jq -r '.services[0].networkConfiguration.awsvpcConfiguration.assignPublicIp // "DISABLED"')
+
+          if [ -z "$SUBNETS" ] || [ "$SUBNETS" = "null" ]; then
+            echo "::error::Backend service has no subnet configuration (empty subnets). Re-apply Terraform or fix ECS service networking."
+            exit 1
+          fi
+          if [ -z "$SECURITY_GROUPS" ] || [ "$SECURITY_GROUPS" = "null" ]; then
+            echo "::error::Backend service has no security group configuration."
+            exit 1
+          fi
 
           RUN_MIGRATIONS="${{ steps.operation.outputs.run_migrations }}"
           RUN_SEED="${{ steps.operation.outputs.run_seed }}"
@@ -581,7 +604,7 @@ jobs:
             --cluster "${{ env.ECS_CLUSTER }}" \
             --task-definition "$TASK_DEF_ARN" \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=DISABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=$ASSIGN_PUBLIC}" \
             --overrides "$OVERRIDES" \
             --query 'tasks[0].taskArn' \
             --output text)
@@ -657,6 +680,15 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Verify backend ECS service exists
+        run: |
+          json=$(aws ecs describe-services --cluster "${{ env.ECS_CLUSTER }}" --services "${{ env.ECS_SERVICE_BACKEND }}" --output json)
+          if [ "$(echo "$json" | jq '.services | length')" -eq 0 ]; then
+            echo "::error::ECS service '${{ env.ECS_SERVICE_BACKEND }}' not found in ${{ env.ECS_CLUSTER }}. Run Terraform apply (terraform/pro/clients/<client>/) so ECS services are created."
+            echo "$json" | jq '.failures' >&2
+            exit 1
+          fi
+
       - name: Download current backend task definition
         run: |
           aws ecs describe-task-definition \
@@ -727,6 +759,15 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Verify admin ECS service exists
+        run: |
+          json=$(aws ecs describe-services --cluster "${{ env.ECS_CLUSTER }}" --services "${{ env.ECS_SERVICE_ADMIN }}" --output json)
+          if [ "$(echo "$json" | jq '.services | length')" -eq 0 ]; then
+            echo "::error::ECS service '${{ env.ECS_SERVICE_ADMIN }}' not found in ${{ env.ECS_CLUSTER }}. Run Terraform apply (terraform/pro/clients/<client>/) so ECS services are created."
+            echo "$json" | jq '.failures' >&2
+            exit 1
+          fi
+
       - name: Download current admin task definition
         run: |
           aws ecs describe-task-definition \
@@ -795,6 +836,15 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify borrower ECS service exists
+        run: |
+          json=$(aws ecs describe-services --cluster "${{ env.ECS_CLUSTER }}" --services "${{ env.ECS_SERVICE_BORROWER }}" --output json)
+          if [ "$(echo "$json" | jq '.services | length')" -eq 0 ]; then
+            echo "::error::ECS service '${{ env.ECS_SERVICE_BORROWER }}' not found in ${{ env.ECS_CLUSTER }}. Run Terraform apply (terraform/pro/clients/<client>/) so ECS services are created."
+            echo "$json" | jq '.failures' >&2
+            exit 1
+          fi
 
       - name: Download current borrower task definition
         run: |

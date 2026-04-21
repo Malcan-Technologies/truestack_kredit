@@ -113,6 +113,12 @@ variable "borrower_repository_name" {
   type = string
 }
 
+variable "signing_gateway_repository_name" {
+  type        = string
+  default     = ""
+  description = "If non-empty, create an ECR repository for signing-gateway CI images (on-prem deploy pulls from here)."
+}
+
 variable "cluster_name" {
   type = string
 }

@@ -107,6 +107,12 @@ variable "borrower_repository_name" {
   type = string
 }
 
+variable "signing_gateway_repository_name" {
+  type        = string
+  default     = ""
+  description = "ECR repo name for signing-gateway (must match config/clients YAML signing.ecr_repository)."
+}
+
 variable "cluster_name" {
   type = string
 }

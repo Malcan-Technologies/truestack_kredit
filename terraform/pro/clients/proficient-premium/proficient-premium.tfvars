@@ -30,6 +30,7 @@ app_secret_name     = "truekredit-proficient-premium"
 backend_repository_name  = "truekredit-proficient-premium-backend-pro"
 admin_repository_name    = "truekredit-proficient-premium-admin-pro"
 borrower_repository_name = "truekredit-proficient-premium-borrower"
+signing_gateway_repository_name = "truekredit-pro-signing-gateway"
 
 cluster_name          = "truekredit-proficient-premium"
 backend_service_name  = "truekredit-proficient-premium-backend"

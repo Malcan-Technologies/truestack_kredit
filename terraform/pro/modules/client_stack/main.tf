@@ -96,6 +96,21 @@ resource "aws_ecr_repository" "borrower" {
   })
 }
 
+resource "aws_ecr_repository" "signing_gateway" {
+  count = var.signing_gateway_repository_name != "" ? 1 : 0
+
+  name                 = var.signing_gateway_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = false
+  }
+
+  tags = merge(local.common_tags, {
+    Name = var.signing_gateway_repository_name
+  })
+}
+
 resource "aws_s3_bucket" "uploads" {
   bucket = var.uploads_bucket_name
 

@@ -57,6 +57,7 @@ module "client_stack" {
   backend_repository_name  = var.backend_repository_name
   admin_repository_name    = var.admin_repository_name
   borrower_repository_name = var.borrower_repository_name
+  signing_gateway_repository_name = var.signing_gateway_repository_name
 
   cluster_name          = var.cluster_name
   backend_service_name  = var.backend_service_name

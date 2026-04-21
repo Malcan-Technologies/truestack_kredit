@@ -246,6 +246,21 @@ This gives us a consistent packaging and deployment lane for the first Pro clien
 
 ---
 
+## Pro Terraform networking (`terraform/pro/modules/client_stack`)
+
+The `client_stack` module supports two modes. Set `networking_mode` (and related fields) in each client’s `terraform/pro/clients/<client-id>/*.tfvars`.
+
+| Mode | When to use | What happens |
+|------|-------------|----------------|
+| **`shared`** | Truestack-hosted **demo-client** in an account that already has a shared VPC and ALB (same pattern as other Truestack services) | Looks up an existing VPC by tag `Name` (`shared_vpc_name`) and an existing ALB by name (`shared_alb_name`), adds host-based listener rules to that ALB’s HTTP/HTTPS listeners, and runs ECS tasks in existing **private** subnets (no NAT required in the new stack because the shared network already provides it). |
+| **`dedicated`** | **External** Pro clients in **their own** AWS account | Creates a **VPC** (two AZs—required for an ALB), **internet-facing ALB**, **ACM certificate** for the admin, API, and borrower hostnames, **RDS** in **private** subnets, plus ECR/ECS/S3/Secrets as today. ECS Fargate runs in **public** subnets with `assign_public_ip` so tasks can reach ECR and the internet **without a NAT gateway** (cost guardrail from `docs/architecture_plan.md`). |
+
+**External clients** should start from `terraform/pro/clients/proficient-premium/` with `networking_mode = "dedicated"` and adjust names, domains, and `dedicated_vpc_cidr` (default `10.0.0.0/16` unless it overlaps the client’s address plan).
+
+**ACM in dedicated mode:** Terraform requests an ACM certificate in the deployment region. If `create_dns_records = false` (typical when Cloudflare or another DNS provider hosts the zone), add the DNS validation CNAME records from `terraform output` (see `acm_certificate_validation_records` on the client root module) at that provider. The first `terraform apply` may wait up to the configured timeout until validation succeeds. After the certificate is issued, point the public hostnames at the load balancer using `alb_dns_name` (alias/CNAME to the ALB DNS name).
+
+---
+
 ## Demo Client Prerequisites
 
 Before running the workflow, provision the following in your AWS account.
@@ -265,17 +280,13 @@ So the recommended order is:
 
 ### 1. Networking
 
-For the first `demo-client` deployment, the fastest approach is:
-
-- reuse the same shared VPC pattern already proven by SaaS
-- use separate ECS services and separate target groups
-- keep the runtime isolated from SaaS at the service, DB, secret, and domain level
+For `demo-client`, use **`networking_mode = "shared"`** in `terraform/pro/clients/demo-client/demo-client.tfvars` and set `shared_vpc_name` / `shared_alb_name` to your existing Truestack VPC and ALB. That reuses the same shared VPC pattern already proven by SaaS, adds separate ECS services and target groups on that ALB, and keeps the runtime isolated from SaaS at the service, DB, secret, and domain level.
 
 You do not need Multi-AZ or special HA networking for `demo-client`.
 
 ### 2. ECR repositories
 
-Create:
+Applying `terraform/pro/clients/demo-client` creates the repositories (names must match `config/clients/demo-client.yaml`). Reference names:
 
 - `truekredit-demo-client-backend-pro`
 - `truekredit-demo-client-admin-pro`
@@ -533,8 +544,8 @@ When onboarding a new client:
 2. Reuse shared borrower flows instead of copying logic.
 3. Copy `config/clients/_template.yaml` to `config/clients/<client-id>.yaml`.
 4. Create a GitHub environment for that client.
-5. Provision the client's AWS account and resources using the same naming pattern.
-6. Create ECR repos, ECS services, Secrets Manager secret, bucket, DB, and domains for that client.
+5. Copy `terraform/pro/clients/proficient-premium/` to `terraform/pro/clients/<client-id>/`, set `networking_mode = "dedicated"` (external accounts), adjust `*.tfvars` and `backend.tf` for state in that account, and register the client in `terraform-pro.yml` / `deploy-pro.yml` choice lists if needed.
+6. Run Terraform for that client (after S3/DynamoDB state bootstrap in the account). The stack creates VPC, ALB, ACM, ECR, ECS, RDS, S3, and Secrets Manager—no separate manual step for those pieces unless you intentionally manage them outside Terraform.
 7. Pin the desired shared Pro release for that client.
 8. Deploy the client manually.
 
@@ -560,9 +571,9 @@ External clients should be promoted manually.
 
 After `demo-client` is working:
 
-- extract the infra into a dedicated Pro Terraform lane
 - use `deploy-pro.yml` for manual semver-based external client promotion
 - keep `demo-client` as the canary deployment target for shared Pro changes
+- add new external stacks under `terraform/pro/clients/<client-id>/` using **`dedicated`** networking (see **Pro Terraform networking** above)
 
 ---
 
@@ -696,13 +707,15 @@ Use this for clients like **Proficient Premium** where:
 
 ### 5. Provision Terraform client stack
 
-- [ ] Copy `terraform/pro/clients/demo-client/` to `terraform/pro/clients/<client_id>/`
+- [ ] Copy `terraform/pro/clients/proficient-premium/` (dedicated VPC + ALB for external accounts) or `terraform/pro/clients/demo-client/` only if you intentionally reuse Truestack shared VPC/ALB, to `terraform/pro/clients/<client_id>/`
 - [ ] Rename the `*.tfvars` file to match the client folder convention
-- [ ] Update stack names, domains, bucket names, RDS identifiers, and ECS naming
+- [ ] Set `networking_mode = "dedicated"` for external clients (default in the Proficient Premium template); use `shared` only for the Truestack demo pattern
+- [ ] Update stack names, domains, bucket names, RDS identifiers, ECS naming, and `backend.tf` remote state for the client account
+- [ ] For dedicated mode, plan ACM DNS validation: add CNAME records from Terraform output at the client’s DNS provider before or during the first apply
 - [ ] Run `terraform-pro.yml` with `client_id=<client_id>` and `action=plan`
 - [ ] Review the plan
 - [ ] Run `terraform-pro.yml` with `client_id=<client_id>` and `action=apply`
-- [ ] Confirm ECS cluster, services, RDS, Secrets Manager, S3, DNS, and certificates exist
+- [ ] Confirm VPC, ALB, ECS cluster, services, RDS, Secrets Manager, S3, and certificates exist; point public DNS at `alb_dns_name` when using external DNS
 
 ### 6. Populate runtime secrets
 

@@ -10,12 +10,28 @@ variable "aws_region" {
   type = string
 }
 
+variable "networking_mode" {
+  type        = string
+  description = "Use dedicated for external client accounts (Terraform creates VPC + ALB). Use shared only when reusing Truestack VPC/ALB like demo-client."
+  default     = "dedicated"
+}
+
+variable "dedicated_vpc_cidr" {
+  type        = string
+  description = "IPv4 CIDR for the client VPC when networking_mode=dedicated."
+  default     = "10.0.0.0/16"
+}
+
 variable "shared_vpc_name" {
-  type = string
+  type        = string
+  description = "When networking_mode=shared, VPC tag Name to look up."
+  default     = ""
 }
 
 variable "shared_alb_name" {
-  type = string
+  type        = string
+  description = "When networking_mode=shared, existing ALB name."
+  default     = ""
 }
 
 variable "route53_zone_name" {

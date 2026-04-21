@@ -56,3 +56,7 @@ enabled_modules:
   - repayments
   - attestation
   - signing
+
+# Optional: only if this client uses a non-default MTSA pilot bundle path (see apps/signing-gateway/mtsa-pilot-proficient-premium/).
+# signing:
+#   mtsa_build_context: apps/signing-gateway/mtsa-pilot-proficient-premium

@@ -1,4 +1,6 @@
 data "aws_vpc" "shared" {
+  count = var.networking_mode == "shared" ? 1 : 0
+
   filter {
     name   = "tag:Name"
     values = [var.shared_vpc_name]
@@ -6,9 +8,11 @@ data "aws_vpc" "shared" {
 }
 
 data "aws_subnets" "private" {
+  count = var.networking_mode == "shared" ? 1 : 0
+
   filter {
     name   = "vpc-id"
-    values = [data.aws_vpc.shared.id]
+    values = [data.aws_vpc.shared[0].id]
   }
 
   filter {
@@ -17,29 +21,20 @@ data "aws_subnets" "private" {
   }
 }
 
-data "aws_subnets" "public" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.shared.id]
-  }
-
-  filter {
-    name   = "tag:Type"
-    values = ["public"]
-  }
-}
-
 data "aws_lb" "shared" {
-  name = var.shared_alb_name
+  count = var.networking_mode == "shared" ? 1 : 0
+  name  = var.shared_alb_name
 }
 
 data "aws_lb_listener" "http" {
-  load_balancer_arn = data.aws_lb.shared.arn
+  count             = var.networking_mode == "shared" ? 1 : 0
+  load_balancer_arn = data.aws_lb.shared[0].arn
   port              = 80
 }
 
 data "aws_lb_listener" "https" {
-  load_balancer_arn = data.aws_lb.shared.arn
+  count             = var.networking_mode == "shared" ? 1 : 0
+  load_balancer_arn = data.aws_lb.shared[0].arn
   port              = 443
 }
 
@@ -205,31 +200,31 @@ resource "aws_iam_role" "ecs_task" {
 
 resource "aws_security_group" "ecs" {
   name        = "${var.cluster_name}-ecs-sg"
-  description = "Security group for demo-client ECS tasks"
-  vpc_id      = data.aws_vpc.shared.id
+  description = "ECS tasks for ${var.cluster_name} (ingress from ALB only)"
+  vpc_id      = local.vpc_id
 
   ingress {
-    description     = "Backend from shared ALB"
+    description     = "Backend from ALB"
     from_port       = var.backend_port
     to_port         = var.backend_port
     protocol        = "tcp"
-    security_groups = tolist(data.aws_lb.shared.security_groups)
+    security_groups = local.alb_ingress_security_group_ids
   }
 
   ingress {
-    description     = "Admin from shared ALB"
+    description     = "Admin from ALB"
     from_port       = var.admin_port
     to_port         = var.admin_port
     protocol        = "tcp"
-    security_groups = tolist(data.aws_lb.shared.security_groups)
+    security_groups = local.alb_ingress_security_group_ids
   }
 
   ingress {
-    description     = "Borrower from shared ALB"
+    description     = "Borrower from ALB"
     from_port       = var.borrower_port
     to_port         = var.borrower_port
     protocol        = "tcp"
-    security_groups = tolist(data.aws_lb.shared.security_groups)
+    security_groups = local.alb_ingress_security_group_ids
   }
 
   egress {
@@ -246,7 +241,7 @@ resource "aws_security_group" "ecs" {
 
 resource "aws_db_subnet_group" "main" {
   name       = var.cluster_name
-  subnet_ids = data.aws_subnets.private.ids
+  subnet_ids = local.private_subnet_ids
 
   tags = merge(local.common_tags, {
     Name = var.cluster_name
@@ -255,11 +250,11 @@ resource "aws_db_subnet_group" "main" {
 
 resource "aws_security_group" "rds" {
   name        = "${var.cluster_name}-rds-sg"
-  description = "Security group for demo-client RDS"
-  vpc_id      = data.aws_vpc.shared.id
+  description = "RDS for ${var.cluster_name}"
+  vpc_id      = local.vpc_id
 
   ingress {
-    description     = "PostgreSQL from demo-client ECS"
+    description     = "PostgreSQL from ECS"
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
@@ -438,10 +433,10 @@ resource "aws_iam_role_policy" "s3_access" {
 }
 
 resource "aws_lb_target_group" "backend" {
-  name                 = "${var.project_name}-${var.environment}-be-tg"
+  name                 = substr("${var.project_name}-${var.environment}-be-tg", 0, 32)
   port                 = var.backend_port
   protocol             = "HTTP"
-  vpc_id               = data.aws_vpc.shared.id
+  vpc_id               = local.vpc_id
   target_type          = "ip"
   deregistration_delay = 60
 
@@ -463,10 +458,10 @@ resource "aws_lb_target_group" "backend" {
 }
 
 resource "aws_lb_target_group" "admin" {
-  name                 = "${var.project_name}-${var.environment}-adm-tg"
+  name                 = substr("${var.project_name}-${var.environment}-adm-tg", 0, 32)
   port                 = var.admin_port
   protocol             = "HTTP"
-  vpc_id               = data.aws_vpc.shared.id
+  vpc_id               = local.vpc_id
   target_type          = "ip"
   deregistration_delay = 60
 
@@ -488,10 +483,10 @@ resource "aws_lb_target_group" "admin" {
 }
 
 resource "aws_lb_target_group" "borrower" {
-  name                 = "${var.project_name}-${var.environment}-bor-tg"
+  name                 = substr("${var.project_name}-${var.environment}-bor-tg", 0, 32)
   port                 = var.borrower_port
   protocol             = "HTTP"
-  vpc_id               = data.aws_vpc.shared.id
+  vpc_id               = local.vpc_id
   target_type          = "ip"
   deregistration_delay = 60
 
@@ -513,7 +508,7 @@ resource "aws_lb_target_group" "borrower" {
 }
 
 resource "aws_lb_listener_rule" "https_api" {
-  listener_arn = data.aws_lb_listener.https.arn
+  listener_arn = local.https_listener_arn
   priority     = var.https_api_priority
 
   action {
@@ -529,7 +524,7 @@ resource "aws_lb_listener_rule" "https_api" {
 }
 
 resource "aws_lb_listener_rule" "https_admin" {
-  listener_arn = data.aws_lb_listener.https.arn
+  listener_arn = local.https_listener_arn
   priority     = var.https_admin_priority
 
   action {
@@ -545,7 +540,7 @@ resource "aws_lb_listener_rule" "https_admin" {
 }
 
 resource "aws_lb_listener_rule" "https_borrower" {
-  listener_arn = data.aws_lb_listener.https.arn
+  listener_arn = local.https_listener_arn
   priority     = var.https_borrower_priority
 
   action {
@@ -561,7 +556,7 @@ resource "aws_lb_listener_rule" "https_borrower" {
 }
 
 resource "aws_lb_listener_rule" "http_api" {
-  listener_arn = data.aws_lb_listener.http.arn
+  listener_arn = local.http_listener_arn
   priority     = var.http_api_priority
 
   action {
@@ -582,7 +577,7 @@ resource "aws_lb_listener_rule" "http_api" {
 }
 
 resource "aws_lb_listener_rule" "http_admin" {
-  listener_arn = data.aws_lb_listener.http.arn
+  listener_arn = local.http_listener_arn
   priority     = var.http_admin_priority
 
   action {
@@ -603,7 +598,7 @@ resource "aws_lb_listener_rule" "http_admin" {
 }
 
 resource "aws_lb_listener_rule" "http_borrower" {
-  listener_arn = data.aws_lb_listener.http.arn
+  listener_arn = local.http_listener_arn
   priority     = var.http_borrower_priority
 
   action {
@@ -844,9 +839,9 @@ resource "aws_ecs_service" "backend" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = data.aws_subnets.private.ids
+    subnets          = local.ecs_subnet_ids
     security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = false
+    assign_public_ip = local.ecs_assign_public_ip
   }
 
   load_balancer {
@@ -873,9 +868,9 @@ resource "aws_ecs_service" "admin" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = data.aws_subnets.private.ids
+    subnets          = local.ecs_subnet_ids
     security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = false
+    assign_public_ip = local.ecs_assign_public_ip
   }
 
   load_balancer {
@@ -900,9 +895,9 @@ resource "aws_ecs_service" "borrower" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = data.aws_subnets.private.ids
+    subnets          = local.ecs_subnet_ids
     security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = false
+    assign_public_ip = local.ecs_assign_public_ip
   }
 
   load_balancer {
@@ -926,8 +921,8 @@ resource "aws_route53_record" "admin" {
   type    = "A"
 
   alias {
-    name                   = data.aws_lb.shared.dns_name
-    zone_id                = data.aws_lb.shared.zone_id
+    name                   = local.alb_dns_name
+    zone_id                = local.alb_zone_id
     evaluate_target_health = false
   }
 }
@@ -939,8 +934,8 @@ resource "aws_route53_record" "api" {
   type    = "A"
 
   alias {
-    name                   = data.aws_lb.shared.dns_name
-    zone_id                = data.aws_lb.shared.zone_id
+    name                   = local.alb_dns_name
+    zone_id                = local.alb_zone_id
     evaluate_target_health = false
   }
 }
@@ -952,8 +947,8 @@ resource "aws_route53_record" "borrower" {
   type    = "A"
 
   alias {
-    name                   = data.aws_lb.shared.dns_name
-    zone_id                = data.aws_lb.shared.zone_id
+    name                   = local.alb_dns_name
+    zone_id                = local.alb_zone_id
     evaluate_target_health = false
   }
 }

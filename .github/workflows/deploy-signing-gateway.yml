@@ -65,6 +65,7 @@ jobs:
       signing_ssh_host: ${{ steps.config.outputs.signing_ssh_host }}
       signing_mtsa_env: ${{ steps.config.outputs.signing_mtsa_env }}
       platform_release_default: ${{ steps.config.outputs.platform_release_default }}
+      mtsa_build_context: ${{ steps.config.outputs.mtsa_build_context }}
 
     steps:
       - name: Checkout code
@@ -84,6 +85,9 @@ jobs:
         run: |
           ruby -ryaml -e '
             cfg = YAML.load_file(ENV.fetch("CLIENT_CONFIG_PATH"))
+            mtsa_ctx = cfg.dig("signing", "mtsa_build_context")
+            mtsa_ctx = "apps/signing-gateway/mtsa-pilot" if mtsa_ctx.nil? || mtsa_ctx.to_s.empty?
+
             outputs = {
               "github_environment" => cfg.dig("aws", "github_environment"),
               "aws_region" => cfg.dig("aws", "region"),
@@ -91,6 +95,7 @@ jobs:
               "signing_ssh_host" => cfg.dig("signing", "ssh_host"),
               "signing_mtsa_env" => cfg.dig("signing", "mtsa_env"),
               "platform_release_default" => cfg.dig("deploy", "platform_release"),
+              "mtsa_build_context" => mtsa_ctx,
             }
 
             File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |f|
@@ -229,18 +234,19 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ needs.resolve-release.outputs.image_tag }}
           USE_SEMVER: ${{ needs.resolve-release.outputs.use_semver }}
+          MTSA_CTX: ${{ needs.load-config.outputs.mtsa_build_context }}
         run: |
           set -euo pipefail
-          WAR_PATH="apps/signing-gateway/mtsa-pilot/webapps/MTSAPilot.war"
+          WAR_PATH="${MTSA_CTX}/webapps/MTSAPilot.war"
           if [ ! -f "$WAR_PATH" ]; then
-            echo "::error::Missing $WAR_PATH — pilot MTSA image cannot build. Add the Trustgate MTSAPilot.war to that path and commit (see apps/signing-gateway/.gitignore: MTSAPilot.war is tracked for CI)."
+            echo "::error::Missing $WAR_PATH — pilot MTSA image cannot build. Add Trustgate MTSAPilot.war under that directory (see signing.mtsa_build_context in config/clients/<client>.yaml)."
             exit 1
           fi
           SHORT_SHA=$(git rev-parse --short HEAD)
           MTSA_TAG="mtsa-${IMAGE_TAG}"
-          docker build -f apps/signing-gateway/mtsa-pilot/Dockerfile \
+          docker build -f "${MTSA_CTX}/Dockerfile" \
             -t "$ECR_REGISTRY/$ECR_REPOSITORY:$MTSA_TAG" \
-            apps/signing-gateway/mtsa-pilot
+            "$MTSA_CTX"
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$MTSA_TAG"
 
           if [ "$USE_SEMVER" = "true" ]; then

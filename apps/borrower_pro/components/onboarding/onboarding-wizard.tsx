@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -50,7 +50,10 @@ import {
   validateCorporateForm,
   validateIndividualFormStep,
   validateCorporateFormStep,
+  isIndividualEmergencyContactComplete,
+  isIndividualSocialComplete,
 } from "../../lib/borrower-form-validation";
+import { SectionCompleteBadge, SectionOptionalBadge } from "../ui/status-row";
 import type {
   IndividualFormData,
   CorporateFormData,
@@ -497,6 +500,41 @@ export function OnboardingWizard() {
   const { title: currentTitle, desc: currentDesc } = getCurrentTitle();
   const isIntroStep = step === 0;
 
+  const individualStep2Complete = useMemo(
+    () =>
+      Object.keys(validateIndividualFormStep(individualFormData, 2, noMonthlyIncome)).length === 0,
+    [individualFormData, noMonthlyIncome]
+  );
+  const individualEmergencyComplete = useMemo(
+    () => isIndividualEmergencyContactComplete(individualFormData),
+    [individualFormData]
+  );
+  const individualSocialComplete = useMemo(
+    () => isIndividualSocialComplete(individualFormData),
+    [individualFormData]
+  );
+
+  const corporateStep1Complete = useMemo(
+    () => Object.keys(validateCorporateFormStep(corporateFormData, 1)).length === 0,
+    [corporateFormData]
+  );
+  const corporateStep2Complete = useMemo(
+    () => Object.keys(validateCorporateFormStep(corporateFormData, 2)).length === 0,
+    [corporateFormData]
+  );
+  const corporateStep3Complete = useMemo(
+    () => Object.keys(validateCorporateFormStep(corporateFormData, 3)).length === 0,
+    [corporateFormData]
+  );
+  const corporateStep4Complete = useMemo(
+    () => Object.keys(validateCorporateFormStep(corporateFormData, 4)).length === 0,
+    [corporateFormData]
+  );
+  const corporateSocialComplete = useMemo(
+    () => isIndividualSocialComplete(corporateFormData as unknown as IndividualFormData),
+    [corporateFormData]
+  );
+
   if (!hydrated) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -710,6 +748,9 @@ export function OnboardingWizard() {
                   )}
                   {borrowerDetailSubStep === 2 && (
                     <div className="space-y-6">
+                      <div className="flex justify-end -mb-2">
+                        <SectionCompleteBadge complete={individualStep2Complete} />
+                      </div>
                       <ContactCard
                         data={individualFormData}
                         onChange={(u) =>
@@ -730,12 +771,18 @@ export function OnboardingWizard() {
                   )}
                   {borrowerDetailSubStep === 3 && (
                     <div className="space-y-6">
+                      <div className="flex justify-end -mb-2">
+                        <SectionCompleteBadge complete={individualEmergencyComplete} />
+                      </div>
                       <EmergencyContactCard
                         data={individualFormData}
                         onChange={(u) =>
                           setIndividualFormData((prev) => ({ ...prev, ...u }))
                         }
                       />
+                      <div className="flex justify-end -mb-2">
+                        <SectionOptionalBadge complete={individualSocialComplete} />
+                      </div>
                       <SocialMediaCard
                         data={individualFormData}
                         onChange={(u) =>
@@ -749,6 +796,9 @@ export function OnboardingWizard() {
                 <>
                   {borrowerDetailSubStep === 1 && (
                     <div className="space-y-6">
+                      <div className="flex justify-end -mb-2">
+                        <SectionCompleteBadge complete={corporateStep1Complete} />
+                      </div>
                       <CompanyCard
                         data={corporateFormData}
                         onChange={(u) =>
@@ -761,6 +811,9 @@ export function OnboardingWizard() {
                   )}
                   {borrowerDetailSubStep === 2 && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="col-span-full flex justify-end -mb-2">
+                        <SectionCompleteBadge complete={corporateStep2Complete} />
+                      </div>
                       <CompanyAdditionalCard
                         data={corporateFormData}
                         onChange={(u) =>
@@ -779,6 +832,9 @@ export function OnboardingWizard() {
                   )}
                   {borrowerDetailSubStep === 3 && (
                     <div className="space-y-6">
+                      <div className="flex justify-end -mb-2">
+                        <SectionCompleteBadge complete={corporateStep3Complete} />
+                      </div>
                       <DirectorsCard
                         data={corporateFormData}
                         onChange={(u) =>
@@ -791,6 +847,9 @@ export function OnboardingWizard() {
                   )}
                   {borrowerDetailSubStep === 4 && (
                     <div className="space-y-6">
+                      <div className="flex justify-end -mb-2">
+                        <SectionCompleteBadge complete={corporateStep4Complete} />
+                      </div>
                       <BankCard
                         data={corporateFormData}
                         onChange={(u) =>
@@ -803,6 +862,9 @@ export function OnboardingWizard() {
                   )}
                   {borrowerDetailSubStep === 5 && (
                     <div className="space-y-6">
+                      <div className="flex justify-end -mb-2">
+                        <SectionOptionalBadge complete={corporateSocialComplete} />
+                      </div>
                       <SocialMediaCard
                         data={corporateFormData}
                         onChange={(u) =>

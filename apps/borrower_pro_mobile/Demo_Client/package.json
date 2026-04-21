@@ -4,9 +4,15 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "expo start",
+    "dev:android": "node ./scripts/adb-reverse.js && expo start",
+    "dev:workspace": "npm run build:workspace-packages && expo start",
+    "dev:emulator": "node ./scripts/adb-reverse.js && REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 expo start --dev-client",
+    "reverse:adb": "node ./scripts/adb-reverse.js",
+    "build:workspace-packages": "npm run build:packages --prefix ../../..",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
+    "android:emulator": "node ./scripts/adb-reverse.js && REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint"
@@ -14,6 +20,7 @@
   "dependencies": {
     "@better-auth/expo": "^1.6.2",
     "@kredit/borrower": "*",
+    "@kredit/shared": "*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/elements": "^2.9.10",

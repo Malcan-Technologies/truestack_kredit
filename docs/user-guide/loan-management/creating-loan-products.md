@@ -61,6 +61,13 @@ Define the boundaries for loan amounts, terms, and collection settings.
 | **Arrears Period** | Days after missed payment before loan is flagged as at-risk | 14 days |
 | **Default Period** | Days after missed payment before loan is marked as defaulted | 28 days |
 
+**Loan length options** (same step): After min/max term, you choose how borrowers pick a repayment length:
+
+- **Equal steps** — Terms from your minimum to maximum, spaced by a **step size** in months (for example step 6 between 12 and 60 gives 12, 18, 24, …, 60).
+- **Only these months** — A fixed list of allowed lengths (comma-separated, e.g. `6, 12, 24`). Each value must sit between your min and max term.
+
+You use **one** of these approaches; the product wizard makes that explicit so it is clear which settings apply. See [Setting Term Limits](#setting-term-limits) for detail.
+
 ### Step 4: Documents & Review
 
 Configure required documents and review your product before saving.
@@ -176,6 +183,23 @@ Define the repayment period range (in months):
 | Emergency Loan | 1 month | 6 months |
 | Personal Loan | 6 months | 36 months |
 | Home Improvement | 12 months | 84 months |
+
+### Loan length options (how borrowers choose a term)
+
+Beyond min and max term, you configure **how** applicants select a length:
+
+1. **Equal steps**  
+   Borrowers see options from **minimum term** to **maximum term** at a fixed spacing (e.g. every 3 or 6 months). This replaces a confusing split between “interval” and a separate list—pick this mode when you want a regular ladder of terms.
+
+2. **Only these months**  
+   Borrowers see **only** the months you enter (e.g. 6, 12, 24). Use this when you want a small, specific set of products (e.g. only 12- or 24-month loans) regardless of a wide min/max range, or when marketing defines exact tenures.
+
+**Rules:**
+
+- Listed terms must each be at least **2 months** and fall **between** your minimum and maximum term.
+- If you use **Only these months**, leave **Equal steps** behaviour unused—the product stores your explicit list.
+
+For technical and UX notes (admin apps, borrower portal), see the internal feature doc: `docs/features/application-ux-and-product-tenure-configuration.md`.
 
 ---
 

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Label } from "../ui/label";
 import { Input } from "../ui/input";
 import {
@@ -24,6 +25,8 @@ interface FieldProps {
   options?: { value: string; label: string }[];
   required?: boolean;
   className?: string;
+  /** Shown after the label (e.g. Verified badge). */
+  labelSuffix?: ReactNode;
 }
 
 export function Field({
@@ -38,13 +41,21 @@ export function Field({
   options,
   required = true,
   className,
+  labelSuffix,
 }: FieldProps) {
+  const labelRow = (
+    <Label className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span>
+        {label} {required && "*"}
+      </span>
+      {labelSuffix}
+    </Label>
+  );
+
   if (type === "select" && options) {
     return (
       <div className={className}>
-        <Label className="text-xs text-muted-foreground">
-          {label} {required && "*"}
-        </Label>
+        {labelRow}
         <Select value={value} onValueChange={onChange} disabled={disabled}>
           <SelectTrigger className={error ? "border-error" : ""}>
             <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
@@ -67,9 +78,7 @@ export function Field({
       value === "" ? "" : numberMode === "float" ? parseFloat(value) || 0 : parseInt(value, 10) || 0;
     return (
       <div className={className}>
-        <Label className="text-xs text-muted-foreground">
-          {label} {required && "*"}
-        </Label>
+        {labelRow}
         <NumericInput
           mode={numberMode}
           value={numValue}
@@ -85,9 +94,7 @@ export function Field({
 
   return (
     <div className={className}>
-      <Label className="text-xs text-muted-foreground">
-        {label} {required && "*"}
-      </Label>
+      {labelRow}
       <Input
         type={type}
         value={value}

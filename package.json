@@ -18,6 +18,7 @@
     "dev:borrower_pro_mobile": "npm run dev -w demo_client",
     "dev:demo_client": "concurrently --handle-input --default-input-target mobile -c blue,green,cyan,magenta -n backend,admin,borrower,mobile \"npm run dev:backend_pro\" \"npm run dev:admin_pro\" \"npm run dev:borrower_pro\" \"npm run dev:borrower_pro_mobile\"",
     "build": "npm run build --workspaces --if-present",
+    "build:packages": "npm run build -w @kredit/shared -w @kredit/borrower",
     "lint": "npm run lint --workspaces --if-present",
     "db:generate": "npm run db:generate -w apps/backend",
     "db:push": "npm run db:push -w apps/backend",

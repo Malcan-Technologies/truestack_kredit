@@ -13,7 +13,9 @@ import {
   EMPLOYMENT_OPTIONS,
 } from "../../lib/borrower-form-options";
 import { extractDateFromIC, extractGenderFromIC } from "../../lib/borrower-form-helpers";
+import { isIndividualPersonalInnerComplete } from "../../lib/borrower-form-validation";
 import type { IndividualFormData } from "../../lib/borrower-form-types";
+import { SectionCompleteBadge, VerifiedBadge } from "../ui/status-row";
 
 interface PersonalCardProps {
   data: Pick<
@@ -56,18 +58,30 @@ export function PersonalCard({
       ? ""
       : parseFloat(data.monthlyIncome) || 0;
 
+  const personalComplete = isIndividualPersonalInnerComplete(
+    {
+      ...(data as IndividualFormData),
+      dateOfBirth: dobDisplay,
+      gender: genderDisplay,
+    },
+    noMonthlyIncome
+  );
+  const dobVer = identityLocked ? <VerifiedBadge /> : undefined;
+  const genderVer = identityLocked ? <VerifiedBadge /> : undefined;
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-2">
         <CardTitle className="flex items-center gap-2">
           <User className="h-5 w-5 text-muted-foreground" />
-          Personal Information
+          Personal information
         </CardTitle>
+        <SectionCompleteBadge complete={personalComplete} />
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field
-            label="Date of Birth"
+            label="Date of birth"
             value={dobDisplay}
             onChange={(val) => {
               onChange({ dateOfBirth: val });
@@ -76,6 +90,7 @@ export function PersonalCard({
             type="date"
             error={errors.dateOfBirth}
             disabled={identityLocked || (isIC && !!dobFromIC)}
+            labelSuffix={dobVer}
           />
           <Field
             label="Gender"
@@ -88,6 +103,7 @@ export function PersonalCard({
             options={GENDER_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
             error={errors.gender}
             disabled={identityLocked || (isIC && !!genderFromIC)}
+            labelSuffix={genderVer}
           />
           <Field
             label="Race"

@@ -4,6 +4,9 @@ import { Building2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Field } from "./field";
 import { BANK_OPTIONS } from "../../lib/borrower-form-options";
+import { isIndividualBankComplete } from "../../lib/borrower-form-validation";
+import type { IndividualFormData } from "../../lib/borrower-form-types";
+import { SectionCompleteBadge } from "../ui/status-row";
 
 interface BankCardData {
   bankName: string;
@@ -19,13 +22,16 @@ interface BankCardProps {
 }
 
 export function BankCard({ data, onChange, errors, onErrorClear }: BankCardProps) {
+  const bankComplete = isIndividualBankComplete(data as IndividualFormData);
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-2">
         <CardTitle className="flex items-center gap-2">
           <Building2 className="h-5 w-5 text-muted-foreground" />
           Bank Information
         </CardTitle>
+        <SectionCompleteBadge complete={bankComplete} />
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

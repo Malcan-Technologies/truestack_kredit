@@ -50,6 +50,23 @@ const DEFAULT_REQUIRED_DOCUMENTS = [
   { key: 'EMPLOYMENT_LETTER', label: 'Employment Letter', required: false },
 ];
 
+const termMonthsSchema = z.number().int().min(1).max(600);
+
+function isAllowedTermsWithinRange(
+  allowedTerms: number[] | undefined,
+  minTerm: number,
+  maxTerm: number
+): boolean {
+  if (!allowedTerms?.length) return true;
+  return allowedTerms.every((t) => t >= minTerm && t <= maxTerm);
+}
+
+function parseProductAllowedTerms(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const terms = value.filter((v): v is number => typeof v === 'number' && Number.isInteger(v));
+  return terms.length === value.length ? terms : undefined;
+}
+
 // Validation schemas
 const createProductSchema = z.object({
   name: z.string().min(2).max(100),
@@ -61,8 +78,11 @@ const createProductSchema = z.object({
   defaultPeriod: z.number().int().min(1).max(365).default(28),
   minAmount: z.number().positive(),
   maxAmount: z.number().positive(),
-  minTerm: z.number().int().positive(),
-  maxTerm: z.number().int().positive(),
+  minTerm: termMonthsSchema,
+  maxTerm: termMonthsSchema,
+  termInterval: z.number().int().min(1).max(60).default(1),
+  /** When set, only these month values are allowed (must align with min/max). */
+  allowedTerms: z.array(termMonthsSchema).optional(),
   // Fee configuration
   legalFeeType: z.enum(['FIXED', 'PERCENTAGE']).default('FIXED'),
   legalFeeValue: z.number().min(0).default(0),
@@ -85,6 +105,11 @@ const createProductSchema = z.object({
 }).refine(data => data.minTerm <= data.maxTerm, {
   message: 'minTerm must be less than or equal to maxTerm',
   path: ['minTerm'],
+}).refine((data) => {
+  return isAllowedTermsWithinRange(data.allowedTerms, data.minTerm, data.maxTerm);
+}, {
+  message: 'allowedTerms must only contain values within minTerm and maxTerm',
+  path: ['allowedTerms'],
 }).refine(data => data.arrearsPeriod <= data.defaultPeriod, {
   message: 'Arrears period must be less than or equal to default period',
   path: ['arrearsPeriod'],
@@ -108,8 +133,10 @@ const updateProductSchema = z.object({
   defaultPeriod: z.number().int().min(1).max(365).optional(),
   minAmount: z.number().positive().optional(),
   maxAmount: z.number().positive().optional(),
-  minTerm: z.number().int().positive().optional(),
-  maxTerm: z.number().int().positive().optional(),
+  minTerm: termMonthsSchema.optional(),
+  maxTerm: termMonthsSchema.optional(),
+  termInterval: z.number().int().min(1).max(60).optional(),
+  allowedTerms: z.array(termMonthsSchema).optional(),
   isActive: z.boolean().optional(),
   // Fee configuration
   legalFeeType: z.enum(['FIXED', 'PERCENTAGE']).optional(),
@@ -340,6 +367,32 @@ router.patch('/:productId', requirePermission('products.edit'), async (req, res,
 
     if (!existing) {
       throw new NotFoundError('Product');
+    }
+
+    const effectiveMinTerm = data.minTerm ?? existing.minTerm;
+    const effectiveMaxTerm = data.maxTerm ?? existing.maxTerm;
+    if (effectiveMinTerm > effectiveMaxTerm) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'minTerm must be less than or equal to maxTerm',
+          details: [{ path: ['minTerm'], message: 'minTerm must be less than or equal to maxTerm' }],
+        },
+      });
+    }
+
+    const existingAllowedTerms = parseProductAllowedTerms(
+      (existing as unknown as Record<string, unknown>).allowedTerms
+    );
+    const effectiveAllowedTerms = data.allowedTerms ?? existingAllowedTerms;
+    if (!isAllowedTermsWithinRange(effectiveAllowedTerms, effectiveMinTerm, effectiveMaxTerm)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'allowedTerms must only contain values within minTerm and maxTerm',
+          details: [{ path: ['allowedTerms'], message: 'allowedTerms must only contain values within minTerm and maxTerm' }],
+        },
+      });
     }
 
     const updateData = (data.interestModel

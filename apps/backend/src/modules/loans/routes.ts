@@ -28,6 +28,7 @@ import PDFDocument from 'pdfkit';
 import { recalculateBorrowerPerformanceProjection } from '../borrowers/performanceProjectionService.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { buildInternalScheduleView, supportsInternalScheduleView } from './scheduleViewService.js';
+import { assertTermAllowedForProduct } from '../../lib/product-term-validation.js';
 
 // Helper function to fetch image from URL or local file (for PDF logos)
 const fetchImageBuffer = (url: string): Promise<Buffer> => {
@@ -810,11 +811,15 @@ router.post('/applications/preview', requirePermission('applications.create'), a
       );
     }
 
-    if (data.term < product.minTerm || data.term > product.maxTerm) {
-      throw new BadRequestError(
-        `Term must be between ${product.minTerm} and ${product.maxTerm} months`
-      );
-    }
+    assertTermAllowedForProduct(
+      {
+        minTerm: product.minTerm,
+        maxTerm: product.maxTerm,
+        termInterval: product.termInterval,
+        allowedTerms: product.allowedTerms,
+      },
+      data.term
+    );
 
     const loanAmount = data.amount;
     const term = data.term;
@@ -945,9 +950,15 @@ router.post('/applications', requirePermission('applications.create'), async (re
         actualTerm: actualTerm!,
       });
       applicationTerm = compliantStructure.compliantTerm;
-    } else if (data.term < product.minTerm || data.term > product.maxTerm) {
-      throw new BadRequestError(
-        `Term must be between ${product.minTerm} and ${product.maxTerm} months`
+    } else {
+      assertTermAllowedForProduct(
+        {
+          minTerm: product.minTerm,
+          maxTerm: product.maxTerm,
+          termInterval: product.termInterval,
+          allowedTerms: product.allowedTerms,
+        },
+        data.term
       );
     }
 
@@ -1215,12 +1226,15 @@ router.patch('/applications/:applicationId', requirePermission('applications.edi
     }
 
     if (data.term !== undefined) {
-      if (data.term < application.product.minTerm || 
-          data.term > application.product.maxTerm) {
-        throw new BadRequestError(
-          `Term must be between ${application.product.minTerm} and ${application.product.maxTerm} months`
-        );
-      }
+      assertTermAllowedForProduct(
+        {
+          minTerm: application.product.minTerm,
+          maxTerm: application.product.maxTerm,
+          termInterval: application.product.termInterval,
+          allowedTerms: application.product.allowedTerms,
+        },
+        data.term
+      );
     }
 
     // Capture previous data for audit

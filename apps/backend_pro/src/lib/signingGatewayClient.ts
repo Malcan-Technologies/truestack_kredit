@@ -20,6 +20,36 @@ interface GatewayHealthResponse {
   status: string;
   timestamp: string;
   services: { mtsa: string };
+  /** Egress public IPv4 from signing gateway (env or ipify), not container private IP. */
+  publicIpv4?: string | null;
+}
+
+const FOOTER_IP_CACHE_TTL_MS = 5 * 60 * 1000;
+const FOOTER_IP_FAIL_CACHE_MS = 60 * 1000;
+let footerIpCache: { value: string | null; expires: number } | null = null;
+
+/**
+ * IP to show in "Signed digitally at …" PDF footer after the gateway hostname.
+ * Backend SIGNING_GATEWAY_FOOTER_IP overrides; else GET /health `publicIpv4` (cached).
+ */
+export async function getSigningGatewayFooterIp(): Promise<string | null> {
+  if (config.signing.footerIp) {
+    return config.signing.footerIp;
+  }
+  const now = Date.now();
+  if (footerIpCache && footerIpCache.expires > now) {
+    return footerIpCache.value;
+  }
+  try {
+    const r = await gatewayFetch<GatewayHealthResponse>('GET', '/health');
+    const ip =
+      typeof r.publicIpv4 === 'string' && r.publicIpv4.trim() ? r.publicIpv4.trim() : null;
+    footerIpCache = { value: ip, expires: now + FOOTER_IP_CACHE_TTL_MS };
+    return ip;
+  } catch {
+    footerIpCache = { value: null, expires: now + FOOTER_IP_FAIL_CACHE_MS };
+    return null;
+  }
 }
 
 export interface CertInfoResponse {

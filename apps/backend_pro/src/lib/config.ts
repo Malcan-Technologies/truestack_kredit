@@ -66,6 +66,11 @@ export const config = {
     enabled: process.env.SIGNING_ENABLED === 'true',
     cfAccessClientId: process.env.CF_ACCESS_CLIENT_ID || '',
     cfAccessClientSecret: process.env.CF_ACCESS_CLIENT_SECRET || '',
+    /**
+     * Optional: public IPv4 in agreement PDF footer after hostname (overrides gateway /health).
+     * Set when the gateway cannot discover egress IP (no outbound HTTPS) or you want a fixed value.
+     */
+    footerIp: (process.env.SIGNING_GATEWAY_FOOTER_IP || '').trim(),
   },
 
   // Internal domain event webhook signing

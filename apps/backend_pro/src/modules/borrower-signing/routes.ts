@@ -9,6 +9,7 @@ import { getFile, saveAgreementFile, saveFile } from '../../lib/storage.js';
 import {
   checkHealth,
   getCertInfo,
+  getSigningGatewayFooterIp,
   requestEmailOTP,
   enrollCertificate,
   signAndStorePdf,
@@ -92,12 +93,14 @@ function requireMtsaSignerProfile(borrower: {
   return { userId, fullName };
 }
 
-function signingFooterText(): string {
+async function signingFooterText(): Promise<string> {
+  const ip = await getSigningGatewayFooterIp();
+  const ipSuffix = ip ? ` (${ip})` : '';
   try {
     const url = new URL(config.signing.gatewayUrl);
-    return `Signed digitally at ${url.hostname}`;
+    return `Signed digitally at ${url.hostname}${ipSuffix}`;
   } catch {
-    return `Signed digitally at ${config.signing.gatewayUrl}`;
+    return `Signed digitally at ${config.signing.gatewayUrl}${ipSuffix}`;
   }
 }
 
@@ -496,7 +499,7 @@ router.post('/agreement-preview', async (req, res, next) => {
       tenantId: tenant.id,
       loanId,
       agreementDateParam: agreementDate,
-      footerText: signingFooterText(),
+      footerText: await signingFooterText(),
     });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -566,7 +569,7 @@ router.post('/sign-agreement', async (req, res, next) => {
       tenantId: tenant.id,
       loanId: body.loanId,
       agreementDateParam: agreementDate,
-      footerText: signingFooterText(),
+      footerText: await signingFooterText(),
     });
 
     const borrowerSigFields = signatureFields.filter(f => f.role === 'borrower');

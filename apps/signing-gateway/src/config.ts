@@ -20,6 +20,12 @@ export const config = {
   backup: {
     enabled: process.env.BACKUP_ENABLED === 'true',
   },
+
+  /**
+   * Public IPv4 shown in loan agreement PDF footer (and /health `publicIpv4`).
+   * Prefer this when the host cannot reach the internet for auto-discovery (or you want a fixed IP).
+   */
+  footerPublicIp: (process.env.SIGNING_GATEWAY_PUBLIC_IP || '').trim(),
 } as const;
 
 export function validateConfig(): void {

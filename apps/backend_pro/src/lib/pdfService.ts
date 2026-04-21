@@ -207,15 +207,12 @@ function createPdfBuffer(
 
       for (let i = range.start; i <= lastPage; i++) {
         doc.switchToPage(i);
-        const textW = doc.font(FI).fontSize(7).widthOfString(options.footerText);
-        const textX = ML + (CW - textW) / 2;
-        doc.save()
-          .fillColor('#888888')
-          .fontSize(7)
-          .font(FI);
-        (doc as any).y = footerY;
-        (doc as any).x = textX;
-        (doc as any)._fragment(options.footerText, textX, footerY, {});
+        doc.save().fillColor('#888888').fontSize(7).font(FI);
+        doc.text(options.footerText, ML, footerY, {
+          width: CW,
+          align: 'center',
+          lineGap: 0,
+        });
         doc.restore();
       }
 

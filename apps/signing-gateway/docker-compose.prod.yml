@@ -12,6 +12,8 @@ services:
       MTSA_SOAP_USERNAME: ${MTSA_SOAP_USERNAME}
       MTSA_SOAP_PASSWORD: ${MTSA_SOAP_PASSWORD}
       SIGNING_API_KEY: ${SIGNING_API_KEY}
+      # Optional: static public IPv4 for PDF footer when outbound HTTPS to api.ipify.org is blocked
+      SIGNING_GATEWAY_PUBLIC_IP: ${SIGNING_GATEWAY_PUBLIC_IP:-}
       STORAGE_PATH: /data/documents
       BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
     volumes:

@@ -182,6 +182,43 @@ const BRACKET_COL = ML + 310;
 // Helpers
 // ============================================
 
+/** Footer sits in the bottom margin (below PDFKit's content maxY); must use _fragment, not doc.text(), or LineWrapper adds blank pages. */
+function truncateFooterLine(doc: PDFKit.PDFDocument, line: string, maxWidth: number): string {
+  if (doc.widthOfString(line) <= maxWidth) return line;
+  const ellipsis = '…';
+  let s = line;
+  while (s.length > 1 && doc.widthOfString(s + ellipsis) > maxWidth) {
+    s = s.slice(0, -1);
+  }
+  return s + ellipsis;
+}
+
+function wrapFooterLines(doc: PDFKit.PDFDocument, text: string, maxWidth: number): string[] {
+  const words = text.trim().split(/\s+/);
+  if (words.length === 0 || (words.length === 1 && !words[0])) return [''];
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const trial = current ? `${current} ${word}` : word;
+    if (doc.widthOfString(trial) <= maxWidth) {
+      current = trial;
+    } else {
+      if (current) {
+        lines.push(truncateFooterLine(doc, current, maxWidth));
+        current = word;
+        if (doc.widthOfString(current) > maxWidth) {
+          lines.push(truncateFooterLine(doc, current, maxWidth));
+          current = '';
+        }
+      } else {
+        lines.push(truncateFooterLine(doc, word, maxWidth));
+      }
+    }
+  }
+  if (current) lines.push(truncateFooterLine(doc, current, maxWidth));
+  return lines;
+}
+
 function createPdfBuffer(
   renderer: (doc: PDFKit.PDFDocument) => void,
   options?: { footerText?: string },
@@ -201,18 +238,25 @@ function createPdfBuffer(
     renderer(doc);
 
     if (options?.footerText) {
-      const footerY = PAGE_HEIGHT - 28;
+      const footerBottomBaseline = PAGE_HEIGHT - 28;
       const range = doc.bufferedPageRange();
       const lastPage = range.start + range.count - 1;
+
+      doc.font(FI).fontSize(7);
+      const lineHeight = doc.currentLineHeight(true);
+      const lines = wrapFooterLines(doc, options.footerText, CW);
 
       for (let i = range.start; i <= lastPage; i++) {
         doc.switchToPage(i);
         doc.save().fillColor('#888888').fontSize(7).font(FI);
-        doc.text(options.footerText, ML, footerY, {
-          width: CW,
-          align: 'center',
-          lineGap: 0,
-        });
+        const yTop = footerBottomBaseline - (lines.length - 1) * lineHeight;
+        let y = yTop;
+        for (const line of lines) {
+          const textW = doc.widthOfString(line);
+          const textX = ML + (CW - textW) / 2;
+          (doc as any)._fragment(line, textX, y, {});
+          y += lineHeight;
+        }
         doc.restore();
       }
 

@@ -346,6 +346,7 @@ jobs:
           MTSA_WSDL_PATH=${{ steps.mtsa.outputs.wsdl_path }}
           MTSA_IMAGE=${{ steps.mtsa_image.outputs.ref }}
           SIGNING_API_KEY=${{ secrets.ONPREM_SIGNING_API_KEY }}
+          SIGNING_GATEWAY_PUBLIC_IP=${{ secrets.ONPREM_SIGNING_GATEWAY_PUBLIC_IP }}
           GATEWAY_PORT=3100
           BACKUP_ENABLED=true
           CF_TUNNEL_TOKEN=${{ secrets.ONPREM_CF_TUNNEL_TOKEN }}

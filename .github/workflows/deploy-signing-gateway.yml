@@ -393,7 +393,9 @@ jobs:
           EOF
 
           scp scripts/signing-gateway/deploy.sh onprem-signing:/opt/signing-stack/deploy.sh
+          scp apps/signing-gateway/docker-compose.prod.yml onprem-signing:/opt/signing-stack/docker-compose.yml
           ssh onprem-signing "chmod +x /opt/signing-stack/deploy.sh"
+          # .env is written from CI; compose must reference SIGNING_GATEWAY_PUBLIC_IP (see docker-compose.prod.yml)
           ssh onprem-signing "echo '$ENV_B64' | base64 -d > /opt/signing-stack/.env && ECR_REGISTRY='$ECR_REGISTRY' ECR_REPOSITORY='$ECR_REPOSITORY' ECR_PASSWORD='$ECR_PASSWORD' /opt/signing-stack/deploy.sh '$IMAGE_TAG'"
 
   summary:

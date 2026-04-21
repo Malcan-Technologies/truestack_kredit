@@ -221,9 +221,15 @@ export async function signInWithPasskey(email?: string): Promise<SignInResult> {
     throw new Error(unavailableReason);
   }
 
+  // `autoFill` maps to iOS `preferImmediatelyAvailableCredentials`, which
+  // suppresses the full picker and fails silently when no credential is
+  // already discoverable. For button-triggered sign-in we want the native
+  // picker, so omit it (matches the web passkey client).
+  // `email` is accepted for API parity but the Expo passkey module does not
+  // forward it to the server — the authenticator presents discoverable
+  // credentials for the current RP.
   const { data, error } = await authClientUnsafe.signIn.passkey({
     email: email?.trim() ? email.trim() : undefined,
-    autoFill: true,
   });
 
   if (error) {
@@ -239,9 +245,13 @@ export async function addDevicePasskey(name?: string): Promise<void> {
     throw new Error(unavailableReason);
   }
 
+  // Omit `useAutoRegister`: on iOS it maps to
+  // `preferImmediatelyAvailableCredentials`, which skips the native
+  // registration UI and aborts silently if the platform can't immediately
+  // create a credential. A tapped "Add passkey" button should always show
+  // the system prompt (matches the web passkey client).
   const { error } = await authClientUnsafe.passkey.addPasskey({
     name: name?.trim() ? name.trim() : undefined,
-    useAutoRegister: true,
   });
 
   if (error) {

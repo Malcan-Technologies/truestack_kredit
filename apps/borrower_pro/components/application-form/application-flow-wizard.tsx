@@ -1049,7 +1049,8 @@ export function ApplicationFlowWizard() {
         {selectedProduct && (
           <Card
             className={cn(
-              "shadow-sm lg:self-start lg:z-10",
+              /* Keep below the full-width action bar: z-10 + scroll/sticky in prod can paint over adjacent layers until hover. */
+              "shadow-sm lg:relative lg:z-0 lg:self-start",
               "lg:sticky lg:top-16 lg:max-h-[calc(100dvh-5rem)] lg:overflow-y-auto lg:overscroll-contain"
             )}
           >
@@ -1155,14 +1156,16 @@ export function ApplicationFlowWizard() {
 
       <div
         className={cn(
-          "sticky z-40 mt-8 pt-2",
+          /* isolate + high z: avoid sticky/sibling comppositor ordering where a lower-z panel can sit above primary buttons. */
+          "sticky z-50 isolate mt-8 pt-2",
           "bottom-4 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] sm:bottom-5"
         )}
       >
-        <div className="w-full px-3 sm:px-4 md:px-5">
+        <div className="w-full min-w-0 px-3 sm:px-4 md:px-5">
           <div
             className={cn(
-              "flex w-full items-center justify-between gap-3 overflow-visible sm:gap-4",
+              "flex w-full min-w-0 items-center justify-between gap-3 overflow-visible sm:gap-4",
+              "transform-gpu",
               /* Opaque surface only: backdrop-blur on this bar caused Chrome/Safari to clip children until repaint (e.g. hover). */
               "rounded-2xl border border-border bg-card px-4 py-3.5 shadow-lg sm:px-6 sm:py-4"
             )}
@@ -1170,14 +1173,14 @@ export function ApplicationFlowWizard() {
             <Button
               type="button"
               variant="outline"
-              className="shrink-0"
+              className="relative z-10 shrink-0"
               disabled={step === 0 || saving}
               onClick={() => setStep((s) => Math.max(0, s - 1))}
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
-            <div className="shrink-0">
+            <div className="relative z-20 shrink-0">
               {step === 0 && (
                 <Button
                   type="button"

@@ -572,7 +572,7 @@ export function ApplicationFlowWizard() {
   }
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-6 pb-32 sm:pb-36">
       <div>
         <h1 className="text-2xl font-heading font-bold text-gradient">Apply for a Loan</h1>
         <p className="text-muted text-base mt-1">
@@ -628,7 +628,7 @@ export function ApplicationFlowWizard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(280px,22rem)] xl:grid-cols-[1fr_minmax(300px,26rem)] gap-6 lg:gap-8 items-start pb-20 lg:pb-28">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(280px,22rem)] xl:grid-cols-[1fr_minmax(300px,26rem)] gap-6 lg:gap-8 items-start">
         <div className="space-y-6 min-w-0">
           {step === 0 && (
             <Card>
@@ -1156,12 +1156,16 @@ export function ApplicationFlowWizard() {
 
       <div
         className={cn(
-          /* isolate + high z: avoid sticky/sibling comppositor ordering where a lower-z panel can sit above primary buttons. */
-          "sticky z-50 isolate mt-8 pt-2",
-          "bottom-4 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] sm:bottom-5"
+          /* Fixed to viewport: avoids sticky "jump" when step height or scroll position changes. --borrower-main-offset is set on dashboard layout (Demo + Proficient). */
+          "fixed z-50 isolate",
+          "left-0 right-0 lg:left-[var(--borrower-main-offset,0px)]",
+          "bottom-[max(1rem,env(safe-area-inset-bottom,0px))] sm:bottom-5",
+          /* Match <main> horizontal padding in dashboard layout */
+          "px-4 sm:px-5 md:px-6 lg:px-7 xl:px-9 2xl:px-11",
+          "pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
         )}
       >
-        <div className="w-full min-w-0 px-3 sm:px-4 md:px-5">
+        <div className="w-full min-w-0 max-w-7xl mx-auto">
           <div
             className={cn(
               "flex w-full min-w-0 items-center justify-between gap-3 overflow-visible sm:gap-4",

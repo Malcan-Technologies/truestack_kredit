@@ -487,7 +487,11 @@ export default function DashboardLayout({
       <div
         className={cn(
           "relative min-h-screen bg-background transition-[padding] duration-200 ease-in-out",
-          sidebarCollapsed ? "lg:pl-16" : "lg:pl-64",
+          /* Viewport x-offset of main column; used e.g. by ApplicationFlowWizard fixed action bar. */
+          "[--borrower-main-offset:0px]",
+          sidebarCollapsed
+            ? "lg:pl-16 lg:[--borrower-main-offset:4rem]"
+            : "lg:pl-64 lg:[--borrower-main-offset:16rem]",
         )}
       >
         <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-sm border-b border-border">

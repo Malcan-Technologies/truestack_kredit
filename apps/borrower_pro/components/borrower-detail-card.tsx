@@ -49,6 +49,7 @@ import {
   CompanyContactCard,
   CompanyAdditionalCard,
   DirectorsCard,
+  IdentityEkycLockedBanner,
 } from "./borrower-form";
 import {
   fetchBorrower,
@@ -97,25 +98,22 @@ import { PhoneDisplay } from "./ui/phone-display";
 import { cn } from "../lib/utils";
 import { toast } from "sonner";
 import { isIndividualIdentityLocked } from "../lib/borrower-verification";
-import { SectionCompleteBadge, SectionOptionalBadge, VerifiedBadge } from "./ui/status-row";
+import { SectionCompleteBadge, SectionOptionalBadge } from "./ui/status-row";
 
 function InfoField({
   label,
   value,
   className,
-  verified,
 }: {
   label: string;
   value: string | null | undefined;
   className?: string;
-  verified?: boolean;
 }) {
   const display = value?.trim() || "—";
   return (
     <div className={`space-y-1 ${className ?? ""}`}>
       <p className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
         {label}
-        {verified ? <VerifiedBadge /> : null}
       </p>
       <p className="text-sm font-medium text-foreground break-words">{display}</p>
     </div>
@@ -131,7 +129,7 @@ function SectionCard({
 }: {
   icon: React.ElementType;
   title: string;
-  description?: string;
+  description?: React.ReactNode;
   headerAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -143,7 +141,13 @@ function SectionCard({
             <Icon className="h-5 w-5 text-muted-foreground" />
             {title}
           </CardTitle>
-          {description && <CardDescription>{description}</CardDescription>}
+          {description != null ? (
+            typeof description === "string" ? (
+              <CardDescription>{description}</CardDescription>
+            ) : (
+              <div className="mt-1.5">{description}</div>
+            )
+          ) : null}
         </div>
         {headerAction}
       </CardHeader>
@@ -687,23 +691,17 @@ export const BorrowerDetailCard = forwardRef<
           <SectionCard
             icon={User}
             title="Personal information"
-            description={
-              identityLocked
-                ? "Your identity has been verified by e-KYC. Your name, IC, date of birth and gender are locked. Contact support if any of these need updating."
-                : undefined
-            }
-            headerAction={identityLocked ? <SectionCompleteBadge complete /> : undefined}
+            description={identityLocked ? <IdentityEkycLockedBanner /> : undefined}
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <InfoField label="Full name" value={form.name} verified={identityLocked} />
-              <InfoField label="Document type" value={getOptionLabel("documentType", form.documentType)} verified={identityLocked} />
+              <InfoField label="Full name" value={form.name} />
+              <InfoField label="Document type" value={getOptionLabel("documentType", form.documentType)} />
               <InfoField
                 label="IC / Passport number"
                 value={form.documentType === "IC" ? formatICForDisplay(form.icNumber) : form.icNumber}
-                verified={identityLocked}
               />
-              <InfoField label="Date of birth" value={formatDate(form.dateOfBirth)} verified={identityLocked} />
-              <InfoField label="Gender" value={getOptionLabel("gender", form.gender)} verified={identityLocked} />
+              <InfoField label="Date of birth" value={formatDate(form.dateOfBirth)} />
+              <InfoField label="Gender" value={getOptionLabel("gender", form.gender)} />
               <InfoField label="Race" value={getOptionLabel("race", form.race)} />
               <InfoField label="Education" value={getOptionLabel("educationLevel", form.educationLevel)} />
               <InfoField label="Occupation" value={form.occupation} />

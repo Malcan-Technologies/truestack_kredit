@@ -12,6 +12,7 @@ import {
   ReadOnlyField,
   SelectField,
 } from '@/components/borrower-form-fields';
+import { IdentityEkycLockedCallout } from '@/components/identity-ekyc-locked-callout';
 import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
 import {
@@ -402,14 +403,10 @@ export default function ProfileEditScreen() {
         <>
           <SectionCard
             title="Personal information"
-            description={
-              identityLocked
-                ? 'Your identity has been verified by e-KYC. Your name, IC, date of birth and gender are locked. Contact support if any of these need updating.'
-                : undefined
-            }
             action={<SectionCompleteStatusRow complete={individualCompletion.personal} />}>
             {identityLocked ? (
               <>
+                <IdentityEkycLockedCallout />
                 <ReadOnlyField locked label="Full name" value={individualFormData.name} />
                 <ReadOnlyField
                   locked

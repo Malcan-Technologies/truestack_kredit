@@ -54,7 +54,7 @@ export function Field({
 
   if (type === "select" && options) {
     return (
-      <div className={className}>
+      <div className={cn("space-y-1.5", className)}>
         {labelRow}
         <Select value={value} onValueChange={onChange} disabled={disabled}>
           <SelectTrigger className={error ? "border-error" : ""}>
@@ -77,7 +77,7 @@ export function Field({
     const numValue: number | "" =
       value === "" ? "" : numberMode === "float" ? parseFloat(value) || 0 : parseInt(value, 10) || 0;
     return (
-      <div className={className}>
+      <div className={cn("space-y-1.5", className)}>
         {labelRow}
         <NumericInput
           mode={numberMode}
@@ -93,7 +93,7 @@ export function Field({
   }
 
   return (
-    <div className={className}>
+    <div className={cn("space-y-1.5", className)}>
       {labelRow}
       <Input
         type={type}

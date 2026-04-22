@@ -23,6 +23,7 @@ import {
   PhoneField,
   SliderField,
 } from '@/components/borrower-form-fields';
+import { IdentityEkycLockedCallout } from '@/components/identity-ekyc-locked-callout';
 import { PageScreen } from '@/components/page-screen';
 import { SectionCard } from '@/components/section-card';
 import {
@@ -72,10 +73,15 @@ import { toast } from '@/lib/toast';
 import {
   clearLoanWizardDraft,
   formatCurrencyRM,
+  formatLatePaymentProductSummary,
+  formatPreviewFeeLabel,
+  formatProductAnnualRateDisplay,
+  formatProductMonthlyInterestPercent,
   initialLoanWizardDraft,
   isCollateralSectionComplete,
   isLoanAmountAndTermComplete,
   loadLoanWizardDraft,
+  productUsesCollateral,
   saveLoanWizardDraft,
   validateLoanDetails,
   type LoanWizardDraft,
@@ -86,6 +92,9 @@ import {
 
 function ProductCard({ product, selected, onSelect }: { product: BorrowerProduct; selected: boolean; onSelect: () => void }) {
   const theme = useTheme();
+  const monthly = formatProductMonthlyInterestPercent(product.interestRate);
+  const annual = formatProductAnnualRateDisplay(product.interestRate);
+  const collateral = productUsesCollateral(product);
   return (
     <Pressable
       onPress={onSelect}
@@ -103,13 +112,80 @@ function ProductCard({ product, selected, onSelect }: { product: BorrowerProduct
         </ThemedText>
         {selected && <MaterialIcons name="check-circle" size={18} color={theme.primary} />}
       </View>
+      <ThemedText type="small" themeColor="textSecondary">
+        {collateral ? 'Collateral' : 'No collateral'}
+      </ThemedText>
       {product.description ? (
         <ThemedText type="small" themeColor="textSecondary">{product.description}</ThemedText>
       ) : null}
       <ThemedText type="small" themeColor="textSecondary">
+        {monthly === '—'
+          ? '—'
+          : annual === '—'
+            ? `${monthly}% / month`
+            : `${monthly}% / month (${annual}% p.a.)`}
+      </ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
         RM {parseFloat(String(product.minAmount)).toLocaleString('en-MY', { minimumFractionDigits: 0 })} – RM {parseFloat(String(product.maxAmount)).toLocaleString('en-MY', { minimumFractionDigits: 0 })} · {product.minTerm}–{product.maxTerm} months
       </ThemedText>
     </Pressable>
+  );
+}
+
+function ProductInformationSection({ product }: { product: BorrowerProduct }) {
+  const monthly = formatProductMonthlyInterestPercent(product.interestRate);
+  const annual = formatProductAnnualRateDisplay(product.interestRate);
+  return (
+    <SectionCard title="Product information">
+      <View style={{ gap: Spacing.two }}>
+        <View style={styles.previewRow}>
+          <ThemedText type="small" themeColor="textSecondary">Interest</ThemedText>
+          <View style={{ alignItems: 'flex-end', maxWidth: '68%' }}>
+            {monthly === '—' ? (
+              <ThemedText type="smallBold">—</ThemedText>
+            ) : (
+              <>
+                <ThemedText type="smallBold">{monthly}% / month</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">({annual}% p.a.)</ThemedText>
+              </>
+            )}
+          </View>
+        </View>
+        {product.description ? (
+          <ThemedText type="small" themeColor="textSecondary">{product.description}</ThemedText>
+        ) : null}
+        <View style={styles.previewRow}>
+          <ThemedText type="small" themeColor="textSecondary">Legal fee</ThemedText>
+          <ThemedText type="smallBold" style={{ flex: 1, textAlign: 'right', marginLeft: Spacing.two }}>
+            {formatPreviewFeeLabel(product.legalFeeType, product.legalFeeValue)}
+          </ThemedText>
+        </View>
+        <View style={styles.previewRow}>
+          <ThemedText type="small" themeColor="textSecondary">Stamping</ThemedText>
+          <ThemedText type="smallBold" style={{ flex: 1, textAlign: 'right', marginLeft: Spacing.two }}>
+            {formatPreviewFeeLabel(product.stampingFeeType, product.stampingFeeValue)}
+          </ThemedText>
+        </View>
+        <View style={styles.previewRow}>
+          <ThemedText type="small" themeColor="textSecondary">Late payment</ThemedText>
+          <ThemedText type="smallBold" style={{ flex: 1, textAlign: 'right', marginLeft: Spacing.two }}>
+            {formatLatePaymentProductSummary(product)}
+          </ThemedText>
+        </View>
+        <View style={styles.previewRow}>
+          <ThemedText type="small" themeColor="textSecondary">Schedule</ThemedText>
+          <ThemedText type="smallBold">
+            {productUsesCollateral(product) ? 'Jadual K' : 'Jadual J'}
+          </ThemedText>
+        </View>
+        <View style={styles.previewRow}>
+          <ThemedText type="small" themeColor="textSecondary">Security</ThemedText>
+          <ThemedText type="smallBold">
+            {productUsesCollateral(product) ? 'Collateral' : 'No collateral'}
+          </ThemedText>
+        </View>
+      </View>
+    </SectionCard>
   );
 }
 
@@ -859,6 +935,7 @@ export default function ApplyLoanScreen() {
 
     return (
       <View style={{ gap: Spacing.three }}>
+        {selectedProduct ? <ProductInformationSection product={selectedProduct} /> : null}
         <SectionCard
           title="Loan amount & term"
           action={<SectionCompleteStatusRow complete={amountTermComplete} />}>
@@ -964,14 +1041,10 @@ export default function ApplyLoanScreen() {
       <View style={{ gap: Spacing.three }}>
         <SectionCard
           title="Identity & personal details"
-          description={
-            identityLocked
-              ? 'Your identity has been verified by e-KYC. Your name, IC, date of birth and gender are locked. Redo e-KYC from your Profile if any of these need updating.'
-              : undefined
-          }
           action={<SectionCompleteStatusRow complete={personalComplete} />}>
           {identityLocked ? (
             <>
+              <IdentityEkycLockedCallout />
               <ReadOnlyField locked label="Full name" value={individualForm.name} />
               <ReadOnlyField
                 locked
@@ -1443,6 +1516,26 @@ export default function ApplyLoanScreen() {
     const uploadedCount = uploadedDocs.filter((d) => reviewDocs.some((r) => r.key === d.category)).length;
     const borrowerName = (borrower as unknown as { name?: string }).name ?? '—';
 
+    const productForSummary = (app?.product ?? selectedProduct) as BorrowerProduct | null;
+    const monthlyR = productForSummary ? formatProductMonthlyInterestPercent(productForSummary.interestRate) : '—';
+    const annualR = productForSummary ? formatProductAnnualRateDisplay(productForSummary.interestRate) : '—';
+    const interestSummary =
+      !productForSummary || monthlyR === '—'
+        ? '—'
+        : annualR === '—'
+          ? `${monthlyR}% / month`
+          : `${monthlyR}% / month (${annualR}% p.a.)`;
+    const schedSummary = productForSummary
+      ? productUsesCollateral(productForSummary)
+        ? 'Jadual K'
+        : 'Jadual J'
+      : '—';
+    const securitySummary = productForSummary
+      ? productUsesCollateral(productForSummary)
+        ? 'Collateral'
+        : 'No collateral'
+      : '—';
+
     return (
       <View style={{ gap: Spacing.three }}>
         {missingRequired.length > 0 && (
@@ -1457,6 +1550,9 @@ export default function ApplyLoanScreen() {
         <SectionCard title="Loan details">
           {[
             { label: 'Product', value: app?.product?.name ?? selectedProduct?.name ?? '—' },
+            { label: 'Interest', value: interestSummary },
+            { label: 'Schedule', value: schedSummary },
+            { label: 'Security', value: securitySummary },
             { label: 'Amount', value: formatCurrencyRM(app?.amount ?? draft.amount) },
             { label: 'Term', value: `${app?.term ?? draft.term} months` },
           ].map((row) => (

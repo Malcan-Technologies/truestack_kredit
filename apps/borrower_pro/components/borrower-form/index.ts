@@ -1,4 +1,5 @@
 export { Field } from "./field";
+export { IdentityEkycLockedBanner, IDENTITY_EKYC_LOCKED_BANNER_TEXT } from "./identity-ekyc-locked-banner";
 export { IdentityCard } from "./identity-card";
 export { PersonalCard } from "./personal-card";
 export { IndividualPersonalInformationEdit } from "./individual-personal-information-edit";

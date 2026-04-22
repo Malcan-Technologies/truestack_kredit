@@ -15,7 +15,7 @@ import {
 import { extractDateFromIC, extractGenderFromIC } from "../../lib/borrower-form-helpers";
 import { isIndividualPersonalInnerComplete } from "../../lib/borrower-form-validation";
 import type { IndividualFormData } from "../../lib/borrower-form-types";
-import { SectionCompleteBadge, VerifiedBadge } from "../ui/status-row";
+import { SectionCompleteBadge } from "../ui/status-row";
 
 interface PersonalCardProps {
   data: Pick<
@@ -66,9 +66,6 @@ export function PersonalCard({
     },
     noMonthlyIncome
   );
-  const dobVer = identityLocked ? <VerifiedBadge /> : undefined;
-  const genderVer = identityLocked ? <VerifiedBadge /> : undefined;
-
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-2">
@@ -90,7 +87,6 @@ export function PersonalCard({
             type="date"
             error={errors.dateOfBirth}
             disabled={identityLocked || (isIC && !!dobFromIC)}
-            labelSuffix={dobVer}
           />
           <Field
             label="Gender"
@@ -103,7 +99,6 @@ export function PersonalCard({
             options={GENDER_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
             error={errors.gender}
             disabled={identityLocked || (isIC && !!genderFromIC)}
-            labelSuffix={genderVer}
           />
           <Field
             label="Race"

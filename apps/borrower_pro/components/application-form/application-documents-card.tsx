@@ -88,7 +88,9 @@ export function ApplicationDocumentsCard({
           </CardDescription>
         </div>
         {showOptionalBadge && (
-          <span className="text-xs bg-muted px-2 py-1 rounded-md shrink-0">Optional</span>
+          <span className="text-xs bg-muted/25 text-muted-foreground border border-border/40 px-2 py-1 rounded-md shrink-0">
+            Optional
+          </span>
         )}
       </CardHeader>
       <CardContent className="space-y-4">

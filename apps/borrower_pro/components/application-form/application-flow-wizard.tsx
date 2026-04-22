@@ -71,6 +71,19 @@ import {
   DirectorsCard,
 } from "../borrower-form";
 import { ApplicationDocumentsCard } from "./application-documents-card";
+import { Badge } from "../ui/badge";
+
+/** Nominal monthly rate for display: annual% p.a. ÷ 12 (matches how products expose interestRate). */
+function formatProductMonthlyInterestPercent(annualPct: unknown): string {
+  const n = toAmountNumber(annualPct);
+  if (!Number.isFinite(n) || n < 0) return "—";
+  const monthly = n / 12;
+  return monthly.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function productUsesCollateral(product: BorrowerProduct): boolean {
+  return product.loanScheduleType === "JADUAL_K";
+}
 
 const STEPS: {
   id: ApplicationStep;
@@ -121,6 +134,22 @@ export function ApplicationFlowWizard() {
     () => products.find((p) => p.id === selectedProductId) ?? null,
     [products, selectedProductId]
   );
+
+  const selectedProductMonthlyRate = useMemo(
+    () =>
+      selectedProduct
+        ? formatProductMonthlyInterestPercent(selectedProduct.interestRate)
+        : "—",
+    [selectedProduct]
+  );
+
+  const selectedProductAnnualRateDisplay = useMemo(() => {
+    if (!selectedProduct) return "—";
+    return toAmountNumber(selectedProduct.interestRate).toLocaleString("en-MY", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+  }, [selectedProduct]);
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -543,7 +572,7 @@ export function ApplicationFlowWizard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-6">
       <div>
         <h1 className="text-2xl font-heading font-bold text-gradient">Apply for a Loan</h1>
         <p className="text-muted text-base mt-1">
@@ -599,13 +628,13 @@ export function ApplicationFlowWizard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(280px,22rem)] xl:grid-cols-[1fr_minmax(300px,24rem)] gap-6 lg:gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(280px,22rem)] xl:grid-cols-[1fr_minmax(300px,26rem)] gap-6 lg:gap-8 items-start pb-20 lg:pb-28">
         <div className="space-y-6 min-w-0">
           {step === 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Choose a loan product</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-xl sm:text-2xl">Choose a loan product</CardTitle>
+                <CardDescription className="text-base">
                   Select the product that fits your needs. You can review full terms on the right.
                 </CardDescription>
               </CardHeader>
@@ -615,26 +644,56 @@ export function ApplicationFlowWizard() {
                     No products are available yet. Please check back later.
                   </p>
                 ) : (
-                  products.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setSelectedProductId(p.id)}
-                      className={cn(
-                        "text-left rounded-lg border p-4 transition-colors hover:border-primary/50",
-                        selectedProductId === p.id && "border-primary ring-2 ring-primary/20"
-                      )}
-                    >
-                      <div className="font-medium">{p.name}</div>
-                      <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                        {p.description ?? "—"}
-                      </p>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        RM {toAmountNumber(p.minAmount).toLocaleString()} – RM{" "}
-                        {toAmountNumber(p.maxAmount).toLocaleString()}
-                      </div>
-                    </button>
-                  ))
+                  products.map((p) => {
+                    const selected = selectedProductId === p.id;
+                    const monthly = formatProductMonthlyInterestPercent(p.interestRate);
+                    const collateral = productUsesCollateral(p);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setSelectedProductId(p.id)}
+                        className={cn(
+                          "text-left rounded-xl border p-4 transition-all hover:border-primary/50",
+                          selected
+                            ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/25"
+                            : "border-border bg-background"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 text-lg font-semibold leading-snug text-foreground">
+                            {p.name}
+                          </div>
+                          <Badge
+                            variant={collateral ? "warning" : "outline-success"}
+                            className="shrink-0 text-[0.7rem] uppercase tracking-wide"
+                          >
+                            {collateral ? "Collateral" : "No collateral"}
+                          </Badge>
+                        </div>
+                        <p className="text-sm leading-relaxed text-muted-foreground line-clamp-3 mt-2">
+                          {p.description ?? "—"}
+                        </p>
+                        <div className="mt-3 space-y-1.5 text-sm">
+                          <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {monthly === "—" ? "—" : `${monthly}%`}
+                            </span>
+                            <span className="text-muted-foreground">/ month</span>
+                            {monthly !== "—" && (
+                              <span className="text-muted-foreground text-xs font-normal sm:ml-1">
+                                ({toAmountNumber(p.interestRate).toLocaleString("en-MY", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}% p.a.)
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-muted-foreground">
+                            RM {toAmountNumber(p.minAmount).toLocaleString()} – RM{" "}
+                            {toAmountNumber(p.maxAmount).toLocaleString()}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
                 )}
               </CardContent>
             </Card>
@@ -994,22 +1053,48 @@ export function ApplicationFlowWizard() {
               "lg:sticky lg:top-16 lg:max-h-[calc(100dvh-5rem)] lg:overflow-y-auto lg:overscroll-contain"
             )}
           >
-            <CardHeader className="space-y-1.5">
-              <CardTitle className="text-base leading-snug">{selectedProduct.name}</CardTitle>
-              <CardDescription>
+            <CardHeader className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="text-lg leading-snug sm:text-xl">{selectedProduct.name}</CardTitle>
+                <Badge
+                  variant={productUsesCollateral(selectedProduct) ? "warning" : "outline-success"}
+                  className="text-[0.7rem] uppercase tracking-wide"
+                >
+                  {productUsesCollateral(selectedProduct) ? "Collateral" : "No collateral"}
+                </Badge>
+              </div>
+              <CardDescription className="text-base">
                 RM {toAmountNumber(selectedProduct.minAmount).toLocaleString()} – RM{" "}
                 {toAmountNumber(selectedProduct.maxAmount).toLocaleString()}
               </CardDescription>
             </CardHeader>
-            <CardContent className="text-sm space-y-3">
+            <CardContent className="space-y-4 text-base">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Interest</p>
+                <p className="mt-0.5 font-semibold tabular-nums text-foreground">
+                  {selectedProductMonthlyRate === "—" ? (
+                    "—"
+                  ) : (
+                    <>
+                      {selectedProductMonthlyRate}%{" "}
+                      <span className="font-normal text-muted-foreground">/ month</span>
+                    </>
+                  )}
+                </p>
+                {selectedProductMonthlyRate !== "—" && (
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    {selectedProductAnnualRateDisplay}% p.a.
+                  </p>
+                )}
+              </div>
               {step >= 2 &&
                 amount !== "" &&
                 term !== "" &&
                 Number(amount) > 0 &&
                 Number(term) > 0 && (
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
-                    <p className="font-medium text-xs text-muted-foreground">Your application</p>
-                    <div className="space-y-1.5">
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2.5">
+                    <p className="text-sm font-medium text-muted-foreground">Your application</p>
+                    <div className="space-y-2 text-base">
                       <div className="flex justify-between gap-3">
                         <span className="text-muted-foreground shrink-0">Loan amount</span>
                         <span className="font-medium tabular-nums text-right">
@@ -1029,18 +1114,18 @@ export function ApplicationFlowWizard() {
                             {formatCurrency(preview.monthlyPayment)}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground text-xs">—</span>
+                          <span className="text-muted-foreground text-sm">—</span>
                         )}
                       </div>
                     </div>
                   </div>
                 )}
               {selectedProduct.description && (
-                <p className="text-muted-foreground">{selectedProduct.description}</p>
+                <p className="leading-relaxed text-muted-foreground">{selectedProduct.description}</p>
               )}
               <div>
-                <p className="font-medium text-xs text-muted-foreground">Fees</p>
-                <p>
+                <p className="text-sm font-medium text-muted-foreground">Fees</p>
+                <p className="mt-0.5">
                   Legal:{" "}
                   {selectedProduct.legalFeeType === "PERCENTAGE"
                     ? `${toAmountNumber(selectedProduct.legalFeeValue)}%`
@@ -1054,80 +1139,97 @@ export function ApplicationFlowWizard() {
                 </p>
               </div>
               <div>
-                <p className="font-medium text-xs text-muted-foreground">Late payment</p>
-                <p>{toAmountNumber(selectedProduct.latePaymentRate)}% p.a. after arrears period</p>
+                <p className="text-sm font-medium text-muted-foreground">Late payment</p>
+                <p className="mt-0.5">{toAmountNumber(selectedProduct.latePaymentRate)}% p.a. after arrears period</p>
               </div>
               <div>
-                <p className="font-medium text-xs text-muted-foreground">Schedule</p>
-                <p>{selectedProduct.loanScheduleType === "JADUAL_K" ? "Jadual K" : "Jadual J"}</p>
+                <p className="text-sm font-medium text-muted-foreground">Schedule</p>
+                <p className="mt-0.5">
+                  {productUsesCollateral(selectedProduct) ? "Jadual K" : "Jadual J"}
+                </p>
               </div>
             </CardContent>
           </Card>
         )}
       </div>
 
-      <div className="flex justify-between gap-4 pt-2">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={step === 0 || saving}
-          onClick={() => setStep((s) => Math.max(0, s - 1))}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
-        </Button>
-        <div>
-          {step === 0 && (
+      <div
+        className={cn(
+          "sticky z-40 mt-8 pt-2",
+          "bottom-4 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] sm:bottom-5"
+        )}
+      >
+        <div className="w-full px-3 sm:px-4 md:px-5">
+          <div
+            className={cn(
+              "flex w-full items-center justify-between gap-3 sm:gap-4",
+              "rounded-2xl border border-border bg-card/95 px-4 py-3.5 shadow-lg backdrop-blur-md",
+              "supports-[backdrop-filter]:bg-card/88 sm:px-6 sm:py-4"
+            )}
+          >
             <Button
               type="button"
-              disabled={!selectedProductId || saving}
-              onClick={() => {
-                setStep(1);
-                if (selectedProduct && amount === "") {
-                  setAmount(toAmountNumber(selectedProduct.minAmount));
-                  setTerm(selectedProduct.minTerm);
-                }
-              }}
+              variant="outline"
+              disabled={step === 0 || saving}
+              onClick={() => setStep((s) => Math.max(0, s - 1))}
             >
-              Continue
-              <ArrowRight className="h-4 w-4 ml-2" />
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
             </Button>
-          )}
-          {step === 1 && (
-            <Button
-              type="button"
-              disabled={saving || loanDetailsHasErrors}
-              onClick={() => void handleNextFromLoanDetails()}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-          )}
-          {step === 2 && (
-            <Button type="button" disabled={saving} onClick={() => void handleNextFromPersonal()}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-          )}
-          {step === 3 && (
-            <Button
-              type="button"
-              disabled={saving || !reviewApp || requiredDocsMissing}
-              onClick={() => void handleNextFromDocuments()}
-            >
-              {documentsStepContinueLabel}
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-          )}
-          {step === 4 && (
-            <Button
-              type="button"
-              disabled={saving || !consent || requiredDocsMissing}
-              onClick={() => void handleSubmitFinal()}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit application"}
-            </Button>
-          )}
+            <div>
+              {step === 0 && (
+                <Button
+                  type="button"
+                  disabled={!selectedProductId || saving}
+                  onClick={() => {
+                    setStep(1);
+                    if (selectedProduct && amount === "") {
+                      setAmount(toAmountNumber(selectedProduct.minAmount));
+                      setTerm(selectedProduct.minTerm);
+                    }
+                  }}
+                >
+                  Continue
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              )}
+              {step === 1 && (
+                <Button
+                  type="button"
+                  disabled={saving || loanDetailsHasErrors}
+                  onClick={() => void handleNextFromLoanDetails()}
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              )}
+              {step === 2 && (
+                <Button type="button" disabled={saving} onClick={() => void handleNextFromPersonal()}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              )}
+              {step === 3 && (
+                <Button
+                  type="button"
+                  disabled={saving || !reviewApp || requiredDocsMissing}
+                  onClick={() => void handleNextFromDocuments()}
+                >
+                  {documentsStepContinueLabel}
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              )}
+              {step === 4 && (
+                <Button
+                  type="button"
+                  disabled={saving || !consent || requiredDocsMissing}
+                  onClick={() => void handleSubmitFinal()}
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit application"}
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

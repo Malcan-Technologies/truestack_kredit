@@ -137,5 +137,28 @@ export function formatPreviewFeeLabel(feeType: string, value: unknown): string {
   return formatCurrencyRM(value);
 }
 
+/** Nominal monthly rate: annual% p.a. ÷ 12 (matches borrower web `ApplicationFlowWizard`). */
+export function formatProductMonthlyInterestPercent(annualPct: unknown): string {
+  const n = parseFloat(String(annualPct).replace(/,/g, ''));
+  if (!Number.isFinite(n) || n < 0) return '—';
+  return (n / 12).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export function formatProductAnnualRateDisplay(annualPct: unknown): string {
+  const n = parseFloat(String(annualPct).replace(/,/g, ''));
+  if (!Number.isFinite(n)) return '—';
+  return n.toLocaleString('en-MY', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+export function productUsesCollateral(product: BorrowerProduct): boolean {
+  return product.loanScheduleType === 'JADUAL_K';
+}
+
+export function formatLatePaymentProductSummary(product: BorrowerProduct): string {
+  const n = parseFloat(String(product.latePaymentRate));
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toLocaleString('en-MY', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}% p.a. after arrears period`;
+}
+
 // Re-export type so consumers can import LoanPreviewData from this module path if desired
 export type { LoanPreviewData };

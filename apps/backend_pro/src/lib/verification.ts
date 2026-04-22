@@ -127,3 +127,55 @@ export function isIndividualIdentityLocked(borrower: {
   if (borrower.borrowerType !== 'INDIVIDUAL') return false;
   return getBorrowerVerificationSummary(borrower) === 'FULLY_VERIFIED';
 }
+
+/**
+ * Server-side mirror of the borrower_pro client `isBorrowerKycComplete` helper.
+ * Lets the loan-center overview endpoint return a single boolean so the borrower
+ * UI doesn't need to fan out separate `/borrower` + `/kyc/status` calls just to
+ * compute it on every page load.
+ */
+type KycSessionForCompletion = {
+  directorId: string | null;
+  status: string;
+  result: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export function isBorrowerKycComplete(
+  borrower: {
+    borrowerType: string;
+    documentVerified: boolean;
+    verificationStatus: string | null;
+    trueIdentityStatus: string | null;
+    trueIdentityResult: string | null;
+    directors?: Array<{ id: string; isAuthorizedRepresentative?: boolean | null }>;
+  },
+  sessions: KycSessionForCompletion[]
+): boolean {
+  if (borrower.borrowerType === 'INDIVIDUAL') {
+    if (isIndividualIdentityLocked(borrower)) return true;
+    const latest = pickBestTruestackKycSession(
+      sessions.filter((s) => !s.directorId)
+    );
+    return latest?.status === 'completed' && latest.result === 'approved';
+  }
+
+  if (borrower.verificationStatus === 'FULLY_VERIFIED') return true;
+
+  const directors = borrower.directors ?? [];
+  const kycDirectors = directors.some((d) => d.isAuthorizedRepresentative === true)
+    ? directors.filter((d) => d.isAuthorizedRepresentative === true)
+    : directors.length > 0
+      ? [directors[0]]
+      : [];
+
+  if (kycDirectors.length === 0) return false;
+
+  return kycDirectors.every((director) => {
+    const latest = pickBestTruestackKycSession(
+      sessions.filter((s) => s.directorId === director.id)
+    );
+    return latest?.status === 'completed' && latest.result === 'approved';
+  });
+}

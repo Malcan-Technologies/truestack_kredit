@@ -1763,7 +1763,12 @@ function PreDisbursementJourney({
 
   const [borrower, setBorrower] = useState<BorrowerDetail | null>(null);
   const [kyc, setKyc] = useState<TruestackKycStatusData | null>(null);
-  const [kycLoading, setKycLoading] = useState(true);
+  // Server already tells us whether KYC is complete via `loan.borrowerKycComplete`;
+  // when true we can skip both the borrower and KYC-status fetches entirely
+  // because the e-KYC card never renders. Default to "loading" only when we
+  // actually intend to fetch.
+  const serverKycComplete = loan.borrowerKycComplete === true;
+  const [kycLoading, setKycLoading] = useState(!serverKycComplete);
   const [certDone, setCertDone] = useState(false);
   const [activeStep, setActiveStep] = useState<JourneyStepId>('attestation');
   const [kycActionBusy, setKycActionBusy] = useState(false);
@@ -1786,8 +1791,31 @@ function PreDisbursementJourney({
   }, []);
 
   useEffect(() => {
+    // When the server has already confirmed KYC is complete, the e-KYC card
+    // is never rendered as the *initial* active step, so the borrower + KYC
+    // fetches would be pure waste on every loan open. Skip them — `kycDone`
+    // will fall through to the `serverKycComplete` branch.
+    //
+    // Note: if the user later taps the e-KYC step in the stepper to review
+    // their completed KYC, the second effect below lazy-loads on demand so
+    // they don't see the "Could not load your borrower profile" fallback.
+    if (serverKycComplete) {
+      setKycLoading(false);
+      return;
+    }
     void loadKycData();
-  }, [loadKycData]);
+  }, [loadKycData, serverKycComplete]);
+
+  // Lazy load when the user manually navigates to the e-KYC step after we
+  // skipped the initial fetch. `kycLoading` starts false in the skip case, so
+  // we trigger here only if borrower is still null and we're not already
+  // mid-fetch.
+  useEffect(() => {
+    if (activeStep !== 'ekyc') return;
+    if (borrower) return;
+    if (kycLoading) return;
+    void loadKycData();
+  }, [activeStep, borrower, kycLoading, loadKycData]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1805,7 +1833,12 @@ function PreDisbursementJourney({
     void setStoredItem(certDoneKey(loanId), '1');
   }, [loanId]);
 
-  const kycDone = Boolean(borrower) && isBorrowerKycComplete(borrower!, kyc);
+  // Prefer the server-computed flag (no extra round-trips). Fall back to the
+  // client-side derivation if the server didn't return it (older backends or
+  // an unloadable borrower record).
+  const kycDone = serverKycComplete
+    ? true
+    : Boolean(borrower) && isBorrowerKycComplete(borrower!, kyc);
 
   // Clear persisted certDone if the lender review lifecycle resets (e.g. REJECTED → re-sign).
   useEffect(() => {

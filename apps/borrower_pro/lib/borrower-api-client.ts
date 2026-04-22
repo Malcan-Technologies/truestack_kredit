@@ -146,18 +146,17 @@ export async function getTruestackKycStatusWithActiveSessionSync(): Promise<{
       s.status !== "expired" &&
       s.status !== "failed"
   );
-  const seen = new Set<string>();
-  for (const s of toRefresh) {
-    const sid = s.externalSessionId!.trim();
-    if (seen.has(sid)) continue;
-    seen.add(sid);
-    try {
-      await refreshTruestackKycSession(sid);
-    } catch {
-      /* ignore per-session provider errors */
-    }
-  }
-  if (seen.size > 0) {
+  const uniqueSessionIds = Array.from(
+    new Set(toRefresh.map((s) => s.externalSessionId!.trim()).filter(Boolean))
+  );
+  if (uniqueSessionIds.length > 0) {
+    // Refresh all in-flight sessions in parallel — each refresh hits an independent
+    // session row server-side, so there's no ordering constraint.
+    await Promise.all(
+      uniqueSessionIds.map((sid) =>
+        refreshTruestackKycSession(sid).catch(() => null)
+      )
+    );
     const k2 = await getTruestackKycStatus();
     if (k2.success) {
       effectiveSessions = k2.data.sessions;

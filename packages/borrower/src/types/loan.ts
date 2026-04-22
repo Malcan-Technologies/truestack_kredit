@@ -18,6 +18,12 @@ export interface LoanCenterOverview {
     nextPaymentAmount: number | null;
     activeLoanCount: number;
   };
+  /**
+   * Server-computed flag mirroring the client `isBorrowerKycComplete` helper.
+   * Lets the loan-center UI skip a separate `/borrower` + `/kyc/status` round-trip.
+   * `null` only if the borrower record cannot be loaded.
+   */
+  borrowerKycComplete?: boolean | null;
 }
 
 /** Admin review of borrower-uploaded signed agreement (pre-disbursement) */
@@ -138,6 +144,13 @@ export interface BorrowerLoanDetail {
   attestationGoogleCalendarEventId?: string | null;
   attestationCompletedAt?: string | null;
   attestationCancellationReason?: string | null;
+  /**
+   * Server-computed flag mirroring the client `isBorrowerKycComplete` helper.
+   * Lets the loan-detail UI skip a separate `/borrower` + `/kyc/status`
+   * round-trip when KYC is already done. `null` only if the borrower record
+   * cannot be loaded.
+   */
+  borrowerKycComplete?: boolean | null;
 }
 
 export interface BorrowerLoanMetrics {

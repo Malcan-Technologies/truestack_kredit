@@ -36,20 +36,41 @@ async function parseJson<T>(res: Response): Promise<T> {
   }
 }
 
+// In-flight deduplication for the loan-center overview. The (dashboard) layout
+// fetches this on every navigation to keep its sidebar badge fresh, while the
+// dashboard / loans / applications pages also fetch it on mount — without
+// dedupe that's two simultaneous round-trips on every page load. We only share
+// the *in-flight* promise (no TTL cache), so once it resolves the next call
+// hits the network again and there's no staleness window.
+let loanCenterOverviewInflight: Promise<{
+  success: boolean;
+  data: LoanCenterOverview;
+}> | null = null;
+
 export async function fetchLoanCenterOverview(): Promise<{
   success: boolean;
   data: LoanCenterOverview;
 }> {
-  const res = await fetch(`${BASE}/loan-center/overview`, { credentials: "include" });
-  const json = await parseJson<{ success: boolean; data?: LoanCenterOverview; error?: string }>(res);
-  if (!res.ok) {
-    throw new Error(json.error || "Failed to load overview");
-  }
-  return { success: true, data: json.data! };
+  if (loanCenterOverviewInflight) return loanCenterOverviewInflight;
+  loanCenterOverviewInflight = (async () => {
+    const res = await fetch(`${BASE}/loan-center/overview`, { credentials: "include" });
+    const json = await parseJson<{ success: boolean; data?: LoanCenterOverview; error?: string }>(res);
+    if (!res.ok) {
+      throw new Error(json.error || "Failed to load overview");
+    }
+    return { success: true, data: json.data! };
+  })().finally(() => {
+    loanCenterOverviewInflight = null;
+  });
+  return loanCenterOverviewInflight;
 }
 
 export async function listBorrowerLoans(params?: {
-  tab?: "active" | "discharged" | "pending_disbursement";
+  /**
+   * `all_loan_center` returns the union of statuses surfaced in the borrower
+   * loan center (active + before-payout + discharged) in a single round-trip.
+   */
+  tab?: "active" | "discharged" | "pending_disbursement" | "all_loan_center";
   page?: number;
   pageSize?: number;
 }): Promise<{

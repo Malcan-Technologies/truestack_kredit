@@ -21,9 +21,8 @@ import { SectionCard } from '@/components/section-card';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { applicationsClient, borrowerClient, loansClient } from '@/lib/api/borrower';
+import { applicationsClient, loansClient } from '@/lib/api/borrower';
 import { useBorrowerAccess } from '@/lib/borrower-access';
-import { isBorrowerKycComplete } from '@/lib/borrower-verification';
 import { borrowerLoanNeedsContinueAction } from '@/lib/loans/continue-eligibility';
 import { formatRm } from '@/lib/loans/currency';
 import {
@@ -59,6 +58,13 @@ const LOAN_CENTER_TABS: { key: LoanCenterTab; label: string }[] = [
   { key: 'discharged', label: 'Discharged' },
   { key: 'rejected', label: 'Rejected' },
 ];
+
+const ACTIVE_LOAN_STATUSES = new Set(['ACTIVE', 'IN_ARREARS', 'DEFAULTED']);
+const PENDING_DISBURSEMENT_LOAN_STATUSES = new Set([
+  'PENDING_ATTESTATION',
+  'PENDING_DISBURSEMENT',
+]);
+const DISCHARGED_LOAN_STATUSES = new Set(['COMPLETED']);
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
@@ -654,27 +660,33 @@ function LoansContent() {
     if (mode === 'initial') setLoading(true);
     else setRefreshing(true);
     try {
-      const [ov, apps, aLoans, pLoans, dLoans, borrowerRes, kycRes] = await Promise.all([
+      // Three round-trips:
+      //   1. overview      — counts + summary + borrowerKycComplete (server-computed)
+      //   2. applications  — full application list for the rejected/withdrawn tab
+      //   3. loans         — single combined fetch covering active + before-payout + discharged
+      // Previously this mounted with seven calls (overview + apps + 3 × loans + borrower + KYC).
+      const [ov, apps, allLoansRes] = await Promise.all([
         loansClient.fetchLoanCenterOverview(),
         applicationsClient.listBorrowerApplications({ pageSize: 200 }),
-        loansClient.listBorrowerLoans({ tab: 'active', pageSize: 200 }),
-        loansClient.listBorrowerLoans({ tab: 'pending_disbursement', pageSize: 200 }),
-        loansClient.listBorrowerLoans({ tab: 'discharged', pageSize: 200 }),
-        borrowerClient.fetchBorrower().catch(() => null),
-        borrowerClient.getTruestackKycStatus().catch(() => null),
+        loansClient.listBorrowerLoans({ tab: 'all_loan_center', pageSize: 600 }),
       ]);
       if (ov.success) setOverview(ov.data);
       if (apps.success) setApplications(apps.data);
-      setActiveLoans(aLoans.data);
-      setPendingDisbursementLoans(pLoans.data);
-      setDischargedLoans(dLoans.data);
-      if (borrowerRes?.success) {
-        setBorrowerKycDone(
-          isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null),
-        );
-      } else {
-        setBorrowerKycDone(null);
-      }
+
+      const allLoans = allLoansRes.data;
+      setActiveLoans(allLoans.filter((l) => ACTIVE_LOAN_STATUSES.has(l.status)));
+      setPendingDisbursementLoans(
+        allLoans.filter((l) => PENDING_DISBURSEMENT_LOAN_STATUSES.has(l.status)),
+      );
+      setDischargedLoans(
+        allLoans.filter((l) => DISCHARGED_LOAN_STATUSES.has(l.status)),
+      );
+
+      setBorrowerKycDone(
+        ov.success && typeof ov.data.borrowerKycComplete === 'boolean'
+          ? ov.data.borrowerKycComplete
+          : null,
+      );
     } catch (error) {
       Alert.alert('Failed to load', error instanceof Error ? error.message : 'Please try again.');
     } finally {

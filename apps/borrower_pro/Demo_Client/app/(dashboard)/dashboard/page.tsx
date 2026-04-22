@@ -20,12 +20,10 @@ import { Badge } from "@borrower_pro/components/ui/badge";
 import { Button } from "@borrower_pro/components/ui/button";
 import { RefreshButton } from "@borrower_pro/components/ui/refresh-button";
 import { Skeleton } from "@borrower_pro/components/ui/skeleton";
-import { fetchBorrower, getTruestackKycStatus } from "@borrower_pro/lib/borrower-api-client";
 import { fetchBorrowerMe, BORROWER_PROFILE_SWITCHED_EVENT } from "@borrower_pro/lib/borrower-auth-client";
 import { fetchLoanCenterOverview, listBorrowerLoans } from "@borrower_pro/lib/borrower-loans-client";
 import { listBorrowerApplications } from "@borrower_pro/lib/borrower-applications-client";
 import { borrowerApplicationDetailPath } from "@borrower_pro/lib/borrower-application-navigation";
-import { isBorrowerKycComplete } from "@borrower_pro/lib/borrower-verification";
 import { ONBOARDING_DRAFT_KEY } from "@borrower_pro/lib/onboarding-storage-keys";
 import type { LoanCenterOverview, BorrowerLoanListItem, LoanApplicationDetail } from "@kredit/borrower";
 import { toAmountNumber } from "@borrower_pro/lib/application-form-validation";
@@ -227,14 +225,15 @@ export default function DashboardPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, aLoans, pLoans, apps, me, borrowerRes, kycRes] = await Promise.all([
+      // Five round-trips. Previously this mounted with seven calls — the borrower
+      // and KYC status fetches were only used to derive `borrowerKycDone`, which
+      // the loan-center overview now returns directly via `borrowerKycComplete`.
+      const [ov, aLoans, pLoans, apps, me] = await Promise.all([
         fetchLoanCenterOverview(),
         listBorrowerLoans({ tab: "active", pageSize: 200 }),
         listBorrowerLoans({ tab: "pending_disbursement", pageSize: 200 }),
         listBorrowerApplications({ pageSize: 200 }),
         fetchBorrowerMe().catch(() => null),
-        fetchBorrower().catch(() => null),
-        getTruestackKycStatus().catch(() => null),
       ]);
       setOverview(ov.success ? ov.data : null);
       setActiveLoans(aLoans.data);
@@ -242,11 +241,11 @@ export default function DashboardPage() {
       const applicationRows = apps.success ? apps.data : [];
       setCounterOfferApps(applicationRows.filter((a) => getPendingLenderCounterOffer(a) != null));
       setAmendmentApps(applicationRows.filter(isReturnedForAmendment));
-      if (borrowerRes?.success) {
-        setBorrowerKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));
-      } else {
-        setBorrowerKycDone(null);
-      }
+      setBorrowerKycDone(
+        ov.success && typeof ov.data.borrowerKycComplete === "boolean"
+          ? ov.data.borrowerKycComplete
+          : null
+      );
       setBorrowerName(
         me?.success && me.data.activeBorrower
           ? (

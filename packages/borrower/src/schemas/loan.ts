@@ -16,6 +16,7 @@ export const LoanCenterOverviewSchema = z.object({
     nextPaymentAmount: z.number().nullable(),
     activeLoanCount: z.number(),
   }),
+  borrowerKycComplete: z.boolean().nullable().optional(),
 });
 
 export const SignedAgreementReviewStatusSchema = z.enum(["NONE", "PENDING", "APPROVED", "REJECTED"]);
@@ -137,6 +138,7 @@ export const BorrowerLoanDetailSchema = z.object({
   attestationGoogleCalendarEventId: z.string().nullable().optional(),
   attestationCompletedAt: z.string().nullable().optional(),
   attestationCancellationReason: z.string().nullable().optional(),
+  borrowerKycComplete: z.boolean().nullable().optional(),
 });
 
 export const BorrowerLoanMetricsSchema = z.object({

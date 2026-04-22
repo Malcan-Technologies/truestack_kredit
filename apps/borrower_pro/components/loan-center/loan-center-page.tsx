@@ -36,7 +36,6 @@ import { RefreshButton } from "../ui/refresh-button";
 import { TooltipProvider } from "../ui/tooltip";
 import { Skeleton } from "../ui/skeleton";
 import { BORROWER_PROFILE_SWITCHED_EVENT } from "../../lib/borrower-auth-client";
-import { fetchBorrower, getTruestackKycStatus } from "../../lib/borrower-api-client";
 import { listBorrowerApplications } from "../../lib/borrower-applications-client";
 import {
   fetchLoanCenterOverview,
@@ -54,9 +53,15 @@ import {
 import { borrowerLoanStatusBadgeVariant, loanStatusBadgeLabelFromDb } from "../../lib/loan-status-label";
 import { borrowerLoanNeedsContinueAction } from "../../lib/borrower-loan-continue-eligibility";
 import { formatDate } from "../../lib/borrower-form-display";
-import { isBorrowerKycComplete } from "../../lib/borrower-verification";
 import { LoanChannelPill } from "./loan-channel-pill";
 import { cn } from "../../lib/utils";
+
+const ACTIVE_LOAN_STATUSES = new Set(["ACTIVE", "IN_ARREARS", "DEFAULTED"]);
+const PENDING_DISBURSEMENT_LOAN_STATUSES = new Set([
+  "PENDING_ATTESTATION",
+  "PENDING_DISBURSEMENT",
+]);
+const DISCHARGED_LOAN_STATUSES = new Set(["COMPLETED"]);
 
 export type LoanCenterTab =
   | "all"
@@ -288,25 +293,33 @@ export function LoanCenterPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, apps, aLoans, pLoans, dLoans, borrowerRes, kycRes] = await Promise.all([
+      // Three round-trips:
+      //   1. overview      — counts + summary + borrowerKycComplete (server-computed)
+      //   2. applications  — full application list for the rejected/withdrawn tab
+      //   3. loans         — single combined fetch covering active + before-payout + discharged
+      // Previously this mounted with seven calls (overview + apps + 3 × loans + borrower + KYC).
+      const [ov, apps, allLoansRes] = await Promise.all([
         fetchLoanCenterOverview(),
         listBorrowerApplications({ pageSize: 200 }),
-        listBorrowerLoans({ tab: "active", pageSize: 200 }),
-        listBorrowerLoans({ tab: "pending_disbursement", pageSize: 200 }),
-        listBorrowerLoans({ tab: "discharged", pageSize: 200 }),
-        fetchBorrower().catch(() => null),
-        getTruestackKycStatus().catch(() => null),
+        listBorrowerLoans({ tab: "all_loan_center", pageSize: 600 }),
       ]);
       if (ov.success) setOverview(ov.data);
       if (apps.success) setApplications(apps.data);
-      setActiveLoans(aLoans.data);
-      setPendingDisbursementLoans(pLoans.data);
-      setDischargedLoans(dLoans.data);
-      if (borrowerRes?.success) {
-        setBorrowerKycDone(isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null));
-      } else {
-        setBorrowerKycDone(null);
-      }
+
+      const allLoans = allLoansRes.data;
+      setActiveLoans(allLoans.filter((l) => ACTIVE_LOAN_STATUSES.has(l.status)));
+      setPendingDisbursementLoans(
+        allLoans.filter((l) => PENDING_DISBURSEMENT_LOAN_STATUSES.has(l.status))
+      );
+      setDischargedLoans(
+        allLoans.filter((l) => DISCHARGED_LOAN_STATUSES.has(l.status))
+      );
+
+      setBorrowerKycDone(
+        ov.success && typeof ov.data.borrowerKycComplete === "boolean"
+          ? ov.data.borrowerKycComplete
+          : null
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load");
     } finally {

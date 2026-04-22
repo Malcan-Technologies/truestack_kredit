@@ -50,20 +50,41 @@ export function borrowerTransactionProofUrl(baseUrl: string, transactionId: stri
 // ---- Factory ----
 
 export function createLoansApiClient(baseUrl: string, fetchFn: FetchFn) {
+  // In-flight deduplication for the loan-center overview. Layouts and child
+  // screens commonly fetch the overview at the same time (sidebar badge +
+  // page content); without dedupe that's two simultaneous round-trips on
+  // every navigation. We only share the in-flight promise (no TTL cache),
+  // so once it resolves the next call hits the network again and there's no
+  // staleness window.
+  let loanCenterOverviewInflight: Promise<{
+    success: boolean;
+    data: LoanCenterOverview;
+  }> | null = null;
+
   async function fetchLoanCenterOverview(): Promise<{
     success: boolean;
     data: LoanCenterOverview;
   }> {
-    const res = await fetchFn(`${baseUrl}/loan-center/overview`);
-    const json = await parseJson<{ success: boolean; data?: LoanCenterOverview; error?: string }>(res);
-    if (!res.ok) {
-      throw new Error(json.error || "Failed to load overview");
-    }
-    return { success: true, data: json.data! };
+    if (loanCenterOverviewInflight) return loanCenterOverviewInflight;
+    loanCenterOverviewInflight = (async () => {
+      const res = await fetchFn(`${baseUrl}/loan-center/overview`);
+      const json = await parseJson<{ success: boolean; data?: LoanCenterOverview; error?: string }>(res);
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to load overview");
+      }
+      return { success: true, data: json.data! };
+    })().finally(() => {
+      loanCenterOverviewInflight = null;
+    });
+    return loanCenterOverviewInflight;
   }
 
   async function listBorrowerLoans(params?: {
-    tab?: "active" | "discharged" | "pending_disbursement";
+    /**
+     * `all_loan_center` returns the union of statuses surfaced in the borrower
+     * loan center (active + before-payout + discharged) in a single round-trip.
+     */
+    tab?: "active" | "discharged" | "pending_disbursement" | "all_loan_center";
     page?: number;
     pageSize?: number;
   }): Promise<{

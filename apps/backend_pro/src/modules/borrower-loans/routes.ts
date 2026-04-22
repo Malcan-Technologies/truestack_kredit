@@ -31,6 +31,7 @@ import {
 import { isPreDisbursementLoanStatus } from '../../lib/loanStatusHelpers.js';
 import { getEarlySettlementQuoteForLoan } from '../loans/earlySettlementQuoteService.js';
 import { NotificationOrchestrator } from '../notifications/orchestrator.js';
+import { isBorrowerKycComplete } from '../../lib/verification.js';
 
 const router = Router();
 router.use(requireBorrowerSession);
@@ -159,6 +160,8 @@ router.get('/loan-center/overview', async (req, res, next) => {
       dischargedLoans,
       paymentAgg,
       loansForNext,
+      borrowerForKyc,
+      kycSessionsForBorrower,
     ] = await Promise.all([
       prisma.loanApplication.count({
         where: { tenantId: tenant.id, borrowerId, status: 'DRAFT' },
@@ -198,26 +201,17 @@ router.get('/loan-center/overview', async (req, res, next) => {
         where: { tenantId: tenant.id, loan: { borrowerId } },
         _sum: { totalAmount: true },
       }),
+      // Single query — previously this was an id-only `findMany` followed by an
+      // `await prisma.loan.findFirst` per id (up to 50 sequential round-trips to
+      // Postgres). Including the schedule + repayments + allocations directly
+      // collapses the whole loan-center overview into one DB call for this slice.
       prisma.loan.findMany({
         where: {
           tenantId: tenant.id,
           borrowerId,
           status: { in: ['ACTIVE', 'IN_ARREARS', 'DEFAULTED', 'PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] },
         },
-        select: { id: true },
         take: 50,
-      }),
-    ]);
-
-    const applicationsTabCount = pipelineApplications + pendingDisbursementLoans;
-
-    let totalOutstanding = 0;
-    let nextDue: Date | null = null;
-    let nextDueAmount: number | null = null;
-
-    for (const l of loansForNext) {
-      const loan = await prisma.loan.findFirst({
-        where: { id: l.id, tenantId: tenant.id, borrowerId },
         include: {
           scheduleVersions: {
             orderBy: { version: 'desc' },
@@ -230,9 +224,42 @@ router.get('/loan-center/overview', async (req, res, next) => {
             },
           },
         },
-      });
-      if (!loan?.scheduleVersions[0]) continue;
+      }),
+      // Pulled here so the response can include `borrowerKycComplete` and the
+      // borrower client doesn't have to fan out a separate /borrower + /kyc/status
+      // pair just to compute that single boolean on every page mount.
+      prisma.borrower.findFirst({
+        where: { id: borrowerId, tenantId: tenant.id },
+        select: {
+          borrowerType: true,
+          documentVerified: true,
+          verificationStatus: true,
+          trueIdentityStatus: true,
+          trueIdentityResult: true,
+          directors: { select: { id: true, isAuthorizedRepresentative: true } },
+        },
+      }),
+      prisma.truestackKycSession.findMany({
+        where: { borrowerId, tenantId: tenant.id },
+        select: {
+          directorId: true,
+          status: true,
+          result: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    const applicationsTabCount = pipelineApplications + pendingDisbursementLoans;
+
+    let totalOutstanding = 0;
+    let nextDue: Date | null = null;
+    let nextDueAmount: number | null = null;
+
+    for (const loan of loansForNext) {
       const sch = loan.scheduleVersions[0];
+      if (!sch) continue;
       for (const r of sch.repayments) {
         if (r.status === 'PAID' || r.status === 'CANCELLED') continue;
         const paid = r.allocations.reduce((s, a) => safeAdd(s, toSafeNumber(a.amount)), 0);
@@ -254,6 +281,10 @@ router.get('/loan-center/overview', async (req, res, next) => {
 
     const totalPaid = paymentAgg._sum.totalAmount ? toSafeNumber(paymentAgg._sum.totalAmount) : 0;
 
+    const borrowerKycComplete = borrowerForKyc
+      ? isBorrowerKycComplete(borrowerForKyc, kycSessionsForBorrower)
+      : null;
+
     res.json({
       success: true,
       data: {
@@ -272,6 +303,7 @@ router.get('/loan-center/overview', async (req, res, next) => {
           nextPaymentAmount: nextDueAmount != null ? safeRound(nextDueAmount, 2) : null,
       activeLoanCount: activeLoans,
         },
+        borrowerKycComplete,
       },
     });
   } catch (e) {
@@ -301,6 +333,21 @@ router.get('/loans', async (req, res, next) => {
         break;
       case 'pending_disbursement':
         statusWhere = { in: ['PENDING_ATTESTATION', 'PENDING_DISBURSEMENT'] };
+        break;
+      case 'all_loan_center':
+        // Union of statuses surfaced in the borrower loan center
+        // (active + before-payout + discharged) so the client can fetch them in one
+        // round-trip instead of three.
+        statusWhere = {
+          in: [
+            'ACTIVE',
+            'IN_ARREARS',
+            'DEFAULTED',
+            'PENDING_ATTESTATION',
+            'PENDING_DISBURSEMENT',
+            'COMPLETED',
+          ],
+        };
         break;
       default:
         statusWhere = { in: ['ACTIVE', 'IN_ARREARS', 'DEFAULTED'] };
@@ -455,45 +502,76 @@ router.get('/loans/:loanId', async (req, res, next) => {
       borrowerId,
     });
 
-    const loan = await prisma.loan.findFirst({
-      where: { id: loanId, tenantId: tenant.id, borrowerId },
-      include: {
-        borrower: {
-          select: {
-            id: true,
-            name: true,
-            borrowerType: true,
-            icNumber: true,
-            documentType: true,
-            phone: true,
-            email: true,
-            companyName: true,
+    // Fan out the loan fetch alongside the borrower KYC inputs so the response
+    // can include `borrowerKycComplete`. The mobile loan-detail screen uses
+    // this flag to skip a separate `/borrower` + `/kyc/status` round-trip when
+    // KYC is already done (the e-KYC card never renders in that case).
+    const [loan, borrowerForKyc, kycSessionsForBorrower] = await Promise.all([
+      prisma.loan.findFirst({
+        where: { id: loanId, tenantId: tenant.id, borrowerId },
+        include: {
+          borrower: {
+            select: {
+              id: true,
+              name: true,
+              borrowerType: true,
+              icNumber: true,
+              documentType: true,
+              phone: true,
+              email: true,
+              companyName: true,
+            },
           },
-        },
-        product: true,
-        application: { select: { id: true, status: true, createdAt: true, updatedAt: true } },
-        scheduleVersions: {
-          orderBy: { version: 'desc' },
-          include: {
-            repayments: {
-              orderBy: { dueDate: 'asc' },
-              include: {
-                allocations: {
-                  orderBy: { allocatedAt: 'desc' },
-                  include: { transaction: true },
+          product: true,
+          application: { select: { id: true, status: true, createdAt: true, updatedAt: true } },
+          scheduleVersions: {
+            orderBy: { version: 'desc' },
+            include: {
+              repayments: {
+                orderBy: { dueDate: 'asc' },
+                include: {
+                  allocations: {
+                    orderBy: { allocatedAt: 'desc' },
+                    include: { transaction: true },
+                  },
                 },
               },
             },
           },
         },
-      },
-    });
+      }),
+      prisma.borrower.findFirst({
+        where: { id: borrowerId, tenantId: tenant.id },
+        select: {
+          borrowerType: true,
+          documentVerified: true,
+          verificationStatus: true,
+          trueIdentityStatus: true,
+          trueIdentityResult: true,
+          directors: { select: { id: true, isAuthorizedRepresentative: true } },
+        },
+      }),
+      prisma.truestackKycSession.findMany({
+        where: { borrowerId, tenantId: tenant.id },
+        select: {
+          directorId: true,
+          status: true,
+          result: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
 
     if (!loan) {
       throw new NotFoundError('Loan');
     }
 
-    res.json({ success: true, data: loan });
+    const borrowerKycComplete = borrowerForKyc
+      ? isBorrowerKycComplete(borrowerForKyc, kycSessionsForBorrower)
+      : null;
+
+    res.json({ success: true, data: { ...loan, borrowerKycComplete } });
   } catch (e) {
     next(e);
   }

@@ -28,11 +28,9 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
   applicationsClient,
-  borrowerClient,
   loansClient,
 } from '@/lib/api/borrower';
 import { useBorrowerAccess } from '@/lib/borrower-access';
-import { isBorrowerKycComplete } from '@/lib/borrower-verification';
 import { isReturnedForAmendment } from '@/lib/applications/amendment';
 import { borrowerApplicationDetailPath } from '@/lib/applications/navigation';
 import { getPendingLenderCounterOffer } from '@/lib/applications/counter-offer';
@@ -883,13 +881,15 @@ function DashboardContent() {
       else setRefreshing(true);
 
       try {
-        const [ov, aLoans, pLoans, apps, borrowerRes, kycRes] = await Promise.all([
+        // Four round-trips. Previously this mounted with six calls — the
+        // borrower and KYC status fetches were only used to derive
+        // `borrowerKycDone`, which the loan-center overview now returns
+        // directly via `borrowerKycComplete`.
+        const [ov, aLoans, pLoans, apps] = await Promise.all([
           loansClient.fetchLoanCenterOverview(),
           loansClient.listBorrowerLoans({ tab: 'active', pageSize: 200 }),
           loansClient.listBorrowerLoans({ tab: 'pending_disbursement', pageSize: 200 }),
           applicationsClient.listBorrowerApplications({ pageSize: 200 }),
-          borrowerClient.fetchBorrower().catch(() => null),
-          borrowerClient.getTruestackKycStatus().catch(() => null),
         ]);
 
         setOverview(ov.success ? ov.data : null);
@@ -902,13 +902,11 @@ function DashboardContent() {
         );
         setAmendmentApps(applicationRows.filter(isReturnedForAmendment));
 
-        if (borrowerRes?.success) {
-          setBorrowerKycDone(
-            isBorrowerKycComplete(borrowerRes.data, kycRes?.success ? kycRes.data : null),
-          );
-        } else {
-          setBorrowerKycDone(null);
-        }
+        setBorrowerKycDone(
+          ov.success && typeof ov.data.borrowerKycComplete === 'boolean'
+            ? ov.data.borrowerKycComplete
+            : null,
+        );
       } catch {
         resetState();
       } finally {

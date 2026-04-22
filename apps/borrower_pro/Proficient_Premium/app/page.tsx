@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
-import { fetchBorrowerMeServer } from "@/lib/borrower-auth-server";
 import { HomePageContent } from "./homepage-content";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3007";
@@ -62,14 +60,6 @@ function homeJsonLd() {
 }
 
 export default async function HomePage() {
-  const res = await fetchBorrowerMeServer();
-  if (res?.success) {
-    if (res.data.profileCount > 0) {
-      redirect("/dashboard");
-    }
-    redirect("/onboarding");
-  }
-
   return (
     <>
       <script

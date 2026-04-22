@@ -1,5 +1,34 @@
 import type { Metadata } from "next"
+import { headers } from "next/headers"
+import { redirect } from "next/navigation"
+import { auth } from "@/lib/auth-server"
 import { LandingPage } from "@/components/landing/landing-page"
+
+/** Hostname only, lowercased (no port). */
+function hostnameFromForwardedHeader(hostHeader: string | null): string {
+  if (!hostHeader) return ""
+  const first = hostHeader.split(",")[0]?.trim() ?? ""
+  const noPort = first.includes(":") ? (first.split(":")[0] ?? "") : first
+  return noPort.toLowerCase()
+}
+
+/**
+ * Public marketing landing is only served on allowlisted hosts (default: demo-admin.truestack.my).
+ * Other deployments redirect `/` to `/login`, or `/dashboard` when already signed in.
+ * Set `NEXT_PUBLIC_LANDING_PAGE_HOSTS` to a comma-separated list; use an empty value for none.
+ */
+function isPublicMarketingLandingHost(hostname: string): boolean {
+  const raw =
+    process.env.NEXT_PUBLIC_LANDING_PAGE_HOSTS ?? "demo-admin.truestack.my"
+  const allowed = raw
+    .split(",")
+    .map((h) => {
+      const t = h.trim().toLowerCase()
+      return t.includes(":") ? (t.split(":")[0] ?? t) : t
+    })
+    .filter(Boolean)
+  return allowed.includes(hostname)
+}
 
 export const metadata: Metadata = {
   title: {
@@ -25,6 +54,16 @@ export const metadata: Metadata = {
   },
 }
 
-export default function Home() {
+export default async function Home() {
+  const h = await headers()
+  const host =
+    hostnameFromForwardedHeader(h.get("x-forwarded-host")) ||
+    hostnameFromForwardedHeader(h.get("host"))
+
+  if (!isPublicMarketingLandingHost(host)) {
+    const session = await auth.api.getSession({ headers: h })
+    redirect(session ? "/dashboard" : "/login")
+  }
+
   return <LandingPage />
 }

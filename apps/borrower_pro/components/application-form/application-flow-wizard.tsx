@@ -1162,21 +1162,22 @@ export function ApplicationFlowWizard() {
         <div className="w-full px-3 sm:px-4 md:px-5">
           <div
             className={cn(
-              "flex w-full items-center justify-between gap-3 sm:gap-4",
-              "rounded-2xl border border-border bg-card/95 px-4 py-3.5 shadow-lg backdrop-blur-md",
-              "supports-[backdrop-filter]:bg-card/88 sm:px-6 sm:py-4"
+              "flex w-full items-center justify-between gap-3 overflow-visible sm:gap-4",
+              /* Opaque surface only: backdrop-blur on this bar caused Chrome/Safari to clip children until repaint (e.g. hover). */
+              "rounded-2xl border border-border bg-card px-4 py-3.5 shadow-lg sm:px-6 sm:py-4"
             )}
           >
             <Button
               type="button"
               variant="outline"
+              className="shrink-0"
               disabled={step === 0 || saving}
               onClick={() => setStep((s) => Math.max(0, s - 1))}
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
-            <div>
+            <div className="shrink-0">
               {step === 0 && (
                 <Button
                   type="button"

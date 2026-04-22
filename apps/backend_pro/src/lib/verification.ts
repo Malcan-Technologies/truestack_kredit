@@ -154,7 +154,20 @@ export function isBorrowerKycComplete(
   sessions: KycSessionForCompletion[]
 ): boolean {
   if (borrower.borrowerType === 'INDIVIDUAL') {
-    if (isIndividualIdentityLocked(borrower)) return true;
+    // Strip `directors` when delegating — `isIndividualIdentityLocked` types its
+    // directors as having TrueStack identity fields (used by other callers for
+    // corporate paths), but the individual branch never reads them. Passing the
+    // raw shape would fail typecheck for no behavioral reason.
+    if (
+      isIndividualIdentityLocked({
+        borrowerType: borrower.borrowerType,
+        documentVerified: borrower.documentVerified,
+        trueIdentityStatus: borrower.trueIdentityStatus,
+        trueIdentityResult: borrower.trueIdentityResult,
+      })
+    ) {
+      return true;
+    }
     const latest = pickBestTruestackKycSession(
       sessions.filter((s) => !s.directorId)
     );

@@ -105,7 +105,7 @@ export function MeetingSummaryCard({ row, onChanged, now }: MeetingSummaryCardPr
     <SectionCard hideHeader>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
-          <ThemedText type="title" numberOfLines={2}>
+          <ThemedText type="default" style={styles.tenantName} numberOfLines={4}>
             {row.tenantName}
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
@@ -285,7 +285,12 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.three,
   },
   headerText: { flex: 1, minWidth: 0, gap: Spacing.one },
-  badgeCol: { alignItems: 'flex-end' },
+  badgeCol: { alignItems: 'flex-end', flexShrink: 0, paddingLeft: Spacing.two },
+  tenantName: {
+    fontSize: 20,
+    fontWeight: '600',
+    lineHeight: 26,
+  },
   rel: { marginTop: 2 },
   timingBlock: {
     borderWidth: StyleSheet.hairlineWidth,

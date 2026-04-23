@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { LENDER_LEGAL_NAME, LENDER_NAME } from "@/app/components/legal/proficient-site";
 import { HomePageContent } from "./homepage-content";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3007";
@@ -43,14 +44,14 @@ function homeJsonLd() {
       {
         "@type": "Organization",
         "@id": `${base}/#organization`,
-        name: "PROFICIENT PREMIUM SDN. BHD.",
+        name: LENDER_LEGAL_NAME.toUpperCase().replace(" SDN BHD", " SDN. BHD."),
         url: base,
       },
       {
         "@type": "WebSite",
         "@id": `${base}/#website`,
         url: `${base}/`,
-        name: "Proficient Premium",
+        name: LENDER_NAME,
         description: HOME_DESCRIPTION,
         inLanguage: "en-MY",
         publisher: { "@id": `${base}/#organization` },

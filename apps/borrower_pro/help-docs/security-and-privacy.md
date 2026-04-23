@@ -62,6 +62,8 @@ Passwords are protected using secure handling practices and are not intended to 
 
 Your password is also protected so it is not stored or shown in plain text as part of normal portal operations.
 
+**Stronger sign-in (passkey or 2FA).** The portal may offer a passkey and/or an authenticator app (2FA). You can use **either** one to satisfy the extra security check — you do not need to enable both. Setting up one of them is enough to clear the security reminder.
+
 ## Why this matters for digital signing
 
 After e-KYC is successfully completed, your verified identity can be used to support issuance of the digital signing certificate needed for PKI signing.

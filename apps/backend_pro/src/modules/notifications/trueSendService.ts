@@ -13,6 +13,7 @@ import { getFile } from '../../lib/storage.js';
 import { safeAdd, safeRound, toSafeNumber } from '../../lib/math.js';
 import { NotificationOrchestrator, type NotifyBorrowerEventInput } from './orchestrator.js';
 import { getNotificationChannelState } from './settings.js';
+import { formatResendFromForTenant } from './emailSender.js';
 
 // ============================================
 // Types
@@ -147,7 +148,7 @@ async function buildEmailWrapper(tenant: TenantEmailInfo, content: string): Prom
       ${content}
     </div>
     <div class="footer">
-      <p class="footer-text">This is an automated email sent by TrueKredit™ on behalf of ${tenantName}.</p>
+      <p class="footer-text">This is an automated email from ${tenantName}.</p>
       <p class="footer-text">If you believe you received this email in error, please contact ${tenantName} directly.</p>
     </div>
     ${tenantDetails.length > 0 ? `
@@ -285,8 +286,10 @@ export class TrueSendService {
         }
       }
 
+      const from = await formatResendFromForTenant(tenantId);
+
       const response = await sendResendRequest(apiKey, {
-        from: `${config.email.fromName} <${config.email.fromAddress}>`,
+        from,
         to: recipientEmail,
         subject,
         html: htmlBody,
@@ -1223,8 +1226,10 @@ export class TrueSendService {
         <p>If you have any questions about this notice, please contact ${tenantInfo.name} directly.</p>
       `);
 
+      const from = await formatResendFromForTenant(tenantId);
+
       const response = await sendResendRequest(apiKey, {
-        from: `${config.email.fromName} <${config.email.fromAddress}>`,
+        from,
         to: emailLog.recipientEmail,
         subject: `[Resent] ${emailLog.subject}`,
         html: htmlBody,

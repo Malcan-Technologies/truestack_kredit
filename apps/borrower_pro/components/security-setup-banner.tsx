@@ -33,7 +33,8 @@ export function SecuritySetupBanner({ visible, className }: SecuritySetupBannerP
           <div className="min-w-0 space-y-0.5">
             <p className="text-sm font-semibold">Strengthen your account</p>
             <p className="text-sm text-amber-900/90 dark:text-amber-100/90">
-              Add a passkey or two-factor authentication (2FA) to protect your account. You can set this up anytime.
+              Add a passkey <span className="font-medium">or</span> two-factor authentication (2FA) — you only need one
+              to count as set up. You can turn this on anytime under Account.
             </p>
           </div>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import {
   fetchLenderInfo,
@@ -15,10 +15,10 @@ import { PhoneDisplay } from "@borrower_pro/components/ui/phone-display";
 import { APP_VERSION } from "@/lib/version";
 
 const POLICY_LINKS = [
-  { href: "/legal/terms", label: "Terms of use" },
-  { href: "/legal/privacy", label: "Privacy policy" },
-  { href: "/legal/security", label: "Security policy" },
-  { href: "/legal/pdpa", label: "PDPA notice" },
+  { href: "/terms", label: "Terms of use" },
+  { href: "/privacy", label: "Privacy policy" },
+  { href: "/security", label: "Cybersecurity" },
+  { href: "/pdpa", label: "PDPA notice" },
   { href: "/legal/cookies", label: "Cookie policy" },
 ] as const;
 
@@ -74,22 +74,19 @@ function PoliciesLegalCard() {
       <CardHeader>
         <CardTitle>Policies &amp; legal</CardTitle>
         <CardDescription>
-          Important documents governing your use of this portal and how we handle your data. Each link opens in a new tab.
+          Important documents for this portal. Policies open in the same window; the cookie policy
+          is hosted under the same site.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {POLICY_LINKS.map((item) => (
-          <a
+          <Link
             key={item.href}
             href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`${item.label} (opens in new tab)`}
-            className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+            className="rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
           >
-            <span>{item.label}</span>
-            <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          </a>
+            {item.label}
+          </Link>
         ))}
       </CardContent>
     </Card>

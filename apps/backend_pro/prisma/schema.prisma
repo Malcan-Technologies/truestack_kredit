@@ -68,7 +68,9 @@ enum AttestationStatus {
   COUNTER_PROPOSED // Admin countered with a different slot; borrower must accept/decline
   PROPOSAL_EXPIRED // Hold expired; borrower can propose again (transient UI state, often cleared to MEETING_REQUESTED)
   MEETING_SCHEDULED // Admin accepted; Google Calendar + Meet created
-  COMPLETED // Attestation done (video-only or post-meeting)
+  /** Admin marked the lawyer meeting as finished; borrower must accept or reject the loan */
+  MEETING_COMPLETED
+  COMPLETED // Attestation done (video-only or after borrower accepts post-meeting)
 }
 
 /** Who proposed the current attestation meeting slot */
@@ -1001,6 +1003,10 @@ model Loan {
   attestationMeetingNotes            String?
   attestationGoogleCalendarEventId   String?
   attestationMeetingReminder24hSentAt DateTime?
+  /// When the lender admin marked the scheduled meeting as complete (pre-borrower accept/reject)
+  attestationMeetingAdminCompletedAt DateTime?
+  /// When the borrower accepted terms after a completed meeting (optional audit)
+  attestationTermsAcceptedAt         DateTime?
   attestationCompletedAt             DateTime?
   attestationCancellationReason      AttestationCancellationReason?
   attestationCancelledAt             DateTime?

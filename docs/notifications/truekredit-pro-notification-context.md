@@ -17,6 +17,13 @@ This document captures the current unified notification implementation for TrueK
 - Keep notifications enabled by default for new tenants.
 - Tie access to tenant RBAC.
 
+## Email sender branding (tenant)
+
+System emails sent through the shared Resend address use a **per-tenant display name** derived from `Tenant.name` (the lender’s public name in settings). The physical **from** address is unchanged; only the name shown in the recipient’s mail client is customized.
+
+- Email bodies should refer to the **tenant** and product context, not “TrueKredit Pro” as the lender name.
+- A **“Powered by TrueKredit”** (or similar) line may appear in the footer; avoid repeating TrueKredit branding in the main message when it could be confused with the lender’s name.
+
 ## Channel Rules
 
 - `email`

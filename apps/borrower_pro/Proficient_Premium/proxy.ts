@@ -11,6 +11,12 @@ const PUBLIC_PATHS = [
   "/reset-password",
   "/verify-email",
   "/accept-invitation",
+  /** Public legal & info pages (no session required) */
+  "/terms",
+  "/privacy",
+  "/pdpa",
+  "/security",
+  "/legal",
 ];
 const AUTH_API_PREFIX = "/api/auth";
 const APP_API_PROXY_PREFIX = "/api/proxy";

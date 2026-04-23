@@ -66,6 +66,10 @@ vi.mock('./orchestrator.js', () => ({
   },
 }));
 
+vi.mock('./emailSender.js', () => ({
+  formatResendFromForTenant: vi.fn().mockResolvedValue('Test Lender <no-reply@example.com>'),
+}));
+
 import { TrueSendService } from './trueSendService.js';
 
 describe('TrueSendService', () => {

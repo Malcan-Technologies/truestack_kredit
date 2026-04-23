@@ -7,11 +7,12 @@ import {
   fetchBorrowerMe,
   BORROWER_PROFILE_SWITCHED_EVENT,
 } from "@borrower_pro/lib/borrower-auth-client";
-import { fetchLoanCenterOverview } from "@borrower_pro/lib/borrower-loans-client";
+import { fetchLoanCenterOverview, listBorrowerMeetings } from "@borrower_pro/lib/borrower-loans-client";
 import Link from "next/link";
 import {
   Bell,
   Building2,
+  Calendar,
   CircleHelp,
   ChevronDown,
   ChevronsLeft,
@@ -23,7 +24,7 @@ import {
   Menu,
   UserCircle,
 } from "lucide-react";
-import { fetchSecurityStatus, useSession, signOut } from "@/lib/auth-client";
+import { fetchSecurityStatus, getSession, useSession, signOut } from "@/lib/auth-client";
 import { Button } from "@borrower_pro/components/ui/button";
 import {
   DropdownMenu,
@@ -52,12 +53,19 @@ const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Applications", href: "/applications", icon: ClipboardList },
   { name: "Loans", href: "/loans", icon: Landmark },
+  { name: "Meetings", href: "/meetings", icon: Calendar },
   { name: "Your Profile", href: "/profile", icon: UserCircle },
   { name: "Notifications", href: "/notifications", icon: Bell },
   { name: "Help", href: "/help", icon: CircleHelp },
 ];
 
-const PROFILE_REQUIRED_NAV_PATHS = new Set(["/notifications", "/applications", "/loans", "/profile"]);
+const PROFILE_REQUIRED_NAV_PATHS = new Set([
+  "/notifications",
+  "/applications",
+  "/loans",
+  "/meetings",
+  "/profile",
+]);
 
 /** While adding another borrower profile, keep the user focused like first-time setup: only Dashboard + Help escape hatches. */
 const NAV_ALLOWED_DURING_ADD_PROFILE = new Set(["/dashboard", "/help"]);
@@ -88,6 +96,7 @@ export default function DashboardLayout({
   const [hasBorrowerProfiles, setHasBorrowerProfiles] = useState<boolean | null>(null);
   /** Matches loan center "All" tab: active + before payout + discharged */
   const [allLoansCount, setAllLoansCount] = useState(0);
+  const [meetingsActionCount, setMeetingsActionCount] = useState(0);
 
   useEffect(() => {
     try {
@@ -120,6 +129,18 @@ export default function DashboardLayout({
     }
   }, []);
 
+  const refreshMeetingsActionCount = useCallback(async () => {
+    try {
+      const r = await listBorrowerMeetings();
+      if (r.success && r.data) {
+        const n = r.data.filter((m) => m.actionNeeded || m.uiTab === "action").length;
+        setMeetingsActionCount(n);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     if (!isPending && !session) {
       router.push("/sign-in");
@@ -134,23 +155,25 @@ export default function DashboardLayout({
     }
 
     let cancelled = false;
-
     setSecurityStatus("loading");
 
-    void fetchSecurityStatus(session.user as { emailVerified?: boolean; twoFactorEnabled?: boolean })
-      .then((status) => {
+    void (async () => {
+      try {
+        const { data: fresh } = await getSession({ query: { disableCookieCache: true } });
+        const u = (fresh?.user ?? session.user) as { emailVerified?: boolean; twoFactorEnabled?: boolean };
+        const status = await fetchSecurityStatus(u);
         if (cancelled) return;
         setSecurityStatus(status.isSecuritySetupComplete ? "complete" : "incomplete");
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return;
-        setSecurityStatus("error");
-      });
+        setSecurityStatus("complete");
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [session, isPending]);
+  }, [session, isPending, pathname]);
 
   // Passkey / 2FA are optional: no redirect to security-setup (see SecuritySetupBanner).
 
@@ -198,10 +221,18 @@ export default function DashboardLayout({
   }, [session, pathname, refreshLoanOverview]);
 
   useEffect(() => {
-    const onSwitch = () => void refreshLoanOverview();
+    if (!session) return;
+    void refreshMeetingsActionCount();
+  }, [session, pathname, refreshMeetingsActionCount]);
+
+  useEffect(() => {
+    const onSwitch = () => {
+      void refreshLoanOverview();
+      void refreshMeetingsActionCount();
+    };
     window.addEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
     return () => window.removeEventListener(BORROWER_PROFILE_SWITCHED_EVENT, onSwitch);
-  }, [refreshLoanOverview]);
+  }, [refreshLoanOverview, refreshMeetingsActionCount]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -222,8 +253,7 @@ export default function DashboardLayout({
 
   const user = session.user;
 
-  const showSecurityBanner =
-    securityStatus === "incomplete" || securityStatus === "error";
+  const showSecurityBanner = securityStatus === "incomplete";
 
   const isAdditionalProfileOnboarding =
     pathname === "/onboarding" && hasBorrowerProfiles === true;
@@ -308,11 +338,25 @@ export default function DashboardLayout({
                             {allLoansCount > 99 ? "99+" : allLoansCount}
                           </Badge>
                         ) : null}
+                        {item.href === "/meetings" && meetingsActionCount > 0 ? (
+                          <Badge
+                            variant="secondary"
+                            className="h-5 min-w-5 shrink-0 px-1.5 text-xs opacity-50"
+                            title="Meetings needing action"
+                          >
+                            {meetingsActionCount > 99 ? "99+" : meetingsActionCount}
+                          </Badge>
+                        ) : null}
                       </>
                     )}
                     {sidebarCollapsed && item.href === "/loans" && allLoansCount > 0 ? (
                       <span className="absolute right-0.5 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary/50 px-1 text-[10px] font-medium leading-none">
                         {allLoansCount > 9 ? "9+" : allLoansCount}
+                      </span>
+                    ) : null}
+                    {sidebarCollapsed && item.href === "/meetings" && meetingsActionCount > 0 ? (
+                      <span className="absolute right-0.5 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary/50 px-1 text-[10px] font-medium leading-none">
+                        {meetingsActionCount > 9 ? "9+" : meetingsActionCount}
                       </span>
                     ) : null}
                   </div>
@@ -337,11 +381,25 @@ export default function DashboardLayout({
                             {allLoansCount > 99 ? "99+" : allLoansCount}
                           </Badge>
                         ) : null}
+                        {item.href === "/meetings" && meetingsActionCount > 0 ? (
+                          <Badge
+                            variant="secondary"
+                            className="h-5 min-w-5 shrink-0 px-1.5 text-xs"
+                            title="Meetings needing action"
+                          >
+                            {meetingsActionCount > 99 ? "99+" : meetingsActionCount}
+                          </Badge>
+                        ) : null}
                       </>
                     )}
                     {sidebarCollapsed && item.href === "/loans" && allLoansCount > 0 ? (
                       <span className="absolute right-0.5 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary px-1 text-[10px] font-medium leading-none">
                         {allLoansCount > 9 ? "9+" : allLoansCount}
+                      </span>
+                    ) : null}
+                    {sidebarCollapsed && item.href === "/meetings" && meetingsActionCount > 0 ? (
+                      <span className="absolute right-0.5 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary px-1 text-[10px] font-medium leading-none">
+                        {meetingsActionCount > 9 ? "9+" : meetingsActionCount}
                       </span>
                     ) : null}
                   </Link>
@@ -518,6 +576,8 @@ export default function DashboardLayout({
                   ? "Applications"
                   : pathname === "/loans"
                   ? "Loans"
+                  : pathname === "/meetings"
+                  ? "Meetings"
                   : pathname === "/about"
                   ? "About"
                   : pathname.startsWith("/help")

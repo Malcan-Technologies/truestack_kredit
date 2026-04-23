@@ -211,6 +211,36 @@ export function createLoansApiClient(baseUrl: string, fetchFn: FetchFn) {
     return { success: true, data: json.data };
   }
 
+  async function postAttestationAcceptAfterMeeting(loanId: string): Promise<{
+    success: boolean;
+    data: unknown;
+  }> {
+    const res = await fetchFn(
+      `${baseUrl}/loans/${encodeURIComponent(loanId)}/attestation/accept-after-meeting`,
+      { method: "POST" }
+    );
+    const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+    if (!res.ok) {
+      throw new Error(json.error || "Could not confirm after meeting");
+    }
+    return { success: true, data: json.data };
+  }
+
+  async function postAttestationRejectAfterMeeting(loanId: string): Promise<{
+    success: boolean;
+    data: unknown;
+  }> {
+    const res = await fetchFn(
+      `${baseUrl}/loans/${encodeURIComponent(loanId)}/attestation/reject-after-meeting`,
+      { method: "POST" }
+    );
+    const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+    if (!res.ok) {
+      throw new Error(json.error || "Could not reject loan");
+    }
+    return { success: true, data: json.data };
+  }
+
   async function postAttestationRequestMeeting(loanId: string): Promise<{
     success: boolean;
     data: unknown;
@@ -597,6 +627,8 @@ export function createLoansApiClient(baseUrl: string, fetchFn: FetchFn) {
     recordBorrowerLoanPayment,
     postAttestationVideoComplete,
     postAttestationProceedToSigning,
+    postAttestationAcceptAfterMeeting,
+    postAttestationRejectAfterMeeting,
     postAttestationRequestMeeting,
     postAttestationRestart,
     getAttestationAvailability,

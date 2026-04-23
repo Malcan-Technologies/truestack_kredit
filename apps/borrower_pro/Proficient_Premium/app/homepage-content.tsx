@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -9,9 +10,7 @@ import {
   CircleAlert,
   CircleHelp,
   Clock3,
-  ExternalLink,
   FileText,
-  Mail,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
@@ -33,6 +32,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@borrower_pro/components/ui/tooltip";
+import { BorrowerProficientTruestackFooter } from "@borrower_pro/components/borrower-marketing-footer";
 import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
 import { fetchBorrowerMe } from "@borrower_pro/lib/borrower-auth-client";
 import {
@@ -45,17 +45,24 @@ import {
   safeSubtract,
   toSafeNumber,
 } from "@borrower_pro/lib/utils";
-
-const LENDER_NAME = "Proficient Premium";
-const LENDER_LEGAL_NAME = "Proficient Premium Sdn Bhd";
-const LENDER_EMAIL = "info@ppsb-eloan.com.my";
-const LENDER_WEB = "https://ppsb-eloan.com.my";
+import {
+  LENDER_ADDRESS_LINES,
+  LENDER_EMAIL,
+  LENDER_KPKT_LICENSE,
+  LENDER_LEGAL_NAME,
+  LENDER_LOGO_PATH,
+  LENDER_NAME,
+  LENDER_PHONE,
+  LENDER_PHONE_HREF,
+  LENDER_SSM,
+} from "@/app/components/legal/proficient-site";
 
 const ANNUAL_INTEREST_RATE = 18;
 /** Monthly repayment budget as a share of income (not shown in UI). */
 const AFFORDABILITY_FACTOR = 0.8;
-const ILLUSTRATIVE_NOTICE =
-  "Figures on this page are illustrative examples only. They do not constitute a loan offer, approval, or credit decision. Final loan terms are confirmed after assessment and set out in your loan documentation.";
+/** One-line note under the calculator (shorthand for regulatory clarity). */
+const CALCULATOR_FOOTNOTE =
+  "Indicative only—not a loan offer. Final terms are confirmed after assessment and appear in your loan documentation.";
 const TERM_MONTHS_OPTIONS = [6, 12, 18, 24] as const;
 /** Floor max loan to this step (e.g. 24,406.78 → 24,400). */
 const MAX_LOAN_ROUND_STEP = 100;
@@ -128,8 +135,19 @@ const FAQS: { question: string; answer: ReactNode }[] = [
   },
   {
     question: "How is my information protected?",
-    answer:
-      "We use industry-standard security practices for sign-in and data handling. Read the Security and Privacy pages for details.",
+    answer: (
+      <>
+        We use industry-standard sign-in and data-handling practices. For detail, read{" "}
+        <Link className="font-medium text-foreground underline-offset-4 hover:underline" href="/security">
+          Cybersecurity
+        </Link>{" "}
+        and{" "}
+        <Link className="font-medium text-foreground underline-offset-4 hover:underline" href="/privacy">
+          Privacy
+        </Link>
+        .
+      </>
+    ),
   },
   {
     question: "Who can I contact for help?",
@@ -150,8 +168,16 @@ const FAQS: { question: string; answer: ReactNode }[] = [
 
 function HomeBrandMark() {
   return (
-    <Link href="/" className="flex items-center" aria-label={`${LENDER_NAME} home`}>
-      <span className="font-heading text-xl font-semibold text-foreground">{LENDER_NAME}</span>
+    <Link href="/" className="flex items-center">
+      <Image
+        src={LENDER_LOGO_PATH}
+        alt={LENDER_NAME}
+        width={300}
+        height={98}
+        className="h-12 w-auto object-contain object-left sm:h-16"
+        priority
+        sizes="(max-width: 640px) 240px, 300px"
+      />
     </Link>
   );
 }
@@ -386,7 +412,7 @@ function HomeLoanCalculator() {
                     </p>
                     {!result.canAssess && (
                       <p className="text-sm text-muted-foreground">
-                        Illustrative only—not a credit decision or loan offer by itself.
+                        Add your income to see an indicative range. This is not a credit decision.
                       </p>
                     )}
                   </div>
@@ -461,16 +487,15 @@ function HomeLoanCalculator() {
             )}
 
             <p className="text-xs leading-6 text-muted-foreground">
-              Indicative math only. Affordability sets your ceiling; repayment is for the loan
-              amount you choose (flat {ANNUAL_INTEREST_RATE}% p.a. over the term).
+              Affordability sets your maximum; the slider is your chosen amount within that ceiling
+              (flat {ANNUAL_INTEREST_RATE}% p.a. over the term).
               {result.hasCapacity && result.chosenLoanAmount > 0 && (
                 <>
                   {" "}
-                  Total repayable {formatCurrency(result.chosenTotalRepayable)} (principal +
-                  interest).
+                  Total repayable {formatCurrency(result.chosenTotalRepayable)} (principal + interest).{" "}
                 </>
-              )}{" "}
-              {ILLUSTRATIVE_NOTICE}
+              )}
+              {CALCULATOR_FOOTNOTE}
             </p>
           </div>
       </CardContent>
@@ -481,14 +506,6 @@ function HomeLoanCalculator() {
 export function HomePageContent() {
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="border-b border-border/60 bg-secondary/50">
-        <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
-          <p className="text-sm leading-6 text-foreground">
-            <span className="font-semibold">Important:</span> {ILLUSTRATIVE_NOTICE}
-          </p>
-        </div>
-      </div>
-
       <header className="border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <HomeBrandMark />
@@ -526,34 +543,11 @@ export function HomePageContent() {
               </p>
             </div>
 
-            <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-secondary/40 to-card/90 p-5 sm:p-6">
-              <p className="font-medium text-foreground">Questions before you apply?</p>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Reach our team by email and we will help with eligibility and next steps.
-              </p>
-              <Button asChild size="lg" className="mt-4">
-                <a href={`mailto:${LENDER_EMAIL}`}>
-                  Email {LENDER_EMAIL}
-                  <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
-                </a>
-              </Button>
-            </div>
-
-            <div className="rounded-2xl border border-border/70 bg-card/80 p-5">
-              <div className="flex items-start gap-3">
-                <CircleAlert className="mt-0.5 h-5 w-5 text-warning" aria-hidden />
-                <div className="space-y-2">
-                  <p className="font-medium text-foreground">Disclaimer</p>
-                  <p className="text-sm leading-6 text-muted-foreground">{ILLUSTRATIVE_NOTICE}</p>
-                </div>
-              </div>
-            </div>
-
             <div className="grid gap-4 sm:grid-cols-3">
               {[
-                "Secure sign-up and borrower dashboard",
-                `Illustrative ${ANNUAL_INTEREST_RATE}% p.a. affordability preview`,
-                "Track applications and loans in one place",
+                "Secure sign-up and a single borrower dashboard",
+                `Online affordability preview (flat ${ANNUAL_INTEREST_RATE}% p.a. example, where applicable)`,
+                "Track applications, loans, and messages in one place",
               ].map((item) => (
                 <div
                   key={item}
@@ -671,83 +665,25 @@ export function HomePageContent() {
                     <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
                   </a>
                 </Button>
-                <p className="text-xs leading-6 text-muted-foreground">{ILLUSTRATIVE_NOTICE}</p>
               </CardContent>
             </Card>
           </div>
         </div>
       </section>
 
-      <footer className="border-t border-border/60 bg-background">
-        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="max-w-3xl space-y-3">
-            <h2 className="font-heading text-lg font-semibold text-foreground">
-              Licensed digital moneylending
-            </h2>
-            <p className="text-sm leading-7 text-muted-foreground">
-              {LENDER_LEGAL_NAME} provides this borrower portal for applications, loan
-              servicing, and secure messaging. Product pages and calculators show illustrative
-              figures unless stated otherwise; formal terms appear in your loan documentation
-              after approval.
-            </p>
-          </div>
-
-          <div className="mt-10 flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
-            <div className="max-w-md space-y-6">
-              <HomeBrandMark />
-              <div className="space-y-2 text-sm leading-6">
-                <p className="font-heading font-semibold text-foreground">
-                  {LENDER_LEGAL_NAME.toUpperCase()}
-                </p>
-                <p className="text-muted-foreground">
-                  Registration No. (update when confirmed) — see your loan documents for current
-                  licence and company particulars.
-                </p>
-                <p className="text-muted-foreground">
-                  Registered business address — to be confirmed and published here.
-                </p>
-                <p>
-                  <a
-                    href={`mailto:${LENDER_EMAIL}`}
-                    className="inline-flex items-center gap-2 text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-                  >
-                    <Mail className="h-4 w-4 shrink-0" aria-hidden />
-                    {LENDER_EMAIL}
-                  </a>
-                </p>
-                <p>
-                  <a
-                    href={LENDER_WEB}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-                  >
-                    <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
-                    ppsb-eloan.com.my
-                  </a>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground lg:shrink-0">
-              <Link href="/legal/terms" className="transition-colors hover:text-foreground">
-                Terms
-              </Link>
-              <Link href="/legal/privacy" className="transition-colors hover:text-foreground">
-                Privacy
-              </Link>
-              <Link href="/legal/security" className="transition-colors hover:text-foreground">
-                Security
-              </Link>
-            </div>
-          </div>
-
-          <div className="mt-10 space-y-4 rounded-2xl border border-border/70 bg-secondary/30 p-5">
-            <p className="text-sm font-medium text-foreground">Disclaimer</p>
-            <p className="text-sm leading-6 text-muted-foreground">{ILLUSTRATIVE_NOTICE}</p>
-          </div>
-        </div>
-      </footer>
+      <BorrowerProficientTruestackFooter
+        lenderName={LENDER_NAME}
+        brandLogoSrc={LENDER_LOGO_PATH}
+        brandLogoAlt={LENDER_NAME}
+        legalName={LENDER_LEGAL_NAME}
+        email={LENDER_EMAIL}
+        phone={LENDER_PHONE}
+        phoneHref={LENDER_PHONE_HREF}
+        ssm={LENDER_SSM}
+        kpktLicense={LENDER_KPKT_LICENSE}
+        addressLines={LENDER_ADDRESS_LINES}
+        description={`${LENDER_LEGAL_NAME} provides this portal for online applications, loan servicing, and secure communications with borrowers.`}
+      />
     </main>
   );
 }

@@ -115,6 +115,14 @@ export const NOTIFICATION_DEFINITIONS: NotificationDefinition[] = [
     channels: ['in_app', 'push'],
   },
   {
+    key: 'loan_attestation_meeting_done',
+    label: 'Attestation meeting marked complete',
+    description:
+      'When the lender marks the lawyer meeting complete; borrower must accept or reject before KYC/signing.',
+    category: 'loan_lifecycle',
+    channels: ['in_app', 'push'],
+  },
+  {
     key: 'loan_kyc_completed',
     label: 'KYC verification complete',
     description:

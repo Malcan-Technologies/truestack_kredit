@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../lib/config.js';
+import { formatResendFromForTenant } from './emailSender.js';
 
 interface SendNotificationParams {
   tenantId: string;
@@ -32,7 +33,7 @@ export class NotificationService {
     // Attempt to send
     try {
       if (params.type === 'email') {
-        await this.sendEmail(params.recipient, params.subject || '', params.body);
+        await this.sendEmail(params.recipient, params.subject || '', params.body, params.tenantId);
       } else if (params.type === 'whatsapp') {
         await this.sendWhatsApp(params.recipient, params.body);
       }
@@ -70,7 +71,12 @@ export class NotificationService {
 
     try {
       if (notification.type === 'email') {
-        await this.sendEmail(notification.recipient, notification.subject || '', notification.body);
+        await this.sendEmail(
+          notification.recipient,
+          notification.subject || '',
+          notification.body,
+          notification.tenantId,
+        );
       } else if (notification.type === 'whatsapp') {
         await this.sendWhatsApp(notification.recipient, notification.body);
       }
@@ -91,13 +97,20 @@ export class NotificationService {
   /**
    * Send email via Resend
    */
-  private static async sendEmail(to: string, subject: string, body: string): Promise<void> {
+  private static async sendEmail(
+    to: string,
+    subject: string,
+    body: string,
+    tenantId?: string,
+  ): Promise<void> {
     const apiKey = config.notifications.resendApiKey;
     
     if (!apiKey) {
       console.log('[NotificationService] Email (mock):', { to, subject });
       return; // Mock in development
     }
+
+    const from = await formatResendFromForTenant(tenantId);
 
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -106,7 +119,7 @@ export class NotificationService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: `${config.email.fromName} <${config.email.fromAddress}>`,
+        from,
         to,
         subject,
         html: body,
@@ -183,9 +196,9 @@ export class NotificationService {
       body: `
         <h2>Payment Reminder</h2>
         <p>Dear ${ownerUser.name || 'Admin'},</p>
-        <p>This is a reminder that your TrueKredit subscription payment is due in ${daysUntilDue} days.</p>
+        <p>This is a reminder that a payment for your account is due in ${daysUntilDue} days.</p>
         <p>Please ensure timely payment to avoid service interruption.</p>
-        <p>Thank you for using TrueKredit.</p>
+        <p>Thank you from ${tenant.name}.</p>
       `,
     });
   }

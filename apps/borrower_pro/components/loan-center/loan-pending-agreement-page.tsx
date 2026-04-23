@@ -43,6 +43,8 @@ import {
   postAttestationDeclineCounter,
   postAttestationCancelLoan,
   postAttestationRestart,
+  postAttestationAcceptAfterMeeting,
+  postAttestationRejectAfterMeeting,
 } from "../../lib/borrower-loans-client";
 import {
   fetchBorrower,
@@ -63,6 +65,7 @@ import { isBorrowerKycComplete } from "../../lib/borrower-verification";
 import dynamic from "next/dynamic";
 import { DigitalCertificateStep } from "./digital-certificate-step";
 import { LoanEkycProfileSummary } from "./loan-ekyc-profile-summary";
+import { MeetingCompletedAttestationCta } from "./attestation-steps/meeting-completed-cta";
 
 const AgreementSigningView = dynamic(
   () => import("./agreement-signing-view").then((m) => m.AgreementSigningView),
@@ -584,6 +587,18 @@ export function LoanPendingAgreementPage() {
       "Attestation reset — choose video or meeting again.",
     );
 
+  const onAcceptAfterMeeting = () =>
+    runAttest(
+      () => postAttestationAcceptAfterMeeting(loanId),
+      "Terms accepted. Continue with e-KYC.",
+    );
+
+  const onRejectAfterMeeting = () =>
+    runAttest(async () => {
+      await postAttestationRejectAfterMeeting(loanId);
+      router.push("/loans");
+    }, "Loan cancelled.");
+
   if (loading) {
     return <LoanDetailSkeleton />;
   }
@@ -852,8 +867,14 @@ export function LoanPendingAgreementPage() {
               <Video className="h-5 w-5 text-primary" />
               Step {attestationStepNumber} — Attestation
             </CardTitle>
-            <CardDescription>
-              You may watch the attestation video, or request an online meeting with a lawyer.
+            <CardDescription className="space-y-2">
+              <p>You may watch the attestation video, or request an online meeting with a lawyer.</p>
+              <p>
+                <Link href="/meetings" className="text-primary font-medium underline-offset-4 hover:underline">
+                  View all meetings and scheduling
+                </Link>{" "}
+                — see upcoming times without reloading this page.
+              </p>
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -1077,8 +1098,12 @@ export function LoanPendingAgreementPage() {
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground border rounded-md p-2 bg-muted/20">
-                  Your lender will mark the meeting complete after it ends. Once confirmed, you can continue to e-KYC
-                  and signing.
+                  Your lender will mark the meeting complete after it ends. You will then confirm whether to accept the
+                  loan before e-KYC and signing. Track all meetings on{" "}
+                  <Link href="/meetings" className="font-medium text-foreground underline-offset-4 hover:underline">
+                    Meetings
+                  </Link>
+                  .
                 </p>
                 <Button
                   type="button"
@@ -1091,6 +1116,15 @@ export function LoanPendingAgreementPage() {
                   Reject agreement — cancel loan
                 </Button>
               </div>
+            )}
+
+            {attestationStatus === "MEETING_COMPLETED" && (
+              <MeetingCompletedAttestationCta
+                adminCompletedAtIso={loan.attestationMeetingAdminCompletedAt}
+                busy={attestBusy}
+                onAccept={onAcceptAfterMeeting}
+                onReject={onRejectAfterMeeting}
+              />
             )}
           </CardContent>
         </Card>

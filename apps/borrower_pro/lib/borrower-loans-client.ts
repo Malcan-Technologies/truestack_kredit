@@ -7,6 +7,7 @@ import type {
   BorrowerLoanListItem,
   BorrowerLoanMetrics,
   BorrowerLoanTimelineEvent,
+  BorrowerMeetingSummary,
   LoanCenterOverview,
   RecordBorrowerPaymentBody,
   LenderBankInfo,
@@ -24,6 +25,7 @@ export type {
 } from "@kredit/borrower";
 
 export type { LenderBankInfo as BorrowerLenderInfo } from "@kredit/borrower";
+export type { BorrowerMeetingSummary } from "@kredit/borrower";
 
 const BASE = "/api/proxy/borrower-auth";
 
@@ -46,6 +48,24 @@ let loanCenterOverviewInflight: Promise<{
   success: boolean;
   data: LoanCenterOverview;
 }> | null = null;
+
+export async function listBorrowerMeetings(params?: {
+  includePast?: boolean;
+}): Promise<{ success: boolean; data: BorrowerMeetingSummary[] }> {
+  const search = new URLSearchParams();
+  if (params?.includePast) search.set("include", "past");
+  const q = search.toString();
+  const res = await fetch(`${BASE}/meetings${q ? `?${q}` : ""}`, { credentials: "include" });
+  const json = await parseJson<{
+    success: boolean;
+    data?: BorrowerMeetingSummary[];
+    error?: string;
+  }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to list meetings");
+  }
+  return { success: true, data: json.data ?? [] };
+}
 
 export async function fetchLoanCenterOverview(): Promise<{
   success: boolean;
@@ -159,6 +179,36 @@ export async function postAttestationProceedToSigning(loanId: string): Promise<{
   const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
   if (!res.ok) {
     throw new Error(json.error || "Could not continue to signing");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function postAttestationAcceptAfterMeeting(loanId: string): Promise<{
+  success: boolean;
+  data: unknown;
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/accept-after-meeting`,
+    { method: "POST", credentials: "include" }
+  );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not confirm after meeting");
+  }
+  return { success: true, data: json.data };
+}
+
+export async function postAttestationRejectAfterMeeting(loanId: string): Promise<{
+  success: boolean;
+  data: unknown;
+}> {
+  const res = await fetch(
+    `${BASE}/loans/${encodeURIComponent(loanId)}/attestation/reject-after-meeting`,
+    { method: "POST", credentials: "include" }
+  );
+  const json = await parseJson<{ success: boolean; data?: unknown; error?: string }>(res);
+  if (!res.ok) {
+    throw new Error(json.error || "Could not reject loan");
   }
   return { success: true, data: json.data };
 }

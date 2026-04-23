@@ -2454,6 +2454,44 @@ function AttestationStateCard({
     [loanId, runAction],
   );
 
+  const onAcceptAfterMeeting = useCallback(
+    () =>
+      runAction(
+        () => loansClient.postAttestationAcceptAfterMeeting(loanId),
+        'Terms accepted. Continue to e-KYC.',
+      ),
+    [loanId, runAction],
+  );
+
+  const confirmRejectAfterMeeting = useCallback(() => {
+    Alert.alert(
+      'Reject loan after meeting?',
+      'This cancels the loan. You cannot undo this.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject and cancel',
+          style: 'destructive',
+          onPress: () => {
+            setBusy(true);
+            (async () => {
+              try {
+                await loansClient.postAttestationRejectAfterMeeting(loanId);
+                toast.success('Loan cancelled.');
+                await onRefresh();
+                router.replace('/loans' as Href);
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Action failed');
+              } finally {
+                setBusy(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [loanId, onRefresh, router]);
+
   const onRequestMeeting = useCallback(async () => {
     setBusy(true);
     try {
@@ -2815,6 +2853,47 @@ function AttestationStateCard({
               Reject agreement — cancel loan
             </ThemedText>
           </Pressable>
+        </View>
+      ) : null}
+
+      {status === 'MEETING_COMPLETED' ? (
+        <View
+          style={[
+            styles.attestInfoBox,
+            {
+              borderColor: theme.primary,
+              backgroundColor: theme.primary + '10',
+            },
+          ]}>
+          <View style={styles.attestInfoHeader}>
+            <MaterialIcons name="check-circle" size={18} color={theme.primary} />
+            <ThemedText type="smallBold">Meeting complete — confirm next step</ThemedText>
+          </View>
+          <ThemedText type="small" themeColor="textSecondary">
+            Your lender marked the attestation meeting as finished. Accept to continue to e-KYC, or reject to cancel the
+            loan.
+          </ThemedText>
+          {loan.attestationMeetingAdminCompletedAt ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              Confirmed: {formatMalaysiaDateTime(loan.attestationMeetingAdminCompletedAt)}
+            </ThemedText>
+          ) : null}
+          <View style={styles.attestActions}>
+            <AttestActionButton
+              label="Accept loan — continue to e-KYC"
+              busy={busy}
+              onPress={() => void onAcceptAfterMeeting()}
+              disabled={busy}
+              variant="primary"
+            />
+            <AttestActionButton
+              label="Reject loan"
+              busy={false}
+              onPress={confirmRejectAfterMeeting}
+              disabled={busy}
+              variant="outline"
+            />
+          </View>
         </View>
       ) : null}
     </SectionCard>

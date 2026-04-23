@@ -31,13 +31,14 @@ import {
   disableTwoFactor,
   enableTwoFactor,
   fetchSecurityStatus,
+  getSession,
   getTotpUri,
   listUserPasskeys,
   RegisteredPasskey,
   useSession,
   verifyTotp,
 } from "@borrower_pro/lib/auth-client";
-import { formatDate } from "../Demo_Client/lib/utils";
+import { formatDate } from "@borrower_pro/lib/utils";
 
 function getTotpSecret(totpUri: string): string {
   const match = totpUri.match(/[?&]secret=([^&]+)/i);
@@ -148,7 +149,17 @@ export function AccountSecurityCard() {
     setLoadingStatus(true);
     try {
       const status = await fetchSecurityStatus(currentUser);
-      setPasskeys(status.passkeys);
+      setPasskeys(
+        status.passkeys.map(
+          (p): RegisteredPasskey => ({
+            id: p.id,
+            name: p.name,
+            deviceType: p.deviceType ?? "security-key",
+            backedUp: p.backedUp ?? false,
+            createdAt: p.createdAt ?? new Date(0).toISOString(),
+          })
+        )
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to load security settings");
     } finally {
@@ -315,6 +326,7 @@ export function AccountSecurityCard() {
         throw new Error(result.error.message || "Invalid authenticator code");
       }
       closeSetupDialog();
+      await getSession({ query: { disableCookieCache: true } });
       await refetch();
       await refreshStatus();
       toast.success("Two-factor authentication enabled.");
@@ -391,6 +403,12 @@ export function AccountSecurityCard() {
           <div>
             <CardTitle className="font-heading">Security</CardTitle>
             <CardDescription>Manage verification, password, passkeys, and authenticator setup.</CardDescription>
+            <p className="text-sm text-muted-foreground pt-1 max-w-prose">
+              You can add a <span className="font-medium text-foreground">passkey</span> and/or an authenticator app (
+              <span className="font-medium text-foreground">2FA</span>
+              ). <span className="font-medium text-foreground">Either one on its own is enough</span> to strengthen your
+              account and clear the optional dashboard reminder — you do not need to set up both.
+            </p>
           </div>
         </div>
       </CardHeader>

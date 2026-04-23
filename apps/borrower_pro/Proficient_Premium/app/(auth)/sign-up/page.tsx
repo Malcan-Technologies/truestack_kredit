@@ -113,7 +113,7 @@ function SignUpForm() {
               />
               <Label htmlFor="accept-terms" className="text-sm leading-6">
                 I agree to the{" "}
-                <Link href="/legal/terms" className="text-primary underline underline-offset-4">
+                <Link href="/terms" className="text-primary underline underline-offset-4">
                   terms and conditions
                 </Link>
                 .

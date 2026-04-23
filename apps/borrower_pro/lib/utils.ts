@@ -8,6 +8,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Short date for MY locale (passkeys, password changed, etc.). */
+export function formatDate(date: Date | string): string {
+  const value = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(value.getTime())) return "Invalid date";
+
+  return new Intl.DateTimeFormat("en-MY", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kuala_Lumpur",
+  }).format(value);
+}
+
 export const CURRENCY_DECIMALS = 2;
 
 export function safeRound(value: number, decimals: number = CURRENCY_DECIMALS): number {

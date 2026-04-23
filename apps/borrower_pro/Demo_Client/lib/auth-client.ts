@@ -2,6 +2,7 @@ import { createAuthClient } from "better-auth/react";
 import { twoFactorClient, organizationClient } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { resolveAuthBaseUrl } from "@kredit/shared";
+import { resolveBorrowerSecurityStatus } from "@kredit/borrower";
 
 export const authClient = createAuthClient({
   baseURL: resolveAuthBaseUrl(
@@ -197,38 +198,11 @@ const skipSecuritySetupRedirect =
   process.env.NEXT_PUBLIC_SKIP_SECURITY_SETUP_REDIRECT === "true";
 
 export async function fetchSecurityStatus(user: AuthUserSecurityFields | null | undefined) {
-  const twoFactorEnabled = Boolean(user?.twoFactorEnabled);
-
-  /** Local dev only: skip forcing passkey or TOTP before dashboard. Do not set in production. */
-  if (skipSecuritySetupRedirect) {
-    return {
-      emailVerified: Boolean(user?.emailVerified),
-      twoFactorEnabled,
-      passkeys: [],
-      hasPasskey: false,
-      isSecuritySetupComplete: true,
-    };
-  }
-
-  let passkeys: RegisteredPasskey[] = [];
-
-  try {
-    passkeys = await listUserPasskeys();
-  } catch (error) {
-    // If 2FA is already enabled in the local session, keep that stronger signal
-    // instead of blocking dashboard access on a transient passkey lookup failure.
-    if (!twoFactorEnabled) {
-      throw error;
-    }
-  }
-
-  return {
-    emailVerified: Boolean(user?.emailVerified),
-    twoFactorEnabled,
-    passkeys,
-    hasPasskey: passkeys.length > 0,
-    isSecuritySetupComplete: twoFactorEnabled || passkeys.length > 0,
-  };
+  return resolveBorrowerSecurityStatus({
+    user,
+    skipSecuritySetupRedirect,
+    listPasskeys: listUserPasskeys,
+  });
 }
 
 export type Session = typeof authClient.$Infer.Session;

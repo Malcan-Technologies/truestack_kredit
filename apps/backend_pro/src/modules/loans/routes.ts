@@ -2594,21 +2594,21 @@ router.post(
       where: { id: loanId },
       data: {
         status: 'PENDING_DISBURSEMENT',
-        attestationStatus: 'COMPLETED',
-        attestationCompletedAt: now,
+        attestationStatus: 'MEETING_COMPLETED',
+        attestationMeetingAdminCompletedAt: now,
       },
     });
 
     await AuditService.log({
       tenantId,
       memberId,
-      action: 'ADMIN_ATTESTATION_COMPLETE',
+      action: 'ADMIN_ATTESTATION_MEETING_MARKED_COMPLETE',
       entityType: 'Loan',
       entityId: loanId,
       previousData: { attestationStatus: loan.attestationStatus, status: loan.status },
       newData: {
         attestationStatus: updated.attestationStatus,
-        attestationCompletedAt: now.toISOString(),
+        attestationMeetingAdminCompletedAt: now.toISOString(),
         status: 'PENDING_DISBURSEMENT',
       },
       ipAddress: req.ip,
@@ -2618,10 +2618,10 @@ router.post(
       await NotificationOrchestrator.notifyBorrowerEvent({
         tenantId,
         borrowerId: loan.borrowerId,
-        notificationKey: 'loan_attestation_complete',
+        notificationKey: 'loan_attestation_meeting_done',
         category: 'loan_lifecycle',
-        title: 'Attestation complete',
-        body: 'Your attestation meeting is complete. Continue with identity verification, your digital signing certificate, then agreement signing.',
+        title: 'Meeting complete — action required',
+        body: 'Your attestation meeting is complete. In your loan, accept the loan to continue to identity verification and signing, or reject if you do not wish to proceed.',
         deepLink: `/loans/${loanId}`,
         sourceType: 'LOAN',
         sourceId: loanId,

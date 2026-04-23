@@ -215,6 +215,8 @@ export async function fetchSecurityStatus(user: AuthUserSecurityFields | null | 
   try {
     passkeys = await listUserPasskeys();
   } catch (error) {
+    // If 2FA is already enabled in the local session, keep that stronger signal
+    // instead of blocking dashboard access on a transient passkey lookup failure.
     if (!twoFactorEnabled) {
       throw error;
     }

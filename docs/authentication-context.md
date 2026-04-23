@@ -213,8 +213,8 @@ createAuthClient({
 ### Mobile environment variables
 
 Required in `apps/borrower_pro_mobile/Demo_Client/.env`:
-- `EXPO_PUBLIC_BACKEND_URL` — URL of backend_pro (e.g. `http://192.168.x.x:4001`)
-- `EXPO_PUBLIC_AUTH_BASE_URL` — URL of borrower web app (for email link callbacks)
+- `EXPO_PUBLIC_BACKEND_URL` — URL of backend_pro (e.g. `http://192.168.x.x:4001` on simulator/LAN; **HTTPS tunnel or production URL** for physical devices and APK builds)
+- `EXPO_PUBLIC_AUTH_BASE_URL` — URL of the borrower **web** app (password-reset / verify-email links opened in the browser; passkeys are **web-only**, not used by the Expo client)
 
 ### Files to check first (mobile)
 

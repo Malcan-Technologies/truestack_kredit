@@ -23,13 +23,13 @@ This document maps `apps/borrower_pro/Demo_Client` (Next.js) to the **Expo (Reac
 |------|-------------|
 | `src/lib/auth/session-store.ts` | Persists Better Auth session token in `expo-secure-store`; exports `getSessionToken`, `setSessionToken`, `clearSessionToken`, `buildCookieHeader` |
 | `src/lib/auth/session-fetch.ts` | `sessionFetch: FetchFn` — reads stored token on every call and injects `Cookie: truestack-borrower.session_token=<token>` |
-| `src/lib/auth/auth-api.ts` | Better Auth helpers for email auth, passkeys, account/security fetches, password reset, and verification resend |
+| `src/lib/auth/auth-api.ts` | Better Auth helpers for email auth, TOTP/2FA, account/security fetches, password reset, and verification resend |
 | `src/lib/auth/session-context.tsx` | `SessionProvider` + `useSession()` React Context; validates token against server on mount; exposes `session`, `user`, `isLoading`, `signOut`, `refresh` |
 | `src/lib/auth/index.ts` | Barrel export for the auth module |
 | `src/lib/api/borrower.ts` | All five API clients instantiated with `sessionFetch`; screens import e.g. `borrowerClient.fetchBorrower()` |
 | `src/app/_layout.tsx` | Root layout with `SessionProvider` + `AuthGate` (Expo Router auth guard) |
 | `src/app/(auth)/*.tsx` | Sign-in, sign-up, forgot-password, and verify-email screens wired to Better Auth mobile helpers |
-| `src/app/(app)/account.tsx` | Mobile account tab with profile edit, email/password actions, passkey management, and login activity |
+| `src/app/(app)/account.tsx` | Mobile account tab with profile edit, email/password actions, TOTP/security, and login activity |
 | `src/app/(app)/applications.tsx`, `src/app/(app)/loans.tsx` | Placeholder tab screens so the borrower menu structure is in place while auth is being built out |
 | `metro.config.js` | Monorepo-aware Metro config: watches `packages/` so Metro can resolve `@kredit/borrower` |
 
@@ -43,7 +43,7 @@ Better Auth session tokens are read from the sign-in response body (`result.toke
 
 ### Known gaps / not yet started
 
-- **2FA screen**: Sign-in still detects `twoFactorRedirect: true` and shows an unsupported message. A `/(auth)/two-factor` screen with TOTP entry still needs to be built.
+- **2FA**: Implemented via `/(auth)/two-factor` and `twoFactorClient`; keep aligned with Better Auth upgrades.
 - **Deep linking**: Password-reset and email-verification links still open the borrower web app until Universal Links / App Links are configured.
 - **Passkeys**: Borrower passkeys are **web-only** (`apps/borrower_pro`). The Expo app does not include `expo-better-auth-passkey`.
 - **Core borrower screens**: Dashboard, applications, and loans tabs are scaffolded with placeholders only.
@@ -56,7 +56,7 @@ Better Auth session tokens are read from the sign-in response body (`result.toke
 |--------|----------------|-------------------|
 | Repo | Stay in **monorepo** (`truestack_kredit`) | Same; e.g. `apps/borrower_mobile/Demo_Client` or `apps/borrower_pro_mobile/Demo_Client` |
 | API | `backend_pro` via **Next proxy** (`/api/proxy/...`) + **cookie** forwarding | Call **`backend_pro` directly** (or via a thin BFF later). Session transport must be **designed for native** (see §4). |
-| Auth owner | **Next.js** hosts Better Auth (`/api/auth/*`), Resend emails | **Spike required:** Better Auth + native (deep links, storage, passkeys). Web auth routes remain for browser users. |
+| Auth owner | **Next.js** hosts Better Auth (`/api/auth/*`), Resend emails | **backend_pro** `borrower-auth` for native (tokens, deep links); passkeys remain **web-only**. |
 | Shared UI | `apps/borrower_pro/components` (ShadCN), `apps/borrower_pro/lib` | **No ShadCN on RN.** Reuse **Zod, types, API shapes, copy** via `packages/*`; rebuild screens with RN primitives or a RN UI kit. |
 
 ---
@@ -70,7 +70,7 @@ Expo uses a **navigator** (e.g. Expo Router file-based routes, or React Navigati
 | Next.js (Demo_Client) | Expo screen group | Notes |
 |----------------------|-------------------|--------|
 | `/` (landing) | `index` / marketing or redirect to app home | May deep-link from email. |
-| `(auth)/sign-in` | `SignIn` | Password, passkey strategy on native TBD. |
+| `(auth)/sign-in` | `SignIn` | Email/password; TOTP step when enabled (no native passkeys). |
 | `(auth)/sign-up` | `SignUp` | Same validation as web; reuse Zod from shared package where possible. |
 | `(auth)/forgot-password` | `ForgotPassword` | Email link → **universal link / app link** into app or web fallback. |
 | `(auth)/reset-password` | `ResetPassword` | Token via query param from deep link. |

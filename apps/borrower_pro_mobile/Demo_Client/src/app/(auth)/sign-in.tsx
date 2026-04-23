@@ -6,13 +6,11 @@ import { AuthButton, AuthInput, AuthMessage } from '@/components/auth-controls';
 import { AuthScreen } from '@/components/auth-screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
 import { signInWithEmail } from '@/lib/auth/auth-api';
 import { useSession } from '@/lib/auth/session-context';
 
 export default function SignInScreen() {
   const router = useRouter();
-  const theme = useTheme();
   const { refresh } = useSession();
 
   const [email, setEmail] = useState('');

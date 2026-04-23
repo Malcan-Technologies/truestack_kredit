@@ -29,6 +29,7 @@ import { useTheme } from '@/hooks/use-theme';
 import {
   applicationsClient,
   loansClient,
+  meetingsClient,
 } from '@/lib/api/borrower';
 import { useBorrowerAccess } from '@/lib/borrower-access';
 import { isReturnedForAmendment } from '@/lib/applications/amendment';
@@ -865,6 +866,7 @@ function DashboardContent() {
   const [counterOfferApps, setCounterOfferApps] = useState<LoanApplicationDetail[]>([]);
   const [amendmentApps, setAmendmentApps] = useState<LoanApplicationDetail[]>([]);
   const [borrowerKycDone, setBorrowerKycDone] = useState<boolean | null>(null);
+  const [meetingsActionCount, setMeetingsActionCount] = useState(0);
 
   const resetState = useCallback(() => {
     setOverview(null);
@@ -873,6 +875,7 @@ function DashboardContent() {
     setCounterOfferApps([]);
     setAmendmentApps([]);
     setBorrowerKycDone(null);
+    setMeetingsActionCount(0);
   }, []);
 
   const loadAll = useCallback(
@@ -907,6 +910,19 @@ function DashboardContent() {
             ? ov.data.borrowerKycComplete
             : null,
         );
+
+        try {
+          const meetRes = await meetingsClient.listBorrowerMeetings({ includePast: true });
+          if (meetRes.success) {
+            setMeetingsActionCount(
+              meetRes.data.filter((m) => m.actionNeeded || m.uiTab === 'action').length,
+            );
+          } else {
+            setMeetingsActionCount(0);
+          }
+        } catch {
+          setMeetingsActionCount(0);
+        }
       } catch {
         resetState();
       } finally {
@@ -1103,6 +1119,44 @@ function DashboardContent() {
               }
             />
           </HorizontalSnapCarousel>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open meetings and scheduling"
+            onPress={() => router.push('/meetings' as Href)}
+            style={({ pressed }) => [
+              styles.meetingsPromo,
+              {
+                backgroundColor: theme.backgroundElement,
+                borderColor: theme.border,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}>
+            <View style={[styles.meetingsIconWrap, { backgroundColor: theme.backgroundSelected }]}>
+              <MaterialIcons name="event" size={22} color={theme.primary} />
+            </View>
+            <View style={styles.meetingsPromoCopy}>
+              <ThemedText type="smallBold">Meetings</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
+                Attestation meetings and scheduling across your loans
+                {meetingsActionCount > 0
+                  ? ` · ${meetingsActionCount} need${meetingsActionCount === 1 ? 's' : ''} your attention`
+                  : ''}
+              </ThemedText>
+            </View>
+            {meetingsActionCount > 0 ? (
+              <View
+                style={[
+                  styles.meetingsBadge,
+                  { backgroundColor: theme.warning + '2A' },
+                ]}>
+                <ThemedText type="smallBold" style={{ color: theme.warning }}>
+                  {meetingsActionCount > 99 ? '99+' : meetingsActionCount}
+                </ThemedText>
+              </View>
+            ) : null}
+            <MaterialIcons name="chevron-right" size={22} color={theme.textSecondary} />
+          </Pressable>
 
           {/* Active loans */}
           <View style={styles.sectionBlock}>
@@ -1417,6 +1471,37 @@ const styles = StyleSheet.create({
   alertDot: {
     height: 5,
     borderRadius: 3,
+  },
+
+  meetingsPromo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    marginBottom: Spacing.four,
+  },
+  meetingsIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  meetingsPromoCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  meetingsBadge: {
+    minWidth: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   /* Section header */

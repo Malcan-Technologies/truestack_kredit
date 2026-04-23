@@ -300,7 +300,6 @@ function LoanDetailContent({ loanId }: { loanId: string }) {
   const canPay = PAYABLE_STATUSES.has(loan.status);
   const pendingManualPayments = manualPayments.filter((m) => m.status === 'PENDING').length;
   const pendingEarlySettlements = earlyRequests.filter((r) => r.status === 'PENDING').length;
-  const productScheduleType = loan.product?.loanScheduleType;
   const showEarlySettlementCard =
     Boolean(loan.product?.earlySettlementEnabled) &&
     (loan.status === 'ACTIVE' || loan.status === 'IN_ARREARS');
@@ -2896,6 +2895,20 @@ function AttestationStateCard({
           </View>
         </View>
       ) : null}
+
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel="View meetings hub"
+        onPress={() => router.push('/meetings' as Href)}
+        style={({ pressed }) => [styles.crossLink, { opacity: pressed ? 0.85 : 1, marginTop: Spacing.three }]}>
+        <ThemedText type="small" themeColor="textSecondary">
+          Attestation and scheduling across all loans
+        </ThemedText>
+        <View style={styles.crossLinkAction}>
+          <ThemedText type="linkPrimary">View meetings hub</ThemedText>
+          <MaterialIcons name="arrow-forward" size={13} color={theme.primary} />
+        </View>
+      </Pressable>
     </SectionCard>
   );
 }

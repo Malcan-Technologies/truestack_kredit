@@ -175,7 +175,6 @@ export async function registerBorrowerPushDevice(): Promise<{
         allowAlert: true,
         allowBadge: false,
         allowSound: true,
-        allowAnnouncements: false,
       },
     });
     hasAuthorization = hasNotificationAuthorization(requested, Notifications);

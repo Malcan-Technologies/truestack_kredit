@@ -62,6 +62,16 @@ Editing routes: [Expo Router — file-based routing](https://docs.expo.dev/route
 
 - This app uses **email + password** and **TOTP (2FA)** via `backend_pro` (`/api/borrower-auth/auth`). It does **not** ship `expo-better-auth-passkey` or other native passkey modules.
 - **Passkeys** for borrower accounts are supported on the **web** borrower app (`apps/borrower_pro/...`), not in this Expo client.
+- **Password reset and email verification:** screens exist at `/(auth)/reset-password?token=…` and `/(auth)/verify-email/confirm?token=…`, calling Better Auth on `backend_pro`. For email links to open the **native** app, set `EXPO_PUBLIC_UNIVERSAL_LINK_HOST` and host `apple-app-site-association` / `assetlinks.json` on the borrower web origin (see `docs/mobile-development-expo.md`).
+- **Company invitations:** org invite URLs may point at the **web** borrower app; native handling is optional.
+
+## Web vs mobile (quick)
+
+| Area | Web (`borrower_pro/Demo_Client`) | Mobile (this app) |
+|------|----------------------------------|-------------------|
+| Meetings hub | `/meetings` | `/meetings` (stack) — attestation list + actions |
+| Landing / marketing | `/` | Not in scope for native |
+| Passkeys | Supported | Not supported — use web |
 
 Web counterpart for colors/copy reference: `apps/borrower_pro/Demo_Client/docs/planning/brand.md`.
 

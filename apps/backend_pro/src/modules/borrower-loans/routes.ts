@@ -345,7 +345,19 @@ router.get('/meetings', async (req, res, next) => {
     }
 
     const statusFilter: Prisma.LoanWhereInput = includePast
-      ? {}
+      ? {
+          status: {
+            in: [
+              "PENDING_ATTESTATION",
+              "PENDING_DISBURSEMENT",
+              "ACTIVE",
+              "IN_ARREARS",
+              "COMPLETED",
+              "DEFAULTED",
+              "WRITTEN_OFF",
+            ],
+          },
+        }
       : { status: { in: ["PENDING_ATTESTATION", "PENDING_DISBURSEMENT"] } };
 
     const loans = await prisma.loan.findMany({

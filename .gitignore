@@ -19,6 +19,8 @@ apps/borrower_pro/Proficient_Premium/next-env.d.ts
 # Environment files
 .env
 .env.local
+scripts/pentest/*.env
+!scripts/pentest/*.env.example
 .env.development.local
 .env.test.local
 .env.production.local

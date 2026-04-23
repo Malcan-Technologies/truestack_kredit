@@ -447,6 +447,30 @@ resource "aws_iam_role_policy" "s3_access" {
   })
 }
 
+# Required for ECS Exec and Session Manager port forwarding to RDS through a running Fargate task
+# (e.g. external security assessments; see docs/pro_client_pentest_access.md, scripts/pentest/).
+resource "aws_iam_role_policy" "ecs_exec_ssm" {
+  name = "${var.cluster_name}-ecs-exec-ssm"
+  role = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EcsExecSsmMessages"
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_lb_target_group" "backend" {
   name                 = substr("${var.project_name}-${var.environment}-be-tg", 0, 32)
   port                 = var.backend_port
@@ -867,6 +891,9 @@ resource "aws_ecs_service" "backend" {
 
   deployment_maximum_percent         = 200
   deployment_minimum_healthy_percent = 100
+
+  # Enables SSM port forwarding / ECS Exec to this service (pentest DB tunnel, break-glass debug).
+  enable_execute_command = true
 
   # Track task_definition so env/secrets (e.g. Google Calendar) from Terraform reach running tasks.
   # Keep desired_count ignored if you scale the service outside Terraform.

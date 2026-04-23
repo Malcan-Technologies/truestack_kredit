@@ -7,38 +7,18 @@ import { AuthScreen } from '@/components/auth-screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import {
-  getPasskeySupportMessage,
-  signInWithEmail,
-  signInWithPasskey,
-} from '@/lib/auth/auth-api';
+import { signInWithEmail } from '@/lib/auth/auth-api';
 import { useSession } from '@/lib/auth/session-context';
 
 export default function SignInScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { refresh } = useSession();
-  const passkeySupportMessage = getPasskeySupportMessage();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<'credentials' | 'passkey' | null>(null);
-
-  async function handlePasskey() {
-    setError(null);
-    setLoading('passkey');
-
-    try {
-      await signInWithPasskey(email.trim().toLowerCase() || undefined);
-      await refresh();
-      router.replace('/');
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Passkey sign in failed. Please try again.');
-    } finally {
-      setLoading(null);
-    }
-  }
+  const [loading, setLoading] = useState(false);
 
   async function handleSignIn() {
     if (!email.trim() || !password) {
@@ -47,7 +27,7 @@ export default function SignInScreen() {
     }
 
     setError(null);
-    setLoading('credentials');
+    setLoading(true);
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
@@ -68,7 +48,7 @@ export default function SignInScreen() {
       }
       setError(message);
     } finally {
-      setLoading(null);
+      setLoading(false);
     }
   }
 
@@ -77,7 +57,7 @@ export default function SignInScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <AuthScreen
         title="Sign in"
-        subtitle="Use your borrower account email, password, or passkey."
+        subtitle="Use your borrower account email and password."
         showTenantLogo
         centerHeader
         footer={
@@ -96,35 +76,19 @@ export default function SignInScreen() {
             </View>
           </View>
         }>
-        <AuthButton
-          label={loading === 'passkey' ? 'Waiting for passkey…' : 'Sign in with passkey'}
-          variant="outline"
-          onPress={handlePasskey}
-          loading={loading === 'passkey'}
-          disabled={loading !== null || Boolean(passkeySupportMessage)}
-        />
-
-        <View style={styles.divider}>
-          <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-          <ThemedText type="small" themeColor="textSecondary">
-            Or use email and password
-          </ThemedText>
-          <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-        </View>
-
         <AuthInput
           value={email}
           onChangeText={setEmail}
           placeholder="Email"
           keyboardType="email-address"
-          editable={loading === null}
+          editable={!loading}
         />
         <AuthInput
           value={password}
           onChangeText={setPassword}
           placeholder="Password"
           secureTextEntry
-          editable={loading === null}
+          editable={!loading}
         />
 
         <View style={styles.linksRow}>
@@ -142,27 +106,13 @@ export default function SignInScreen() {
 
         {error ? <AuthMessage tone="error">{error}</AuthMessage> : null}
 
-        <AuthButton
-          label={loading === 'credentials' ? 'Signing in…' : 'Sign in'}
-          onPress={handleSignIn}
-          loading={loading === 'credentials'}
-          disabled={loading !== null}
-        />
+        <AuthButton label={loading ? 'Signing in…' : 'Sign in'} onPress={handleSignIn} loading={loading} />
       </AuthScreen>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  dividerLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-  },
   linksRow: {
     alignItems: 'flex-end',
   },

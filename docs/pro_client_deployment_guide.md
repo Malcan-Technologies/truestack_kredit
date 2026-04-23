@@ -10,6 +10,7 @@ This guide explains how to:
 - keep the deployment lean and low-cost
 - add future Pro clients with their own AWS account later
 - manage per-client configuration in a repeatable way
+- set up external security assessment (pentest) access: `docs/pro_client_pentest_access.md`
 
 This guide assumes the current approved architecture in `docs/architecture_plan.md`.
 

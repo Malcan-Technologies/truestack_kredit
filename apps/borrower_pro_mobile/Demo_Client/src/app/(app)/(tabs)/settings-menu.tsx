@@ -111,7 +111,7 @@ export default function SettingsMenuScreen() {
         items={[
           {
             title: 'Account',
-            description: 'Sign-in security, email, password, passkeys, and login history.',
+            description: 'Sign-in security, email, password, 2FA, and login history.',
             href: '/account',
             icon: 'person',
           },

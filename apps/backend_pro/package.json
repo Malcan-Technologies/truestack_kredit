@@ -24,7 +24,6 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.982.0",
     "@better-auth/expo": "^1.6.2",
-    "@better-auth/passkey": "^1.6.2",
     "@kredit/shared": "*",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/semantic-conventions": "^1.40.0",

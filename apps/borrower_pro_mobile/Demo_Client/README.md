@@ -58,12 +58,10 @@ Editing routes: [Expo Router — file-based routing](https://docs.expo.dev/route
 3. Update `app.config.ts` / EAS: **name**, **slug**, **scheme**, icons, splash, bundle/package IDs, and any associated domains.
 4. Set per-build **`.env`** or EAS secrets for `EXPO_PUBLIC_*`.
 
-## Passkeys
+## Sign-in (native)
 
-- Passkeys are **not supported in Expo Go**. Use a native development build or production build.
-- Keep the relying-party host env-driven with `EXPO_PUBLIC_PASSKEY_RP_ID`. If it is blank, the app derives it from `EXPO_PUBLIC_AUTH_BASE_URL`.
-- Web passkeys can use `localhost`, but **native iOS/Android passkeys cannot**. For native development, point `EXPO_PUBLIC_AUTH_BASE_URL` or `EXPO_PUBLIC_PASSKEY_RP_ID` to an HTTPS tunnel or deployed domain.
-- iOS associated domains and similar native config should be generated from env in `app.config.ts`, not hardcoded to a single client domain.
+- This app uses **email + password** and **TOTP (2FA)** via `backend_pro` (`/api/borrower-auth/auth`). It does **not** ship `expo-better-auth-passkey` or other native passkey modules.
+- **Passkeys** for borrower accounts are supported on the **web** borrower app (`apps/borrower_pro/...`), not in this Expo client.
 
 Web counterpart for colors/copy reference: `apps/borrower_pro/Demo_Client/docs/planning/brand.md`.
 

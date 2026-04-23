@@ -12,35 +12,7 @@ import { twoFactorClient, organizationClient } from 'better-auth/client/plugins'
 import { expoClient } from '@better-auth/expo/client';
 import * as SecureStore from 'expo-secure-store';
 
-import { markPasskeyNativeModule, shouldEnablePasskeyClientPlugin } from './passkey-config';
-
 const backendUrl = (process.env.EXPO_PUBLIC_BACKEND_URL ?? '').replace(/\/$/, '');
-type AuthClientOptions = NonNullable<Parameters<typeof createAuthClient>[0]>;
-type AuthClientPlugin = NonNullable<AuthClientOptions['plugins']>[number];
-
-function getPasskeyPlugin(): AuthClientPlugin | null {
-  if (!shouldEnablePasskeyClientPlugin()) {
-    markPasskeyNativeModule('unavailable');
-    return null;
-  }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { expoPasskeyClient } = require('expo-better-auth-passkey') as {
-      expoPasskeyClient: () => AuthClientPlugin;
-    };
-
-    const plugin = expoPasskeyClient();
-    markPasskeyNativeModule('available');
-    return plugin;
-  } catch (error) {
-    console.warn('[auth] Passkey plugin unavailable in this build:', error);
-    markPasskeyNativeModule('unavailable');
-    return null;
-  }
-}
-
-const passkeyPlugin = getPasskeyPlugin();
 
 export const authClient = createAuthClient({
   baseURL: backendUrl,
@@ -49,8 +21,6 @@ export const authClient = createAuthClient({
     expoClient({
       scheme: 'democlient',
       storagePrefix: 'truestack-borrower',
-      // Match the server-side advanced.cookiePrefix so the plugin correctly
-      // identifies and stores the borrower session cookie.
       cookiePrefix: 'truestack-borrower',
       storage: SecureStore,
     }),
@@ -64,6 +34,5 @@ export const authClient = createAuthClient({
         },
       },
     }),
-    ...(passkeyPlugin ? [passkeyPlugin] : []),
   ] as const,
 });

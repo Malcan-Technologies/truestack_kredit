@@ -45,7 +45,7 @@ Better Auth session tokens are read from the sign-in response body (`result.toke
 
 - **2FA screen**: Sign-in still detects `twoFactorRedirect: true` and shows an unsupported message. A `/(auth)/two-factor` screen with TOTP entry still needs to be built.
 - **Deep linking**: Password-reset and email-verification links still open the borrower web app until Universal Links / App Links are configured.
-- **Passkey platform hardening**: Native passkeys are now wired through `expo-better-auth-passkey`, but they still require a custom dev/prod build plus associated-domain / asset-links setup. Expo Go does not support them.
+- **Passkeys**: Borrower passkeys are **web-only** (`apps/borrower_pro`). The Expo app does not include `expo-better-auth-passkey`.
 - **Core borrower screens**: Dashboard, applications, and loans tabs are scaffolded with placeholders only.
 
 ---
@@ -155,7 +155,7 @@ The auth spike is done. The approach chosen:
 
 - **Deep linking**: `verify-email`, `reset-password`, `change-email` links need iOS Universal Links + Android App Links configured in `app.json` + server-side `apple-app-site-association` / `assetlinks.json`.
 - **2FA**: `signInWithEmail` detects `twoFactorRedirect: true`; a `/(auth)/two-factor` TOTP screen needs to be built.
-- **Passkeys**: Initial client/server support is now wired via `expo-better-auth-passkey` + Better Auth `passkey` plugin. Native device passkeys still require a custom dev build / production build plus platform domain association work.
+- **Passkeys**: Not part of the native borrower client; use the web borrower app to register or sign in with a passkey.
 - **TOTP UI**: `twoFactorRedirect` is still not handled in-app; use the borrower web app for authenticator flows until a dedicated mobile screen is built.
 
 ---

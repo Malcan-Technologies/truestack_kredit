@@ -187,7 +187,7 @@ createAuthClient({
 | Session storage | Browser cookies (automatic) | `expo-secure-store` via `expoClient` |
 | Session transport | Cookie header (browser) | `authClient.getCookie()` set manually |
 | `useSession()` source | Better Auth React hook | Same, backed by SecureStore cache |
-| Passkeys | Supported | Supported in custom dev/prod builds via `expo-better-auth-passkey`; Expo Go unsupported |
+| Passkeys | Supported (web borrower) | Not implemented on native; use email/password + TOTP against `borrower-auth` |
 | 2FA | TOTP supported | TOTP supported via `/two-factor` screen and `twoFactorClient()` |
 
 ### Important borrower pro/mobile nuance

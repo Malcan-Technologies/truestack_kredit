@@ -11,22 +11,17 @@ import { InlineStatusRow, VerifiedStatusRow } from '@/components/verified-status
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  addDevicePasskey,
   changeEmail,
   changePassword,
-  deleteDevicePasskey,
   disableTwoFactor,
   enableTwoFactor,
   fetchAccountProfile,
   fetchLoginHistory,
   fetchPasswordInfo,
-  getPasskeySupportMessage,
   getTotpUri,
-  listUserPasskeys,
   sendVerificationEmail,
   type AccountProfile,
   type LoginHistoryEntry,
-  type RegisteredPasskey,
   updateUserProfile,
   verifyTotp,
 } from '@/lib/auth/auth-api';
@@ -293,7 +288,6 @@ function AccountProfileSection() {
 function AccountSecuritySection() {
   const theme = useTheme();
   const { user, refresh } = useSession();
-  const [passkeys, setPasskeys] = useState<RegisteredPasskey[]>([]);
   const [passwordChangedAt, setPasswordChangedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
@@ -302,12 +296,9 @@ function AccountSecuritySection() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [passkeyName, setPasskeyName] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
   const [changingEmailState, setChangingEmailState] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
-  const [addingPasskeyState, setAddingPasskeyState] = useState(false);
-  const [removingPasskeyId, setRemovingPasskeyId] = useState<string | null>(null);
   const [setupPassword, setSetupPassword] = useState('');
   const [setupTotpUri, setSetupTotpUri] = useState<string | null>(null);
   const [verificationCode, setVerificationCode] = useState('');
@@ -316,11 +307,8 @@ function AccountSecuritySection() {
   const [confirmingTwoFactor, setConfirmingTwoFactor] = useState(false);
   const [disablingTwoFactor, setDisablingTwoFactor] = useState(false);
 
-  const passkeySupportMessage = getPasskeySupportMessage();
-
   const refreshSecurity = useCallback(async () => {
     if (!user?.id) {
-      setPasskeys([]);
       setPasswordChangedAt(null);
       setLoading(false);
       return;
@@ -328,12 +316,8 @@ function AccountSecuritySection() {
 
     setLoading(true);
     try {
-      const [passwordInfo, registeredPasskeys] = await Promise.all([
-        fetchPasswordInfo(),
-        listUserPasskeys(),
-      ]);
+      const passwordInfo = await fetchPasswordInfo();
       setPasswordChangedAt(passwordInfo.passwordChangedAt);
-      setPasskeys(registeredPasskeys);
     } catch (error) {
       Alert.alert(
         'Unable to load security settings',
@@ -421,40 +405,6 @@ function AccountSecuritySection() {
       );
     } finally {
       setChangingEmailState(false);
-    }
-  }
-
-  async function handleAddPasskey() {
-    setAddingPasskeyState(true);
-    try {
-      await addDevicePasskey(passkeyName);
-      setPasskeyName('');
-      await refresh();
-      await refreshSecurity();
-      Alert.alert('Passkey added', 'This device can now sign in with a passkey.');
-    } catch (error) {
-      Alert.alert(
-        'Unable to add passkey',
-        error instanceof Error ? error.message : 'Please try again.',
-      );
-    } finally {
-      setAddingPasskeyState(false);
-    }
-  }
-
-  async function handleRemovePasskey(id: string) {
-    setRemovingPasskeyId(id);
-    try {
-      await deleteDevicePasskey(id);
-      await refreshSecurity();
-      Alert.alert('Passkey removed', 'The passkey was removed from your account.');
-    } catch (error) {
-      Alert.alert(
-        'Unable to remove passkey',
-        error instanceof Error ? error.message : 'Please try again.',
-      );
-    } finally {
-      setRemovingPasskeyId(null);
     }
   }
 
@@ -630,88 +580,6 @@ function AccountSecuritySection() {
               variant="outline"
               onPress={() => setPasswordModalOpen(true)}
             />
-          </SectionCard>
-
-          <SectionCard
-            title="Passkeys"
-            description="Sign in with a device passkey instead of typing your password."
-            action={
-              passkeys.length > 0 ? (
-                <VerifiedStatusRow
-                  label={passkeys.length === 1 ? '1 registered' : `${passkeys.length} registered`}
-                />
-              ) : (
-                <InlineStatusRow label="Not set up" tone="neutral" />
-              )
-            }>
-            <View style={styles.stack}>
-              <FormInput
-                value={passkeyName}
-                onChangeText={setPasskeyName}
-                placeholder="Optional passkey name"
-                autoCapitalize="words"
-              />
-              <ActionButton
-                label="Add passkey"
-                onPress={handleAddPasskey}
-                loading={addingPasskeyState}
-                disabled={Boolean(passkeySupportMessage)}
-              />
-            </View>
-
-            {passkeys.length > 0 ? (
-              <View
-                style={[
-                  styles.compactList,
-                  { borderColor: theme.border, marginTop: Spacing.three },
-                ]}>
-                {passkeys.map((passkey, index) => (
-                  <View
-                    key={passkey.id}
-                    style={[
-                      styles.compactPasskeyRow,
-                      index < passkeys.length - 1 && {
-                        borderBottomWidth: StyleSheet.hairlineWidth,
-                        borderBottomColor: theme.border,
-                      },
-                    ]}>
-                    <View
-                      style={[
-                        styles.compactThumb,
-                        { borderColor: theme.border, backgroundColor: theme.background },
-                      ]}>
-                      <MaterialIcons name="vpn-key" size={20} color={theme.textSecondary} />
-                    </View>
-                    <View style={styles.compactRowCopy}>
-                      <ThemedText type="smallBold" numberOfLines={1}>
-                        {passkey.name?.trim() || 'Unnamed passkey'}
-                      </ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                        {passkey.deviceType}
-                        {passkey.backedUp ? ' · synced' : ' · local'} · {formatDate(passkey.createdAt)}
-                      </ThemedText>
-                    </View>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Remove passkey"
-                      disabled={removingPasskeyId === passkey.id}
-                      onPress={() => handleRemovePasskey(passkey.id)}
-                      hitSlop={8}
-                      style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
-                      {removingPasskeyId === passkey.id ? (
-                        <ActivityIndicator size="small" color={theme.error} />
-                      ) : (
-                        <MaterialIcons name="remove-circle-outline" size={22} color={theme.error} />
-                      )}
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <ThemedText type="small" themeColor="textSecondary" style={{ marginTop: Spacing.three }}>
-                No passkeys registered yet.
-              </ThemedText>
-            )}
           </SectionCard>
 
           <SectionCard
@@ -1068,34 +936,6 @@ const styles = StyleSheet.create({
   flexText: {
     flex: 1,
   },
-  compactList: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    overflow: 'hidden',
-    alignSelf: 'stretch',
-  },
-  compactPasskeyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingVertical: Spacing.two + 2,
-    paddingHorizontal: Spacing.three,
-    minHeight: 56,
-  },
-  compactThumb: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  compactRowCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-    justifyContent: 'center',
-  },
   /** Flat list like profile → Documents (`BorrowerDocumentListItem`): rows + hairlines, no outer border. */
   loginActivityListRow: {
     flexDirection: 'row',
@@ -1117,9 +957,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 2,
     justifyContent: 'center',
-  },
-  passkeyRow: {
-    gap: Spacing.two,
   },
   modalOverlay: {
     flex: 1,

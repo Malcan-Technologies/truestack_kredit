@@ -11,10 +11,6 @@ import { authClient } from './auth-client';
 import { getEnv } from '@/lib/config/env';
 import { sessionFetch } from './session-fetch';
 import { revokeStoredBorrowerPushToken } from '@/lib/notifications/push-registration';
-import {
-  getPasskeyRpId,
-  getPasskeySupportMessage,
-} from './passkey-config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,15 +55,6 @@ export interface AccountProfile {
   };
 }
 
-export interface RegisteredPasskey {
-  id: string;
-  name?: string;
-  deviceType: string;
-  backedUp: boolean;
-  createdAt: string;
-  rpId?: string | null;
-}
-
 export interface PasswordInfoResult {
   passwordChangedAt: string | null;
 }
@@ -93,22 +80,12 @@ const authClientUnsafe = authClient as unknown as {
       email: string;
       password: string;
     }) => Promise<BetterAuthResponse<unknown>>;
-    passkey: (opts?: {
-      email?: string;
-      autoFill?: boolean;
-    }) => Promise<BetterAuthResponse<unknown>>;
   };
   signUp: {
     email: (opts: {
       email: string;
       password: string;
       name: string;
-    }) => Promise<BetterAuthResponse<unknown>>;
-  };
-  passkey: {
-    addPasskey: (opts?: {
-      name?: string;
-      useAutoRegister?: boolean;
     }) => Promise<BetterAuthResponse<unknown>>;
   };
   changePassword: (opts: {
@@ -161,8 +138,6 @@ async function authJson<T>(path: string, init?: RequestInit): Promise<T> {
   return json;
 }
 
-export { getPasskeySupportMessage, isPasskeyClientAvailable } from './passkey-config';
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -183,13 +158,9 @@ export async function signInWithEmail(
   if (error) {
     throw new Error(resolveErrorMessage(error, 'Sign in failed'));
   }
-  // When 2FA is required, Better Auth returns twoFactorRedirect: true with no token
   if ((data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) {
     return { twoFactorRedirect: true } as SignInResult & { twoFactorRedirect: true };
   }
-  // Some Better Auth client/plugin combinations handle the 2FA redirect
-  // internally and return no session payload here. Treat that as a pending
-  // 2FA challenge instead of a completed login.
   if (!data) {
     return { twoFactorRedirect: true } as SignInResult & { twoFactorRedirect: true };
   }
@@ -213,60 +184,6 @@ export async function signUpWithEmail(
     throw new Error(resolveErrorMessage(error, 'Sign up failed'));
   }
   return data as unknown as { user: AuthUser; token?: string };
-}
-
-export async function signInWithPasskey(email?: string): Promise<SignInResult> {
-  const unavailableReason = getPasskeySupportMessage();
-  if (unavailableReason) {
-    throw new Error(unavailableReason);
-  }
-
-  // `autoFill` maps to iOS `preferImmediatelyAvailableCredentials`, which
-  // suppresses the full picker and fails silently when no credential is
-  // already discoverable. For button-triggered sign-in we want the native
-  // picker, so omit it (matches the web passkey client).
-  // `email` is accepted for API parity but the Expo passkey module does not
-  // forward it to the server — the authenticator presents discoverable
-  // credentials for the current RP.
-  const { data, error } = await authClientUnsafe.signIn.passkey({
-    email: email?.trim() ? email.trim() : undefined,
-  });
-
-  if (error) {
-    throw new Error(resolveErrorMessage(error, 'Passkey sign in failed'));
-  }
-
-  return data as unknown as SignInResult;
-}
-
-export async function addDevicePasskey(name?: string): Promise<void> {
-  const unavailableReason = getPasskeySupportMessage();
-  if (unavailableReason) {
-    throw new Error(unavailableReason);
-  }
-
-  // Omit `useAutoRegister`: on iOS it maps to
-  // `preferImmediatelyAvailableCredentials`, which skips the native
-  // registration UI and aborts silently if the platform can't immediately
-  // create a credential. A tapped "Add passkey" button should always show
-  // the system prompt (matches the web passkey client).
-  const { error } = await authClientUnsafe.passkey.addPasskey({
-    name: name?.trim() ? name.trim() : undefined,
-  });
-
-  if (error) {
-    throw new Error(resolveErrorMessage(error, 'Unable to register passkey'));
-  }
-}
-
-export async function deleteDevicePasskey(id: string): Promise<void> {
-  await authJson<{ status: boolean }>(
-    '/api/borrower-auth/auth/passkey/delete-passkey',
-    {
-      method: 'POST',
-      body: JSON.stringify({ id }),
-    },
-  );
 }
 
 /**
@@ -416,15 +333,6 @@ export async function fetchPasswordInfo(): Promise<PasswordInfoResult> {
 export async function fetchLoginHistory(): Promise<LoginHistoryEntry[]> {
   const json = await authJson<{ success: true; data: LoginHistoryEntry[] }>(
     '/api/auth/login-history',
-  );
-
-  return Array.isArray(json.data) ? json.data : [];
-}
-
-export async function listUserPasskeys(): Promise<RegisteredPasskey[]> {
-  const rpId = getPasskeyRpId() || new URL(getEnv().authBaseUrl || getEnv().backendUrl).hostname;
-  const json = await authJson<{ success: true; data: RegisteredPasskey[] }>(
-    `/api/auth/passkeys?rpId=${encodeURIComponent(rpId)}`,
   );
 
   return Array.isArray(json.data) ? json.data : [];

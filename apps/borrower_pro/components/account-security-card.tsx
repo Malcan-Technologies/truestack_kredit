@@ -208,24 +208,6 @@ export function AccountSecurityCard() {
     setShowChangeEmailConfirm(true);
   };
 
-  const handleChangeEmailConfirm = async () => {
-    setShowChangeEmailConfirm(false);
-    setChangingEmail(true);
-    try {
-      const result = await changeEmail({ newEmail: newEmail.trim() });
-      if (result.error) {
-        throw new Error(result.error.message || "Unable to change email");
-      }
-      toast.success("A verification email has been sent to your new email address. Please check your inbox to confirm the change.");
-      setShowChangeEmail(false);
-      setNewEmail("");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to change email");
-    } finally {
-      setChangingEmail(false);
-    }
-  };
-
   const handleAddPasskey = async () => {
     setAddingPasskey(true);
     try {
@@ -256,6 +238,24 @@ export function AccountSecurityCard() {
       toast.error(error instanceof Error ? error.message : "Unable to remove passkey");
     } finally {
       setRemovingPasskeyId(null);
+    }
+  };
+
+  const handleChangeEmailConfirm = async () => {
+    setShowChangeEmailConfirm(false);
+    setChangingEmail(true);
+    try {
+      const result = await changeEmail({ newEmail: newEmail.trim() });
+      if (result.error) {
+        throw new Error(result.error.message || "Unable to change email");
+      }
+      toast.success("A verification email has been sent to your new email address. Please check your inbox to confirm the change.");
+      setShowChangeEmail(false);
+      setNewEmail("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to change email");
+    } finally {
+      setChangingEmail(false);
     }
   };
 

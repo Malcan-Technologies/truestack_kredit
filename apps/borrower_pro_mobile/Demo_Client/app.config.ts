@@ -1,33 +1,6 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
-
-function parseHostname(value: string | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    return new URL(value).hostname || null;
-  } catch {
-    return null;
-  }
-}
-
-function resolvePasskeyRpId() {
-  const configuredRpId = process.env.EXPO_PUBLIC_PASSKEY_RP_ID?.trim();
-  if (configuredRpId) {
-    return configuredRpId;
-  }
-
-  return parseHostname(process.env.EXPO_PUBLIC_AUTH_BASE_URL?.trim());
-}
-
 export default function appConfig(_context: ConfigContext): ExpoConfig {
-  const passkeyRpId = resolvePasskeyRpId();
-  const includeAssociatedDomain =
-    Boolean(passkeyRpId) && !LOOPBACK_HOSTS.has((passkeyRpId ?? '').toLowerCase());
-
   return {
     name: 'Demo_Client',
     slug: 'Demo_Client',
@@ -40,11 +13,6 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       /** Required for `expo prebuild` / `expo run:ios` — cannot be inferred when using dynamic `app.config.ts`. */
       bundleIdentifier: 'com.anonymous.Demo-Client',
       icon: './assets/expo.icon',
-      ...(includeAssociatedDomain
-        ? {
-            associatedDomains: [`webcredentials:${passkeyRpId}`],
-          }
-        : {}),
     },
     android: {
       package: 'com.anonymous.democlient',
@@ -81,9 +49,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
           },
         },
       ],
-      [
-        'expo-video'
-      ]
+      ['expo-video'],
     ],
     experiments: {
       typedRoutes: true,

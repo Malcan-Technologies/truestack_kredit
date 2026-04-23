@@ -213,8 +213,9 @@ createAuthClient({
 ### Mobile environment variables
 
 Required in `apps/borrower_pro_mobile/Demo_Client/.env`:
-- `EXPO_PUBLIC_BACKEND_URL` — URL of backend_pro (e.g. `http://192.168.x.x:4001`)
-- `EXPO_PUBLIC_AUTH_BASE_URL` — URL of borrower web app (for email link callbacks)
+- `EXPO_PUBLIC_BACKEND_URL` — URL of backend_pro (e.g. `http://192.168.x.x:4001` on simulator/LAN; **HTTPS tunnel or production URL** for physical devices and APK builds)
+- `EXPO_PUBLIC_AUTH_BASE_URL` — URL of borrower web app (for email link callbacks and passkey rpId derivation)
+- **Native passkeys (Android/iOS):** set `EXPO_PUBLIC_PASSKEY_RP_ID` to the registrable domain (not `localhost`). On `backend_pro`, set `BETTER_AUTH_PASSKEY_ANDROID_APK_KEY_HASHES` from `npm run android:apk-key-hash` in the mobile app (per signing key), align `BACKEND_PRO_PUBLIC_URL` / `BORROWER_WEB_URL` with the same HTTPS URLs, and host `assetlinks.json` / Apple `webcredentials` as required by [expo-better-auth-passkey](https://github.com/kevcube/expo-better-auth-passkey).
 
 ### Files to check first (mobile)
 

@@ -12,6 +12,7 @@
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
+    "android:apk-key-hash": "node ./scripts/print-android-apk-key-hash.cjs",
     "android:emulator": "node ./scripts/adb-reverse.js && REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",

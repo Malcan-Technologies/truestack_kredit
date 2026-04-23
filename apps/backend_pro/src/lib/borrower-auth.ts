@@ -60,9 +60,43 @@ const trustedOrigins = collectOrigins(
   // Expo Go development scheme
   'exp://',
 );
+
+/** HTTPS origin only — used so passkey `origin` never includes http://localhost on native. */
+function httpsPublicOrigin(url: string): string | undefined {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return undefined;
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Android APK / Credential Manager sends `android:apk-key-hash:<base64(sha256(cert))>` as origin.
+ * Comma-separated env: full tokens or raw base64 digests (we add the prefix if missing).
+ * See: https://github.com/kevcube/expo-better-auth-passkey#android
+ */
+function splitAndroidApkKeyHashOrigins(value: string | undefined): string[] {
+  if (!value?.trim()) return [];
+  const out: string[] = [];
+  for (const part of value.split(',')) {
+    const item = part.trim();
+    if (!item) continue;
+    out.push(
+      item.startsWith('android:apk-key-hash:')
+        ? item
+        : `android:apk-key-hash:${item}`,
+    );
+  }
+  return out;
+}
+
 const passkeyOrigins = collectOrigins(
   borrowerWebUrl,
+  httpsPublicOrigin(backendBaseUrl),
   splitOrigins(process.env.BETTER_AUTH_PASSKEY_ORIGINS),
+  splitAndroidApkKeyHashOrigins(process.env.BETTER_AUTH_PASSKEY_ANDROID_APK_KEY_HASHES),
 );
 const passkeyRpId =
   process.env.BETTER_AUTH_PASSKEY_RP_ID || getPasskeyRpId(borrowerWebUrl);

@@ -62,7 +62,8 @@ Editing routes: [Expo Router — file-based routing](https://docs.expo.dev/route
 
 - Passkeys are **not supported in Expo Go**. Use a native development build or production build.
 - Keep the relying-party host env-driven with `EXPO_PUBLIC_PASSKEY_RP_ID`. If it is blank, the app derives it from `EXPO_PUBLIC_AUTH_BASE_URL`.
-- Web passkeys can use `localhost`, but **native iOS/Android passkeys cannot**. For native development, point `EXPO_PUBLIC_AUTH_BASE_URL` or `EXPO_PUBLIC_PASSKEY_RP_ID` to an HTTPS tunnel or deployed domain.
+- Web passkeys can use `localhost`, but **native iOS/Android passkeys cannot**. For APK/device builds, set **`EXPO_PUBLIC_BACKEND_URL`** and **`EXPO_PUBLIC_AUTH_BASE_URL`** to your **HTTPS** tunnel (or production) URLs — not `http://localhost` — then rebuild; see `.env.example`.
+- **Android:** run `npm run android:apk-key-hash` and set **`BETTER_AUTH_PASSKEY_ANDROID_APK_KEY_HASHES`** on `backend_pro` (add release keystore output when you ship a signed APK). Host **`/.well-known/assetlinks.json`** on your rpID site for `android.package` from `app.config.ts` ([expo-better-auth-passkey](https://github.com/kevcube/expo-better-auth-passkey#android)).
 - iOS associated domains and similar native config should be generated from env in `app.config.ts`, not hardcoded to a single client domain.
 
 Web counterpart for colors/copy reference: `apps/borrower_pro/Demo_Client/docs/planning/brand.md`.

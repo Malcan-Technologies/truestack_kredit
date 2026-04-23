@@ -1,6 +1,6 @@
 ---
 title: Borrower KYC (TrueStack KYC)
-order: 3
+order: 4
 ---
 
 # Borrower KYC (TrueStack KYC)

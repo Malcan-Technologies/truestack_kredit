@@ -100,11 +100,12 @@ export function ToastProvider({ children, position = 'top' }: ToastProviderProps
   );
 
   useEffect(() => {
+    const timers = timersRef.current;
     _registerToastHandlers({ show, dismiss });
     return () => {
       _registerToastHandlers(null);
-      timersRef.current.forEach((timer) => clearTimeout(timer));
-      timersRef.current.clear();
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
     };
   }, [show, dismiss]);
 

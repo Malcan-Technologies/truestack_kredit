@@ -363,7 +363,6 @@ function WatchVideoContent({ loanId }: { loanId: string }) {
             style={styles.video}
             contentFit="contain"
             nativeControls={false}
-            allowsFullscreen
             requiresLinearPlayback
             allowsPictureInPicture={false}
           />

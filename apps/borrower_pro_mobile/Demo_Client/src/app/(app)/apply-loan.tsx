@@ -615,6 +615,8 @@ export default function ApplyLoanScreen() {
     if (!isValid) {
       setDraft((d) => ({ ...d, term: String(selectedProduct.minTerm) }));
     }
+    // Intention: clamp term when the product (allowed steps / list) changes only — not on every `draft.term` edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProduct]);
 
   useEffect(() => {

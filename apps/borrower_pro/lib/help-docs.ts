@@ -27,12 +27,20 @@ const HELP_TOPICS: HelpTopicSummary[] = [
     order: 1,
   },
   {
+    slug: "your-meetings",
+    title: "Your Meetings",
+    summary:
+      "See attestation meetings and scheduling across your loans — upcoming, action required, and past — in one list.",
+    fileName: "your-meetings.md",
+    order: 2,
+  },
+  {
     slug: "payments",
     title: "Making payments",
     summary:
       "Learn how to repay through the company's bank account, use the transfer reference, and submit your payment for review.",
     fileName: "payments.md",
-    order: 2,
+    order: 3,
   },
   {
     slug: "why-e-kyc-is-required",
@@ -40,7 +48,7 @@ const HELP_TOPICS: HelpTopicSummary[] = [
     summary:
       "Learn why identity verification is needed for safe lending, compliance, and issuance of your digital signing certificate.",
     fileName: "why-e-kyc-is-required.md",
-    order: 3,
+    order: 4,
   },
   {
     slug: "security-and-privacy",
@@ -48,7 +56,7 @@ const HELP_TOPICS: HelpTopicSummary[] = [
     summary:
       "Learn how your personal data, e-KYC information, identity documents, and account access are protected in the portal.",
     fileName: "security-and-privacy.md",
-    order: 4,
+    order: 5,
   },
 ];
 

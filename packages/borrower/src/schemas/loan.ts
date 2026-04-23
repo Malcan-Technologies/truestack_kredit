@@ -29,6 +29,7 @@ export const AttestationStatusSchema = z.enum([
   "COUNTER_PROPOSED",
   "PROPOSAL_EXPIRED",
   "MEETING_SCHEDULED",
+  "MEETING_COMPLETED",
   "COMPLETED",
 ]);
 
@@ -136,6 +137,8 @@ export const BorrowerLoanDetailSchema = z.object({
   attestationMeetingLink: z.string().nullable().optional(),
   attestationMeetingNotes: z.string().nullable().optional(),
   attestationGoogleCalendarEventId: z.string().nullable().optional(),
+  attestationMeetingAdminCompletedAt: z.string().nullable().optional(),
+  attestationTermsAcceptedAt: z.string().nullable().optional(),
   attestationCompletedAt: z.string().nullable().optional(),
   attestationCancellationReason: z.string().nullable().optional(),
   borrowerKycComplete: z.boolean().nullable().optional(),

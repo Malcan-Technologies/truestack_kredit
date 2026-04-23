@@ -898,7 +898,6 @@ export function SliderField({
       })
       .runOnJS(true);
     return Gesture.Race(pan, tap);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled]);
 
   function handleLayout(e: LayoutChangeEvent) {

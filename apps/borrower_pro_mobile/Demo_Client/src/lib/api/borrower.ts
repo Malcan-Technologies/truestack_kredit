@@ -1,7 +1,7 @@
 /**
  * Borrower API clients for mobile.
  *
- * All five factory clients share a single `sessionFetch` that reads the stored
+ * All borrower-auth API factory clients share a single `sessionFetch` that reads the stored
  * session token from SecureStore and attaches it as a Cookie header.
  * Auth transport is handled transparently — screens just call e.g.
  * `borrowerClient.fetchBorrower()` without worrying about cookies.
@@ -12,6 +12,7 @@ import {
   createBorrowerApiClient,
   createBorrowerAuthApiClient,
   createLoansApiClient,
+  createMeetingsApiClient,
   createNotificationsApiClient,
   createSigningApiClient,
 } from '@kredit/borrower';
@@ -26,3 +27,4 @@ export const loansClient = createLoansApiClient(BASE, sessionFetch);
 export const borrowerAuthClient = createBorrowerAuthApiClient(BASE, sessionFetch);
 export const notificationsClient = createNotificationsApiClient(BASE, sessionFetch);
 export const signingClient = createSigningApiClient(`${BASE}/signing`, sessionFetch);
+export const meetingsClient = createMeetingsApiClient(BASE, sessionFetch);

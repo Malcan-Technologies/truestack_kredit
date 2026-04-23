@@ -32,7 +32,7 @@ export default function ForgotPasswordScreen() {
     try {
       await requestPasswordReset(email.trim().toLowerCase());
       setMessage(
-        'Reset instructions have been sent if the email exists. The reset page currently opens on the borrower web app.',
+        'Reset instructions have been sent if the email exists. Open the link on this device to reset in the app, or use your lender’s borrower website.',
       );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unable to send reset instructions.');

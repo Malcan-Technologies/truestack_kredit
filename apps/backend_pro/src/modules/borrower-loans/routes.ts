@@ -312,6 +312,144 @@ router.get('/loan-center/overview', async (req, res, next) => {
 });
 
 /**
+ * GET /api/borrower-auth/meetings
+ * Aggregated attestation meetings / scheduling across all of the borrower's loans.
+ */
+router.get('/meetings', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const includePast = String(req.query.include ?? "") === "past" || String(req.query.past ?? "") === "1";
+
+    const activePipeline: Array<
+      | "SLOT_PROPOSED"
+      | "COUNTER_PROPOSED"
+      | "MEETING_REQUESTED"
+      | "MEETING_SCHEDULED"
+      | "MEETING_COMPLETED"
+      | "PROPOSAL_EXPIRED"
+    > = [
+      "SLOT_PROPOSED",
+      "COUNTER_PROPOSED",
+      "MEETING_REQUESTED",
+      "MEETING_SCHEDULED",
+      "MEETING_COMPLETED",
+      "PROPOSAL_EXPIRED",
+    ];
+
+    const orBlock: Prisma.LoanWhereInput[] = [{ attestationStatus: { in: activePipeline } }];
+    if (includePast) {
+      orBlock.push({
+        attestationStatus: "COMPLETED",
+        attestationMeetingStartAt: { not: null },
+      });
+    }
+
+    const statusFilter: Prisma.LoanWhereInput = includePast
+      ? {
+          status: {
+            in: [
+              "PENDING_ATTESTATION",
+              "PENDING_DISBURSEMENT",
+              "ACTIVE",
+              "IN_ARREARS",
+              "COMPLETED",
+              "DEFAULTED",
+              "WRITTEN_OFF",
+            ],
+          },
+        }
+      : { status: { in: ["PENDING_ATTESTATION", "PENDING_DISBURSEMENT"] } };
+
+    const loans = await prisma.loan.findMany({
+      where: {
+        tenantId: tenant.id,
+        borrowerId,
+        ...statusFilter,
+        OR: orBlock,
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 80,
+      select: {
+        id: true,
+        status: true,
+        principalAmount: true,
+        term: true,
+        attestationStatus: true,
+        attestationProposalStartAt: true,
+        attestationProposalEndAt: true,
+        attestationProposalDeadlineAt: true,
+        attestationProposalSource: true,
+        attestationMeetingStartAt: true,
+        attestationMeetingEndAt: true,
+        attestationMeetingLink: true,
+        attestationMeetingNotes: true,
+        attestationGoogleCalendarEventId: true,
+        attestationMeetingAdminCompletedAt: true,
+        attestationCompletedAt: true,
+        updatedAt: true,
+        product: { select: { id: true, name: true } },
+        tenant: { select: { name: true } },
+      },
+    });
+
+    const now = new Date();
+    const data = loans.map((loan) => {
+      const meetingSource: "google" | "manual" = loan.attestationGoogleCalendarEventId ? "google" : "manual";
+      const primaryInstant = loan.attestationMeetingStartAt ?? loan.attestationProposalStartAt;
+      const actionNeeded =
+        loan.attestationStatus === "COUNTER_PROPOSED" ||
+        loan.attestationStatus === "MEETING_COMPLETED" ||
+        loan.attestationStatus === "SLOT_PROPOSED" ||
+        loan.attestationStatus === "PROPOSAL_EXPIRED";
+
+      let uiTab: "upcoming" | "action" | "past" = "upcoming";
+      if (actionNeeded) {
+        uiTab = "action";
+      } else if (loan.attestationStatus === "COMPLETED") {
+        uiTab = "past";
+      } else if (primaryInstant && primaryInstant < now) {
+        uiTab = "past";
+      } else if (loan.attestationStatus === "MEETING_REQUESTED" && !primaryInstant) {
+        uiTab = "action";
+      }
+
+      if (loan.attestationStatus === "MEETING_COMPLETED") {
+        uiTab = "action";
+      }
+
+      return {
+        loanId: loan.id,
+        loanStatus: loan.status,
+        tenantName: loan.tenant.name,
+        productName: loan.product.name,
+        principalAmount: loan.principalAmount.toString(),
+        term: loan.term,
+        attestationStatus: loan.attestationStatus,
+        proposalStartAt: loan.attestationProposalStartAt?.toISOString() ?? null,
+        proposalEndAt: loan.attestationProposalEndAt?.toISOString() ?? null,
+        proposalDeadlineAt: loan.attestationProposalDeadlineAt?.toISOString() ?? null,
+        proposalSource: loan.attestationProposalSource,
+        meetingStartAt: loan.attestationMeetingStartAt?.toISOString() ?? null,
+        meetingEndAt: loan.attestationMeetingEndAt?.toISOString() ?? null,
+        meetingLink: loan.attestationMeetingLink,
+        meetingNotes: loan.attestationMeetingNotes,
+        meetingSource,
+        attestationMeetingAdminCompletedAt: loan.attestationMeetingAdminCompletedAt?.toISOString() ?? null,
+        attestationCompletedAt: loan.attestationCompletedAt?.toISOString() ?? null,
+        actionNeeded,
+        sortAt: (primaryInstant ?? loan.updatedAt).toISOString(),
+        uiTab,
+      };
+    });
+
+    data.sort((a, b) => a.sortAt.localeCompare(b.sortAt));
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * GET /api/borrower-auth/loans
  */
 router.get('/loans', async (req, res, next) => {
@@ -1581,6 +1719,136 @@ router.post('/loans/:loanId/attestation/proceed-to-signing', async (req, res, ne
     } catch (notificationError) {
       console.error(`[Notifications] Failed attestation complete notify ${loanId}:`, notificationError);
     }
+
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/borrower-auth/loans/:loanId/attestation/accept-after-meeting
+ * After the lender marked the lawyer meeting complete, borrower accepts the loan to continue to KYC/signing.
+ */
+router.post('/loans/:loanId/attestation/accept-after-meeting', async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError("Loan");
+    }
+    if (!isPreDisbursementLoanStatus(loan.status)) {
+      throw new BadRequestError("Attestation is only available while the loan is pending disbursement");
+    }
+    if (loan.attestationStatus !== "MEETING_COMPLETED") {
+      throw new BadRequestError("There is no completed meeting waiting for your confirmation on this loan.");
+    }
+    if (loan.attestationCompletedAt) {
+      throw new BadRequestError("Attestation is already complete.");
+    }
+
+    const now = new Date();
+    const updated = await prisma.loan.update({
+      where: { id: loanId },
+      data: {
+        status: "PENDING_DISBURSEMENT",
+        attestationStatus: "COMPLETED",
+        attestationCompletedAt: now,
+        attestationTermsAcceptedAt: now,
+      },
+    });
+
+    await AuditService.log({
+      tenantId: tenant.id,
+      action: "BORROWER_ATTESTATION_ACCEPTED_AFTER_MEETING",
+      entityType: "Loan",
+      entityId: loanId,
+      previousData: { attestationStatus: loan.attestationStatus, status: loan.status },
+      newData: {
+        attestationStatus: updated.attestationStatus,
+        attestationCompletedAt: now.toISOString(),
+        attestationTermsAcceptedAt: now.toISOString(),
+        status: "PENDING_DISBURSEMENT",
+      },
+      ipAddress: req.ip,
+    });
+
+    try {
+      await NotificationOrchestrator.notifyBorrowerEvent({
+        tenantId: tenant.id,
+        borrowerId,
+        notificationKey: "loan_attestation_complete",
+        category: "loan_lifecycle",
+        title: "Attestation complete",
+        body: "Attestation is complete. Continue with identity verification, your digital signing certificate, then agreement signing.",
+        deepLink: `/loans/${loanId}`,
+        sourceType: "LOAN",
+        sourceId: loanId,
+      });
+    } catch (notificationError) {
+      console.error(`[Notifications] Failed attestation complete notify ${loanId}:`, notificationError);
+    }
+
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/borrower-auth/loans/:loanId/attestation/reject-after-meeting
+ * Reject the loan after the lender marked the meeting complete (e.g. terms not accepted).
+ */
+router.post("/loans/:loanId/attestation/reject-after-meeting", async (req, res, next) => {
+  try {
+    const { borrowerId, tenant } = await requireActiveBorrower(req);
+    const { loanId } = req.params;
+    const userId = req.borrowerUser?.userId;
+    if (!userId) {
+      throw new BadRequestError("Session error");
+    }
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId: tenant.id, borrowerId },
+    });
+    if (!loan) {
+      throw new NotFoundError("Loan");
+    }
+    if (loan.attestationStatus !== "MEETING_COMPLETED") {
+      throw new BadRequestError(
+        "You can only reject the loan at this step after your lender has marked the meeting complete."
+      );
+    }
+
+    let updated;
+    try {
+      updated = await cancelLoanFromBorrower({
+        loanId,
+        tenantId: tenant.id,
+        borrowerId,
+        userId,
+        reason: "REJECTED_AFTER_ATTESTATION",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "INVALID_LOAN_STATUS") {
+        throw new BadRequestError("This loan cannot be cancelled.");
+      }
+      throw err;
+    }
+
+    await AuditService.log({
+      tenantId: tenant.id,
+      action: "BORROWER_ATTESTATION_REJECTED_AFTER_MEETING",
+      entityType: "Loan",
+      entityId: loanId,
+      newData: { reason: "REJECTED_AFTER_ATTESTATION" },
+      ipAddress: req.ip,
+    });
 
     res.json({ success: true, data: updated });
   } catch (e) {

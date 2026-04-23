@@ -10,9 +10,7 @@ import {
   CircleAlert,
   CircleHelp,
   Clock3,
-  ExternalLink,
   FileText,
-  Mail,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
@@ -34,6 +32,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@borrower_pro/components/ui/tooltip";
+import { BorrowerDemoTruestackFooter } from "@borrower_pro/components/borrower-marketing-footer";
 import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
 import { fetchBorrowerMe } from "@borrower_pro/lib/borrower-auth-client";
 import {
@@ -743,84 +742,7 @@ export function HomePageContent() {
         </div>
       </section>
 
-      <footer className="border-t border-border/60 bg-background">
-        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="max-w-3xl space-y-3">
-            <h2 className="font-heading text-lg font-semibold text-foreground">
-              KPKT digital lending licence demo
-            </h2>
-            <p className="text-sm leading-7 text-muted-foreground">
-              This site demonstrates a borrower-facing experience for Malaysian licensed money
-              lenders preparing for or operating under a{" "}
-              <span className="text-foreground/90">KPKT digital lending licence</span>. It is
-              meant for product discovery, internal reviews, and conversations about digital
-              borrower journeys—not live lending or credit decisions. TrueStack Technologies
-              builds software and implementation support for{" "}
-              <span className="text-foreground/90">KPKT digital lending licence</span>{" "}
-              conversion and compliant digital operations; figures and flows shown here are
-              illustrative unless stated otherwise.
-            </p>
-          </div>
-
-          <div className="mt-10 flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
-            <div className="max-w-md space-y-6">
-              <HomeBrandMark />
-              <div className="space-y-2 text-sm leading-6">
-                <p className="font-heading font-semibold text-foreground">
-                  TRUESTACK TECHNOLOGIES SDN. BHD.
-                </p>
-                <p className="text-muted-foreground">
-                  Registration No. 202501058714 (1660120-X)
-                </p>
-                <p className="text-muted-foreground">
-                  Lot C-13-3, KL Trillion
-                  <br />
-                  No 338 Jalan Tun Razak
-                  <br />
-                  50400 Kuala Lumpur
-                </p>
-                <p>
-                  <a
-                    href="mailto:hello@truestack.my"
-                    className="inline-flex items-center gap-2 text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-                  >
-                    <Mail className="h-4 w-4 shrink-0" aria-hidden />
-                    hello@truestack.my
-                  </a>
-                </p>
-                <p>
-                  <a
-                    href="https://truestack.my"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-                  >
-                    <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
-                    truestack.my
-                  </a>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground lg:shrink-0">
-              <Link href="/legal/terms" className="transition-colors hover:text-foreground">
-                Terms
-              </Link>
-              <Link href="/legal/privacy" className="transition-colors hover:text-foreground">
-                Privacy
-              </Link>
-              <Link href="/legal/security" className="transition-colors hover:text-foreground">
-                Security
-              </Link>
-            </div>
-          </div>
-
-          <div className="mt-10 space-y-4 rounded-2xl border border-border/70 bg-secondary/30 p-5">
-            <p className="text-sm font-medium text-foreground">Disclaimer</p>
-            <p className="text-sm leading-6 text-muted-foreground">{DEMO_NOTICE}</p>
-          </div>
-        </div>
-      </footer>
+      <BorrowerDemoTruestackFooter />
     </main>
   );
 }

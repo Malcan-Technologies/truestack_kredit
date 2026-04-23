@@ -68,6 +68,8 @@ Filter the log by:
 
 The detail page for each application, loan, and borrower shows a **scoped timeline** — a filtered slice of the audit log relevant to that entity. The full log combines every entity, which is useful for compliance and investigation.
 
+**L1 / L2 decision notes** on the application detail page (`l1DecisionNote`, `l2DecisionNote` with reviewer and timestamps) are **not** a second audit log — they are fields on the application record for reviewers. The formal **audit trail** for actions such as send-to-L2 or approval remains in Admin Logs and the application timeline events.
+
 ---
 
 ## Exporting

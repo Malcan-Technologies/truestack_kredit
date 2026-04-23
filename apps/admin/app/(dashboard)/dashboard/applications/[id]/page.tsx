@@ -402,6 +402,8 @@ export default function ApplicationDetailPage() {
   const canApproveL1 = canApproveApplicationsL1(permissions);
   const canApproveL2 = canApproveApplicationsL2(permissions);
   const canRejectApplication = hasPermission(permissions, "applications.reject");
+  const canViewDecisionNotes =
+    hasPermission(permissions, "applications.view") || canApproveL1 || canApproveL2;
 
   const [application, setApplication] = useState<Application | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
@@ -887,12 +889,6 @@ export default function ApplicationDetailPage() {
                 L2 Review — final credit decision. Approving will create the loan and schedule.
               </p>
             )}
-            {application.l1ReviewedAt && (
-              <p className="text-xs text-muted-foreground mt-1">
-                L1 reviewed {formatDate(application.l1ReviewedAt)}
-                {application.l1DecisionNote ? ` — ${application.l1DecisionNote}` : ""}
-              </p>
-            )}
           </div>
         </div>
 
@@ -984,6 +980,59 @@ export default function ApplicationDetailPage() {
           )}
         </div>
       </div>
+
+      {canViewDecisionNotes ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Decision notes</CardTitle>
+            <CardDescription>
+              Recorded when moving to L2 or on final approval / rejection (L1 and L2).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">L1 credit review</p>
+              {application.l1ReviewedAt ? (
+                <p className="text-xs text-muted-foreground">
+                  {formatDate(application.l1ReviewedAt)}
+                  {application.l1ReviewedByMemberId
+                    ? ` · Reviewer: ${application.l1ReviewedByMemberId.slice(0, 8)}…`
+                    : ""}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Not reviewed on record.</p>
+              )}
+              {application.l1DecisionNote ? (
+                <p className="text-sm rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words">
+                  {application.l1DecisionNote}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">No L1 decision note recorded.</p>
+              )}
+            </div>
+            <div className="space-y-2 border-t border-border pt-4">
+              <p className="text-sm font-medium">L2 final approval</p>
+              {application.l2ReviewedAt ? (
+                <p className="text-xs text-muted-foreground">
+                  {formatDate(application.l2ReviewedAt)}
+                  {application.l2ReviewedByMemberId
+                    ? ` · Reviewer: ${application.l2ReviewedByMemberId.slice(0, 8)}…`
+                    : ""}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Not reviewed on record.</p>
+              )}
+              {application.l2DecisionNote ? (
+                <p className="text-sm rounded-md border bg-muted/30 p-3 whitespace-pre-wrap break-words">
+                  {application.l2DecisionNote}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">No L2 decision note recorded.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Missing Documents Warning */}
       {application.status === "DRAFT" && missingRequiredDocs.length > 0 && (

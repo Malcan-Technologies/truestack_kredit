@@ -1,6 +1,15 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
+/** Hostname only (no scheme), same as the deployed borrower web app — enables Universal / App Links when set. */
+function universalLinkHost(): string | undefined {
+  const raw = process.env.EXPO_PUBLIC_UNIVERSAL_LINK_HOST?.trim();
+  if (!raw) return undefined;
+  return raw.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+}
+
 export default function appConfig(_context: ConfigContext): ExpoConfig {
+  const linkHost = universalLinkHost();
+
   return {
     name: 'Demo_Client',
     slug: 'Demo_Client',
@@ -13,6 +22,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       /** Required for `expo prebuild` / `expo run:ios` — cannot be inferred when using dynamic `app.config.ts`. */
       bundleIdentifier: 'com.anonymous.Demo-Client',
       icon: './assets/expo.icon',
+      ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
     },
     android: {
       package: 'com.anonymous.democlient',
@@ -23,6 +33,21 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
         monochromeImage: './assets/images/android-icon-monochrome.png',
       },
       predictiveBackGestureEnabled: false,
+      ...(linkHost
+        ? {
+            intentFilters: [
+              {
+                action: 'VIEW',
+                autoVerify: true,
+                data: [
+                  { scheme: 'https', host: linkHost, pathPrefix: '/reset-password' },
+                  { scheme: 'https', host: linkHost, pathPrefix: '/verify-email' },
+                ],
+                category: ['BROWSABLE', 'DEFAULT'],
+              },
+            ],
+          }
+        : {}),
     },
     web: {
       output: 'static',

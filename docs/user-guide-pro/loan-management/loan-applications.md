@@ -170,6 +170,17 @@ Fields recorded on final approval: `l2ReviewedAt`, `l2ReviewedByMemberId`, `l2De
 
 ---
 
+## Decision notes (application detail)
+
+On the **application detail** page, eligible staff (L1/L2 reviewers and managers, subject to RBAC) can open a **Decision notes** panel above the main decision actions. It shows two subsections:
+
+- **L1 credit review** — `l1DecisionNote` with **reviewer** and **`l1ReviewedAt`** when present.
+- **L2 final approval** — `l2DecisionNote` with **reviewer** and **`l2ReviewedAt`** when present.
+
+If a note was not recorded at that stage, the UI shows an empty state (e.g. “No note recorded.”). This complements the workflow tables above: the same fields are stored on the application record; the panel surfaces them for context when handling returns, counter-offers, or escalations.
+
+---
+
 ## Resubmission Rules
 
 If the borrower resubmits or changes documents while the application is `PENDING_L2_APPROVAL`, the system automatically:
@@ -196,7 +207,7 @@ Offers sent to the borrower appear on the borrower portal for acceptance, counte
 
 1. Final L2 approval creates a `Loan` record
 2. The application status becomes `APPROVED`
-3. The borrower proceeds through **attestation → e-KYC → signing certificate → digital signing** (see [Digital Signing](?doc=digital-signing/signing-overview))
+3. The borrower proceeds through **attestation → e-KYC → signing certificate → digital signing** (see [Digital Signing](?doc=digital-signing/signing-overview)). If attestation uses a **lawyer meeting**, the admin marks the meeting complete; the borrower must then **accept or reject** before attestation fully completes (`MEETING_COMPLETED` → borrower action → `COMPLETED` on the attestation step). See [Borrower Meetings hub](?doc=borrower-portal/meetings).
 4. Admin and witness digitally sign
 5. The finance officer **disburses** the loan (see [Loan Disbursement](?doc=loans/loan-disbursement))
 

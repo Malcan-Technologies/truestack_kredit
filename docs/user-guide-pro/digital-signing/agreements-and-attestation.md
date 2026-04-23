@@ -162,7 +162,7 @@ Certificate validity depends on the signing gateway's configuration (typically a
 
 ### Where do attestation meetings appear for the borrower?
 
-In the borrower portal — on their loan journey / application detail, with a link to join or attend at the scheduled time.
+In the borrower portal — on the loan’s attestation step (with a link to join or attend at the scheduled time) and, when enabled, on the **Meetings** hub for a cross-loan list. After the administrator marks a meeting complete, the borrower is prompted to **accept** or **reject** before attestation is fully complete.
 
 ---
 

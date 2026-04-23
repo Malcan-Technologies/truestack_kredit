@@ -2,6 +2,8 @@
 
 This guide explains the usual end-to-end borrower journey in the portal, from application all the way to loan discharge after full repayment.
 
+- [Your Meetings hub](/help/your-meetings) — one place to see attestation meeting status across loans (scheduling, Meet links, and follow-up actions).
+
 ## Visual flow
 
 ```mermaid
@@ -99,6 +101,8 @@ Depending on the portal workflow, you may need to:
 - complete another required confirmation step.
 
 This confirms that you understand the loan and are proceeding intentionally.
+
+If your workflow uses a **lawyer meeting**, the lender may mark the meeting complete when it ends. You will then be asked in the loan (and in **Meetings** if you use that page) to **accept** the terms to continue to e-KYC and signing, or **reject** the loan if you do not wish to proceed.
 
 ### 5. Complete e-KYC
 

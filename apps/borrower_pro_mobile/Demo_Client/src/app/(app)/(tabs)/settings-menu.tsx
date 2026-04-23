@@ -12,7 +12,8 @@ type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 type SettingsMenuItemConfig = {
   title: string;
   description: string;
-  href: Href;
+  /** Route in the app shell (some stack screens are not in generated Href union yet). */
+  href: Href | string;
   icon: IconName;
 };
 
@@ -91,7 +92,7 @@ function SettingsSection({
               title={item.title}
               description={item.description}
               icon={item.icon}
-              onPress={() => router.push(item.href)}
+              onPress={() => router.push(item.href as Href)}
             />
           </View>
         ))}
@@ -114,6 +115,12 @@ export default function SettingsMenuScreen() {
             description: 'Sign-in security, email, password, 2FA, and login history.',
             href: '/account',
             icon: 'person',
+          },
+          {
+            title: 'Meetings',
+            description: 'Attestation meetings and scheduling across your loans.',
+            href: '/meetings',
+            icon: 'event',
           },
         ]}
       />

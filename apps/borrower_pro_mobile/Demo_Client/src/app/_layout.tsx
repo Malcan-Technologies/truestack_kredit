@@ -32,14 +32,22 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       pathname === '/sign-in' ||
       pathname === '/sign-up' ||
       pathname === '/forgot-password' ||
+      pathname === '/reset-password' ||
       pathname === '/verify-email' ||
+      pathname === '/verify-email/confirm' ||
       pathname === '/two-factor';
     const isTwoFactorRoute = pathname === '/two-factor';
     const hasSession = Boolean(session?.session?.token);
+    /** Routes that signed-in users should leave (they are “entry” auth screens). */
+    const authEntryWhenAuthed =
+      pathname === '/sign-in' ||
+      pathname === '/sign-up' ||
+      pathname === '/forgot-password' ||
+      pathname === '/verify-email';
 
     if (!hasSession && !isAuthRoute) {
       router.replace('/(auth)/sign-in');
-    } else if (hasSession && isAuthRoute && !isTwoFactorRoute) {
+    } else if (hasSession && authEntryWhenAuthed && !isTwoFactorRoute) {
       router.replace('/');
     }
   }, [isLoading, pathname, router, session]);

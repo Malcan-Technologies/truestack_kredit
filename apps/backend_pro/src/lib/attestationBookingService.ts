@@ -123,7 +123,7 @@ export async function proposeBorrowerSlot(params: {
   await notifyTenantAdminsEmail({
     tenantId: params.tenantId,
     subject: 'Attestation: borrower proposed a meeting slot',
-    body: `Loan ${params.loanId.slice(0, 8)} — borrower selected a slot. Confirm before the slot starts in TrueKredit Pro → Attestation Meetings.`,
+    body: `Loan ${params.loanId.slice(0, 8)} — borrower selected a slot. Confirm before the slot starts: open your admin dashboard and go to Attestation Meetings.`,
   });
 
   return updated as Loan;

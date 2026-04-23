@@ -58,7 +58,7 @@ export default function VerifyEmailScreen() {
         }>
         <AuthMessage>
           {email
-            ? `We sent a verification link to ${email}. The confirmation page still opens on the borrower web app until deep linking is completed.`
+            ? `We sent a verification link to ${email}. Open it on this device to complete verification in the app, or use your lender’s borrower website.`
             : 'Check the inbox for the email address you used during sign up or sign in.'}
         </AuthMessage>
 

@@ -5,6 +5,7 @@ export * from './types/loan';
 export * from './types/auth';
 export * from './types/signing';
 export * from './types/notifications';
+export * from './types/meeting';
 
 // Schemas
 export * from './schemas/borrower';
@@ -31,6 +32,9 @@ export { createLoansApiClient } from './api/loans-client';
 export { createBorrowerAuthApiClient } from './api/borrower-auth-client';
 export { createSigningApiClient } from './api/signing-client';
 export { createNotificationsApiClient } from './api/notifications-client';
+export { createMeetingsApiClient } from './api/meetings-client';
+
+export { resolveBorrowerSecurityStatus, type BorrowerSecurityStatus } from './lib/security-status';
 
 // URL helpers
 export {

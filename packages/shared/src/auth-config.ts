@@ -31,7 +31,10 @@ function stripPathToOrigin(value: string): string {
 
 export function normalizeOrigin(value: string | null | undefined): string | null {
   if (!value?.trim()) return null;
-  return stripPathToOrigin(value);
+  // Strip straight/curly quotes often pasted in from rich text (breaks new URL()).
+  const dequoted = value.trim().replace(/^["'\u201C\u201D]+|["'\u201C\u201D]+$/g, "");
+  if (!dequoted) return null;
+  return stripPathToOrigin(dequoted);
 }
 
 export function splitOrigins(value: string | null | undefined): string[] {

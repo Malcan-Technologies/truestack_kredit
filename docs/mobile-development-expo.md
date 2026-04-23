@@ -6,32 +6,30 @@ This document maps `apps/borrower_pro/Demo_Client` (Next.js) to the **Expo (Reac
 
 ---
 
-## 0. Current Status (as of 2026-04-11)
+## 0. Current Status (as of 2026-04-23)
 
 ### What has been built
 
 **`packages/borrower` (`@kredit/borrower`)** — shared workspace package used by both web and mobile:
 - Full TypeScript type definitions for all borrower domains (borrower, application, loan, auth, signing)
 - Matching Zod validation schemas
-- Five API client factories: `createBorrowerApiClient`, `createApplicationsApiClient`, `createLoansApiClient`, `createBorrowerAuthApiClient`, `createSigningApiClient`
+- API client factories: `createBorrowerApiClient`, `createApplicationsApiClient`, `createLoansApiClient`, `createBorrowerAuthApiClient`, `createNotificationsApiClient`, `createMeetingsApiClient`, `createSigningApiClient` (the mobile host wires the subset it needs; see [packages-borrower.md](./packages-borrower.md))
 - Standalone URL helpers for loan agreements, disbursement proofs, transaction receipts
-- See [packages-borrower.md](./packages-borrower.md) for full API reference
 
-**`apps/borrower_pro_mobile/Demo_Client/`** — Expo app scaffold is in place with:
+**`apps/borrower_pro_mobile/Demo_Client/`** — production-shaped borrower shell:
 
 | File | What it does |
 |------|-------------|
-| `src/lib/auth/session-store.ts` | Persists Better Auth session token in `expo-secure-store`; exports `getSessionToken`, `setSessionToken`, `clearSessionToken`, `buildCookieHeader` |
-| `src/lib/auth/session-fetch.ts` | `sessionFetch: FetchFn` — reads stored token on every call and injects `Cookie: truestack-borrower.session_token=<token>` |
-| `src/lib/auth/auth-api.ts` | Better Auth helpers for email auth, TOTP/2FA, account/security fetches, password reset, and verification resend |
-| `src/lib/auth/session-context.tsx` | `SessionProvider` + `useSession()` React Context; validates token against server on mount; exposes `session`, `user`, `isLoading`, `signOut`, `refresh` |
-| `src/lib/auth/index.ts` | Barrel export for the auth module |
-| `src/lib/api/borrower.ts` | All five API clients instantiated with `sessionFetch`; screens import e.g. `borrowerClient.fetchBorrower()` |
-| `src/app/_layout.tsx` | Root layout with `SessionProvider` + `AuthGate` (Expo Router auth guard) |
-| `src/app/(auth)/*.tsx` | Sign-in, sign-up, forgot-password, and verify-email screens wired to Better Auth mobile helpers |
-| `src/app/(app)/account.tsx` | Mobile account tab with profile edit, email/password actions, TOTP/security, and login activity |
-| `src/app/(app)/applications.tsx`, `src/app/(app)/loans.tsx` | Placeholder tab screens so the borrower menu structure is in place while auth is being built out |
-| `metro.config.js` | Monorepo-aware Metro config: watches `packages/` so Metro can resolve `@kredit/borrower` |
+| `src/lib/auth/session-store.ts` | Persists Better Auth session token in `expo-secure-store`; cookie header helpers |
+| `src/lib/auth/session-fetch.ts` | `sessionFetch` — injects `Cookie: truestack-borrower.session_token=…` for API calls |
+| `src/lib/auth/auth-api.ts` | Better Auth helpers: email, TOTP/2FA, account/security, password reset, verification resend |
+| `src/lib/auth/verify-email-api.ts` | `GET` email verification against `backend_pro` Better Auth mount (`/api/borrower-auth/auth/verify-email`) |
+| `src/lib/api/borrower.ts` | `borrowerClient`, `applicationsClient`, `loansClient`, `borrowerAuthClient`, `notificationsClient`, `meetingsClient`, `signingClient` with `sessionFetch` |
+| `src/app/_layout.tsx` | `SessionProvider` + `AuthGate` (allows `(auth)/reset-password`, `(auth)/verify-email/confirm` without a session) |
+| `src/app/(auth)/*` | Sign-in, sign-up, forgot-password, **reset-password** (token), verify-email, **verify-email/confirm** (token), two-factor |
+| `src/app/(app)/*` | Tabbed dashboard, applications, loans, profile, settings; stack routes for **meetings** hub, loan detail, attestation, payments, onboarding, help, about, account, notifications, apply flow, etc. |
+| `app.config.ts` | Optional `EXPO_PUBLIC_UNIVERSAL_LINK_HOST` → iOS `associatedDomains` + Android `intentFilters` for `/reset-password` and `/verify-email` paths |
+| `metro.config.js` | Monorepo Metro config for `@kredit/borrower` |
 
 **Web app import consolidation** — zero behavior change, all tests pass:
 - `apps/borrower_pro/lib/borrower-*-client.ts` files now import types from `@kredit/borrower` and re-export them for backward compat
@@ -41,12 +39,12 @@ This document maps `apps/borrower_pro/Demo_Client` (Next.js) to the **Expo (Reac
 
 Better Auth session tokens are read from the sign-in response body (`result.token`) — more reliable than parsing `Set-Cookie` on React Native. Tokens are stored in `expo-secure-store` (available in Expo Go; no custom build required). On every API call, `sessionFetch` reads the token and manually injects it as a `Cookie` header. The Better Auth server sees an identical cookie to the one set in a browser session.
 
-### Known gaps / not yet started
+### Known gaps / intentional differences
 
 - **2FA**: Implemented via `/(auth)/two-factor` and `twoFactorClient`; keep aligned with Better Auth upgrades.
-- **Deep linking**: Password-reset and email-verification links still open the borrower web app until Universal Links / App Links are configured.
+- **Universal / App Links**: App config and env are ready (`EXPO_PUBLIC_UNIVERSAL_LINK_HOST`). Each Pro client must still publish `apple-app-site-association` and `assetlinks.json` on the **borrower web** host, and point Resend links at paths that match (`/reset-password?token=…`, `/verify-email/confirm?token=…` or the backend-issued URL that resolves to the app).
 - **Passkeys**: Borrower passkeys are **web-only** (`apps/borrower_pro`). The Expo app does not include `expo-better-auth-passkey`.
-- **Core borrower screens**: Dashboard, applications, and loans tabs are scaffolded with placeholders only.
+- **Invitations (org)**: Company-member invite links can remain web-first; see mobile README.
 
 ---
 
@@ -151,12 +149,11 @@ The auth spike is done. The approach chosen:
 5. **Auth guard**: `AuthGate` component uses Expo Router's `<Redirect>` — no flash; runs inside `SessionProvider`.
 6. **Email**: still sent from **Next borrower** (Resend); no change.
 
-### Still to do
+### Still to do / ops
 
-- **Deep linking**: `verify-email`, `reset-password`, `change-email` links need iOS Universal Links + Android App Links configured in `app.json` + server-side `apple-app-site-association` / `assetlinks.json`.
-- **2FA**: `signInWithEmail` detects `twoFactorRedirect: true`; a `/(auth)/two-factor` TOTP screen needs to be built.
+- **Universal Links verification**: `EXPO_PUBLIC_UNIVERSAL_LINK_HOST` + app config are not enough for stores — each domain needs Apple/Google hosted association files and Play App Signing.
+- **Change-email** links (if used): same deep-link pattern as other auth flows; no dedicated screen beyond Better Auth client behaviour.
 - **Passkeys**: Not part of the native borrower client; use the web borrower app to register or sign in with a passkey.
-- **TOTP UI**: `twoFactorRedirect` is still not handled in-app; use the borrower web app for authenticator flows until a dedicated mobile screen is built.
 
 ---
 
@@ -206,14 +203,14 @@ Assumptions: **one** borrower client (Demo_Client pattern), **experienced** RN/E
 
 | Phase | Scope | Status | Notes |
 |-------|--------|--------|--------|
-| **A. Spike** | Expo app shell, env per client, **auth end-to-end** (sign-in, session, one protected API call) | **Done** | `@kredit/borrower` package + auth stack (session-store, session-fetch, auth-api, session-context, sign-in screen, auth guard) |
-| **B. Foundation** | Navigation, theming (dark default per brand), API client abstraction, secure storage | **Done** | `sessionFetch` wired into all 5 API clients; metro.config.js; theme system in place |
-| **C. Auth parity** | Sign-up, forgot/reset, verify email, 2FA, deep links, security-setup gating | **In progress** | Sign-up API ready, UI not started. 2FA detection exists, screen not started. Deep links not configured. |
-| **D. Core borrower** | Onboarding wizard, applications list/apply/detail/documents, loans list/detail/payment | **Not started** | Largest chunk; forms + uploads. |
-| **E. Secondary** | Help, legal, about, loan extras (video, meeting) | **Not started** | Can parallelize partially. |
-| **F. Hardening** | Offline/error states, accessibility, store listings, screenshots, EAS profiles per client | **Not started** | |
+| **A. Spike** | Expo app shell, env per client, **auth end-to-end** (sign-in, session, protected API) | **Done** | Auth stack + `@kredit/borrower` |
+| **B. Foundation** | Navigation, theming, API clients, secure storage | **Done** | Multiple API clients in `src/lib/api/borrower.ts`; meetings client added for hub screen |
+| **C. Auth parity** | Sign-up, forgot/reset, verify email, 2FA, app-link config for reset + verify | **Largely done** | In-app `reset-password`, `verify-email/confirm`, optional `EXPO_PUBLIC_UNIVERSAL_LINK_HOST`. Passkeys remain web-only. |
+| **D. Core borrower** | Onboarding, applications, loans, payments, attestation, **meetings hub** | **Largely done** | Ongoing polish; not every web-only route has a 1:1 file (e.g. separate application “documents” route). |
+| **E. Secondary** | Help, about, legal via in-app browser, loan extras (video, schedule meeting) | **Largely done** | |
+| **F. Hardening** | Store listings, EAS, a11y, offline | **Ongoing** | |
 
-**Rough remaining effort for MVP parity:** Phase C (~2–3 weeks) → Phase D (~4–8 weeks) → Phases E+F (~2–4 weeks). **~8–15 weeks** from here for one developer.
+**MVP:** treat remaining work as per-client **ops** (universal links, Resend URL shapes) and product polish, not greenfield app build.
 
 **Per additional Pro client:** mostly **branding, bundle ID, env, store assets, deep link host** — **~3–10 days** if the app is white-labeled; more if forked behavior.
 

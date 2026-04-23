@@ -128,7 +128,7 @@ function BorrowerProfileProviderShell() {
     return () => {
       cancelled = true;
     };
-  }, [isLoading, loadBorrowerContext, session]);
+  }, [isLoading, loadBorrowerContext, session, signOut]);
 
   const hasBorrowerProfiles = Boolean(borrowerContext && borrowerContext.profileCount > 0);
 

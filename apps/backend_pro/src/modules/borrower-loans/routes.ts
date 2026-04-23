@@ -344,11 +344,15 @@ router.get('/meetings', async (req, res, next) => {
       });
     }
 
+    const statusFilter: Prisma.LoanWhereInput = includePast
+      ? {}
+      : { status: { in: ["PENDING_ATTESTATION", "PENDING_DISBURSEMENT"] } };
+
     const loans = await prisma.loan.findMany({
       where: {
         tenantId: tenant.id,
         borrowerId,
-        status: { in: ["PENDING_ATTESTATION", "PENDING_DISBURSEMENT"] },
+        ...statusFilter,
         OR: orBlock,
       },
       orderBy: { updatedAt: "desc" },

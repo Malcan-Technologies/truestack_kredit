@@ -2593,7 +2593,7 @@ router.post(
     const updated = await prisma.loan.update({
       where: { id: loanId },
       data: {
-        status: 'PENDING_DISBURSEMENT',
+        status: loan.status,
         attestationStatus: 'MEETING_COMPLETED',
         attestationMeetingAdminCompletedAt: now,
       },
@@ -2609,7 +2609,7 @@ router.post(
       newData: {
         attestationStatus: updated.attestationStatus,
         attestationMeetingAdminCompletedAt: now.toISOString(),
-        status: 'PENDING_DISBURSEMENT',
+        status: updated.status,
       },
       ipAddress: req.ip,
     });

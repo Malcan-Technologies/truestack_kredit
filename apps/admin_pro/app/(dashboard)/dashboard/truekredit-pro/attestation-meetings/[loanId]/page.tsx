@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -24,6 +24,56 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+
+const MALAYSIA_TZ = "Asia/Kuala_Lumpur";
+
+type AttestationSlot = { startAt: string; endAt: string };
+
+function malaysiaDateKey(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: MALAYSIA_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
+function formatDateGroupHeading(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00+08:00`);
+  return d.toLocaleDateString("en-MY", {
+    timeZone: MALAYSIA_TZ,
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatWeekdayShort(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00+08:00`);
+  return d.toLocaleDateString("en-MY", {
+    timeZone: MALAYSIA_TZ,
+    weekday: "short",
+  });
+}
+
+function formatDateShort(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00+08:00`);
+  return d.toLocaleDateString("en-MY", {
+    timeZone: MALAYSIA_TZ,
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function formatSlotTimeRange(startIso: string, endIso: string): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    timeZone: MALAYSIA_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+  return `${new Date(startIso).toLocaleTimeString("en-MY", opts)} — ${new Date(endIso).toLocaleTimeString("en-MY", opts)}`;
+}
 
 type LoanDetail = {
   id: string;
@@ -56,8 +106,11 @@ export default function AttestationMeetingDetailPage() {
   const [acceptManualUrl, setAcceptManualUrl] = useState("");
   const [acceptManualNotes, setAcceptManualNotes] = useState("");
 
-  const [counterStart, setCounterStart] = useState("");
-  const [counterEnd, setCounterEnd] = useState("");
+  const [counterSlots, setCounterSlots] = useState<AttestationSlot[]>([]);
+  const [slotsSource, setSlotsSource] = useState<string>("");
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [selectedCounterSlot, setSelectedCounterSlot] = useState<AttestationSlot | null>(null);
+  const [selectedCounterDateKey, setSelectedCounterDateKey] = useState<string | null>(null);
   const [counterMode, setCounterMode] = useState<"google" | "manual">("google");
   const [counterManualUrl, setCounterManualUrl] = useState("");
   const [counterManualNotes, setCounterManualNotes] = useState("");
@@ -77,6 +130,72 @@ export default function AttestationMeetingDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadCounterSlots = useCallback(async () => {
+    if (!loanId) return;
+    setSlotsLoading(true);
+    try {
+      const res = await api.get<{ slots: AttestationSlot[]; source: string }>(
+        `/api/loans/${loanId}/attestation/availability`
+      );
+      if (res.success && res.data) {
+        setCounterSlots(res.data.slots);
+        setSlotsSource(res.data.source);
+        setSelectedCounterSlot((prev) => {
+          if (!prev) return null;
+          const still = res.data!.slots.some((s) => s.startAt === prev.startAt && s.endAt === prev.endAt);
+          return still ? prev : null;
+        });
+      } else {
+        setCounterSlots([]);
+        setSlotsSource("");
+        toast.error(res.error ?? "Failed to load availability");
+      }
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, [loanId]);
+
+  useEffect(() => {
+    if (loan?.attestationStatus === "SLOT_PROPOSED") {
+      void loadCounterSlots();
+    } else {
+      setCounterSlots([]);
+      setSlotsSource("");
+      setSelectedCounterSlot(null);
+      setSelectedCounterDateKey(null);
+    }
+  }, [loan?.attestationStatus, loanId, loadCounterSlots]);
+
+  const slotsByDate = useMemo(() => {
+    const sorted = [...counterSlots].sort((a, b) => a.startAt.localeCompare(b.startAt));
+    const map = new Map<string, AttestationSlot[]>();
+    for (const s of sorted) {
+      const key = malaysiaDateKey(s.startAt);
+      const existing = map.get(key);
+      if (existing) existing.push(s);
+      else map.set(key, [s]);
+    }
+    return [...map.entries()];
+  }, [counterSlots]);
+
+  useEffect(() => {
+    if (slotsByDate.length === 0) {
+      if (selectedCounterDateKey !== null) setSelectedCounterDateKey(null);
+      return;
+    }
+    const availableKeys = slotsByDate.map(([key]) => key);
+    if (!selectedCounterDateKey || !availableKeys.includes(selectedCounterDateKey)) {
+      const preferred = selectedCounterSlot ? malaysiaDateKey(selectedCounterSlot.startAt) : availableKeys[0];
+      setSelectedCounterDateKey(availableKeys.includes(preferred) ? preferred : availableKeys[0]);
+    }
+  }, [slotsByDate, selectedCounterDateKey, selectedCounterSlot]);
+
+  const visibleCounterSlots = useMemo(() => {
+    if (!selectedCounterDateKey) return [];
+    const entry = slotsByDate.find(([key]) => key === selectedCounterDateKey);
+    return entry ? entry[1] : [];
+  }, [slotsByDate, selectedCounterDateKey]);
 
   const dispatchLoansChanged = () => {
     if (typeof window !== "undefined") {
@@ -146,14 +265,14 @@ export default function AttestationMeetingDetailPage() {
   };
 
   const onCounter = async () => {
-    if (!loanId || !counterStart || !counterEnd) {
-      toast.error("Enter start and end for the counter-proposal.");
+    if (!loanId || !selectedCounterSlot) {
+      toast.error("Choose an available time slot.");
       return;
     }
-    const startAt = new Date(counterStart);
-    const endAt = new Date(counterEnd);
+    const startAt = new Date(selectedCounterSlot.startAt);
+    const endAt = new Date(selectedCounterSlot.endAt);
     if (endAt <= startAt) {
-      toast.error("End must be after start.");
+      toast.error("Invalid slot range.");
       return;
     }
     if (counterMode === "manual") {
@@ -440,25 +559,101 @@ export default function AttestationMeetingDetailPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
-                  <div className="grid gap-3 sm:grid-cols-2 max-w-lg">
-                    <div className="space-y-1">
-                      <Label htmlFor="c-start">Start</Label>
-                      <Input
-                        id="c-start"
-                        type="datetime-local"
-                        value={counterStart}
-                        onChange={(e) => setCounterStart(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="c-end">End</Label>
-                      <Input
-                        id="c-end"
-                        type="datetime-local"
-                        value={counterEnd}
-                        onChange={(e) => setCounterEnd(e.target.value)}
-                      />
-                    </div>
+                  <div className="space-y-3">
+                    {slotsLoading ? (
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    ) : counterSlots.length === 0 ? (
+                      <p className="text-sm text-amber-700 dark:text-amber-200">
+                        No open slots right now. Try again later.
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          Availability:{" "}
+                          {slotsSource === "google_free_busy" ? "Google Calendar" : "office hours"}. Each booking is
+                          60 minutes (Malaysia time).
+                        </p>
+                        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                          {slotsByDate.map(([dateKey, daySlots]) => {
+                            const active = selectedCounterDateKey === dateKey;
+                            return (
+                              <button
+                                key={dateKey}
+                                type="button"
+                                role="tab"
+                                aria-selected={active}
+                                disabled={busy}
+                                onClick={() => {
+                                  setSelectedCounterDateKey(dateKey);
+                                  setSelectedCounterSlot(null);
+                                }}
+                                className={cn(
+                                  "min-w-[80px] min-h-[80px] shrink-0 flex flex-col items-center justify-center gap-0.5 rounded-xl border-2 px-3 py-2 text-center transition-colors",
+                                  active
+                                    ? "border-primary bg-primary/5 text-primary"
+                                    : "border-border bg-background hover:bg-muted/40",
+                                  busy && "opacity-60 pointer-events-none"
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "text-[10px] font-semibold uppercase tracking-wider",
+                                    active ? "text-primary" : "text-muted-foreground"
+                                  )}
+                                >
+                                  {formatWeekdayShort(dateKey)}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "text-sm font-semibold tabular-nums",
+                                    active ? "text-primary" : "text-foreground"
+                                  )}
+                                >
+                                  {formatDateShort(dateKey)}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {daySlots.length} slot{daySlots.length === 1 ? "" : "s"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {selectedCounterDateKey ? (
+                          <>
+                            <p className="text-sm text-muted-foreground">
+                              {formatDateGroupHeading(selectedCounterDateKey)}
+                            </p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                              {visibleCounterSlots.map((s) => {
+                                const selected =
+                                  selectedCounterSlot?.startAt === s.startAt &&
+                                  selectedCounterSlot?.endAt === s.endAt;
+                                return (
+                                  <button
+                                    key={s.startAt}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={selected}
+                                    disabled={busy}
+                                    onClick={() => setSelectedCounterSlot(s)}
+                                    className={cn(
+                                      "min-h-11 rounded-xl border-2 px-3 py-2.5 text-sm font-semibold tabular-nums text-center transition-colors",
+                                      selected
+                                        ? "border-primary bg-primary/5 text-primary"
+                                        : "border-border bg-background/80 hover:bg-muted/40",
+                                      busy && "opacity-55"
+                                    )}
+                                  >
+                                    {formatSlotTimeRange(s.startAt, s.endAt)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
 
                   {/* Link mode selector */}
@@ -517,7 +712,7 @@ export default function AttestationMeetingDetailPage() {
                   <Button
                     variant="secondary"
                     onClick={() => void onCounter()}
-                    disabled={busy}
+                    disabled={busy || !selectedCounterSlot}
                     className="w-full sm:w-auto"
                   >
                     {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}

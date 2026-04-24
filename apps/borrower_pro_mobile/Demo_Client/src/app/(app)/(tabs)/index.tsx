@@ -54,6 +54,7 @@ import { loadOnboardingDraft, type OnboardingDraft } from '@/lib/onboarding';
 
 import type {
   BorrowerLoanListItem,
+  BorrowerMeetingSummary,
   LoanApplicationDetail,
   LoanCenterOverview,
 } from '@kredit/borrower';
@@ -915,7 +916,9 @@ function DashboardContent() {
           const meetRes = await meetingsClient.listBorrowerMeetings({ includePast: true });
           if (meetRes.success) {
             setMeetingsActionCount(
-              meetRes.data.filter((m) => m.actionNeeded || m.uiTab === 'action').length,
+              meetRes.data.filter(
+                (m: BorrowerMeetingSummary) => m.actionNeeded || m.uiTab === 'action',
+              ).length,
             );
           } else {
             setMeetingsActionCount(0);

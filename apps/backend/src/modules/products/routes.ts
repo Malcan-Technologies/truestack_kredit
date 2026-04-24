@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { InterestModel, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, UnauthorizedError } from '../../lib/errors.js';
+import { BadRequestError, NotFoundError, UnauthorizedError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireAdmin } from '../../middleware/requireRole.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
@@ -369,13 +369,7 @@ router.patch('/:productId', requireAdmin, async (req, res, next) => {
     const effectiveMinTerm = data.minTerm ?? existing.minTerm;
     const effectiveMaxTerm = data.maxTerm ?? existing.maxTerm;
     if (effectiveMinTerm > effectiveMaxTerm) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: 'minTerm must be less than or equal to maxTerm',
-          details: [{ path: ['minTerm'], message: 'minTerm must be less than or equal to maxTerm' }],
-        },
-      });
+      throw new BadRequestError('minTerm must be less than or equal to maxTerm');
     }
 
     const existingAllowedTerms = parseProductAllowedTerms(
@@ -383,13 +377,9 @@ router.patch('/:productId', requireAdmin, async (req, res, next) => {
     );
     const effectiveAllowedTerms = data.allowedTerms ?? existingAllowedTerms;
     if (!isAllowedTermsWithinRange(effectiveAllowedTerms, effectiveMinTerm, effectiveMaxTerm)) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: 'allowedTerms must only contain values within minTerm and maxTerm',
-          details: [{ path: ['allowedTerms'], message: 'allowedTerms must only contain values within minTerm and maxTerm' }],
-        },
-      });
+      throw new BadRequestError(
+        'allowedTerms must only contain values within minTerm and maxTerm'
+      );
     }
 
     const updateData = (data.interestModel

@@ -27,7 +27,7 @@
 - **SaaS** — multi-tenant admin and API (`apps/admin`, `apps/backend`): pooled runtime, shared database, strict tenant isolation; origination, servicing, billing, and compliance features for many lenders on one stack.
 - **Pro** — dedicated deployment per licensed client (`admin_pro`, `backend_pro`, per-client borrower web and mobile): same platform codebase, isolated AWS account, database, and secrets; see [architecture plan](docs/architecture_plan.md) for lanes, signing, and CI/CD.
 
-Shared building blocks include configurable **interest models** (flat, declining balance, effective rate), **schedules & disbursement**, **audit logging**, **exports**, and **notifications** (email, WhatsApp, and in-app where applicable).
+Shared building blocks include **schedules & disbursement**, **audit logging**, **exports**, and **notifications** (email, WhatsApp, and in-app where applicable).
 
 ### TrueKredit Pro — product features
 
@@ -91,6 +91,30 @@ Repository structure, deployment boundaries, and signing architecture: **[docs/a
 **Design principle (from the architecture plan):** *share code, not production runtime* — SaaS stays one pooled deployment; each Pro client gets isolated infrastructure while reusing the same platform repositories.
 
 Shared libraries live under `packages/` (e.g. `@kredit/shared`, `@kredit/borrower`). Optional on-prem **Signing Gateway** code: `apps/signing-gateway/` (see architecture doc).
+
+### Releases and Pro rollout
+
+- **SaaS** ships from `main` on its own deploy lane (pooled production).
+- **Pro platform** releases are identified by **immutable Git tags** (e.g. `pro-platform-v<semver>`). Borrower-only drops can use tags such as `pro-borrower-<borrower_app>-v<semver>` when they diverge from the platform tag. Details and workflow names live in [`docs/architecture_plan.md`](docs/architecture_plan.md) (versioning & CI/CD).
+- **Per-client Pro lanes:** each external client has an **isolated** deployment and pins **`platform_release`** / **`borrower_release`** (and related metadata) in [`config/clients/`](config/clients/) — promotions are **manual**, not “every merge to `main`”.
+- **Demo client** (`client_id` **demo-client**, borrower app **`Demo_Client`**) is TrueStack’s **staging / canary for Pro**: it **auto-deploys from `main`** when shared Pro code or `Demo_Client` (and shared layers it uses) change, so migrations and behaviour are exercised before external clients adopt a pinned release.
+
+### Semantic versioning (how we use semver)
+
+Versions follow **`MAJOR.MINOR.PATCH`** (and optional pre-release, e.g. `1.3.0-rc.1`), per [Semantic Versioning 2.0.0](https://semver.org/).
+
+| Bump | When |
+|------|------|
+| **MAJOR** | Breaking changes for operators or integrations (e.g. incompatible API, migration that requires a coordinated cut, removed behaviour clients rely on). |
+| **MINOR** | Backward-compatible additions (features, endpoints, optional fields) — existing clients keep working without change. |
+| **PATCH** | Backward-compatible fixes (bugs, security patches, internal refactors with no contract change). |
+
+**In this repo**
+
+- **Pro deploy contract** is the **semver string** pinned per client (e.g. `platform_release`, `borrower_release` in `config/clients/`). **Rollback** means redeploying a **previous semver**, not “whatever `latest` is”.
+- **Git tags** map to that contract: `pro-platform-v<semver>` for shared `admin_pro` / `backend_pro` (and aligned artefacts); `pro-borrower-<borrower_app>-v<semver>` when a borrower app (web/mobile) ships **independently** of the platform tag.
+- **Docker / CI** may also tag images with **Git SHA** for traceability; promotion and client pins should still reference **semver** so releases stay human-readable and comparable.
+- **SaaS** may use its own tagging or deploy-from-`main` practice; **Pro external clients** should not float on `main` — they advance only when deliberately pinned to a new semver.
 
 ## Repository layout
 
@@ -257,16 +281,6 @@ High-level route groups (see OpenAPI or route files under `apps/backend` for the
 - **Compliance** — audit logs, exports, reports
 
 Pro APIs live in `apps/backend_pro` with a separate Prisma schema; do not point Pro clients at the SaaS database.
-
----
-
-## Interest models
-
-The schedule engine supports:
-
-- **Flat rate** — total interest from principal × rate × term / 12
-- **Declining balance** — interest on outstanding balance (EMI-style)
-- **Effective rate** — declining-balance style with effective annual rate conversion
 
 ---
 

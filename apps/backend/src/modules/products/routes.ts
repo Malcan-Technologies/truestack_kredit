@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { InterestModel, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, UnauthorizedError } from '../../lib/errors.js';
+import { BadRequestError, NotFoundError, UnauthorizedError } from '../../lib/errors.js';
 import { authenticateToken } from '../../middleware/authenticate.js';
 import { requireAdmin } from '../../middleware/requireRole.js';
 import { requirePaidSubscription } from '../../middleware/billingGuard.js';
@@ -50,6 +50,22 @@ const DEFAULT_REQUIRED_DOCUMENTS = [
   { key: 'EMPLOYMENT_LETTER', label: 'Employment Letter', required: false },
 ];
 
+function isAllowedTermsWithinRange(
+  allowedTerms: number[] | undefined,
+  minTerm: number,
+  maxTerm: number
+): boolean {
+  if (!allowedTerms?.length) return true;
+  return allowedTerms.every((t) => t >= minTerm && t <= maxTerm);
+}
+
+/** Strict parse of JSON `allowedTerms`: all elements must be integers. */
+function parseProductAllowedTerms(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const terms = value.filter((v): v is number => typeof v === 'number' && Number.isInteger(v));
+  return terms.length === value.length ? terms : undefined;
+}
+
 // Validation schemas
 const createProductSchema = z.object({
   name: z.string().min(2).max(100),
@@ -88,17 +104,9 @@ const createProductSchema = z.object({
   message: 'minTerm must be less than or equal to maxTerm',
   path: ['minTerm'],
 }).refine((data) => {
-  const at = data.allowedTerms;
-  if (!at?.length) return true;
-  const lower = Math.min(...at);
-  const upper = Math.max(...at);
-  return (
-    lower === data.minTerm &&
-    upper === data.maxTerm &&
-    at.every((t) => t >= data.minTerm && t <= data.maxTerm)
-  );
+  return isAllowedTermsWithinRange(data.allowedTerms, data.minTerm, data.maxTerm);
 }, {
-  message: 'allowedTerms must cover minTerm through maxTerm with only values in range',
+  message: 'allowedTerms must only contain values within minTerm and maxTerm',
   path: ['allowedTerms'],
 }).refine(data => data.arrearsPeriod <= data.defaultPeriod, {
   message: 'Arrears period must be less than or equal to default period',
@@ -356,6 +364,22 @@ router.patch('/:productId', requireAdmin, async (req, res, next) => {
 
     if (!existing) {
       throw new NotFoundError('Product');
+    }
+
+    const effectiveMinTerm = data.minTerm ?? existing.minTerm;
+    const effectiveMaxTerm = data.maxTerm ?? existing.maxTerm;
+    if (effectiveMinTerm > effectiveMaxTerm) {
+      throw new BadRequestError('minTerm must be less than or equal to maxTerm');
+    }
+
+    const existingAllowedTerms = parseProductAllowedTerms(
+      (existing as unknown as Record<string, unknown>).allowedTerms
+    );
+    const effectiveAllowedTerms = data.allowedTerms ?? existingAllowedTerms;
+    if (!isAllowedTermsWithinRange(effectiveAllowedTerms, effectiveMinTerm, effectiveMaxTerm)) {
+      throw new BadRequestError(
+        'allowedTerms must only contain values within minTerm and maxTerm'
+      );
     }
 
     const updateData = (data.interestModel

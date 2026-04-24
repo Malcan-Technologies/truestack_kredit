@@ -76,7 +76,7 @@ End-to-end **loan management and origination**, designed for alignment with **KP
 
 - **Cloudflare Tunnel** between cloud and on-prem signing; **VPC** segmentation for cloud workloads.
 - **Encryption** at rest in cloud and on-prem; **automated daily backups** with restore paths.
-- **Pentesting** for web, app, database, and backend (included in Pro pricing).
+- **Pentesting** for web, app, database, and backend (included in Pro pricing) — operator runbook: [`docs/pro_client_pentest_access.md`](docs/pro_client_pentest_access.md).
 
 Repository structure, deployment boundaries, and signing architecture: **[docs/architecture_plan.md](docs/architecture_plan.md)**.
 
@@ -115,6 +115,55 @@ Versions follow **`MAJOR.MINOR.PATCH`** (and optional pre-release, e.g. `1.3.0-r
 - **Git tags** map to that contract: `pro-platform-v<semver>` for shared `admin_pro` / `backend_pro` (and aligned artefacts); `pro-borrower-<borrower_app>-v<semver>` when a borrower app (web/mobile) ships **independently** of the platform tag.
 - **Docker / CI** may also tag images with **Git SHA** for traceability; promotion and client pins should still reference **semver** so releases stay human-readable and comparable.
 - **SaaS** may use its own tagging or deploy-from-`main` practice; **Pro external clients** should not float on `main` — they advance only when deliberately pinned to a new semver.
+
+## Pro client prerequisites
+
+What **external Pro clients** (and operators) typically need **before** go-live. Full steps, checklists, and Terraform behaviour: **[`docs/pro_client_deployment_guide.md`](docs/pro_client_deployment_guide.md)**.
+
+### Accounts & automation
+
+| Prerequisite | Purpose |
+|--------------|---------|
+| **Dedicated AWS account** | Isolated Pro stack (VPC, ALB, ECS, RDS, S3, Secrets Manager, ACM) — external clients use **`dedicated`** networking in Terraform; `demo-client` may use **`shared`** VPC/ALB inside TrueStack’s account. |
+| **Terraform remote state** | S3 + lock table (or equivalent) **in that account**, bootstrapped before `terraform-pro` applies. |
+| **GitHub Actions OIDC role** | Deploy role in the client account; stored as `AWS_ROLE_ARN` in a **per-client GitHub Environment** (e.g. `pro-<client_id>`). |
+| **GitHub Environment secrets** | At minimum `AWS_ROLE_ARN`; if **signing** is enabled, also on-prem deploy + Cloudflare Access material (e.g. `ONPREM_SSH_KEY`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) per the deployment guide. |
+| **Client registry** | Non-secret metadata in [`config/clients/<client_id>.yaml`](config/clients/) (domains, ECS/ECR names, release pins, `secrets.app_secrets_arn`, etc.) — **never** commit credentials. |
+
+### Domains, DNS, and edge
+
+- **Public hostnames** for **admin**, **API**, and **borrower** apps (and **signing** hostname if applicable), with TLS (ACM or your CA).
+- Many stacks use **Cloudflare** (or another DNS/WAF provider) in front of the ALB: plan for **DNS validation** records, proxy/WAF rules, and (for signing) **Tunnel + Zero Trust** as described in the deployment guide.
+
+### Runtime secrets & third-party services
+
+Populate the client’s **AWS Secrets Manager** app secret (ARN in client YAML). Keys depend on enabled modules; the deployment guide lists examples such as **database**, **Better Auth / JWT**, **webhooks**, **email (Resend)**, and **TrueIdentity** (e-KYC URLs and webhook secrets). Only include what the deployment actually uses.
+
+**Product / compliance integrations** you contract for separately:
+
+| Service | Typical use |
+|---------|-------------|
+| **TrueIdentity** | e-KYC / identity verification (`trueidentity_*` and related keys in Secrets Manager). |
+| **MSC Trustgate (MTSA)** | PKI signing — runs **on-prem** with Trustgate-supplied image/credentials; not a cloud API key in the same sense. |
+| **Google Workspace** | **Google Meet** and **Google Calendar** for attestation scheduling (staff Google accounts). |
+| **Resend** (or aligned provider) | Transactional email (`resend_*` keys). |
+
+### On-prem signing (if `signing` is enabled)
+
+- **Hardware or VM** at the client site with Docker (and Compose), **Cloudflare Tunnel** (`cloudflared`), Trustgate **MTSA** image loaded from tarball, and local **Signing Gateway** config/secrets.
+- **GHCR** (or agreed registry) credentials on the server to pull the gateway image; alignment between **signing API key** and **gateway URL** in AWS Secrets Manager and on-prem `.env`.
+
+### Penetration testing (assessor access)
+
+For **external security assessments** on a deployed Pro stack, use **[`docs/pro_client_pentest_access.md`](docs/pro_client_pentest_access.md)** — read-only, **time-bounded** access for vendors (AWS console/API, optional **private RDS** via SSM port forwarding, Cloudflare allowlisting).
+
+**Short operator guide**
+
+1. **Scope** — Agree in-scope URLs (borrower, admin, API), window, and whether **RDS**, **signing**, and **on-prem** are in scope; avoid handing over production app bundles or CI/service tokens unless explicitly required.
+2. **Edge** — If traffic is behind **Cloudflare**, add temporary **IP allow / WAF** relief for the firm’s egress IPs for the test window; roll back after.
+3. **AWS** — Create a **dedicated** assessor IAM user or role with **`ReadOnlyAccess`** (or tighter) and **`secretsmanager:GetSecretValue`** only on a **separate** “pentest read-only DB URL” secret — **not** the main app secret.
+4. **Database** — RDS sits in **private** subnets; preferred path is **ECS + SSM port forwarding** (`scripts/pentest/connect-db-via-ecs-ssm.sh`, see [`scripts/pentest/README.md`](scripts/pentest/README.md)) so assessors use `psql` via `127.0.0.1` after starting the tunnel. Alternatives (jump host, temporary SG rule to vendor `/32` IPs) are documented in the pentest runbook.
+5. **Teardown** — Remove allowlists, revoke IAM keys / policies, delete or disable the pentest DB secret and **`pentest_readonly`** DB role, and strip any temporary RDS rules.
 
 ## Repository layout
 

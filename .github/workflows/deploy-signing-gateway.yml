@@ -379,16 +379,37 @@ jobs:
           IMAGE_TAG: ${{ steps.tag.outputs.tag }}
           ENV_B64: ${{ steps.envfile.outputs.b64 }}
         run: |
+          # Strip CR/LF — pasted secrets sometimes include a trailing newline, which breaks --id/--secret.
+          CF_ACCESS_CLIENT_ID="${CF_ACCESS_CLIENT_ID//$'\r'/}"
+          CF_ACCESS_CLIENT_ID="${CF_ACCESS_CLIENT_ID//$'\n'/}"
+          CF_ACCESS_CLIENT_SECRET="${CF_ACCESS_CLIENT_SECRET//$'\r'/}"
+          CF_ACCESS_CLIENT_SECRET="${CF_ACCESS_CLIENT_SECRET//$'\n'/}"
+          if [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
+            echo "::error::CF_ACCESS_CLIENT_ID or CF_ACCESS_CLIENT_SECRET is empty for environment '${{ needs.load-config.outputs.github_environment }}'. Without a service token, cloudflared falls back to browser/CLI login (fails in Actions). Add both secrets to that GitHub Environment."
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
           echo "${{ secrets.ONPREM_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+
+          # Quote-safe proxy: raw secrets in ssh_config break if they contain spaces, #, etc.
+          ID_Q=$(printf '%q' "$CF_ACCESS_CLIENT_ID")
+          SEC_Q=$(printf '%q' "$CF_ACCESS_CLIENT_SECRET")
+          PROXY="$HOME/cf-cloudflared-access-ssh.sh"
+          {
+            echo '#!/bin/bash'
+            echo 'set -euo pipefail'
+            echo "exec /usr/local/bin/cloudflared access ssh --hostname \"\$1\" --id $ID_Q --secret $SEC_Q"
+          } > "$PROXY"
+          chmod 700 "$PROXY"
 
           cat >> ~/.ssh/config <<EOF
           Host onprem-signing
             HostName $SSH_HOST
             User deploy
             IdentityFile ~/.ssh/deploy_key
-            ProxyCommand cloudflared access ssh --hostname %h --id $CF_ACCESS_CLIENT_ID --secret $CF_ACCESS_CLIENT_SECRET
+            ProxyCommand $PROXY %h
             StrictHostKeyChecking no
           EOF
 

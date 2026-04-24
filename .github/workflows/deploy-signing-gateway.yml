@@ -393,20 +393,15 @@ jobs:
           echo "${{ secrets.ONPREM_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          # Service token auth: pass CF_ACCESS_* via environment (not printf-%q in argv — some secrets break).
-          # Docs: export CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET then `cloudflared access ssh --hostname …`.
-          export CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
-          export TUNNEL_SERVICE_TOKEN_ID="$CF_ACCESS_CLIENT_ID"
-          export TUNNEL_SERVICE_TOKEN_SECRET="$CF_ACCESS_CLIENT_SECRET"
-
+          # Quote-safe proxy: embed credentials at script generation time so ProxyCommand does not rely on env inheritance.
+          ID_Q=$(printf '%q' "$CF_ACCESS_CLIENT_ID")
+          SEC_Q=$(printf '%q' "$CF_ACCESS_CLIENT_SECRET")
           PROXY="$HOME/cf-cloudflared-access-ssh.sh"
           {
             echo '#!/bin/bash'
             echo 'set -euo pipefail'
-            echo 'exec /usr/local/bin/cloudflared access ssh --hostname "$1" \'
-            echo '  --id "${CF_ACCESS_CLIENT_ID:?}" \'
-            echo '  --secret "${CF_ACCESS_CLIENT_SECRET:?}"'
-          } >"$PROXY"
+            echo "exec /usr/local/bin/cloudflared access ssh --hostname \"\$1\" --id $ID_Q --secret $SEC_Q"
+          } > "$PROXY"
           chmod 700 "$PROXY"
 
           cat >> ~/.ssh/config <<EOF
@@ -418,15 +413,11 @@ jobs:
             StrictHostKeyChecking no
           EOF
 
-          # Ensure Access env reaches ssh/scp children (some setups strip ProxyCommand env).
-          ACCESS_ENV=(env "CF_ACCESS_CLIENT_ID=$CF_ACCESS_CLIENT_ID" "CF_ACCESS_CLIENT_SECRET=$CF_ACCESS_CLIENT_SECRET" \
-            "TUNNEL_SERVICE_TOKEN_ID=$CF_ACCESS_CLIENT_ID" "TUNNEL_SERVICE_TOKEN_SECRET=$CF_ACCESS_CLIENT_SECRET")
-
-          "${ACCESS_ENV[@]}" scp scripts/signing-gateway/deploy.sh onprem-signing:/opt/signing-stack/deploy.sh
-          "${ACCESS_ENV[@]}" scp apps/signing-gateway/docker-compose.prod.yml onprem-signing:/opt/signing-stack/docker-compose.yml
-          "${ACCESS_ENV[@]}" ssh onprem-signing "chmod +x /opt/signing-stack/deploy.sh"
+          scp scripts/signing-gateway/deploy.sh onprem-signing:/opt/signing-stack/deploy.sh
+          scp apps/signing-gateway/docker-compose.prod.yml onprem-signing:/opt/signing-stack/docker-compose.yml
+          ssh onprem-signing "chmod +x /opt/signing-stack/deploy.sh"
           # .env is written from CI; compose must reference SIGNING_GATEWAY_PUBLIC_IP (see docker-compose.prod.yml)
-          "${ACCESS_ENV[@]}" ssh onprem-signing "echo '$ENV_B64' | base64 -d > /opt/signing-stack/.env && ECR_REGISTRY='$ECR_REGISTRY' ECR_REPOSITORY='$ECR_REPOSITORY' ECR_PASSWORD='$ECR_PASSWORD' /opt/signing-stack/deploy.sh '$IMAGE_TAG'"
+          ssh onprem-signing "echo '$ENV_B64' | base64 -d > /opt/signing-stack/.env && ECR_REGISTRY='$ECR_REGISTRY' ECR_REPOSITORY='$ECR_REPOSITORY' ECR_PASSWORD='$ECR_PASSWORD' /opt/signing-stack/deploy.sh '$IMAGE_TAG'"
 
   summary:
     name: Deployment Summary

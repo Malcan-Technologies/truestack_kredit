@@ -23,7 +23,7 @@ import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { buildInternalScheduleView, supportsInternalScheduleView } from './scheduleViewService.js';
 import { computeLoanApplicationPreview } from './loanApplicationPreviewService.js';
 import { buildLoanAgreementPdfBuffer } from './loanAgreementPdfService.js';
-import { getTenantOfficeHoursConfig } from '../../lib/attestationAvailability.js';
+import { getTenantOfficeHoursConfig, listAvailableAttestationSlots } from '../../lib/attestationAvailability.js';
 import {
   adminAcceptBorrowerProposal,
   adminCounterProposal,
@@ -2429,6 +2429,46 @@ router.post('/:loanId/attestation/accept-proposal', requirePermission('attestati
     });
 
     res.json({ success: true, data: result });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/loans/:loanId/attestation/availability
+ * Same slot grid as borrower self-serve; for counter-propose while status is SLOT_PROPOSED.
+ */
+router.get('/:loanId/attestation/availability', requirePermission('attestation.schedule'), async (req, res, next) => {
+  try {
+    const tenantId = req.tenantId!;
+    const loanId = getRouteParam(req.params.loanId);
+    await expireStaleAttestationProposalForLoan({ loanId, tenantId });
+
+    const loan = await prisma.loan.findFirst({
+      where: { id: loanId, tenantId },
+      select: {
+        id: true,
+        status: true,
+        attestationStatus: true,
+        attestationCompletedAt: true,
+      },
+    });
+    if (!loan) {
+      throw new NotFoundError('Loan');
+    }
+    if (!isPreDisbursementLoanStatus(loan.status) || loan.attestationCompletedAt) {
+      throw new BadRequestError('Availability is not available for this loan.');
+    }
+    if (loan.attestationStatus !== 'SLOT_PROPOSED') {
+      throw new BadRequestError('Slots are only available while a borrower proposal is pending.');
+    }
+
+    const { slots, source } = await listAvailableAttestationSlots({
+      tenantId,
+      loanId,
+    });
+
+    res.json({ success: true, data: { slots, source } });
   } catch (e) {
     next(e);
   }

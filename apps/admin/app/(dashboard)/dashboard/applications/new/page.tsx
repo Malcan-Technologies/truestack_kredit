@@ -26,6 +26,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -33,6 +40,7 @@ import { CopyField } from "@/components/ui/copy-field";
 import { VerificationBadge } from "@/components/verification-badge";
 import { api } from "@/lib/api";
 import {
+  cn,
   formatCurrency,
   formatNumber,
   toSafeNumber,
@@ -79,6 +87,10 @@ interface Product {
   maxAmount: string;
   minTerm: number;
   maxTerm: number;
+  /** Months between allowed terms when `allowedTerms` is empty (equal steps). */
+  termInterval?: number;
+  /** Explicit allowed tenures (months); when set, only these values are valid. */
+  allowedTerms?: unknown;
   legalFeeType: string;
   legalFeeValue: string;
   stampingFeeType: string;
@@ -100,6 +112,51 @@ interface LoanPreview {
   monthlyPayment: number;
   totalInterest: number;
   totalPayable: number;
+}
+
+function parseProductAllowedTerms(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is number => typeof v === "number" && Number.isInteger(v));
+}
+
+function buildSteppedTermOptions(minTerm: number, maxTerm: number, interval: number): number[] {
+  const step = interval > 0 ? interval : 1;
+  const out: number[] = [];
+  for (let t = minTerm; t <= maxTerm; t += step) {
+    out.push(t);
+  }
+  return out;
+}
+
+function defaultTermForProduct(product: Product): number {
+  const explicit = parseProductAllowedTerms(product.allowedTerms);
+  if (explicit.length > 0) {
+    const sorted = [...new Set(explicit)].sort((a, b) => a - b);
+    return sorted[0] ?? product.minTerm;
+  }
+  return product.minTerm;
+}
+
+function formatProductTermSummary(p: Product): string {
+  const explicit = parseProductAllowedTerms(p.allowedTerms);
+  if (explicit.length > 0) {
+    return `${[...new Set(explicit)].sort((a, b) => a - b).join(", ")} mo`;
+  }
+  const step = p.termInterval && p.termInterval > 0 ? p.termInterval : 1;
+  if (step > 1) {
+    return `${p.minTerm}–${p.maxTerm} mo (every ${step} mo)`;
+  }
+  return `${p.minTerm} - ${p.maxTerm} months`;
+}
+
+function termMatchesProductRules(product: Product, termMonths: number): boolean {
+  if (termMonths < product.minTerm || termMonths > product.maxTerm) return false;
+  const explicit = parseProductAllowedTerms(product.allowedTerms);
+  if (explicit.length > 0) {
+    return explicit.includes(termMonths);
+  }
+  const interval = product.termInterval && product.termInterval > 0 ? product.termInterval : 1;
+  return (termMonths - product.minTerm) % interval === 0;
 }
 
 function supportsInternalScheduleOptions(interestModel: string): boolean {
@@ -414,10 +471,11 @@ export default function NewApplicationPage() {
   const handleSelectProduct = (product: Product) => {
     setSelectedProduct(product);
     setAmount(toSafeNumber(product.minAmount));
-    setTerm(product.minTerm);
+    const initialTerm = defaultTermForProduct(product);
+    setTerm(initialTerm);
     setUseInternalSchedule(false);
     setInternalInterestRate("");
-    setInternalTerm(product.minTerm);
+    setInternalTerm(initialTerm);
   };
 
   const supportsInternalOptions = selectedProduct
@@ -507,6 +565,23 @@ export default function NewApplicationPage() {
       }
       if (!useInternalSchedule && numTerm > maxTerm) {
         toast.error(`Term cannot exceed ${maxTerm} months`);
+        return;
+      }
+      if (!useInternalSchedule && !termMatchesProductRules(selectedProduct, numTerm)) {
+        const explicit = parseProductAllowedTerms(selectedProduct.allowedTerms);
+        if (explicit.length > 0) {
+          toast.error(
+            `Term must be one of: ${[...new Set(explicit)].sort((a, b) => a - b).join(", ")} months`
+          );
+        } else {
+          const interval =
+            selectedProduct.termInterval && selectedProduct.termInterval > 0
+              ? selectedProduct.termInterval
+              : 1;
+          toast.error(
+            `Term must increase in steps of ${interval} month(s) from ${minTerm} (up to ${maxTerm})`
+          );
+        }
         return;
       }
       // Validate collateral fields for Jadual K products
@@ -926,9 +1001,7 @@ export default function NewApplicationPage() {
                           </div>
                           <div>
                             <span className="text-muted-foreground">Term:</span>{" "}
-                            <span className="font-medium">
-                              {product.minTerm} - {product.maxTerm} months
-                            </span>
+                            <span className="font-medium">{formatProductTermSummary(product)}</span>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Legal Fee:</span>{" "}
@@ -994,37 +1067,110 @@ export default function NewApplicationPage() {
                   {(() => {
                     const minTerm = selectedProduct.minTerm;
                     const maxTerm = selectedProduct.maxTerm;
-                    const numTerm = useInternalSchedule
-                      ? 0
-                      : (term === "" ? 0 : term);
-                    const isTermInvalid = numTerm > 0 && (numTerm < minTerm || numTerm > maxTerm);
+                    const numTerm = useInternalSchedule ? 0 : term === "" ? 0 : term;
+                    const explicit = parseProductAllowedTerms(selectedProduct.allowedTerms);
+                    const allowedList =
+                      explicit.length > 0 ? [...new Set(explicit)].sort((a, b) => a - b) : null;
+                    const interval =
+                      selectedProduct.termInterval && selectedProduct.termInterval > 0
+                        ? selectedProduct.termInterval
+                        : 1;
+                    const steppedOptions =
+                      !allowedList && !useInternalSchedule
+                        ? buildSteppedTermOptions(minTerm, maxTerm, interval)
+                        : null;
+                    const isTermInvalid =
+                      !useInternalSchedule &&
+                      numTerm > 0 &&
+                      !termMatchesProductRules(selectedProduct, numTerm);
+                    const termHint = useInternalSchedule
+                      ? null
+                      : allowedList
+                        ? `Only: ${allowedList.join(", ")}`
+                        : interval > 1
+                          ? `Every ${interval} mo from ${minTerm} to ${maxTerm}`
+                          : `(${minTerm} - ${maxTerm})`;
+
                     return (
                       <div>
                         <label className="text-sm font-medium">
                           Term (months)
-                          <span className="text-muted-foreground ml-2">
-                            ({minTerm} - {maxTerm})
-                          </span>
+                          {termHint && (
+                            <span className="text-muted-foreground ml-2 font-normal">{termHint}</span>
+                          )}
                         </label>
-                        <NumericInput
-                          value={displayedCompliantTerm}
-                          onChange={(v: number | "" | string) => setTerm(v === "" ? "" : typeof v === "number" ? v : 0)}
-                          min={minTerm}
-                          max={maxTerm}
-                          disabled={useInternalSchedule}
-                          placeholder={useInternalSchedule ? "Auto-derived from risk term" : undefined}
-                          className={`mt-1 ${isTermInvalid ? "border-red-500 focus:ring-red-500" : ""}`}
-                        />
-                        {useInternalSchedule && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            This term is auto-derived from the risk-adjusted schedule.
-                          </p>
-                        )}
+                        {useInternalSchedule ? (
+                          <>
+                            <NumericInput
+                              value={displayedCompliantTerm}
+                              onChange={(v: number | "" | string) =>
+                                setTerm(v === "" ? "" : typeof v === "number" ? v : 0)
+                              }
+                              min={minTerm}
+                              max={maxTerm}
+                              disabled
+                              placeholder="Auto-derived from risk term"
+                              className="mt-1"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                              This term is auto-derived from the risk-adjusted schedule.
+                            </p>
+                          </>
+                        ) : allowedList ? (
+                          <>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {allowedList.map((m) => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => setTerm(m)}
+                                  className={cn(
+                                    "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                                    term === m
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border bg-background hover:bg-muted"
+                                  )}
+                                >
+                                  {m} mo
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        ) : steppedOptions && steppedOptions.length > 0 ? (
+                          <>
+                            <Select
+                              value={String(term === "" ? steppedOptions[0] : term)}
+                              onValueChange={(v) => setTerm(Number(v))}
+                            >
+                              <SelectTrigger
+                                className={cn("mt-1", isTermInvalid && "border-red-500 focus:ring-red-500")}
+                              >
+                                <SelectValue placeholder="Select term" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {steppedOptions.map((m) => (
+                                  <SelectItem key={m} value={String(m)}>
+                                    {m} months
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {interval > 1 && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Equal steps of {interval} month(s) between {minTerm} and {maxTerm}.
+                              </p>
+                            )}
+                          </>
+                        ) : null}
                         {isTermInvalid && (
                           <p className="text-xs text-red-500 mt-1">
                             {numTerm < minTerm
                               ? `Minimum term is ${minTerm} months`
-                              : `Maximum term is ${maxTerm} months`}
+                              : numTerm > maxTerm
+                                ? `Maximum term is ${maxTerm} months`
+                                : allowedList
+                                  ? `Choose one of the listed terms`
+                                  : `Term must align with the product step (${interval} mo from ${minTerm})`}
                           </p>
                         )}
                       </div>

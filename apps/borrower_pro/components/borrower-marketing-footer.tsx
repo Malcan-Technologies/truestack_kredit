@@ -2,10 +2,53 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Layers, Linkedin, Mail, Phone } from "lucide-react";
+import {
+  proficientFooterLegalLong,
+  proficientFooterLegalShort,
+} from "@borrower_pro/lib/proficient-site-footer";
 import { truestackSiteFooter } from "@borrower_pro/lib/truestack-site-footer";
 import { cn } from "@borrower_pro/lib/utils";
 
-const F = truestackSiteFooter;
+type SiteFooterData = typeof truestackSiteFooter;
+
+function isHttpExternalHref(href: string): boolean {
+  return /^https?:/i.test(href) || href.startsWith("//");
+}
+
+function FooterNavLink({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (/^mailto:/i.test(href) || /^tel:/i.test(href)) {
+    return (
+      <a href={href} className={className}>
+        {children}
+      </a>
+    );
+  }
+  if (isHttpExternalHref(href)) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={className}
+      >
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link href={href} className={className}>
+      {children}
+    </Link>
+  );
+}
 
 function FootCol({
   title,
@@ -24,22 +67,48 @@ function FootCol({
   );
 }
 
-function TruestackBrandColumn() {
+function MarketingSiteBrandColumn({
+  F,
+  brandName,
+  homeHref,
+  brandLogoSrc,
+  brandLogoAlt,
+}: {
+  F: SiteFooterData;
+  brandName: string;
+  homeHref: string;
+  /** When set, shows this image (e.g. from `public/`) instead of the icon + text mark. */
+  brandLogoSrc?: string;
+  brandLogoAlt?: string;
+}) {
   return (
     <div className="max-w-sm space-y-4">
-      <a
-        href="https://www.truestack.my"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-2.5"
+      <FooterNavLink
+        href={homeHref}
+        className={cn("inline-flex", !brandLogoSrc && "items-center gap-2.5")}
       >
-        <Layers
-          className="h-8 w-8 shrink-0 text-blue-600 dark:text-blue-500"
-          strokeWidth={1.75}
-          aria-hidden
-        />
-        <span className="font-heading text-lg font-bold tracking-tight text-foreground">TrueStack</span>
-      </a>
+        {brandLogoSrc ? (
+          <Image
+            src={brandLogoSrc}
+            alt={brandLogoAlt ?? brandName}
+            width={440}
+            height={74}
+            className="h-[3.25rem] w-auto max-w-[min(100%,372px)] object-contain object-left sm:h-[3.9rem]"
+            sizes="(max-width: 640px) 286px, 372px"
+          />
+        ) : (
+          <>
+            <Layers
+              className="h-8 w-8 shrink-0 text-blue-600 dark:text-blue-500"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <span className="font-heading text-lg font-bold tracking-tight text-foreground">
+              {brandName}
+            </span>
+          </>
+        )}
+      </FooterNavLink>
       <p className="text-sm leading-relaxed text-muted-foreground">{F.brand.description}</p>
       <a
         href={F.brand.email}
@@ -63,62 +132,58 @@ function TruestackBrandColumn() {
   );
 }
 
-function TrueStackLinkColumns() {
+function MarketingSiteLinkColumns({ F }: { F: SiteFooterData }) {
   return (
     <>
-      <FootCol title="KPKT Solutions">
-        {F.kpktSolutions.map((l) => (
-          <li key={l.label}>
-            <a
-              href={l.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {l.label}
-            </a>
-          </li>
-        ))}
-      </FootCol>
+      {F.kpktSolutions.length > 0 ? (
+        <FootCol title="KPKT Solutions">
+          {F.kpktSolutions.map((l) => (
+            <li key={l.label}>
+              <FooterNavLink
+                href={l.href}
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {l.label}
+              </FooterNavLink>
+            </li>
+          ))}
+        </FootCol>
+      ) : null}
       <FootCol title="Other Solutions">
         {F.otherSolutions.map((l) => (
           <li key={l.label}>
-            <a
+            <FooterNavLink
               href={l.href}
-              target="_blank"
-              rel="noopener noreferrer"
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               {l.label}
-            </a>
+            </FooterNavLink>
           </li>
         ))}
       </FootCol>
-      <FootCol title="Company">
-        {F.company.map((l) => (
-          <li key={l.label}>
-            <a
-              href={l.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {l.label}
-            </a>
-          </li>
-        ))}
-      </FootCol>
+      {F.company.length > 0 ? (
+        <FootCol title="Company">
+          {F.company.map((l) => (
+            <li key={l.label}>
+              <FooterNavLink
+                href={l.href}
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {l.label}
+              </FooterNavLink>
+            </li>
+          ))}
+        </FootCol>
+      ) : null}
       <FootCol title="Legal">
         {F.legal.map((l) => (
           <li key={l.label}>
-            <a
+            <FooterNavLink
               href={l.href}
-              target="_blank"
-              rel="noopener noreferrer"
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               {l.label}
-            </a>
+            </FooterNavLink>
           </li>
         ))}
       </FootCol>
@@ -126,7 +191,7 @@ function TrueStackLinkColumns() {
   );
 }
 
-function BottomBarTrueStack() {
+function MarketingSiteBottomBar({ F }: { F: SiteFooterData }) {
   return (
     <div className="mt-14 border-t border-border pt-10">
       <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
@@ -142,20 +207,36 @@ function BottomBarTrueStack() {
           {F.bottomLegal.map((l, i) => (
             <span key={l.label} className="inline-flex items-center">
               {i > 0 ? <span className="px-1.5 text-muted-foreground/50">·</span> : null}
-              <a
+              <FooterNavLink
                 href={l.href}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="transition-colors hover:text-foreground"
               >
                 {l.label}
-              </a>
+              </FooterNavLink>
             </span>
           ))}
         </div>
       </div>
     </div>
   );
+}
+
+function TruestackBrandColumn() {
+  return (
+    <MarketingSiteBrandColumn
+      F={truestackSiteFooter}
+      brandName="TrueStack"
+      homeHref="https://www.truestack.my"
+    />
+  );
+}
+
+function TrueStackLinkColumns() {
+  return <MarketingSiteLinkColumns F={truestackSiteFooter} />;
+}
+
+function BottomBarTrueStack() {
+  return <MarketingSiteBottomBar F={truestackSiteFooter} />;
 }
 
 /** TrueStack-style 5-column footer + company bar (matches truestack.my). For Demo Client. */
@@ -173,18 +254,9 @@ export function BorrowerDemoTruestackFooter() {
   );
 }
 
-const LEGAL_LONG = [
-  { label: "Terms of use", href: "/terms" },
-  { label: "Privacy policy", href: "/privacy" },
-  { label: "PDPA notice", href: "/pdpa" },
-  { label: "Cybersecurity", href: "/security" },
-] as const;
-
-const LEGAL_SHORT = [
-  { label: "Security", href: "/security" },
-  { label: "PDPA", href: "/pdpa" },
-  { label: "Privacy", href: "/privacy" },
-  { label: "Terms", href: "/terms" },
+const DEFAULT_PROFICIENT_PLATFORM_LINKS = [
+  { label: "Proficient Premium — lending software", href: "https://ppsb-eloan.com.my/" },
+  { label: "Contact Proficient", href: "mailto:admin@proficientpremium.com" },
 ] as const;
 
 type ProficientFooterProps = {
@@ -200,6 +272,11 @@ type ProficientFooterProps = {
   kpktLicense: string;
   addressLines: readonly string[];
   description: string;
+  /** Override legal column + bottom bar links (default: Proficient `/terms`, …). */
+  legalLong?: ReadonlyArray<{ label: string; href: string }>;
+  legalShort?: ReadonlyArray<{ label: string; href: string }>;
+  /** Override Platform column (default: Truestack marketing). */
+  platformLinks?: ReadonlyArray<{ label: string; href: string }>;
 };
 
 /** Same layout as truestack.my; first column and bottom bar are lender-specific; legal links are local. */
@@ -215,7 +292,14 @@ export function BorrowerProficientTruestackFooter({
   kpktLicense,
   addressLines,
   description,
+  legalLong,
+  legalShort,
+  platformLinks,
 }: ProficientFooterProps) {
+  const legalLongRows = legalLong ?? proficientFooterLegalLong;
+  const legalShortRows = legalShort ?? proficientFooterLegalShort;
+  const platformRows = platformLinks ?? DEFAULT_PROFICIENT_PLATFORM_LINKS;
+
   return (
     <footer className="border-t border-border/60 bg-background">
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
@@ -249,13 +333,15 @@ export function BorrowerProficientTruestackFooter({
               <Mail className="h-4 w-4 shrink-0" aria-hidden />
               {email}
             </a>
-            <a
-              href={phoneHref}
-              className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Phone className="h-4 w-4 shrink-0" aria-hidden />
-              {phone}
-            </a>
+            {phone && phone !== "—" ? (
+              <a
+                href={phoneHref}
+                className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Phone className="h-4 w-4 shrink-0" aria-hidden />
+                {phone}
+              </a>
+            ) : null}
           </div>
           <FootCol title="Explore">
             <li>
@@ -287,29 +373,19 @@ export function BorrowerProficientTruestackFooter({
             </li>
           </FootCol>
           <FootCol title="Platform">
-            <li>
-              <a
-                href="https://www.truestack.my"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Truestack — lending software
-              </a>
-            </li>
-            <li>
-              <a
-                href="https://www.truestack.my/contact"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Contact Truestack
-              </a>
-            </li>
+            {platformRows.map((row) => (
+              <li key={row.label}>
+                <FooterNavLink
+                  href={row.href}
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {row.label}
+                </FooterNavLink>
+              </li>
+            ))}
           </FootCol>
           <FootCol title="Legal">
-            {LEGAL_LONG.map((l) => (
+            {legalLongRows.map((l) => (
               <li key={l.href}>
                 <Link
                   href={l.href}
@@ -343,7 +419,7 @@ export function BorrowerProficientTruestackFooter({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm text-muted-foreground sm:justify-end">
-              {LEGAL_SHORT.map((l, i) => (
+              {legalShortRows.map((l, i) => (
                 <span key={l.href} className="inline-flex items-center">
                   {i > 0 ? <span className="px-1.5 text-muted-foreground/50">·</span> : null}
                   <Link href={l.href} className="transition-colors hover:text-foreground">

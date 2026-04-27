@@ -8,8 +8,9 @@ services:
       POSTGRES_USER: kredit
       POSTGRES_PASSWORD: kredit_dev
       POSTGRES_DB: kredit_dev
+    # Host 5433 avoids clashes with another PostgreSQL already bound to 5432 (common on dev machines).
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

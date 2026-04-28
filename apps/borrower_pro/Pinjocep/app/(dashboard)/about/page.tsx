@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
+import { useTheme } from "next-themes";
 import {
   fetchLenderInfo,
   resolveBorrowerLenderLogoSrc,
@@ -21,26 +22,46 @@ const POLICY_LINKS = [
   { href: "/legal/cookies", label: "Cookie policy" },
 ] as const;
 
-function PoweredByPinjocep() {
+const TRUESTACK_URL = "https://truestack.my";
+
+function PoweredByTrueStack() {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const logoSrc =
+    mounted && resolvedTheme === "dark"
+      ? "/truestack-logo-dark.png"
+      : "/truestack-logo-light.png";
+
   return (
     <Card>
       <CardContent className="pt-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground max-w-md">
             Lending software powered by{" "}
-            <span className="font-medium text-foreground">pinjocep</span>
+            <span className="font-medium text-foreground">TrueKredit™ Pro</span>
             {` · v${APP_VERSION}`}
           </p>
-          <div className="inline-flex shrink-0 rounded-md p-2 -m-2">
-            {/* eslint-disable-next-line @next/next/no-img-element -- static public asset */}
+          <a
+            href={TRUESTACK_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex shrink-0 rounded-md p-2 -m-2 ring-offset-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="TrueStack — opens in new tab"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- static public assets; theme swap */}
             <img
-              src="/pinjocep-logo.png"
-              alt="Pinjocep"
-              className="h-[2.6rem] w-auto max-w-[182px] object-contain object-left"
-              width={182}
-              height={42}
+              src={logoSrc}
+              alt="TrueStack"
+              className="h-8 w-auto max-w-[140px] object-contain object-left"
+              width={140}
+              height={32}
             />
-          </div>
+          </a>
         </div>
       </CardContent>
     </Card>
@@ -146,7 +167,7 @@ export default function AboutPage() {
       <div className="space-y-6">
         <AboutLenderCardSkeleton />
         <PoliciesLegalCard />
-        <PoweredByPinjocep />
+        <PoweredByTrueStack />
       </div>
     );
   }
@@ -164,7 +185,7 @@ export default function AboutPage() {
           </CardContent>
         </Card>
         <PoliciesLegalCard />
-        <PoweredByPinjocep />
+        <PoweredByTrueStack />
       </div>
     );
   }
@@ -245,7 +266,7 @@ export default function AboutPage() {
 
       <PoliciesLegalCard />
 
-      <PoweredByPinjocep />
+      <PoweredByTrueStack />
     </div>
   );
 }

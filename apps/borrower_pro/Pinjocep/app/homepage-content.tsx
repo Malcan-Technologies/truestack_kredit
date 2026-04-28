@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTheme } from "next-themes";
 import {
   ArrowRight,
   Calculator,
@@ -39,7 +39,11 @@ import {
   pinjocepBorrowerFooterPlatformLinks,
 } from "@borrower_pro/lib/pinjocep-borrower-footer-legal";
 import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
-import { fetchBorrowerMe } from "@borrower_pro/lib/borrower-auth-client";
+import {
+  fetchBorrowerMe,
+  fetchLenderInfo,
+  resolveBorrowerLenderLogoSrc,
+} from "@borrower_pro/lib/borrower-auth-client";
 import {
   calculateFlatInterest,
   cn,
@@ -55,7 +59,6 @@ import {
   LENDER_EMAIL,
   LENDER_KPKT_LICENSE,
   LENDER_LEGAL_NAME,
-  LENDER_LOGO_PATH,
   LENDER_NAME,
   LENDER_PHONE,
   LENDER_PHONE_HREF,
@@ -177,17 +180,53 @@ const FAQS: { question: string; answer: ReactNode }[] = [
   },
 ];
 
-function HomeBrandMark() {
+function HomeBrandMark({
+  tenantLogoSrc,
+  lenderName,
+}: {
+  tenantLogoSrc?: string;
+  lenderName: string;
+}) {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (tenantLogoSrc) {
+    return (
+      <Link
+        href="/"
+        className="flex items-center"
+        aria-label={`${lenderName} home`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- proxied / remote tenant logo */}
+        <img
+          src={tenantLogoSrc}
+          alt={`${lenderName} logo`}
+          className="h-[3.25rem] w-auto max-w-[286px] object-contain object-left sm:h-[3.575rem]"
+          width={338}
+          height={57}
+        />
+      </Link>
+    );
+  }
+
+  const platformLogoSrc =
+    mounted && resolvedTheme === "dark"
+      ? "/truestack-logo-dark.png"
+      : "/truestack-logo-light.png";
+
   return (
-    <Link href="/" className="flex items-center">
-      <Image
-        src={LENDER_LOGO_PATH}
-        alt={LENDER_NAME}
+    <Link href="/" className="flex items-center" aria-label={`${lenderName} home`}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- static public assets; theme swap */}
+      <img
+        src={platformLogoSrc}
+        alt="TrueStack"
+        className="h-[3.25rem] w-auto max-w-[286px] sm:h-[3.575rem]"
         width={338}
         height={57}
-        className="h-12 w-auto object-contain object-left sm:h-[3.575rem]"
-        priority
-        sizes="(max-width: 640px) 240px, 300px"
       />
     </Link>
   );
@@ -511,11 +550,29 @@ function HomeLoanCalculator() {
 }
 
 export function HomePageContent() {
+  const [tenantLogoSrc, setTenantLogoSrc] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLenderInfo()
+      .then((res) => {
+        if (!cancelled && res.success && res.data) {
+          setTenantLogoSrc(resolveBorrowerLenderLogoSrc(res.data.logoUrl ?? null));
+        }
+      })
+      .catch(() => {
+        /* public homepage: tenant or network may be unavailable */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <HomeBrandMark />
+          <HomeBrandMark tenantLogoSrc={tenantLogoSrc} lenderName={LENDER_NAME} />
           <div className="hidden items-center gap-6 text-sm md:flex">
             <Link href="#how-it-works" className="text-muted-foreground transition-colors hover:text-foreground">
               How it works
@@ -680,8 +737,9 @@ export function HomePageContent() {
 
       <BorrowerProficientTruestackFooter
         lenderName={LENDER_NAME}
-        brandLogoSrc={LENDER_LOGO_PATH}
-        brandLogoAlt={LENDER_NAME}
+        {...(tenantLogoSrc
+          ? { brandLogoSrc: tenantLogoSrc, brandLogoAlt: LENDER_NAME }
+          : {})}
         legalName={LENDER_LEGAL_NAME}
         email={LENDER_EMAIL}
         phone={LENDER_PHONE}

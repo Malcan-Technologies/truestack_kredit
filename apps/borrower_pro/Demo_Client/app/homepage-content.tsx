@@ -196,9 +196,9 @@ function HomeBrandMark() {
       <img
         src={logoSrc}
         alt="TrueStack"
-        className="h-10 w-auto max-w-[220px] sm:h-11"
-        width={260}
-        height={44}
+        className="h-[3.25rem] w-auto max-w-[286px] sm:h-[3.575rem]"
+        width={338}
+        height={57}
       />
     </Link>
   );

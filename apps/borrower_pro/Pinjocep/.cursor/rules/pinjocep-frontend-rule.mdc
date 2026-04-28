@@ -1,0 +1,24 @@
+---
+alwaysApply: true
+---
+
+## Pinjocep — borrower Pro frontend (Next.js)
+
+This rule applies to **`apps/borrower_pro/Pinjocep`**: the **Pinjocep**-branded host app for the TrueKredit Pro borrower experience.
+
+### Shared vs app-local
+
+- Reusable UI, API clients, and utilities live in **`apps/borrower_pro/components/`** and **`apps/borrower_pro/lib/`**. Import with `@borrower_pro/components` and `@borrower_pro/lib` — do not copy shared code into the Pinjocep app.
+- Pinjocep-only code belongs here: **`app/`** routes, **`app/components/legal/`** (e.g. `pinjocep-site.ts`), app **`lib/`** (auth handler, re-exports), **`.env`**, and **`docs/planning/`** (e.g. `brand.md`).
+
+### Branding
+
+- **Client name: Pinjocep** — public copy, JSON-LD, and org constants should use Pinjocep (not “Demo Client”, not “Truestack” as a product name).
+- Centralise borrower-facing org details in **`app/components/legal/pinjocep-site.ts`** and update in one place when legal or contact data changes.
+- **Brand by theme:** **light** primary **`#8a0304`** — **dark** primary **`#f22526`** (tokens in **`tailwind.config.ts`**). Use **`primary`** for **`Button`**, focus **`ring`**, avatar chip, etc.; do **not** use `border-primary` / `bg-primary` washes on notification cards or large neutral surfaces — use **`border` / `muted` / `foreground`**. Prefer **`text-foreground`** + underline for inline body links, not **`text-primary`**. Logo file may differ.
+- Follow **`docs/planning/brand.md`** for typography, status colors, and palette rules.
+
+### Technical
+
+- **Auth**: Better Auth client; `BETTER_AUTH_SECRET` and backend URL must match **`backend_pro`**.
+- **Ports**: local dev for this app is **3008** (see `package.json` `dev` script); keep `NEXT_PUBLIC_APP_URL` consistent.

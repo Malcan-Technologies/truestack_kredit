@@ -16,6 +16,7 @@ on:
         type: choice
         options:
           - demo-client
+          - pinjocep
           - proficient-premium
       action:
         description: "Terraform action to perform"

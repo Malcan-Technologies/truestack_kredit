@@ -10,6 +10,7 @@ import {
   checkHealth,
   getCertInfo,
   getSigningGatewayFooterIp,
+  isSigningGatewayTimeoutError,
   requestEmailOTP,
   enrollCertificate,
   signAndStorePdf,
@@ -302,25 +303,49 @@ router.post('/enroll', async (req, res, next) => {
       orderBy: { updatedAt: 'desc' },
     });
 
-    const result = await enrollCertificate({
-      UserID: userId,
-      FullName: fullName,
-      EmailAddress: borrower.email,
-      MobileNo: borrower.phone!.trim(),
-      Nationality: mtsaNationality,
-      UserType: '1',
-      IDType: isPassport ? 'P' : 'N',
-      AuthFactor: body.otp,
-      ...(!isPassport ? { NRICFront: nricFront, NRICBack: nricBack } : {}),
-      ...(isPassport ? { PassportImage: passportImage } : {}),
-      SelfieImage: selfie,
-      VerificationData: {
-        verifyDatetime: fmtMtsaDatetime(latestKyc?.updatedAt ?? new Date()),
-        verifyMethod: 'e-KYC (face recognition with liveness detection)',
-        verifyStatus: 'approved',
-        verifyVerifier: 'TrueStack',
-      },
-    });
+    let result: Awaited<ReturnType<typeof enrollCertificate>>;
+    try {
+      result = await enrollCertificate({
+        UserID: userId,
+        FullName: fullName,
+        EmailAddress: borrower.email,
+        MobileNo: borrower.phone!.trim(),
+        Nationality: mtsaNationality,
+        UserType: '1',
+        IDType: isPassport ? 'P' : 'N',
+        AuthFactor: body.otp,
+        ...(!isPassport ? { NRICFront: nricFront, NRICBack: nricBack } : {}),
+        ...(isPassport ? { PassportImage: passportImage } : {}),
+        SelfieImage: selfie,
+        VerificationData: {
+          verifyDatetime: fmtMtsaDatetime(latestKyc?.updatedAt ?? new Date()),
+          verifyMethod: 'e-KYC (face recognition with liveness detection)',
+          verifyStatus: 'approved',
+          verifyVerifier: 'TrueStack',
+        },
+      });
+    } catch (error) {
+      if (!isSigningGatewayTimeoutError(error)) {
+        throw error;
+      }
+
+      const certResult = await getCertInfo(userId);
+      const certIsActive = isMtsaSigningActiveForProject(certInfoToActivationSignals(certResult));
+      if (!certResult.success || !certIsActive) {
+        throw error;
+      }
+
+      result = {
+        success: true,
+        statusCode: 'REQUEST_ACCEPTED_TIMEOUT_CONFIRMED',
+        statusMsg:
+          'Enrollment request timed out, but certificate is now active. You may continue with digital signing.',
+        errorDescription: undefined,
+        certSerialNo: certResult.certSerialNo,
+        certValidFrom: certResult.certValidFrom,
+        certValidTo: certResult.certValidTo,
+      };
+    }
 
     if (result.success) {
       await notifySigningCertificateReadyIfNew({ tenantId: tenant.id, borrowerId });

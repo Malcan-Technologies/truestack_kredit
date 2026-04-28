@@ -1,0 +1,107 @@
+---
+alwaysApply: true
+---
+
+Use these rules for **backend_pro** — the TrueKredit Pro backend. This backend serves borrower_pro (borrower-facing) and admin_pro (admin-facing) clients. It is a copy of `apps/backend` adapted for Pro deployment.
+
+---
+
+## 1) Context
+
+- **backend_pro** lives at `apps/backend_pro/` (copy of `apps/backend`).
+- **Product**: Digital license KPKT borrowing — borrowers register and borrow money online from money lenders.
+- **Auth**: Better Auth for borrower sign in / sign up (and admin when admin_pro is added).
+- **Deployment**: One backend instance per Pro client; each client has own AWS account, DB, secrets.
+- **Borrower frontend layout**: Reusable UI and API clients live under `apps/borrower_pro/components/` and `apps/borrower_pro/lib/`. The Next.js host app `apps/borrower_pro/Pinjocep/` imports that package via `@borrower_pro/*` and adds only env-specific routes (auth handler, proxy, version). New borrower features belong in the shared folders unless they are strictly host-only (e.g. Prisma adapter in the host app).
+
+---
+
+## 2) Stack & Services
+
+- **Express** API with TypeScript.
+- **Prisma 7** for ORM.
+- PostgreSQL as primary DB.
+- **Better Auth** for session-based auth (sign in, sign up, sign out).
+
+---
+
+## 3) Modularity
+
+Keep strict boundaries. Core modules (from backend):
+
+- `modules/auth` — Better Auth integration, session verification
+- `modules/borrowers` — Borrower CRUD, KYC
+- `modules/loans` — Applications, loans
+- `modules/schedules` — Repayments
+- `modules/products` — Loan products
+- `modules/compliance` — Audit logs
+- `modules/notifications` — Email, WhatsApp
+
+Use services for domain logic; routes only orchestrate.
+
+---
+
+## 4) Pro Tenant Model
+
+- **Single-tenant**: Each Pro deployment has exactly one logical tenant.
+- All tenant-owned tables include `tenantId`.
+- Never accept `tenantId` from client payloads; derive from auth context.
+- No tenant switcher — `req.tenantId` is always the deployment's tenant.
+
+---
+
+## 5) Borrower Auth (Better Auth)
+
+- Use Better Auth for borrower sign in / sign up.
+- Session cookies; no JWT for borrower auth (Better Auth handles sessions).
+- Backend verifies sessions via `fromNodeHeaders` / Better Auth middleware.
+- Borrower identity: `User` or `Borrower` record linked to tenant.
+
+---
+
+## 6) Billing (Pro)
+
+- Pro deployments may not use SaaS billing (subscription, grace period).
+- Do not enforce SaaS billing middleware on borrower-facing routes.
+- Config-driven: `productMode=pro` disables billing checks where appropriate.
+
+---
+
+## 7) File Handling
+
+- Use S3 for file storage (documents, receipts, uploads).
+- Use pre-signed URLs for uploads.
+
+---
+
+## 8) Date & Time Handling
+
+- **Database**: Store all dates in **UTC**.
+- **API**: Return ISO 8601 strings in UTC.
+- **Frontend**: Converts to Malaysia timezone (GMT+8) for display.
+
+---
+
+## 9) Safe Math Utilities
+
+Use utilities from `lib/math.ts` for all financial calculations. Never use raw arithmetic for currency or interest.
+
+---
+
+## 10) Database Migrations
+
+When modifying `prisma/schema.prisma`, **do not run migrations automatically**. Provide the user with commands to run manually:
+
+```bash
+cd apps/backend_pro
+npx prisma migrate dev --name description_of_change
+```
+
+---
+
+## 11) Environment & Config
+
+- `PRODUCT_MODE=pro`
+- `CLIENT_ID` — Pro client identifier (e.g. `pinjocep`)
+- `BETTER_AUTH_SECRET` — Must match borrower_pro frontend
+- `FRONTEND_URL` — Borrower frontend URL for Better Auth baseURL

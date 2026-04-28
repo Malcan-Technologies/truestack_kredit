@@ -9,6 +9,7 @@ on:
         default: "proficient-premium"
         type: choice
         options:
+          - pinjocep
           - proficient-premium
       action:
         description: "What to do. 'full' includes the on-prem signing gateway; use 'signing-only' to redeploy just the gateway."

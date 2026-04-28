@@ -11,7 +11,8 @@ import http from 'node:http';
 import https, { type RequestOptions as HttpsRequestOptions } from 'node:https';
 import { config } from './config.js';
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = config.signing.requestTimeoutMs;
+const ENROLL_TIMEOUT_MS = config.signing.enrollTimeoutMs;
 const publicDnsResolver = new Resolver();
 
 publicDnsResolver.setServers(['1.1.1.1', '1.0.0.1', '8.8.8.8', '8.8.4.4']);
@@ -88,6 +89,11 @@ export interface EnrollResponse {
   certRequestID?: string;
   certRequestStatus?: string;
   userID?: string;
+}
+
+export function isSigningGatewayTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /Request timed out after \d+ms/i.test(error.message);
 }
 
 function headers(): Record<string, string> {
@@ -226,18 +232,18 @@ async function gatewayRequest(
   });
 }
 
-async function gatewayFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function gatewayFetch<T>(method: string, path: string, body?: unknown, timeoutMs = TIMEOUT_MS): Promise<T> {
   const url = `${config.signing.gatewayUrl}${path}`;
   let response: { status: number; statusText: string; headers: IncomingHttpHeaders; body: string };
 
   try {
-    response = await gatewayRequest(method, path, body);
+    response = await gatewayRequest(method, path, body, timeoutMs);
   } catch (error) {
     console.error('[SigningGatewayClient] Request failed', {
       method,
       path,
       url,
-      timeoutMs: TIMEOUT_MS,
+      timeoutMs,
       signingEnabled: config.signing.enabled,
       hasCfAccessClientId: Boolean(config.signing.cfAccessClientId),
       hasCfAccessClientSecret: Boolean(config.signing.cfAccessClientSecret),
@@ -370,7 +376,7 @@ export interface EnrollCertificateBody {
 }
 
 export async function enrollCertificate(body: EnrollCertificateBody): Promise<EnrollResponse> {
-  return gatewayFetch<EnrollResponse>('POST', '/api/cert/enroll', body);
+  return gatewayFetch<EnrollResponse>('POST', '/api/cert/enroll', body, ENROLL_TIMEOUT_MS);
 }
 
 // ---- Signing Operations ----

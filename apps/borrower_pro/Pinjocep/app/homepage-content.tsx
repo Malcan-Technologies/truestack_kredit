@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useTheme } from "next-themes";
 import {
   ArrowRight,
   Calculator,
@@ -187,13 +186,6 @@ function HomeBrandMark({
   tenantLogoSrc?: string;
   lenderName: string;
 }) {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   if (tenantLogoSrc) {
     return (
       <Link
@@ -213,18 +205,14 @@ function HomeBrandMark({
     );
   }
 
-  const platformLogoSrc =
-    mounted && resolvedTheme === "dark"
-      ? "/truestack-logo-dark.png"
-      : "/truestack-logo-light.png";
-
+  // Pinjocep-only: local mark in `public/` — no TrueStack platform fallbacks in this app
   return (
     <Link href="/" className="flex items-center" aria-label={`${lenderName} home`}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- static public assets; theme swap */}
+      {/* eslint-disable-next-line @next/next/no-img-element -- static public assets */}
       <img
-        src={platformLogoSrc}
-        alt="TrueStack"
-        className="h-[3.25rem] w-auto max-w-[286px] sm:h-[3.575rem]"
+        src="/pinjocep-logo.png"
+        alt={`${lenderName} logo`}
+        className="h-[3.25rem] w-auto max-w-[286px] object-contain object-left sm:h-[3.575rem]"
         width={338}
         height={57}
       />

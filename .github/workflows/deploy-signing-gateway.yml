@@ -17,6 +17,7 @@ on:
         type: choice
         options:
           - demo-client
+          - pinjocep
           - proficient-premium
       platform_version:
         description: "Semantic version for the shared Pro platform (for example 1.2.3)"

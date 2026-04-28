@@ -14,7 +14,8 @@ const lightThemeCssVars: Record<string, string> = {
   "card-foreground": "0 0% 4%",
   popover: "0 0% 100%",
   "popover-foreground": "0 0% 4%",
-  primary: "0 0% 9%",
+  // Pinjocep UI brand `#8a0304` — CTAs, links, ring (logo may differ)
+  primary: "0 96% 28%",
   "primary-foreground": "0 0% 98%",
   secondary: "0 0% 96%",
   "secondary-foreground": "0 0% 9%",
@@ -22,22 +23,24 @@ const lightThemeCssVars: Record<string, string> = {
   "muted-foreground": "0 0% 45%",
   accent: "0 0% 96%",
   "accent-foreground": "0 0% 9%",
-  destructive: "0 84% 60%",
+  destructive: "0 72% 42%",
   "destructive-foreground": "0 0% 100%",
   success: "142 71% 46%",
   "success-foreground": "0 0% 100%",
   warning: "38 92% 50%",
   "warning-foreground": "0 0% 4%",
-  error: "0 84% 60%",
+  // Darker than `primary` so errors stay distinct from brand red
+  error: "0 72% 42%",
   "error-foreground": "0 0% 100%",
   info: "217 91% 60%",
   "info-foreground": "0 0% 100%",
   border: "0 0% 90%",
   input: "0 0% 90%",
-  ring: "0 0% 4%",
+  ring: "0 96% 28%",
   radius: "0.5rem",
 };
 
+// Dark palette matches `apps/borrower_pro/Demo_Client/tailwind.config.ts` (borrower demo neutral theme)
 const darkThemeCssVars: Record<string, string> = {
   background: "0 0% 4%",
   foreground: "0 0% 98%",

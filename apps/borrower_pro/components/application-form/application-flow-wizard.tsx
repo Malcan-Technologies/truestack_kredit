@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -1030,13 +1031,13 @@ export function ApplicationFlowWizard() {
                   />
                   <label htmlFor="consent" className="text-sm leading-tight cursor-pointer">
                     I have read and agree to the{" "}
-                    <Link href="/legal/terms" className="text-primary underline">
+                    <LegalNavLink href="/legal/terms" backSource="app" className="text-primary underline">
                       Terms
-                    </Link>{" "}
+                    </LegalNavLink>{" "}
                     and{" "}
-                    <Link href="/legal/privacy" className="text-primary underline">
+                    <LegalNavLink href="/legal/privacy" backSource="app" className="text-primary underline">
                       Privacy Policy
-                    </Link>
+                    </LegalNavLink>
                     .
                   </label>
                 </div>

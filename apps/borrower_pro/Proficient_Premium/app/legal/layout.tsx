@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LegalBackLink } from "@borrower_pro/components/legal/legal-back-link";
 
 export default function LegalLayout({
   children,
@@ -7,12 +7,7 @@ export default function LegalLayout({
     <div className="min-h-screen bg-background text-foreground">
       <main className="mx-auto max-w-3xl px-4 py-10 lg:py-14">
         <p className="mb-8">
-          <Link
-            href="/dashboard"
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            ← Back to dashboard
-          </Link>
+          <LegalBackLink className="text-sm text-muted-foreground transition-colors hover:text-foreground" />
         </p>
         {children}
       </main>

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import {
@@ -141,13 +142,21 @@ const FAQS: { question: string; answer: ReactNode }[] = [
     answer: (
       <>
         We use industry-standard sign-in and data-handling practices. For detail, read{" "}
-        <Link className="font-medium text-foreground underline-offset-4 hover:underline" href="/security">
+        <LegalNavLink
+          className="font-medium text-foreground underline-offset-4 hover:underline"
+          href="/security"
+          backSource="landing"
+        >
           Cybersecurity
-        </Link>{" "}
+        </LegalNavLink>{" "}
         and{" "}
-        <Link className="font-medium text-foreground underline-offset-4 hover:underline" href="/privacy">
+        <LegalNavLink
+          className="font-medium text-foreground underline-offset-4 hover:underline"
+          href="/privacy"
+          backSource="landing"
+        >
           Privacy
-        </Link>
+        </LegalNavLink>
         .
       </>
     ),

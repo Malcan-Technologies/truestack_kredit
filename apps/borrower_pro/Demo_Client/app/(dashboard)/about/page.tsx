@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@borr
 import { Skeleton } from "@borrower_pro/components/ui/skeleton";
 import { Badge } from "@borrower_pro/components/ui/badge";
 import { PhoneDisplay } from "@borrower_pro/components/ui/phone-display";
+import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
 import { APP_VERSION } from "@/lib/version";
 
 const POLICY_LINKS = [
@@ -79,9 +80,10 @@ function PoliciesLegalCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {POLICY_LINKS.map((item) => (
-          <a
+          <LegalNavLink
             key={item.href}
             href={item.href}
+            backSource="app"
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`${item.label} (opens in new tab)`}
@@ -89,7 +91,7 @@ function PoliciesLegalCard() {
           >
             <span>{item.label}</span>
             <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          </a>
+          </LegalNavLink>
         ))}
       </CardContent>
     </Card>

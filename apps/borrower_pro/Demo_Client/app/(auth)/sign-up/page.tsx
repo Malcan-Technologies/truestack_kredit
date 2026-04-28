@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
+import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signUp } from "@/lib/auth-client";
 import {
@@ -113,9 +114,13 @@ function SignUpForm() {
               />
               <Label htmlFor="accept-terms" className="text-sm leading-6">
                 I agree to the{" "}
-                <Link href="/legal/terms" className="text-primary underline underline-offset-4">
+                <LegalNavLink
+                  href="/legal/terms"
+                  backSource="landing"
+                  className="text-primary underline underline-offset-4"
+                >
                   terms and conditions
-                </Link>
+                </LegalNavLink>
                 .
               </Label>
             </div>

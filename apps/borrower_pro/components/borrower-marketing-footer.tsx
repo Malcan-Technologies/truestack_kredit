@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Layers, Linkedin, Mail, Phone } from "lucide-react";
+import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
 import {
   proficientFooterLegalLong,
   proficientFooterLegalShort,
@@ -387,12 +388,13 @@ export function BorrowerProficientTruestackFooter({
           <FootCol title="Legal">
             {legalLongRows.map((l) => (
               <li key={l.href}>
-                <Link
+                <LegalNavLink
                   href={l.href}
+                  backSource="landing"
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {l.label}
-                </Link>
+                </LegalNavLink>
               </li>
             ))}
           </FootCol>
@@ -422,9 +424,13 @@ export function BorrowerProficientTruestackFooter({
               {legalShortRows.map((l, i) => (
                 <span key={l.href} className="inline-flex items-center">
                   {i > 0 ? <span className="px-1.5 text-muted-foreground/50">·</span> : null}
-                  <Link href={l.href} className="transition-colors hover:text-foreground">
+                  <LegalNavLink
+                    href={l.href}
+                    backSource="landing"
+                    className="transition-colors hover:text-foreground"
+                  >
                     {l.label}
-                  </Link>
+                  </LegalNavLink>
                 </span>
               ))}
             </div>

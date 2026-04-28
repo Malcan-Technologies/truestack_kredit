@@ -1,5 +1,18 @@
 // Configuration management for TrueKredit Backend
 
+const DEFAULT_SIGNING_REQUEST_TIMEOUT_MS = 15000;
+const DEFAULT_SIGNING_ENROLL_TIMEOUT_MS = 120000;
+
+function parseTimeoutMs(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
 export const config = {
   // Server
   port: parseInt(process.env.PORT || '4001', 10),
@@ -64,8 +77,14 @@ export const config = {
     gatewayUrl: (process.env.SIGNING_GATEWAY_URL || 'http://localhost:3100').replace(/\/$/, ''),
     apiKey: process.env.SIGNING_API_KEY || 'dev-signing-key',
     enabled: process.env.SIGNING_ENABLED === 'true',
-    requestTimeoutMs: parseInt(process.env.SIGNING_REQUEST_TIMEOUT_MS || '15000', 10),
-    enrollTimeoutMs: parseInt(process.env.SIGNING_ENROLL_TIMEOUT_MS || '120000', 10),
+    requestTimeoutMs: parseTimeoutMs(
+      process.env.SIGNING_REQUEST_TIMEOUT_MS,
+      DEFAULT_SIGNING_REQUEST_TIMEOUT_MS
+    ),
+    enrollTimeoutMs: parseTimeoutMs(
+      process.env.SIGNING_ENROLL_TIMEOUT_MS,
+      DEFAULT_SIGNING_ENROLL_TIMEOUT_MS
+    ),
     cfAccessClientId: process.env.CF_ACCESS_CLIENT_ID || '',
     cfAccessClientSecret: process.env.CF_ACCESS_CLIENT_SECRET || '',
     /**

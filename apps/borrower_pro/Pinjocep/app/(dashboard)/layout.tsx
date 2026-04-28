@@ -274,7 +274,7 @@ export default function DashboardLayout({
         className={cn(
           "fixed top-0 left-0 z-50 h-full bg-card border-r transform transition-all duration-200 ease-in-out lg:translate-x-0",
           isAdditionalProfileOnboarding
-            ? "border-primary/25 shadow-[inset_3px_0_0_0_hsl(var(--primary)/0.35)]"
+            ? "border-border shadow-[inset_3px_0_0_0_hsl(var(--muted-foreground)/0.22)]"
             : "border-border",
           sidebarCollapsed ? "w-16" : "w-64",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"

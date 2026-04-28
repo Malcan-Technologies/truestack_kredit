@@ -183,7 +183,7 @@ export default function BorrowerNotificationsPage() {
             key={notification.id}
             className={cn(
               "transition-colors",
-              isUnread ? "border-primary/30 bg-primary/5" : "border-border"
+              isUnread ? "border-border bg-muted/20 dark:bg-muted/15" : "border-border"
             )}
           >
             <CardContent className="p-3 sm:p-4">
@@ -191,13 +191,13 @@ export default function BorrowerNotificationsPage() {
                 <div
                   className={cn(
                     CATEGORY_ICON_TILE,
-                    isUnread && "border-primary/20 bg-primary/[0.04] dark:bg-primary/[0.06]"
+                    isUnread && "border-border/60 bg-muted/25 dark:border-border/40 dark:bg-muted/20"
                   )}
                   title={borrowerNotificationCategoryLabel(notification.category)}
                 >
                   <BorrowerNotificationCategoryIcon
                     category={notification.category}
-                    className={cn("h-5 w-5", isUnread ? "text-primary" : "text-muted-foreground")}
+                    className={cn("h-5 w-5", isUnread ? "text-foreground" : "text-muted-foreground")}
                   />
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5">

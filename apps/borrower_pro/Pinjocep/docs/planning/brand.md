@@ -6,14 +6,14 @@ Reference branding for **Pinjocep** — the borrower frontend for TrueKredit Pro
 
 ## ⚠️ Do NOT Hardcode Colors
 
-**Never hardcode hex codes or raw Tailwind colors** (e.g. `#8a0304`, `red-500`, `emerald-500`, `amber-500`) in pages or components. Semantic colors are defined centrally in **`tailwind.config.ts`** (`lightThemeCssVars` / `darkThemeCssVars`) — change once to update globally.
+**Never hardcode hex codes or raw Tailwind colors** (e.g. `#8a0304`, `#f22526`, `red-500`) in pages or components. Semantic colors are defined centrally in **`tailwind.config.ts`** (`lightThemeCssVars` / `darkThemeCssVars`) — change once to update globally.
 
 | Use this | Not this |
 |----------|----------|
 | `text-error`, `border-error`, `bg-error/10` | `text-red-500`, `border-red-500` |
 | `text-success`, `bg-success/10` | `text-emerald-500`, `bg-emerald-500/10` |
 | `text-warning`, `bg-warning/10` | `text-amber-500`, `bg-amber-500/10` |
-| `text-primary`, `border-primary`, `bg-primary` | `#8a0304`, `text-red-500` (except in this file or theme config) |
+| `Button` default variant, `bg-primary`, `ring` (focus), small highlights | Raw brand hex in TSX; **`border-primary` / `bg-primary` on notification rows or large promo cards** |
 
 ---
 
@@ -64,11 +64,15 @@ Reference branding for **Pinjocep** — the borrower frontend for TrueKredit Pro
 
 ### Primary / Accent (Pinjocep)
 
-- **Logo asset:** `public/pinjocep-logo.png` may use a brighter red; **UI primary (light)** is **`#8a0304`** (deep crimson) — tokens, not hex in components.
-- **Light:** `primary` / `ring` ≈ HSL `0 96% 28%` (~`#8a0304`); `primary-foreground` near-white — see **`tailwind.config.ts`** (`lightThemeCssVars`).
-- **Dark:** same palette as **`apps/borrower_pro/Demo_Client`** — neutral borrower theme: **`primary`** ≈ near-white, **`primary-foreground`** dark on filled controls, **`ring`** near-white; status colors match that app’s dark tokens (`darkThemeCssVars` in Pinjocep mirrors Demo_Client).
-- **Do not** paste brand hex into TSX; use `text-primary`, `bg-primary`, `border-primary`, etc.
-- **`error` / `destructive`:** in **light**, tuned vs crimson `primary`; in **dark**, standard semantic reds per Demo_Client — see **`tailwind.config.ts`**.
+Theme tokens in **`tailwind.config.ts`** — do not paste brand hex into TSX.
+
+| Mode | Brand use (`--primary`, `--ring`) | Where not to use primary |
+|------|-------------------------------------|---------------------------|
+| **Light** | **`#8a0304`** (~HSL `0 96% 28%`) — buttons, focus ring, avatar initials, deliberate fills | Notification list rows, large dashboard promo cards, onboarding sidebar chrome — use **`border`** / **`muted`** / **`foreground`** |
+| **Dark** | **`#f22526`** (~HSL `0 89% 55%`) — same classes, brighter coral on dark UI | Same: lists and broad surfaces stay **neutral** |
+
+- **Inline body links** typically use **`text-foreground`** + underline, not **`text-primary`**, so tertiary copy does not flood with brand color.
+- **Logo asset** (`public/pinjocep-logo.png`) may differ; UI follows tokens above.
 
 ### Status Colors
 
@@ -76,7 +80,7 @@ All defined in **`tailwind.config.ts`** — change once to update globally.
 
 - **Success:** #22C55E (`--success`) — use `text-success`, `bg-success/10`, `border-success`
 - **Warning:** #F59E0B (`--warning`) — use `text-warning`, `bg-warning/10`
-- **Error:** (`--error`) — light/dark tokens in config; use `text-error`, `border-error`, `bg-error/10`
+- **Error:** (`--error`) — distinct from brand `primary` in each mode; use `text-error`, `border-error`, `bg-error/10`
 - **Info:** #3B82F6 (`--info`) — use `text-info`, `bg-info/10`
 
 ---

@@ -161,7 +161,7 @@ function SignInForm() {
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Don&apos;t have an account?{" "}
-              <Link href={signUpHref} className="text-primary underline underline-offset-4">
+              <Link href={signUpHref} className="text-foreground underline underline-offset-4 hover:text-foreground/90">
                 Sign up
               </Link>
             </p>

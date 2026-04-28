@@ -108,7 +108,7 @@ function ResetPasswordContent() {
             <Button type="submit" className="w-full" disabled={!hasToken || loading}>
               {loading ? "Resetting..." : "Reset password"}
             </Button>
-            <Link href="/forgot-password" className="text-sm text-primary underline underline-offset-4">
+            <Link href="/forgot-password" className="text-sm text-foreground underline underline-offset-4 hover:text-foreground/90">
               Request a new reset link
             </Link>
           </CardFooter>

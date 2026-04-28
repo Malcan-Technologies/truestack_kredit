@@ -40,7 +40,7 @@ const lightThemeCssVars: Record<string, string> = {
   radius: "0.5rem",
 };
 
-// Dark palette matches `apps/borrower_pro/Demo_Client/tailwind.config.ts` (borrower demo neutral theme)
+// Dark: brand `#f22526` on buttons/highlights — lighter coral than light-theme burgundy; base UI still neutral grays
 const darkThemeCssVars: Record<string, string> = {
   background: "0 0% 4%",
   foreground: "0 0% 98%",
@@ -49,27 +49,27 @@ const darkThemeCssVars: Record<string, string> = {
   "card-foreground": "0 0% 98%",
   popover: "0 0% 7%",
   "popover-foreground": "0 0% 98%",
-  primary: "0 0% 98%",
-  "primary-foreground": "0 0% 4%",
+  primary: "0 89% 55%",
+  "primary-foreground": "0 0% 98%",
   secondary: "0 0% 14%",
   "secondary-foreground": "0 0% 98%",
   muted: "0 0% 55%",
   "muted-foreground": "0 0% 55%",
   accent: "0 0% 14%",
   "accent-foreground": "0 0% 98%",
-  destructive: "0 84% 60%",
+  destructive: "0 72% 42%",
   "destructive-foreground": "0 0% 100%",
   success: "142 71% 46%",
   "success-foreground": "0 0% 100%",
   warning: "38 92% 50%",
   "warning-foreground": "0 0% 98%",
-  error: "0 84% 60%",
+  error: "0 72% 42%",
   "error-foreground": "0 0% 100%",
   info: "217 91% 60%",
   "info-foreground": "0 0% 100%",
   border: "0 0% 16%",
   input: "0 0% 16%",
-  ring: "0 0% 98%",
+  ring: "0 89% 55%",
 };
 
 function cssCustomProperties(vars: Record<string, string>): Record<string, string> {

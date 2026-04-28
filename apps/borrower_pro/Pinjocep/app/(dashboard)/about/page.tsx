@@ -245,7 +245,7 @@ export default function AboutPage() {
               {lender.email ? (
                 <a
                   href={`mailto:${encodeURIComponent(lender.email)}`}
-                  className="font-medium text-primary hover:underline"
+                  className="font-medium text-foreground underline underline-offset-4 hover:text-foreground/90"
                 >
                   {lender.email}
                 </a>

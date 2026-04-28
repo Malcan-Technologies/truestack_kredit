@@ -113,7 +113,7 @@ function SignUpForm() {
               />
               <Label htmlFor="accept-terms" className="text-sm leading-6">
                 I agree to the{" "}
-                <Link href="/legal/terms" className="text-primary underline underline-offset-4">
+                <Link href="/legal/terms" className="text-foreground underline underline-offset-4 hover:text-foreground/90">
                   terms and conditions
                 </Link>
                 .
@@ -126,7 +126,7 @@ function SignUpForm() {
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Already have an account?{" "}
-              <Link href={signInHref} className="text-primary underline underline-offset-4">
+              <Link href={signInHref} className="text-foreground underline underline-offset-4 hover:text-foreground/90">
                 Sign in
               </Link>
             </p>

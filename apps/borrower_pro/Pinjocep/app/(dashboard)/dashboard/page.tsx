@@ -128,10 +128,10 @@ function OnboardingBanner() {
   if (checking || !show) return null;
 
   return (
-    <Card className="border-primary/30 bg-primary/5">
+    <Card className="border-border bg-muted/10">
       <CardContent className="flex flex-col sm:flex-row items-start sm:items-center gap-4 py-5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
-          <ClipboardList className="h-5 w-5 text-primary" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted/20">
+          <ClipboardList className="h-5 w-5 text-foreground" />
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold">
@@ -140,7 +140,7 @@ function OnboardingBanner() {
           <p className="text-sm text-muted-foreground mt-0.5">
             You need a borrower profile before you can apply for loans.
             {draftProgress && (
-              <span className="ml-1 text-primary font-medium">
+              <span className="ml-1 font-medium text-foreground">
                 ({draftProgress} saved)
               </span>
             )}

@@ -342,7 +342,7 @@ export default function ApplicationsPage() {
           <h1 className="text-2xl font-heading font-bold text-gradient">Loan Applications</h1>
           <p className="text-muted text-base mt-1">
             View and manage your applications. After approval, continue in{" "}
-            <Link href="/loans" className="text-primary underline font-medium">
+            <Link href="/loans" className="font-medium text-foreground underline underline-offset-4 hover:text-foreground/90">
               Loans
             </Link>{" "}
             for attestation and signing.

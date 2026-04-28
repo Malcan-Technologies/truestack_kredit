@@ -15,7 +15,7 @@ This rule applies to **`apps/borrower_pro/Pinjocep`**: the **Pinjocep**-branded 
 
 - **Client name: Pinjocep** — public copy, JSON-LD, and org constants should use Pinjocep (not “Demo Client”, not “Truestack” as a product name).
 - Centralise borrower-facing org details in **`app/components/legal/pinjocep-site.ts`** and update in one place when legal or contact data changes.
-- **Brand / UI primary (light):** **`#8a0304`**. **Dark theme** mirrors **`apps/borrower_pro/Demo_Client`** neutrals (borrower demo palette). Logo file may differ. Express color only via **`primary`** / **`primary-foreground`** in **`tailwind.config.ts`** — do not hardcode hex in pages or shared components.
+- **Brand by theme:** **light** primary **`#8a0304`** — **dark** primary **`#f22526`** (tokens in **`tailwind.config.ts`**). Use **`primary`** for **`Button`**, focus **`ring`**, avatar chip, etc.; do **not** use `border-primary` / `bg-primary` washes on notification cards or large neutral surfaces — use **`border` / `muted` / `foreground`**. Prefer **`text-foreground`** + underline for inline body links, not **`text-primary`**. Logo file may differ.
 - Follow **`docs/planning/brand.md`** for typography, status colors, and palette rules.
 
 ### Technical

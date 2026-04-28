@@ -83,7 +83,7 @@ function ForgotPasswordContent() {
               />
               {emailLocked ? (
                 <p className="text-xs text-muted-foreground">
-                  <Link href="/forgot-password" className="text-primary underline underline-offset-4">
+                  <Link href="/forgot-password" className="text-foreground underline underline-offset-4 hover:text-foreground/90">
                     Use a different email
                   </Link>
                 </p>
@@ -96,7 +96,7 @@ function ForgotPasswordContent() {
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Remember your password?{" "}
-              <Link href="/sign-in" className="text-primary underline underline-offset-4">
+              <Link href="/sign-in" className="text-foreground underline underline-offset-4 hover:text-foreground/90">
                 Sign in
               </Link>
             </p>

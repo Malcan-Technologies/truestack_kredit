@@ -124,7 +124,7 @@ function VerifyEmailContent() {
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Verified already?{" "}
-              <Link href={signInHref} className="text-primary underline underline-offset-4">
+              <Link href={signInHref} className="text-foreground underline underline-offset-4 hover:text-foreground/90">
                 Sign in
               </Link>
             </p>

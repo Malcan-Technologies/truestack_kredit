@@ -53,8 +53,11 @@ export function HelpMarkdown({ content, className }: HelpMarkdownProps) {
               {...props}
             />
           ),
+          // Use a div, not <p>: fenced code and other custom blocks render as <div> inside "paragraph"
+          // nodes in some MD trees; <p> cannot contain <div> and will hydrate incorrectly.
           p: ({ className: paragraphClassName, ...props }) => (
-            <p
+            <div
+              role="paragraph"
               className={cn(
                 "leading-7 text-foreground/95 [&:not(:first-child)]:mt-4",
                 paragraphClassName

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
 import { useTheme } from "next-themes";
 import {
   fetchLenderInfo,
@@ -80,13 +80,14 @@ function PoliciesLegalCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {POLICY_LINKS.map((item) => (
-          <Link
+          <LegalNavLink
             key={item.href}
             href={item.href}
+            backSource="app"
             className="rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
           >
             {item.label}
-          </Link>
+          </LegalNavLink>
         ))}
       </CardContent>
     </Card>

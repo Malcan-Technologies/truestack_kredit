@@ -1,6 +1,9 @@
 "use client";
 
+import type { LenderInfo } from "@kredit/borrower";
 import Link from "next/link";
+import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
+import { mergeLenderFooterFields } from "@borrower_pro/lib/merge-tenant-lender-display";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import {
@@ -32,9 +35,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@borrower_pro/components/ui/tooltip";
-import { BorrowerDemoTruestackFooter } from "@borrower_pro/components/borrower-marketing-footer";
+import { BorrowerProficientTruestackFooter } from "@borrower_pro/components/borrower-marketing-footer";
 import { ThemeToggle } from "@borrower_pro/components/theme-toggle";
-import { fetchBorrowerMe } from "@borrower_pro/lib/borrower-auth-client";
+import {
+  proficientFooterLegalLong,
+  proficientFooterLegalShort,
+} from "@borrower_pro/lib/proficient-site-footer";
+import {
+  fetchBorrowerMe,
+  fetchLenderInfo,
+  resolveBorrowerLenderLogoSrc,
+} from "@borrower_pro/lib/borrower-auth-client";
 import {
   calculateFlatInterest,
   cn,
@@ -45,12 +56,25 @@ import {
   safeSubtract,
   toSafeNumber,
 } from "@borrower_pro/lib/utils";
+import {
+  LENDER_ADDRESS_LINES,
+  LENDER_EMAIL,
+  LENDER_KPKT_LICENSE,
+  LENDER_LEGAL_NAME,
+  LENDER_NAME,
+  LENDER_PHONE,
+  LENDER_PHONE_HREF,
+  LENDER_SSM,
+} from "@/app/components/legal/demo-site";
 
 const ANNUAL_INTEREST_RATE = 18;
-/** Demo-only: monthly repayment budget as a share of net income (not shown in UI). */
+/** Monthly repayment budget as a share of income (not shown in UI). */
 const AFFORDABILITY_FACTOR = 0.8;
+/** One-line note under the calculator (shorthand for regulatory clarity). */
+const CALCULATOR_FOOTNOTE =
+  "Indicative only—not a loan offer. Final terms are confirmed after assessment and appear in your loan documentation.";
 const DEMO_NOTICE =
-  "Demo only. Demo Client is not a real lending company. Figures shown here are illustrative and do not represent a real loan offer, approval, or underwriting decision.";
+  "Demo only. This sample environment is not a real lending company unless you connect a live tenant.";
 const TERM_MONTHS_OPTIONS = [6, 12, 18, 24] as const;
 /** Floor max loan to this step (e.g. 24,406.78 → 24,400). */
 const MAX_LOAN_ROUND_STEP = 100;
@@ -67,113 +91,32 @@ function roundToNearestStep(value: number, step: number): number {
 
 const HOW_IT_WORKS = [
   {
-    title: "Pick term, income, commitments",
+    title: "Choose your loan",
     description:
-      "Borrowers set the loan length, net income, and existing monthly commitments for an instant example.",
+      "Pick your loan term, share your income and existing commitments to see what you can borrow.",
     Icon: Calculator,
   },
   {
-    title: "A simple first step",
+    title: "Submit your application",
     description:
-      "The homepage sets expectations before sign-up—nothing here replaces real underwriting.",
+      "Complete a guided online application. We will get in touch to confirm next steps.",
     Icon: Wallet,
   },
   {
-    title: "Instant demo numbers",
+    title: "Get a decision",
     description:
-      "See an indicative maximum loan and repayment using the flat-rate example on this page.",
+      "Once approved, manage your loan, repayments, and documents in your borrower portal.",
     Icon: CheckCircle2,
   },
 ] as const;
 
-const BENEFITS = [
-  {
-    title: "Client-facing borrower experience",
-    description:
-      "This page is positioned as a branded digital front door that a licensed money lender can adapt for prospective borrowers.",
-    Icon: Clock3,
-  },
-  {
-    title: "Readable at a glance",
-    description:
-      "Short labels and big numbers keep the demo easy to scan in client walkthroughs.",
-    Icon: FileText,
-  },
-  {
-    title: "Suitable for demo and sales use",
-    description:
-      "Repeated disclaimers keep the experience safe for demos, proposals, and client walkthroughs without implying a live lending operation.",
-    Icon: ShieldCheck,
-  },
-] as const;
-
-const FAQS: { question: string; answer: ReactNode }[] = [
-  {
-    question: "Who is this homepage designed for?",
-    answer:
-      "This demo is designed for licensed money lenders evaluating what a borrower-facing website could look like for KPKT digital licence lending.",
-  },
-  {
-    question: "Is Demo Client a real lender?",
-    answer:
-      "No. This site is a demonstration environment only. It does not issue real loans, process real approvals, or represent a live moneylending business.",
-  },
-  {
-    question: "How is the calculator intended to be used?",
-    answer:
-      "It is an illustrative front-end tool that shows how your borrowers might receive an initial repayment estimate and affordability outcome before they continue to the application flow.",
-  },
-  {
-    question: "How does the demo eligibility check work?",
-    answer:
-      "It uses your net income, current monthly commitments, the term you choose, and a flat 18% p.a. example to estimate indicative figures. It is not a credit decision.",
-  },
-  {
-    question: "Can we book a live demo of this borrower portal and the admin portal?",
-    answer: (
-      <>
-        Yes. For a guided walkthrough of this borrower experience and the lender admin portal,
-        contact TrueStack at{" "}
-        <a
-          href="mailto:hello@truestack.my"
-          className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
-        >
-          hello@truestack.my
-        </a>{" "}
-        or reach out via{" "}
-        <a
-          href="https://truestack.my/contact"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
-        >
-          truestack.my/contact
-        </a>
-        .
-      </>
-    ),
-  },
-  {
-    question: "Where can I learn more about what TrueStack does for KPKT digital lending?",
-    answer: (
-      <>
-        For digital licence conversion, the end-to-end programme, and how TrueStack supports
-        licensed money lenders, see{" "}
-        <a
-          href="https://www.truestack.my/services/digital-license"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
-        >
-          Digital KPKT licence conversion on truestack.my
-        </a>
-        .
-      </>
-    ),
-  },
-];
-
-function HomeBrandMark() {
+function HomeBrandMark({
+  tenantLogoSrc,
+  lenderName,
+}: {
+  tenantLogoSrc?: string;
+  lenderName: string;
+}) {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -181,24 +124,39 @@ function HomeBrandMark() {
     setMounted(true);
   }, []);
 
-  const logoSrc =
+  if (tenantLogoSrc) {
+    return (
+      <Link
+        href="/"
+        className="flex items-center"
+        aria-label={`${lenderName} home`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- proxied / remote tenant logo */}
+        <img
+          src={tenantLogoSrc}
+          alt={`${lenderName} logo`}
+          className="h-[3.25rem] w-auto max-w-[286px] object-contain object-left sm:h-[3.575rem]"
+          width={338}
+          height={57}
+        />
+      </Link>
+    );
+  }
+
+  const platformLogoSrc =
     mounted && resolvedTheme === "dark"
       ? "/truestack-logo-dark.png"
       : "/truestack-logo-light.png";
 
   return (
-    <Link
-      href="/"
-      className="flex items-center"
-      aria-label="Demo Client home"
-    >
+    <Link href="/" className="flex items-center" aria-label={`${lenderName} home`}>
       {/* eslint-disable-next-line @next/next/no-img-element -- static public assets; theme swap */}
       <img
-        src={logoSrc}
+        src={platformLogoSrc}
         alt="TrueStack"
-        className="h-10 w-auto max-w-[220px] sm:h-11"
-        width={260}
-        height={44}
+        className="h-[3.25rem] w-auto max-w-[286px] sm:h-[3.575rem]"
+        width={338}
+        height={57}
       />
     </Link>
   );
@@ -316,15 +274,13 @@ function HomeLoanCalculator() {
     >
       <CardHeader className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">Demo calculator</Badge>
-          <Badge variant="outline">18% p.a. example</Badge>
+          <Badge variant="outline">Demo loan estimate</Badge>
+          <Badge variant="outline">{ANNUAL_INTEREST_RATE}% p.a. example</Badge>
         </div>
         <div>
           <CardTitle className="text-2xl sm:text-3xl">Eligibility checker</CardTitle>
           <CardDescription className="mt-2">
-            Enter income and commitments, then tune how much you want to borrow up to your
-            maximum—estimated repayment updates for that loan amount. Illustrative only—not an
-            offer.
+            Enter income and commitments to see illustrative numbers. {DEMO_NOTICE}
           </CardDescription>
         </div>
       </CardHeader>
@@ -435,7 +391,8 @@ function HomeLoanCalculator() {
                     </p>
                     {!result.canAssess && (
                       <p className="text-sm text-muted-foreground">
-                        Illustrative demo only—not underwriting or a real offer.
+                        Add your income to see an indicative range. Illustrative demo—not
+                        underwriting or a real offer.
                       </p>
                     )}
                   </div>
@@ -497,29 +454,28 @@ function HomeLoanCalculator() {
 
             {result.remainingAfterCommitments < 0 ? (
               <Button type="button" size="lg" className="w-full" disabled>
-                Apply now
+                Explore demo
                 <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
               </Button>
             ) : (
               <Button asChild size="lg" className="w-full">
                 <Link href="/sign-up">
-                  Apply now
+                  Explore demo
                   <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
                 </Link>
               </Button>
             )}
 
             <p className="text-xs leading-6 text-muted-foreground">
-              Indicative math only (demo model). Affordability sets your ceiling; repayment is
-              for the loan amount you choose (flat {ANNUAL_INTEREST_RATE}% p.a. over the term).
+              Affordability sets your maximum; the slider is your chosen amount within that ceiling
+              (flat {ANNUAL_INTEREST_RATE}% p.a. over the term).
               {result.hasCapacity && result.chosenLoanAmount > 0 && (
                 <>
                   {" "}
-                  Total repayable {formatCurrency(result.chosenTotalRepayable)} (principal +
-                  interest).
+                  Total repayable {formatCurrency(result.chosenTotalRepayable)} (principal + interest).{" "}
                 </>
-              )}{" "}
-              {DEMO_NOTICE}
+              )}
+              {CALCULATOR_FOOTNOTE} {DEMO_NOTICE}
             </p>
           </div>
       </CardContent>
@@ -528,6 +484,131 @@ function HomeLoanCalculator() {
 }
 
 export function HomePageContent() {
+  const [tenantLogoSrc, setTenantLogoSrc] = useState<string | undefined>(undefined);
+  const [lenderTenant, setLenderTenant] = useState<LenderInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLenderInfo()
+      .then((res) => {
+        if (!cancelled && res.success && res.data) {
+          setTenantLogoSrc(resolveBorrowerLenderLogoSrc(res.data.logoUrl ?? null));
+          setLenderTenant(res.data);
+        }
+      })
+      .catch(() => {
+        /* public homepage: tenant or network may be unavailable */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const lender = useMemo(
+    () =>
+      mergeLenderFooterFields(
+        {
+          lenderName: LENDER_NAME,
+          legalName: LENDER_LEGAL_NAME,
+          email: LENDER_EMAIL,
+          phone: LENDER_PHONE,
+          phoneHref: LENDER_PHONE_HREF,
+          ssm: LENDER_SSM,
+          kpktLicense: LENDER_KPKT_LICENSE,
+          addressLines: LENDER_ADDRESS_LINES,
+        },
+        lenderTenant
+      ),
+    [lenderTenant]
+  );
+
+  const benefits = useMemo(
+    () =>
+      [
+        {
+          title: "Licensed and regulated",
+          description: `${lender.lenderName} operates as a licensed money lender in Malaysia.`,
+          Icon: ShieldCheck,
+        },
+        {
+          title: "Fast online application",
+          description:
+            "Apply online and track your application status in your secure borrower account.",
+          Icon: Clock3,
+        },
+        {
+          title: "Clear terms",
+          description:
+            "Indicative figures up front, full terms in your loan documents before you sign.",
+          Icon: FileText,
+        },
+      ] as const,
+    [lender.lenderName]
+  );
+
+  const faqs = useMemo((): { question: string; answer: ReactNode }[] => {
+    const contactEmail = lender.email;
+    return [
+      {
+        question: "Is this demonstration or production lending?",
+        answer: `${DEMO_NOTICE} Company lines in the footer come from Tenant Information in admin when your deployment is connected.`,
+      },
+      {
+        question: `Who is ${lender.lenderName}?`,
+        answer: `${lender.legalName} operates as a licensed money lender in Malaysia—the details shown mirror your tenant profile when configured.`,
+      },
+      {
+        question: "Is the calculator a loan offer?",
+        answer:
+          "No. The calculator uses illustrative assumptions (including a flat rate example) to help you understand possible repayment ranges. A formal assessment is required for any loan offer.",
+      },
+      {
+        question: "How do I apply?",
+        answer:
+          "Create an account, complete onboarding, and submit a loan application from your dashboard. You can track status and messages in the portal.",
+      },
+      {
+        question: "How is my information protected?",
+        answer: (
+          <>
+            We use industry-standard sign-in and data-handling practices. For detail, read{" "}
+            <LegalNavLink
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+              href="/security"
+              backSource="landing"
+            >
+              Cybersecurity
+            </LegalNavLink>{" "}
+            and{" "}
+            <LegalNavLink
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+              href="/privacy"
+              backSource="landing"
+            >
+              Privacy
+            </LegalNavLink>
+            .
+          </>
+        ),
+      },
+      {
+        question: "Who can I contact for help?",
+        answer: (
+          <>
+            Email{" "}
+            <a
+              href={`mailto:${contactEmail}`}
+              className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
+            >
+              {contactEmail}
+            </a>
+            .
+          </>
+        ),
+      },
+    ];
+  }, [lender.email, lender.legalName, lender.lenderName]);
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="border-b border-border/60 bg-secondary/50">
@@ -537,10 +618,9 @@ export function HomePageContent() {
           </p>
         </div>
       </div>
-
       <header className="border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <HomeBrandMark />
+          <HomeBrandMark tenantLogoSrc={tenantLogoSrc} lenderName={lender.lenderName} />
           <div className="hidden items-center gap-6 text-sm md:flex">
             <Link href="#how-it-works" className="text-muted-foreground transition-colors hover:text-foreground">
               How it works
@@ -564,37 +644,30 @@ export function HomePageContent() {
           <div className="space-y-8">
             <div className="space-y-4">
               <Badge variant="outline" className="w-fit">
-                Borrower-facing website demo
+                Borrower portal demo
               </Badge>
               <h1 className="max-w-3xl font-heading text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-                Show your lending business with a cleaner digital borrower journey.
+                Borrow with {lender.lenderName}.
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-muted-foreground">
-                This is a sample borrower-facing website for licensed money
-                lenders exploring KPKT digital licence lending. It shows how your
-                business could present a branded homepage, an upfront affordability
-                preview, and a simple path into sign-up and application flows.
+                Apply online, track your application, and manage repayments from one secure
+                borrower portal.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-secondary/40 to-card/90 p-5 sm:p-6">
-              <p className="font-medium text-foreground">
-                KPKT digital licence and your lending platform
-              </p>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Contact TrueStack about digital licence conversion or setting up your own
-                lending platform.
-              </p>
-              <Button asChild size="lg" className="mt-4">
-                <a
-                  href="https://truestack.my/contact"
-                  target="_blank"
-                  rel="noopener noreferrer"
+            <div className="grid gap-4 sm:grid-cols-3">
+              {[
+                "Secure sign-up and a single borrower dashboard",
+                `Online affordability preview (flat ${ANNUAL_INTEREST_RATE}% p.a. example, where applicable)`,
+                "Track applications, loans, and messages in one place",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="rounded-xl border border-border/70 bg-background/80 px-4 py-5 text-sm text-muted-foreground"
                 >
-                  Contact us
-                  <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
-                </a>
-              </Button>
+                  {item}
+                </div>
+              ))}
             </div>
 
             <div className="rounded-2xl border border-border/70 bg-card/80 p-5">
@@ -606,21 +679,6 @@ export function HomePageContent() {
                 </div>
               </div>
             </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              {[
-                "Borrower-ready front page demo",
-                `Illustrative ${ANNUAL_INTEREST_RATE}% p.a. affordability preview`,
-                "Built for client walkthroughs",
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="rounded-xl border border-border/70 bg-background/80 px-4 py-5 text-sm text-muted-foreground"
-                >
-                  {item}
-                </div>
-              ))}
-            </div>
           </div>
 
           <HomeLoanCalculator />
@@ -631,10 +689,10 @@ export function HomePageContent() {
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
           <div className="max-w-2xl space-y-3">
             <Badge variant="outline">How it works</Badge>
-            <h2 className="font-heading text-3xl font-semibold">What your borrowers would see first</h2>
+            <h2 className="font-heading text-3xl font-semibold">Three simple steps</h2>
             <p className="text-muted-foreground">
-              The homepage is structured to give licensed money lenders a simple example
-              of how a digital borrower journey can start online.
+              From first visit to an approved loan, the journey is designed to be clear and
+              straightforward.
             </p>
           </div>
 
@@ -659,18 +717,18 @@ export function HomePageContent() {
       <section id="features" className="border-b border-border/60 bg-secondary/20">
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
           <div className="max-w-2xl space-y-3">
-            <Badge variant="outline">Why this works for lenders</Badge>
+            <Badge variant="outline">Why {lender.lenderName}</Badge>
             <h2 className="font-heading text-3xl font-semibold">
-              Positioned for KPKT digital licence lending demos
+              Built around your borrower experience
             </h2>
             <p className="text-muted-foreground">
-              The writing, structure, and borrower entry points are framed to help money
-              lenders imagine how their own digital borrower experience could be presented.
+              Clear information, a guided application, and ongoing access to your loan details
+              in the portal.
             </p>
           </div>
 
           <div className="mt-8 grid gap-5 md:grid-cols-3">
-            {BENEFITS.map(({ title, description, Icon }) => (
+            {benefits.map(({ title, description, Icon }) => (
               <Card key={title} className="border-border/70 bg-background">
                 <CardHeader className="space-y-4">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-secondary">
@@ -693,14 +751,13 @@ export function HomePageContent() {
             <Badge variant="outline">FAQ</Badge>
             <h2 className="font-heading text-3xl font-semibold">FAQ</h2>
             <p className="text-muted-foreground">
-              These answers clarify how the demo should be positioned during internal
-              reviews, client walkthroughs, and product discussions.
+              Sandbox answers with links to Tenant-backed contact email and demonstration context.
             </p>
           </div>
 
           <div className="mt-8 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="grid gap-5">
-              {FAQS.map((item) => (
+              {faqs.map((item) => (
                 <Card key={item.question} className="border-border/70">
                   <CardHeader>
                     <CardTitle>{item.question}</CardTitle>
@@ -712,26 +769,22 @@ export function HomePageContent() {
 
             <Card className="border-border/70 bg-secondary/30">
               <CardHeader>
-                <CardTitle>Want to explore the full borrower demo?</CardTitle>
+                <CardTitle>Ready to explore?</CardTitle>
                 <CardDescription>
-                  Continue into the demo sign-up flow to see how the borrower portal
-                  experience extends beyond the homepage.
+                  Create an account for the sandbox borrower flow, or sign in if you already
+                  have demo access.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <Button asChild className="w-full">
-                  <Link href="/sign-up">Start demo sign-up flow</Link>
+                  <Link href="/sign-up">Explore demo signup</Link>
                 </Button>
                 <Button asChild variant="outline" className="w-full">
-                  <Link href="/sign-in">Sign in to demo portal</Link>
+                  <Link href="/sign-in">Sign in</Link>
                 </Button>
                 <Button asChild variant="outline" className="w-full">
-                  <a
-                    href="https://truestack.my/contact"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Contact us — KPKT and lending platform
+                  <a href={`mailto:${lender.email}`}>
+                    Email us
                     <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
                   </a>
                 </Button>
@@ -742,7 +795,22 @@ export function HomePageContent() {
         </div>
       </section>
 
-      <BorrowerDemoTruestackFooter />
+      <BorrowerProficientTruestackFooter
+        lenderName={lender.lenderName}
+        {...(tenantLogoSrc
+          ? { brandLogoSrc: tenantLogoSrc, brandLogoAlt: lender.lenderName }
+          : {})}
+        legalName={lender.legalName}
+        email={lender.email}
+        phone={lender.phone}
+        phoneHref={lender.phoneHref}
+        ssm={lender.ssm}
+        kpktLicense={lender.kpktLicense}
+        addressLines={lender.addressLines}
+        description={`${lender.legalName} provides this portal for online applications, loan servicing, and secure communications with borrowers.`}
+        legalLong={proficientFooterLegalLong}
+        legalShort={proficientFooterLegalShort}
+      />
     </main>
   );
 }

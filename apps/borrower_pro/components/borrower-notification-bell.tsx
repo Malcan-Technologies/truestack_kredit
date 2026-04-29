@@ -82,9 +82,14 @@ export function BorrowerNotificationBell({ disabled = false }: BorrowerNotificat
     if (disabled) return;
     let cancelled = false;
     const refreshUnread = () => {
-      void listBorrowerNotifications({ page: 1, pageSize: 1 }).then((res) => {
-        if (!cancelled) setUnreadCount(res.unreadCount);
-      });
+      void listBorrowerNotifications({ page: 1, pageSize: 1 })
+        .then((res) => {
+          if (!cancelled) setUnreadCount(res.unreadCount);
+        })
+        .catch(() => {
+          // Missing/expired session or network error — bell must not surface an unhandled rejection.
+          if (!cancelled) setUnreadCount(0);
+        });
     };
     refreshUnread();
     const onInboxUpdated = () => refreshUnread();

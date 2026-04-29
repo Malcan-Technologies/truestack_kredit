@@ -1,0 +1,65 @@
+client_id: pinjocep
+client_type: external
+borrower_app: Pinjocep
+
+aws:
+  # Target account for this Pro stack (must match Terraform backend + IAM role trust).
+  account_id: "491694399426"
+  region: ap-southeast-5
+  github_environment: pro-pinjocep
+
+deploy:
+  auto_deploy: false
+  platform_release: 1.0.0
+  borrower_release: 1.0.0
+
+ecr:
+  backend_repository: truekredit-pinjocep-backend-pro
+  admin_repository: truekredit-pinjocep-admin-pro
+  borrower_repository: truekredit-pinjocep-borrower
+
+ecs:
+  cluster: truekredit-pinjocep
+  backend_service: truekredit-pinjocep-backend
+  admin_service: truekredit-pinjocep-admin
+  borrower_service: truekredit-pinjocep-borrower
+  migrations_task: truekredit-pinjocep-migrations
+
+secrets:
+  # After first Terraform apply, replace with full ARN from `terraform output app_secret_arn` (includes random suffix).
+  app_secrets_arn: arn:aws:secretsmanager:ap-southeast-5:491694399426:secret:truekredit-pinjocep
+
+storage:
+  uploads_bucket: truekredit-uploads-pinjocep
+
+domains:
+  # Replace with production hostnames; keep in sync with terraform/pro/clients/pinjocep/pinjocep.tfvars
+  admin: admin.loans.pinjocep.com
+  api: api.loans.pinjocep.com
+  borrower: loans.pinjocep.com
+
+pro_tenant:
+  slug: pinjocep
+  name: Pinjocep Sdn Bhd
+  type: PPW
+  license_number: PPW/KL/2024/001
+  registration_number: "202401012345"
+  email: info@pinjocep.com
+  contact_number: "+60312345678"
+  business_address: "123 Jalan Example, 50000 Kuala Lumpur"
+  seed_owner_email: admin@pinjocep.com
+  seed_owner_name: Pinjocep Admin
+
+enabled_modules:
+  - origination
+  - repayments
+  - attestation
+  - signing
+
+signing:
+  gateway_hostname: sign.loans.pinjocep.com
+  ssh_host: ssh-sign.loans.pinjocep.com
+  tunnel_name: pinjocep-onprem
+  mtsa_env: pilot
+  backup_bucket_prefix: pinjocep
+  ecr_repository: truekredit-pro-signing-gateway

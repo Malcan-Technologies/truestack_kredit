@@ -1,8 +1,6 @@
 /** Client-facing org details for Proficient Premium borrower portal. */
 export const LENDER_NAME = "Proficient Premium";
 export const LENDER_LEGAL_NAME = "Proficient Premium Sdn Bhd";
-/** Public path for the Proficient Premium wordmark and monogram (header/footer). */
-export const LENDER_LOGO_PATH = "/proficient-premium-logo.png";
 export const LENDER_EMAIL = "admin@proficientpremium.com";
 export const LENDER_PHONE = "03 9770 2200";
 /** Use with <a href={LENDER_PHONE_HREF}> for click-to-dial. */

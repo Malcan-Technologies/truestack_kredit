@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-const BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3006";
+const BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3008";
 
 export interface BorrowerMeResponse {
   success: boolean;

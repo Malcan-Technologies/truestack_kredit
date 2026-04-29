@@ -1,7 +1,9 @@
 "use client";
 
+import type { LenderInfo } from "@kredit/borrower";
 import Link from "next/link";
 import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
+import { mergeLenderFooterFields } from "@borrower_pro/lib/merge-tenant-lender-display";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowRight,
@@ -105,82 +107,6 @@ const HOW_IT_WORKS = [
     Icon: CheckCircle2,
   },
 ] as const;
-
-const BENEFITS = [
-  {
-    title: "Licensed and regulated",
-    description: `${LENDER_NAME} operates as a licensed money lender in Malaysia.`,
-    Icon: ShieldCheck,
-  },
-  {
-    title: "Fast online application",
-    description:
-      "Apply online and track your application status in your secure borrower account.",
-    Icon: Clock3,
-  },
-  {
-    title: "Clear terms",
-    description:
-      "Indicative figures up front, full terms in your loan documents before you sign.",
-    Icon: FileText,
-  },
-] as const;
-
-const FAQS: { question: string; answer: ReactNode }[] = [
-  {
-    question: `Who is ${LENDER_NAME}?`,
-    answer: `${LENDER_LEGAL_NAME} is a licensed money lender offering personal loans through this online borrower portal.`,
-  },
-  {
-    question: "Is the calculator a loan offer?",
-    answer:
-      "No. The calculator uses illustrative assumptions (including a flat rate example) to help you understand possible repayment ranges. A formal assessment is required for any loan offer.",
-  },
-  {
-    question: "How do I apply?",
-    answer:
-      "Create an account, complete onboarding, and submit a loan application from your dashboard. You can track status and messages in the portal.",
-  },
-  {
-    question: "How is my information protected?",
-    answer: (
-      <>
-        We use industry-standard sign-in and data-handling practices. For detail, read{" "}
-        <LegalNavLink
-          className="font-medium text-foreground underline-offset-4 hover:underline"
-          href="/legal/security"
-          backSource="landing"
-        >
-          Cybersecurity
-        </LegalNavLink>{" "}
-        and{" "}
-        <LegalNavLink
-          className="font-medium text-foreground underline-offset-4 hover:underline"
-          href="/legal/privacy"
-          backSource="landing"
-        >
-          Privacy
-        </LegalNavLink>
-        .
-      </>
-    ),
-  },
-  {
-    question: "Who can I contact for help?",
-    answer: (
-      <>
-        Email{" "}
-        <a
-          href={`mailto:${LENDER_EMAIL}`}
-          className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
-        >
-          {LENDER_EMAIL}
-        </a>
-        .
-      </>
-    ),
-  },
-];
 
 function HomeBrandMark({
   tenantLogoSrc,
@@ -542,6 +468,7 @@ function HomeLoanCalculator() {
 
 export function HomePageContent() {
   const [tenantLogoSrc, setTenantLogoSrc] = useState<string | undefined>(undefined);
+  const [lenderTenant, setLenderTenant] = useState<LenderInfo | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -549,6 +476,7 @@ export function HomePageContent() {
       .then((res) => {
         if (!cancelled && res.success && res.data) {
           setTenantLogoSrc(resolveBorrowerLenderLogoSrc(res.data.logoUrl ?? null));
+          setLenderTenant(res.data);
         }
       })
       .catch(() => {
@@ -559,11 +487,112 @@ export function HomePageContent() {
     };
   }, []);
 
+  const lender = useMemo(
+    () =>
+      mergeLenderFooterFields(
+        {
+          lenderName: LENDER_NAME,
+          legalName: LENDER_LEGAL_NAME,
+          email: LENDER_EMAIL,
+          phone: LENDER_PHONE,
+          phoneHref: LENDER_PHONE_HREF,
+          ssm: LENDER_SSM,
+          kpktLicense: LENDER_KPKT_LICENSE,
+          addressLines: LENDER_ADDRESS_LINES,
+        },
+        lenderTenant
+      ),
+    [lenderTenant]
+  );
+
+  const benefits = useMemo(
+    () =>
+      [
+        {
+          title: "Licensed and regulated",
+          description: `${lender.lenderName} operates as a licensed money lender in Malaysia.`,
+          Icon: ShieldCheck,
+        },
+        {
+          title: "Fast online application",
+          description:
+            "Apply online and track your application status in your secure borrower account.",
+          Icon: Clock3,
+        },
+        {
+          title: "Clear terms",
+          description:
+            "Indicative figures up front, full terms in your loan documents before you sign.",
+          Icon: FileText,
+        },
+      ] as const,
+    [lender.lenderName]
+  );
+
+  const faqs = useMemo((): { question: string; answer: ReactNode }[] => {
+    const contactEmail = lender.email;
+    return [
+      {
+        question: `Who is ${lender.lenderName}?`,
+        answer: `${lender.legalName} is a licensed money lender offering personal loans through this online borrower portal.`,
+      },
+      {
+        question: "Is the calculator a loan offer?",
+        answer:
+          "No. The calculator uses illustrative assumptions (including a flat rate example) to help you understand possible repayment ranges. A formal assessment is required for any loan offer.",
+      },
+      {
+        question: "How do I apply?",
+        answer:
+          "Create an account, complete onboarding, and submit a loan application from your dashboard. You can track status and messages in the portal.",
+      },
+      {
+        question: "How is my information protected?",
+        answer: (
+          <>
+            We use industry-standard sign-in and data-handling practices. For detail, read{" "}
+            <LegalNavLink
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+              href="/legal/security"
+              backSource="landing"
+            >
+              Cybersecurity
+            </LegalNavLink>{" "}
+            and{" "}
+            <LegalNavLink
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+              href="/legal/privacy"
+              backSource="landing"
+            >
+              Privacy
+            </LegalNavLink>
+            .
+          </>
+        ),
+      },
+      {
+        question: "Who can I contact for help?",
+        answer: (
+          <>
+            Email{" "}
+            <a
+              href={`mailto:${contactEmail}`}
+              className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/90"
+            >
+              {contactEmail}
+            </a>
+            .
+          </>
+        ),
+      },
+    ];
+  }, [lender.email, lender.legalName, lender.lenderName]);
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <HomeBrandMark tenantLogoSrc={tenantLogoSrc} lenderName={LENDER_NAME} />
+          <HomeBrandMark tenantLogoSrc={tenantLogoSrc} lenderName={lender.lenderName} />
           <div className="hidden items-center gap-6 text-sm md:flex">
             <Link href="#how-it-works" className="text-muted-foreground transition-colors hover:text-foreground">
               How it works
@@ -590,7 +619,7 @@ export function HomePageContent() {
                 Borrower portal
               </Badge>
               <h1 className="max-w-3xl font-heading text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-                Borrow with {LENDER_NAME}.
+                Borrow with {lender.lenderName}.
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-muted-foreground">
                 Apply online, track your application, and manage repayments from one secure
@@ -650,7 +679,7 @@ export function HomePageContent() {
       <section id="features" className="border-b border-border/60 bg-secondary/20">
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
           <div className="max-w-2xl space-y-3">
-            <Badge variant="outline">Why {LENDER_NAME}</Badge>
+            <Badge variant="outline">Why {lender.lenderName}</Badge>
             <h2 className="font-heading text-3xl font-semibold">
               Built around your borrower experience
             </h2>
@@ -661,7 +690,7 @@ export function HomePageContent() {
           </div>
 
           <div className="mt-8 grid gap-5 md:grid-cols-3">
-            {BENEFITS.map(({ title, description, Icon }) => (
+            {benefits.map(({ title, description, Icon }) => (
               <Card key={title} className="border-border/70 bg-background">
                 <CardHeader className="space-y-4">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-secondary">
@@ -690,7 +719,7 @@ export function HomePageContent() {
 
           <div className="mt-8 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="grid gap-5">
-              {FAQS.map((item) => (
+              {faqs.map((item) => (
                 <Card key={item.question} className="border-border/70">
                   <CardHeader>
                     <CardTitle>{item.question}</CardTitle>
@@ -715,7 +744,7 @@ export function HomePageContent() {
                   <Link href="/sign-in">Sign in</Link>
                 </Button>
                 <Button asChild variant="outline" className="w-full">
-                  <a href={`mailto:${LENDER_EMAIL}`}>
+                  <a href={`mailto:${lender.email}`}>
                     Email us
                     <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
                   </a>
@@ -727,18 +756,18 @@ export function HomePageContent() {
       </section>
 
       <BorrowerProficientTruestackFooter
-        lenderName={LENDER_NAME}
+        lenderName={lender.lenderName}
         {...(tenantLogoSrc
-          ? { brandLogoSrc: tenantLogoSrc, brandLogoAlt: LENDER_NAME }
+          ? { brandLogoSrc: tenantLogoSrc, brandLogoAlt: lender.lenderName }
           : {})}
-        legalName={LENDER_LEGAL_NAME}
-        email={LENDER_EMAIL}
-        phone={LENDER_PHONE}
-        phoneHref={LENDER_PHONE_HREF}
-        ssm={LENDER_SSM}
-        kpktLicense={LENDER_KPKT_LICENSE}
-        addressLines={LENDER_ADDRESS_LINES}
-        description={`${LENDER_LEGAL_NAME} provides this portal for online applications, loan servicing, and secure communications with borrowers.`}
+        legalName={lender.legalName}
+        email={lender.email}
+        phone={lender.phone}
+        phoneHref={lender.phoneHref}
+        ssm={lender.ssm}
+        kpktLicense={lender.kpktLicense}
+        addressLines={lender.addressLines}
+        description={`${lender.legalName} provides this portal for online applications, loan servicing, and secure communications with borrowers.`}
         legalLong={pinjocepBorrowerFooterLegalLong}
         legalShort={pinjocepBorrowerFooterLegalShort}
         platformLinks={pinjocepBorrowerFooterPlatformLinks}

@@ -4,11 +4,21 @@ import { passkeyClient } from "@better-auth/passkey/client";
 import { resolveAuthBaseUrl } from "@kredit/shared";
 import { resolveBorrowerSecurityStatus } from "@kredit/borrower";
 
-export const authClient = createAuthClient({
-  baseURL: resolveAuthBaseUrl(
+/** Must match Pinjocep dev port (`next dev -p 3008`). Prefer env; use browser origin when available so LAN/127.0.0.1 match the page. */
+const PINJOCEP_DEV_ORIGIN = "http://localhost:3008";
+
+function borrowerAuthBrowserBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  return resolveAuthBaseUrl(
     process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL,
-    "http://localhost:3006"
-  ),
+    PINJOCEP_DEV_ORIGIN
+  );
+}
+
+export const authClient = createAuthClient({
+  baseURL: borrowerAuthBrowserBaseUrl(),
   sessionOptions: {
     refetchOnWindowFocus: false,
   },

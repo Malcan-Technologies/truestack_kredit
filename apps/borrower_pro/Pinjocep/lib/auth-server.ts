@@ -23,7 +23,7 @@ const appUrl = resolveAuthBaseUrl(
   process.env.BETTER_AUTH_URL ??
     process.env.NEXT_PUBLIC_BETTER_AUTH_URL ??
     process.env.NEXT_PUBLIC_APP_URL,
-  "http://localhost:3006"
+  "http://localhost:3008"
 );
 const AUTH_COOKIE_PREFIX = AUTH_COOKIE_PREFIXES.borrower;
 const trustedOrigins = collectOrigins(

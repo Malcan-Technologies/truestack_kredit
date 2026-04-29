@@ -1,9 +1,9 @@
 services:
   mtsa:
     build:
-      context: ./mtsa-pilot
+      context: ./mtsa-pilot-proficient-premium
       dockerfile: Dockerfile
-    container_name: mtsa-pilot
+    container_name: mtsa-pilot-proficient-premium
     ports:
       - "8080:8080"
     environment:

@@ -777,10 +777,6 @@ resource "aws_ecs_task_definition" "admin" {
       }
     }
   ])
-
-  lifecycle {
-    ignore_changes = [container_definitions]
-  }
 }
 
 resource "aws_ecs_task_definition" "borrower" {
@@ -827,10 +823,6 @@ resource "aws_ecs_task_definition" "borrower" {
       }
     }
   ])
-
-  lifecycle {
-    ignore_changes = [container_definitions]
-  }
 }
 
 resource "aws_ecs_task_definition" "migrations" {
@@ -924,8 +916,9 @@ resource "aws_ecs_service" "admin" {
   deployment_maximum_percent         = 200
   deployment_minimum_healthy_percent = 100
 
+  # Track task_definition so secrets/env updates reach running tasks. Ignore desired_count if scaled outside TF.
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [desired_count]
   }
 }
 
@@ -951,8 +944,9 @@ resource "aws_ecs_service" "borrower" {
   deployment_maximum_percent         = 200
   deployment_minimum_healthy_percent = 100
 
+  # Track task_definition so secrets/env updates reach running tasks. Ignore desired_count if scaled outside TF.
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [desired_count]
   }
 }
 

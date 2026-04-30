@@ -39,6 +39,7 @@ domains:
   borrower: pinjocep.com.my
 
 pro_tenant:
+  # Slug / seed owner must match terraform/pro/clients/pinjocep/pinjocep.tfvars (backend ECS PRO_TENANT_SLUG + deploy-pro seed).
   slug: sri-jeyasumi
   name: Sri Jeyasumi Sdn Bhd
   type: PPW

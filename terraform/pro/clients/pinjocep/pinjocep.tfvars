@@ -40,9 +40,10 @@ admin_service_name    = "truekredit-pinjocep-admin"
 borrower_service_name = "truekredit-pinjocep-borrower"
 migrations_task_name  = "truekredit-pinjocep-migrations"
 
-pro_tenant_slug  = "pinjocep"
-seed_owner_email = "admin@pinjocep.com.my"
-seed_owner_name  = "Pinjocep Owner"
+# Seed / ECS PRO_TENANT_SLUG — keep in lockstep with config/clients/pinjocep.yaml (`pro_tenant`, seed_owner_*).
+pro_tenant_slug  = "sri-jeyasumi"
+seed_owner_email = "jeyasumicredit@gmail.com"
+seed_owner_name  = "Sri Jeyasumi"
 
 email_from_name            = "Pinjocep"
 email_from_address         = "no-reply@pinjocep.com.my"

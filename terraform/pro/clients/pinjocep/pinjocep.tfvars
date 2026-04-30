@@ -7,13 +7,13 @@ networking_mode    = "dedicated"
 dedicated_vpc_cidr = "10.20.0.0/16"
 
 # If DNS is Cloudflare/external, validate ACM via output CNAME records, then point A/ALIAS/CNAME at the ALB.
-# Parent zone for DNS (adjust if your zone is delegated differently, e.g. only loans.pinjocep.com).
-route53_zone_name  = "pinjocep.com"
+# Zone matches Cloudflare (pinjocep.com.my). Set create_dns_records = true only if this zone exists in Route 53.
+route53_zone_name  = "pinjocep.com.my"
 create_dns_records = false
 
-admin_domain    = "admin.loans.pinjocep.com"
-api_domain      = "api.loans.pinjocep.com"
-borrower_domain = "loans.pinjocep.com"
+admin_domain    = "admin.pinjocep.com.my"
+api_domain      = "api.pinjocep.com.my"
+borrower_domain = "pinjocep.com.my"
 
 https_api_priority      = 222
 https_admin_priority    = 223
@@ -25,7 +25,8 @@ http_borrower_priority  = 233
 db_username = "truekredit"
 db_name     = "truekredit_pro_pinjocep"
 
-uploads_bucket_name = "truekredit-uploads-pinjocep"
+# S3 bucket names are global; plain truekredit-uploads-pinjocep was already taken elsewhere.
+uploads_bucket_name = "truekredit-pinjocep-uploads-005097884744"
 app_secret_name     = "truekredit-pinjocep"
 
 backend_repository_name         = "truekredit-pinjocep-backend-pro"
@@ -40,9 +41,9 @@ borrower_service_name = "truekredit-pinjocep-borrower"
 migrations_task_name  = "truekredit-pinjocep-migrations"
 
 pro_tenant_slug  = "pinjocep"
-seed_owner_email = "admin@pinjocep.com"
+seed_owner_email = "admin@pinjocep.com.my"
 seed_owner_name  = "Pinjocep Owner"
 
 email_from_name            = "Pinjocep"
-email_from_address         = "no-reply@pinjocep.com"
+email_from_address         = "no-reply@pinjocep.com.my"
 truestack_kyc_api_base_url = "https://api.truestack.my"

@@ -30,7 +30,7 @@ secrets:
   app_secrets_arn: arn:aws:secretsmanager:ap-southeast-5:005097884744:secret:truekredit-pinjocep
 
 storage:
-  uploads_bucket: truekredit-uploads-pinjocep
+  uploads_bucket: truekredit-pinjocep-uploads-005097884744
 
 domains:
   # Replace with production hostnames; keep in sync with terraform/pro/clients/pinjocep/pinjocep.tfvars
@@ -57,8 +57,8 @@ enabled_modules:
   - signing
 
 signing:
-  gateway_hostname: sign.loans.pinjocep.com
-  ssh_host: ssh-sign.loans.pinjocep.com
+  gateway_hostname: sign.pinjocep.com.my
+  ssh_host: ssh-sign.pinjocep.com.my
   tunnel_name: pinjocep-onprem
   mtsa_env: pilot
   backup_bucket_prefix: pinjocep

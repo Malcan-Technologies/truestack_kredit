@@ -4,7 +4,7 @@ borrower_app: Pinjocep
 
 aws:
   # Target account for this Pro stack (must match Terraform backend + IAM role trust).
-  account_id: "491694399426"
+  account_id: "005097884744"
   region: ap-southeast-5
   github_environment: pro-pinjocep
 

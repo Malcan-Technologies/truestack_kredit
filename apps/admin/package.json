@@ -6,7 +6,7 @@
     "dev": "next dev -p 3000 --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "node ../../node_modules/eslint/bin/eslint.js ."
   },
   "dependencies": {
     "@better-auth/passkey": "^1.5.6",
@@ -33,7 +33,7 @@
     "date-fns-tz": "^3.2.0",
     "js-cookie": "^3.0.5",
     "lucide-react": "^0.511.0",
-    "next": "^16.0.0",
+    "next": "16.2.4",
     "next-themes": "^0.4.6",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
@@ -51,6 +51,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.20",
+    "eslint-config-next": "16.2.4",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.0"

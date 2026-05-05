@@ -15,6 +15,7 @@ apps/admin/next-env.d.ts
 apps/admin_pro/next-env.d.ts
 apps/borrower_pro/Demo_Client/next-env.d.ts
 apps/borrower_pro/Proficient_Premium/next-env.d.ts
+apps/borrower_pro/Pinjocep/next-env.d.ts
 
 # Environment files
 .env
@@ -63,3 +64,8 @@ uploads/
 
 # Misc
 *.tsbuildinfo
+
+# Next.js @next/codemod agents-md — local docs snapshot (regs; see https://nextjs.org/docs/app/guides/ai-agents)
+**/.next-docs/
+# next-agents-md
+.next-docs/

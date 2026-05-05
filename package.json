@@ -34,7 +34,8 @@
     "docker:down": "docker-compose down"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "eslint": "9.39.4"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -44,6 +45,9 @@
     "expo": "~55.0.17",
     "react": "19.2.5",
     "react-native": "0.83.4"
+  },
+  "overrides": {
+    "eslint": "9.39.4"
   },
   "packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"
 }

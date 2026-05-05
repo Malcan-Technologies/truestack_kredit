@@ -7,7 +7,7 @@
     "prebuild": "npm run db:generate && npm run build -w @kredit/shared && npm run build -w @kredit/borrower",
     "build": "next build",
     "start": "next start -p 3007",
-    "lint": "tsc --noEmit -p tsconfig.lint.json",
+    "lint": "node ../../../node_modules/eslint/bin/eslint.js . && tsc --noEmit -p tsconfig.lint.json",
     "db:generate": "prisma generate --schema=../../backend_pro/prisma/schema.prisma"
   },
   "dependencies": {
@@ -28,7 +28,7 @@
     "country-state-city": "^3.2.1",
     "lucide-react": "^0.511.0",
     "mermaid": "^11.13.0",
-    "next": "^16.0.0",
+    "next": "16.2.4",
     "next-themes": "^0.4.6",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
@@ -47,6 +47,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.20",
+    "eslint-config-next": "16.2.4",
     "postcss": "^8.4.49",
     "prisma": "^6.19.2",
     "tailwindcss": "^3.4.17",

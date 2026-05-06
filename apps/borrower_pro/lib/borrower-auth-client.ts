@@ -15,6 +15,7 @@ import type {
 export type {
   BorrowerProfile,
   BorrowerMeResponse,
+  BorrowerProduct,
   LenderInfo,
   LenderInfoResponse,
   CrossTenantInsights,
@@ -184,6 +185,18 @@ export async function fetchLenderInfo(): Promise<LenderInfoResponse> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err?.error || "Failed to load lender information");
+  }
+  return res.json();
+}
+
+export async function fetchPublicProducts(): Promise<{
+  success: boolean;
+  data: import("@kredit/borrower").BorrowerProduct[];
+}> {
+  const res = await fetch(BASE + "/public-products");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || "Failed to load products");
   }
   return res.json();
 }

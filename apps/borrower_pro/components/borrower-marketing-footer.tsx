@@ -419,6 +419,17 @@ export function BorrowerProficientTruestackFooter({
               <p className="pt-2 text-muted-foreground/90">
                 © {new Date().getFullYear()} {lenderName}. All rights reserved.
               </p>
+              <p className="text-muted-foreground/60">
+                Powered by{" "}
+                <a
+                  href="https://truestack.my"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="transition-colors hover:text-muted-foreground"
+                >
+                  TrueStack
+                </a>
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm text-muted-foreground sm:justify-end">
               {legalShortRows.map((l, i) => (

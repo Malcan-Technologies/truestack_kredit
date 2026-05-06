@@ -177,6 +177,48 @@ router.get('/lender', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/borrower-auth/public-products
+ * Public product listing for the borrower landing page (no session required).
+ * Returns all active products for the pro tenant.
+ */
+router.get('/public-products', async (req, res, next) => {
+  try {
+    const tenant = await resolveProTenant();
+    const products = await prisma.product.findMany({
+      where: { tenantId: tenant.id, isActive: true },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        interestModel: true,
+        interestRate: true,
+        latePaymentRate: true,
+        arrearsPeriod: true,
+        defaultPeriod: true,
+        minAmount: true,
+        maxAmount: true,
+        minTerm: true,
+        maxTerm: true,
+        termInterval: true,
+        allowedTerms: true,
+        legalFeeType: true,
+        legalFeeValue: true,
+        stampingFeeType: true,
+        stampingFeeValue: true,
+        requiredDocuments: true,
+        eligibleBorrowerTypes: true,
+        loanScheduleType: true,
+        isActive: true,
+      },
+    });
+    res.json({ success: true, data: products });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.use(requireBorrowerSession);
 
 /** GET /api/borrower-auth/me - current user, profiles, active borrower */

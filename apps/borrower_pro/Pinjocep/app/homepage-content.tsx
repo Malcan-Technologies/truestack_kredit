@@ -166,10 +166,20 @@ const WHY_US = [
 function HomeBrandMark({
   tenantLogoSrc,
   lenderName,
+  isLoading,
 }: {
   tenantLogoSrc?: string;
   lenderName: string;
+  isLoading: boolean;
 }) {
+  if (isLoading) {
+    return (
+      <Link href="/" className="flex items-center" aria-label={`${lenderName} home`}>
+        <div className="h-[3.25rem] w-[11rem] animate-pulse rounded-md bg-muted sm:h-[3.575rem]" />
+      </Link>
+    );
+  }
+
   if (tenantLogoSrc) {
     return (
       <Link href="/" className="flex items-center" aria-label={`${lenderName} home`}>
@@ -568,6 +578,7 @@ function ProductCards({ products, loading }: { products: BorrowerProduct[]; load
 export function HomePageContent() {
   const [tenantLogoSrc, setTenantLogoSrc] = useState<string | undefined>(undefined);
   const [lenderTenant, setLenderTenant] = useState<LenderInfo | null>(null);
+  const [lenderInfoLoaded, setLenderInfoLoaded] = useState(false);
   const [products, setProducts] = useState<BorrowerProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
 
@@ -580,7 +591,10 @@ export function HomePageContent() {
           setLenderTenant(res.data);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLenderInfoLoaded(true);
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -688,7 +702,11 @@ export function HomePageContent() {
       {/* ── Navbar ─────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <HomeBrandMark tenantLogoSrc={tenantLogoSrc} lenderName={lender.lenderName} />
+          <HomeBrandMark
+            tenantLogoSrc={tenantLogoSrc}
+            lenderName={lender.lenderName}
+            isLoading={!lenderInfoLoaded}
+          />
           <nav className="hidden items-center gap-6 text-sm md:flex">
             <a href="#how-it-works" className="text-muted-foreground transition-colors hover:text-foreground">
               How It Works

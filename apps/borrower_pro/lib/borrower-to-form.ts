@@ -114,7 +114,7 @@ export function borrowerToCorporateForm(b: BorrowerDetail): CorporateFormData {
     companyPhone: empty(b.companyPhone),
     companyEmail: empty(b.companyEmail),
     natureOfBusiness: empty(b.natureOfBusiness),
-    dateOfIncorporation: empty(b.dateOfIncorporation),
+    dateOfIncorporation: normalizeDateInput(b.dateOfIncorporation),
     paidUpCapital: numStr(b.paidUpCapital),
     numberOfEmployees: numStr(b.numberOfEmployees),
     bankName: empty(b.bankName),

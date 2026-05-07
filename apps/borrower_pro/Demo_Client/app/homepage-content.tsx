@@ -113,9 +113,11 @@ const HOW_IT_WORKS = [
 function HomeBrandMark({
   tenantLogoSrc,
   lenderName,
+  isLoading,
 }: {
   tenantLogoSrc?: string;
   lenderName: string;
+  isLoading: boolean;
 }) {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -123,6 +125,14 @@ function HomeBrandMark({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  if (isLoading) {
+    return (
+      <Link href="/" className="flex items-center" aria-label={`${lenderName} home`}>
+        <div className="h-[3.25rem] w-[11rem] animate-pulse rounded-md bg-muted sm:h-[3.575rem]" />
+      </Link>
+    );
+  }
 
   if (tenantLogoSrc) {
     return (
@@ -486,6 +496,7 @@ function HomeLoanCalculator() {
 export function HomePageContent() {
   const [tenantLogoSrc, setTenantLogoSrc] = useState<string | undefined>(undefined);
   const [lenderTenant, setLenderTenant] = useState<LenderInfo | null>(null);
+  const [lenderInfoLoaded, setLenderInfoLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -498,6 +509,9 @@ export function HomePageContent() {
       })
       .catch(() => {
         /* public homepage: tenant or network may be unavailable */
+      })
+      .finally(() => {
+        if (!cancelled) setLenderInfoLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -620,7 +634,11 @@ export function HomePageContent() {
       </div>
       <header className="border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <HomeBrandMark tenantLogoSrc={tenantLogoSrc} lenderName={lender.lenderName} />
+          <HomeBrandMark
+            tenantLogoSrc={tenantLogoSrc}
+            lenderName={lender.lenderName}
+            isLoading={!lenderInfoLoaded}
+          />
           <div className="hidden items-center gap-6 text-sm md:flex">
             <Link href="#how-it-works" className="text-muted-foreground transition-colors hover:text-foreground">
               How it works

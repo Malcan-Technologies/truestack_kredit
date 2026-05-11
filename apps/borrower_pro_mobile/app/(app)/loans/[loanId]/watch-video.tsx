@@ -27,7 +27,7 @@ import { formatRm } from '@/lib/loans/currency';
 import { toast } from '@/lib/toast';
 import type { BorrowerLoanDetail } from '@kredit/borrower';
 
-const ATTESTATION_VIDEO_ASSET = require('../../../../../assets/attestation/attestation-video.mp4');
+const ATTESTATION_VIDEO_ASSET = require('@/assets/attestation/attestation-video.mp4');
 
 type ConfirmationChoice = 'accept' | 'disagree' | 'withdraw' | null;
 

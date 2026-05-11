@@ -3,6 +3,8 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
 // Shared mobile code (Expo Router routes, components, lib, brand, assets) lives one level up at
 // `apps/borrower_pro_mobile/`. This per-client app only carries identity + native config; keep the
 // shared bits (router `root`, `../assets/*` paths, plugins, experiments) in sync with sibling clients.
+// Mirrors the web app `apps/borrower_pro/Proficient_Premium`. Brand is selected at bundle time via
+// `EXPO_PUBLIC_CLIENT_ID=proficient-premium` (see `.env.example` and `brand/active.ts`).
 
 /** Hostname only (no scheme), same as the deployed borrower web app — enables Universal / App Links when set. */
 function universalLinkHost(): string | undefined {
@@ -15,21 +17,21 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
   const linkHost = universalLinkHost();
 
   return {
-    name: 'Demo_Client',
-    slug: 'Demo_Client',
+    name: 'Proficient_Premium',
+    slug: 'Proficient_Premium',
     version: '1.0.0',
     orientation: 'portrait',
     icon: '../assets/images/icon.png',
-    scheme: 'democlient',
+    scheme: 'proficientpremium',
     userInterfaceStyle: 'automatic',
     ios: {
       /** Required for `expo prebuild` / `expo run:ios` — cannot be inferred when using dynamic `app.config.ts`. */
-      bundleIdentifier: 'com.anonymous.Demo-Client',
+      bundleIdentifier: 'com.anonymous.Proficient-Premium',
       icon: '../assets/expo.icon',
       ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
     },
     android: {
-      package: 'com.anonymous.democlient',
+      package: 'com.anonymous.proficientpremium',
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: '../assets/images/android-icon-foreground.png',

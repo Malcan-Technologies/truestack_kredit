@@ -15,8 +15,11 @@
     "dev:backend": "npm run dev -w apps/backend",
     "dev:backend_pro": "npm run dev -w apps/backend_pro",
     "dev:borrower_pro": "npm run dev -w apps/borrower_pro/Demo_Client",
+    "dev:borrower_pro:proficient_premium": "npm run dev -w apps/borrower_pro/Proficient_Premium",
     "dev:borrower_pro_mobile": "npm run dev -w demo_client",
+    "dev:borrower_pro_mobile:proficient_premium": "npm run dev -w proficient_premium",
     "dev:demo_client": "concurrently --handle-input --default-input-target mobile -c blue,green,cyan,magenta -n backend,admin,borrower,mobile \"npm run dev:backend_pro\" \"npm run dev:admin_pro\" \"npm run dev:borrower_pro\" \"npm run dev:borrower_pro_mobile\"",
+    "dev:proficient_premium": "concurrently --handle-input --default-input-target mobile -c blue,green,cyan,magenta -n backend,admin,borrower,mobile \"npm run dev:backend_pro\" \"npm run dev:admin_pro\" \"npm run dev:borrower_pro:proficient_premium\" \"npm run dev:borrower_pro_mobile:proficient_premium\"",
     "build": "npm run build --workspaces --if-present",
     "build:packages": "npm run build -w @kredit/shared -w @kredit/borrower",
     "lint": "npm run lint --workspaces --if-present",
@@ -42,9 +45,10 @@
   },
   "dependencies": {
     "@radix-ui/react-collapsible": "^1.1.12",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~55.0.17",
     "react": "19.2.5",
-    "react-native": "0.83.4"
+    "react-native": "0.83.6"
   },
   "overrides": {
     "eslint": "9.39.4"

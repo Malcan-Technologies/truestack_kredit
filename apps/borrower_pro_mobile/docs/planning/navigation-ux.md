@@ -1,6 +1,8 @@
-# Demo_Client Mobile — Navigation & UX Guidelines
+# Borrower Pro Mobile — Navigation & UX Guidelines
 
-Best practices for navigation, button placement, and interaction design in the borrower mobile app. Benchmarked against **iOS Human Interface Guidelines (HIG)** and industry-standard fintech apps (banking, lending, payments).
+Best practices for navigation, button placement, and interaction design in the borrower mobile app(s). Benchmarked against **iOS Human Interface Guidelines (HIG)** and industry-standard fintech apps (banking, lending, payments).
+
+These guidelines apply to every white-label client under `apps/borrower_pro_mobile/`. Shared screens/components/lib live at the `apps/borrower_pro_mobile/` root (`app/`, `components/`, `lib/`, `hooks/`, `constants/`, `brand/`); each client folder (`Demo_Client/`, `Proficient_Premium/`, …) carries only identity + native config. Paths below are relative to the shared root.
 
 ---
 
@@ -72,7 +74,7 @@ On **`showBackButton: false`**, the app implements the iOS **large title → com
 
 ### Header vertical spacing
 
-All screens that use **`PageScreen`** share the same top chrome. Vertical padding is tuned so the title row does not feel cramped under the status bar and there is comfortable space before the hairline / scroll content. Implementation lives in `src/components/page-screen.tsx`:
+All screens that use **`PageScreen`** share the same top chrome. Vertical padding is tuned so the title row does not feel cramped under the status bar and there is comfortable space before the hairline / scroll content. Implementation lives in `components/page-screen.tsx`:
 
 - **`headerInner`** — padding below the top safe area and before the separator hairline.
 - **Root (large title)** — `headerToolbar`: margin above the title block, padding below title/subtitle; subtitle uses a slightly larger top gap when visible.
@@ -243,7 +245,7 @@ Use semantic colors consistently for loan/application status:
 
 ### Section headers vs. list/detail chips
 
-- **Account / Profile section cards** (security, KYC, signing certificate): put the **primary state** in **`SectionCard` `action`** using **`InlineStatusRow`** or **`VerifiedStatusRow`** — **icon (18px) + `smallBold` label**, no pill background. This matches the signing-certificate **Active** treatment and keeps the header aligned with **Edit** / outline actions on other cards. Reference: `src/components/verified-status-row.tsx`, Brand **§5** (tone → icon table).
+- **Account / Profile section cards** (security, KYC, signing certificate): put the **primary state** in **`SectionCard` `action`** using **`InlineStatusRow`** or **`VerifiedStatusRow`** — **icon (18px) + `smallBold` label**, no pill background. This matches the signing-certificate **Active** treatment and keeps the header aligned with **Edit** / outline actions on other cards. Reference: `components/verified-status-row.tsx`, Brand **§5** (tone → icon table).
 - **Loan/application list rows and detail hero rows** continue to use **`MetaBadge`** / **`StatusBadge`** / **`ChannelPill`** per Brand **§5** — those contexts are metadata strips or dense chips, not settings-style section headers.
 
 **Rules:**
@@ -481,13 +483,13 @@ Any screen that loads **many rows from an API** (notifications, activity feeds, 
 | **Empty** | After the first successful fetch with zero rows, show an **empty state** in the header area (or list empty component), not an infinite spinner. |
 | **Platform** | **`removeClippedSubviews`** on Android can help performance; test scroll position and headers. |
 
-**Reference implementation:** `src/app/(app)/notifications.tsx`.
+**Reference implementation:** `app/(app)/notifications.tsx`.
 
 ---
 
 ## 18) Toast notifications (`toast` API)
 
-The mobile app provides a brand-aware toast system in `src/lib/toast` that mirrors the web app's [`sonner`](https://sonner.emilkowal.ski/) API. Use it for transient, non-blocking feedback — copy confirmations, save success, recoverable async errors, and small status hints.
+The mobile app provides a brand-aware toast system in `lib/toast` that mirrors the web app's [`sonner`](https://sonner.emilkowal.ski/) API. Use it for transient, non-blocking feedback — copy confirmations, save success, recoverable async errors, and small status hints.
 
 ### When to use
 
@@ -516,7 +518,7 @@ toast.dismiss(id);   // dismiss one
 toast.dismiss();     // dismiss all
 ```
 
-`<ToastProvider />` mounts once near the root (already wired in `src/app/_layout.tsx`) and registers itself with the singleton — call sites do not need a hook or context.
+`<ToastProvider />` mounts once near the root (already wired in `app/_layout.tsx`) and registers itself with the singleton — call sites do not need a hook or context.
 
 ### Behavior
 
@@ -546,7 +548,7 @@ Toasts use the same surface as cards (`backgroundElement` + hairline border + 14
 
 ### Reference implementation
 
-- Tap-to-copy contact rows: `src/components/help-contact-card.tsx` — copies email/phone via `expo-clipboard` and confirms with `toast.success(\`${label} copied\`, { description: value })`.
+- Tap-to-copy contact rows: `components/help-contact-card.tsx` — copies email/phone via `expo-clipboard` and confirms with `toast.success(\`${label} copied\`, { description: value })`.
 
 ---
 
@@ -558,7 +560,7 @@ When a card needs to show **3+ small, equally-weighted summary tiles** (KPIs, re
 - communicates "there is more to see" via a peek of the next card
 - pages cleanly with snap behaviour and pagination dots
 
-Use the shared component `HorizontalSnapCarousel` in `src/components/horizontal-snap-carousel.tsx`. Do **not** re-implement scroll math, snap intervals, or pagination dots — extend the shared component instead so all carousels stay visually consistent.
+Use the shared component `HorizontalSnapCarousel` in `components/horizontal-snap-carousel.tsx`. Do **not** re-implement scroll math, snap intervals, or pagination dots — extend the shared component instead so all carousels stay visually consistent.
 
 ### When to use vs. when to skip
 
@@ -619,8 +621,8 @@ const chipWidth = Math.max(132, Math.floor((width - 80) / 2));
 
 ### Reference implementations
 
-- Dashboard KPI strip — Active Loans / Outstanding / Next Payment / Before Payout: `src/app/(app)/(tabs)/index.tsx` (`HorizontalSnapCarousel` with the default 1-card-per-screen layout).
-- Loan detail "Repayment progress" metric chips — Paid / Overdue / Late fees / On-time: `src/app/(app)/loans/[loanId]/index.tsx` (`HorizontalSnapCarousel` with explicit `cardWidth` so ~2 chips show at once).
+- Dashboard KPI strip — Active Loans / Outstanding / Next Payment / Before Payout: `app/(app)/(tabs)/index.tsx` (`HorizontalSnapCarousel` with the default 1-card-per-screen layout).
+- Loan detail "Repayment progress" metric chips — Paid / Overdue / Late fees / On-time: `app/(app)/loans/[loanId]/index.tsx` (`HorizontalSnapCarousel` with explicit `cardWidth` so ~2 chips show at once).
 
 ---
 
@@ -628,7 +630,7 @@ const chipWidth = Math.max(132, Math.floor((width - 80) / 2));
 
 Loans and applications can originate from two channels: a self-serve **Online** flow or an in-branch **Physical** flow. The borrower needs to recognise that distinction at a glance — both because the surfacing differs (e.g. PHYSICAL drafts are read-only on mobile) and because it sets expectations for who owns the next step.
 
-Use the shared component `ChannelPill` in `src/components/channel-pill.tsx` everywhere a channel needs to be communicated. Do **not** invent new icon pairs.
+Use the shared component `ChannelPill` in `components/channel-pill.tsx` everywhere a channel needs to be communicated. Do **not** invent new icon pairs.
 
 ### Iconography & label (locked)
 
@@ -655,9 +657,9 @@ These were standardised after the loans tab, loans detail, and applications deta
 
 ### Reference implementations
 
-- Loans tab cards: `src/app/(app)/(tabs)/loans.tsx`
-- Loan detail header: `src/app/(app)/loans/[loanId]/index.tsx` (`LoanHeader`)
-- Application detail header: `src/app/(app)/applications/[id].tsx`
+- Loans tab cards: `app/(app)/(tabs)/loans.tsx`
+- Loan detail header: `app/(app)/loans/[loanId]/index.tsx` (`LoanHeader`)
+- Application detail header: `app/(app)/applications/[id].tsx`
 
 ---
 
@@ -712,14 +714,14 @@ Rules:
 
 ### Reference implementations
 
-- `src/app/(app)/applications/[id].tsx` — `Loan created → View loan`.
-- `src/app/(app)/loans/[loanId]/index.tsx` — `From application → View` (in `LoanHeader`).
+- `app/(app)/applications/[id].tsx` — `Loan created → View loan`.
+- `app/(app)/loans/[loanId]/index.tsx` — `From application → View` (in `LoanHeader`).
 
 ---
 
 ## 22) Activity timeline (`ActivityTimelineCard`)
 
-Detail screens that surface audit history (applications, loans, payments…) MUST use the shared `ActivityTimelineCard` in `src/components/activity-timeline.tsx`. It renders a **dot-and-line** timeline inside a collapsible `SectionCard`, with each row showing:
+Detail screens that surface audit history (applications, loans, payments…) MUST use the shared `ActivityTimelineCard` in `components/activity-timeline.tsx`. It renders a **dot-and-line** timeline inside a collapsible `SectionCard`, with each row showing:
 
 - Headline label (e.g. "Application submitted").
 - Actor + relative time (`by You · 5 min ago`).
@@ -742,7 +744,7 @@ interface ActivityTimelineEvent {
 }
 ```
 
-Domain → timeline conversion lives in `src/lib/{domain}/timeline.ts` (e.g. `applicationTimelineLabel`, `borrowerTimelineActionInfo`). Screens map raw audit events to `ActivityTimelineEvent` and pass them to `ActivityTimelineCard`. The card is dumb about domain shapes.
+Domain → timeline conversion lives in `lib/{domain}/timeline.ts` (e.g. `applicationTimelineLabel`, `borrowerTimelineActionInfo`). Screens map raw audit events to `ActivityTimelineEvent` and pass them to `ActivityTimelineCard`. The card is dumb about domain shapes.
 
 ### Rules
 
@@ -753,8 +755,8 @@ Domain → timeline conversion lives in `src/lib/{domain}/timeline.ts` (e.g. `ap
 
 ### Reference implementations
 
-- Loan detail: `src/app/(app)/loans/[loanId]/index.tsx` (`loanEventToTimelineEvent`).
-- Application detail: `src/app/(app)/applications/[id].tsx` (`applicationEventToTimelineEvent`).
+- Loan detail: `app/(app)/loans/[loanId]/index.tsx` (`loanEventToTimelineEvent`).
+- Application detail: `app/(app)/applications/[id].tsx` (`applicationEventToTimelineEvent`).
 
 ---
 
@@ -779,7 +781,7 @@ When building new screens, verify:
 - [ ] Touch targets ≥44pt
 - [ ] `accessibilityRole` and `accessibilityLabel` on interactive elements
 - [ ] Colors from `useTheme()`, never hardcoded
-- [ ] **Notification inbox:** bell-only entry (no duplicate Settings row); PTR for reload; unread copy in `SectionCard` description; “Mark all read” as outline card action when applicable (`src/app/(app)/notifications.tsx`)
+- [ ] **Notification inbox:** bell-only entry (no duplicate Settings row); PTR for reload; unread copy in `SectionCard` description; “Mark all read” as outline card action when applicable (`app/(app)/notifications.tsx`)
 - [ ] **Dynamic / long lists:** `PageScreen` `scrollableOverride` + `Animated.FlatList`; paginated fetch; PTR = page 1; `onEndReached` = next page; footer loading indicator (§17)
 - [ ] **Toasts:** non-blocking confirmations and recoverable errors use `toast(...)` from `@/lib/toast` (not `Alert.alert`); short copy; correct semantic variant; never used for destructive confirmations (§18)
 - [ ] **KPI / metric strips (3+ tiles):** use `HorizontalSnapCarousel` from `@/components/horizontal-snap-carousel` with bleed-to-edge `pagePadding`, an explicit `cardWidth` for multi-visible strips, and pagination dots — no bespoke ScrollView pagers (§19)

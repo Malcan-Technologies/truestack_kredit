@@ -1,6 +1,6 @@
 /**
- * Per-client visual + copy tokens. New Pro clients: add `clients/<id>.ts` and point
- * `active.ts` at it (or swap via build script / EAS env later).
+ * Per-client visual + copy tokens. New Pro clients: add `clients/<id>.ts`, register it in
+ * `active.ts`, and set `EXPO_PUBLIC_CLIENT_ID` in that app's `.env`.
  */
 
 export type ThemeModePalette = {

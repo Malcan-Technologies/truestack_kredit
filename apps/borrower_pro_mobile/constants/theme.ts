@@ -1,5 +1,5 @@
 /**
- * Semantic colors are composed from the active white-label brand (`src/brand`).
+ * Semantic colors are composed from the active white-label brand (`brand/`).
  * UI code should use `useTheme()` keys — not raw hex — so client swaps stay in brand files.
  */
 

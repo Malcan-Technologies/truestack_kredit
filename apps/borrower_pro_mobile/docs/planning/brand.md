@@ -1,12 +1,12 @@
-# Demo_Client Mobile — Branding Guide
+# Borrower Pro Mobile — Branding Guide
 
-Reference branding for **Demo_Client** — the mobile (Expo/React Native) borrower app for TrueKredit Pro. Mirrors the web borrower portal (`apps/borrower_pro/Demo_Client/docs/planning/brand.md`) and adds mobile-specific guidance. Each Pro client can override via `src/brand/clients/<id>.ts`.
+Reference branding for the mobile (Expo/React Native) borrower apps under `apps/borrower_pro_mobile/`. Mirrors the web borrower portal (`apps/borrower_pro/<Client>/docs/planning/brand.md` and the repo-level `docs/planning/brand.md`) and adds mobile-specific guidance. The worked example below uses `demo-client`; each Pro client overrides via `brand/clients/<id>.ts` (registered in `brand/active.ts`, selected by that app's `EXPO_PUBLIC_CLIENT_ID`). `Proficient_Premium` reuses the same neutral black/white palette as `Demo_Client` — only the identity (name / display name / artwork) differs.
 
 ---
 
 ## ⚠️ Do NOT Hardcode Colors
 
-**Never use raw hex codes** in components. All brand colors are defined in `src/brand/clients/demo-client.ts` and exposed through the semantic `Colors` map in `src/constants/theme.ts`.
+**Never use raw hex codes** in components. All brand colors are defined in `brand/clients/demo-client.ts` and exposed through the semantic `Colors` map in `constants/theme.ts`.
 
 | Use this | Not this |
 |----------|----------|
@@ -36,7 +36,7 @@ Reference branding for **Demo_Client** — the mobile (Expo/React Native) borrow
 | Android | System default | System default | System monospace |
 | Web | Spline Sans, Inter | Spline Sans, Inter | SFMono-Regular, Menlo |
 
-On native, the app uses platform system fonts to feel native. On web, custom fonts are loaded via CSS variables in `src/global.css`.
+On native, the app uses platform system fonts to feel native. On web, custom fonts are loaded via CSS variables in `global.css`.
 
 ### Type Scale (`ThemedText` variants)
 
@@ -60,7 +60,7 @@ On native, the app uses platform system fonts to feel native. On web, custom fon
 
 ## 3) Color System
 
-All tokens live in `src/brand/clients/demo-client.ts` → `src/constants/theme.ts`.
+All tokens live in `brand/clients/demo-client.ts` → `constants/theme.ts`.
 
 ### Dark Theme (Default)
 
@@ -101,7 +101,7 @@ All tokens live in `src/brand/clients/demo-client.ts` → `src/constants/theme.t
 
 ## 4) Spacing System
 
-Defined in `src/constants/theme.ts`:
+Defined in `constants/theme.ts`:
 
 | Token | Value | Common Use |
 |-------|-------|------------|
@@ -160,7 +160,7 @@ status colour just because the field happens to be a status.**
 | `primary` | `info` | `theme.primary` |
 | `neutral` | `schedule` | `theme.textSecondary` |
 
-**Reference implementations:** `src/app/(app)/account.tsx` (security sections), `src/components/truestack-kyc-mobile-card.tsx`, `src/components/digital-signing-cert-card.tsx` (profile).
+**Reference implementations:** `app/(app)/account.tsx` (security sections), `components/truestack-kyc-mobile-card.tsx`, `components/digital-signing-cert-card.tsx` (profile).
 
 **Rule of thumb**: title-row badges (status / channel / Jadual / etc.), and
 multi-chip metadata strips inside cards (e.g. each repayment row's status),
@@ -173,11 +173,10 @@ explicitly required for density or legacy layout.
 
 ## 6) White-Label Customization
 
-When creating a new Pro client:
+When creating a new Pro client (see also `apps/borrower_pro_mobile/README.md` → "Add a new client"):
 
-1. Copy `src/brand/clients/demo-client.ts` → `src/brand/clients/<new-id>.ts`.
-2. Update colors, `displayName`, `productTagline`.
-3. Point `src/brand/active.ts` at the new client module.
-4. Update `app.config.ts` for app name, scheme, bundle IDs, icons.
-5. Replace assets in `assets/images/` (splash, icon, favicon).
-6. All components inherit the new palette automatically via `useTheme()`.
+1. Copy `brand/clients/demo-client.ts` → `brand/clients/<new-id>.ts`; update `id`, `displayName`, `productTagline` (and colors only if the client truly diverges from the neutral palette).
+2. Register the new export in `brand/active.ts` (`brandsById`).
+3. Create the thin client folder `<NewClient>/` (copy an existing one): `package.json` (`name`), `app.config.ts` (app name, slug, scheme, bundle/package IDs), `tsconfig.json`, `metro.config.js`, `eslint.config.js`, `.gitignore`, `.env.example` (set `EXPO_PUBLIC_CLIENT_ID=<new-id>` + URLs + optional `EXPO_PUBLIC_UNIVERSAL_LINK_HOST`), `scripts/`.
+4. Branded artwork (icon / splash / adaptive icon / favicon): for now both shipped clients point at the neutral `../assets/images/*`; add client-specific files under `assets/` and repoint that client's `app.config.ts` when real artwork lands.
+5. Shared `app/`, `components/`, `lib/`, `hooks/`, `constants/` are picked up automatically — all components inherit the client's palette via `useTheme()`.

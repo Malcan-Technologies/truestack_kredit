@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -17,6 +17,21 @@ import { ensureActiveTenantAfterLogin } from "@/lib/finish-login";
 import { BackToTruestackButton, BackToRootButton } from "@/components/powered-by-truestack";
 
 const ONBOARDING_NAMESPACE = "admin";
+
+/** Same-origin relative path only — blocks open redirects. */
+function safeReturnTo(raw: string | null): string | null {
+  if (raw == null || raw === "") return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  if (!decoded.startsWith("/")) return null;
+  if (decoded.startsWith("//")) return null;
+  if (decoded.includes("\\")) return null;
+  return decoded;
+}
 
 function isEmailVerificationSignInError(
   error: { status?: number; message?: string | null } | null | undefined
@@ -37,8 +52,12 @@ function isEmailVerificationSignInError(
   );
 }
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = safeReturnTo(searchParams.get("returnTo"));
+  const postAuthHref = returnTo ?? "/dashboard";
+
   const [loading, setLoading] = useState<"credentials" | "passkey" | null>(null);
   const [formData, setFormData] = useState({
     email: "",
@@ -56,7 +75,7 @@ export default function LoginPage() {
 
       await ensureActiveTenantAfterLogin();
       toast.success("Signed in with passkey");
-      router.push("/dashboard");
+      router.push(postAuthHref);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Passkey sign-in failed");
     } finally {
@@ -95,7 +114,7 @@ export default function LoginPage() {
 
       await ensureActiveTenantAfterLogin();
       toast.success("Login successful");
-      router.push("/dashboard");
+      router.push(postAuthHref);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Login failed";
       toast.error(message);
@@ -194,5 +213,19 @@ export default function LoginPage() {
         <BackToRootButton variant="ghost" />
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+          <div className="text-muted text-sm">Loading…</div>
+        </div>
+      }
+    >
+      <LoginPageInner />
+    </Suspense>
   );
 }

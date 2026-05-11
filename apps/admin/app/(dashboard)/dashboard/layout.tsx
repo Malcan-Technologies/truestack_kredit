@@ -1,14 +1,9 @@
-import type { Metadata } from "next";
+export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Dashboard - TrueKredit",
-  description: "Overview of your loan portfolio, performance metrics, and key insights",
-};
-
-export default function DashboardLayout({
+export default function DashboardSegmentLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return children;
 }

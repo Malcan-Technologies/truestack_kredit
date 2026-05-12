@@ -1,6 +1,7 @@
 "use client";
 
 import type { LenderInfo } from "@kredit/borrower";
+import Image from "next/image";
 import Link from "next/link";
 import { LegalNavLink } from "@borrower_pro/components/legal/legal-nav-link";
 import { mergeLenderFooterFields } from "@borrower_pro/lib/merge-tenant-lender-display";
@@ -729,49 +730,76 @@ export function HomePageContent() {
       </header>
 
       {/* ── Hero ───────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden border-b border-border/60 bg-gradient-to-br from-primary/8 via-background to-background">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-          <div className="max-w-3xl space-y-6">
-            <Badge variant="outline" className="border-primary/30 text-primary">
-              Licensed Money Lender · Malaysia
-            </Badge>
-            <h1 className="font-heading text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-              Financial freedom,{" "}
-              <span className="text-primary">simplified.</span>
-            </h1>
-            <p className="max-w-xl text-lg leading-8 text-muted-foreground">
-              Fast, transparent, and hassle-free loans for Malaysians. Apply online in minutes, manage everything from one secure portal.
-            </p>
+      <section className="border-b border-border/60 bg-background">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="grid min-h-[480px] gap-0 lg:grid-cols-2">
+            {/* Left: copy */}
+            <div className="flex flex-col justify-center py-16 pr-0 lg:py-24 lg:pr-12">
+              <div className="space-y-6">
+                <Badge variant="outline" className="border-primary/30 text-primary">
+                  Licensed Money Lender · Malaysia
+                </Badge>
+                <h1 className="font-heading text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+                  Financial freedom,{" "}
+                  <span className="text-primary">simplified.</span>
+                </h1>
+                <p className="max-w-xl text-lg leading-8 text-muted-foreground">
+                  Fast, transparent, and hassle-free loans for Malaysians. Apply online in minutes, manage everything from one secure portal.
+                </p>
 
-            {/* Trust badges */}
-            <div className="flex flex-wrap items-center gap-3">
-              {[
-                { Icon: Lock, label: "SSL Secured" },
-                { Icon: ShieldCheck, label: "PDPA Compliant" },
-                { Icon: BadgeCheck, label: "KPKT Licensed" },
-              ].map(({ Icon, label }) => (
-                <span
-                  key={label}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background px-3 py-1 text-xs font-medium text-muted-foreground"
-                >
-                  <Icon className="h-3.5 w-3.5 text-primary" aria-hidden />
-                  {label}
-                </span>
-              ))}
+                {/* Trust badges */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {[
+                    { Icon: Lock, label: "SSL Secured" },
+                    { Icon: ShieldCheck, label: "PDPA Compliant" },
+                    { Icon: BadgeCheck, label: "KPKT Licensed" },
+                  ].map(({ Icon, label }) => (
+                    <span
+                      key={label}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background px-3 py-1 text-xs font-medium text-muted-foreground"
+                    >
+                      <Icon className="h-3.5 w-3.5 text-primary" aria-hidden />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <Button asChild size="lg">
+                    <Link href="/sign-up">
+                      Apply Now — It&apos;s Free
+                      <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline" size="lg">
+                    <a href="#how-it-works">See How It Works</a>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">No commitment required. Check your eligibility in minutes.</p>
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-3 pt-2">
-              <Button asChild size="lg">
-                <Link href="/sign-up">
-                  Apply Now — It&apos;s Free
-                  <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="lg">
-                <a href="#how-it-works">See How It Works</a>
-              </Button>
+            {/* Right: KL skyline — semantic scrims (theme-aware via `background`) */}
+            <div className="relative hidden min-h-[320px] overflow-hidden lg:block">
+              <Image
+                src="/landing/hero-kuala-lumpur-night5.png"
+                alt="Kuala Lumpur skyline at night"
+                fill
+                className="-scale-x-100 object-cover object-[10%_30%]"
+                sizes="50vw"
+                priority
+              />
+              {/* Feather into copy column */}
+              <div
+                className="pointer-events-none absolute inset-y-0 left-0 z-10 w-[min(38%,15rem)] bg-gradient-to-r from-background via-background/55 to-transparent sm:w-[min(34%,17rem)]"
+                aria-hidden
+              />
+              {/* Feather into stats band below */}
+              <div
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20 bg-gradient-to-t from-background to-transparent sm:h-28"
+                aria-hidden
+              />
             </div>
-            <p className="text-xs text-muted-foreground">No commitment required. Check your eligibility in minutes.</p>
           </div>
         </div>
       </section>

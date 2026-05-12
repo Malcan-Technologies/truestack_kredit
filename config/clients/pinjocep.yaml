@@ -11,7 +11,7 @@ aws:
 deploy:
   auto_deploy: false
   platform_release: 1.1.1
-  borrower_release: 1.1.1
+  borrower_release: 1.1.4
 
 ecr:
   backend_repository: truekredit-pinjocep-backend-pro

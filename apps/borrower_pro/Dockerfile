@@ -21,6 +21,7 @@ COPY apps/backend/package.json ./apps/backend/
 COPY apps/backend_pro/package.json ./apps/backend_pro/
 COPY apps/signing-gateway/package.json ./apps/signing-gateway/
 COPY apps/borrower_pro/Demo_Client/package.json ./apps/borrower_pro/Demo_Client/
+COPY apps/borrower_pro/Pinjocep/package.json ./apps/borrower_pro/Pinjocep/
 COPY apps/borrower_pro/Proficient_Premium/package.json ./apps/borrower_pro/Proficient_Premium/
 COPY apps/borrower_pro_mobile/Demo_Client/package.json ./apps/borrower_pro_mobile/Demo_Client/
 COPY packages/shared/package.json ./packages/shared/

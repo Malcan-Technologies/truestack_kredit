@@ -17,6 +17,7 @@ apps/borrower_pro_mobile/
   docs/planning/  # SHARED — brand.md + navigation-ux.md
   Demo_Client/            # THIN client — identity + native config only
   Proficient_Premium/     # THIN client — identity + native config only
+  Pinjocep/               # THIN client — identity + native config only
 ```
 
 A client folder contains only: `app.config.ts` (name / slug / scheme / bundle IDs; points Expo Router at `../app`), `metro.config.js`, `tsconfig.json` (`@/*` → `../*`), `eslint.config.js`, `.gitignore`, `.env.example`, `scripts/`. Generated dirs (`android/`, `ios/`, `.expo/`, `expo-env.d.ts`) are git-ignored and produced by `expo prebuild` / `expo start` as needed.
@@ -34,27 +35,27 @@ Monorepo context: [`docs/mobile-development-expo.md`](../../docs/mobile-developm
 
 1. **Install** — from the **repository root** (workspace): `npm install`, then `npm run build:packages` (builds `@kredit/shared`, `@kredit/borrower`).
 
-2. **Environment** — in the client folder you want to run: `cp .env.example .env` and adjust URLs for your machine. `EXPO_PUBLIC_*` values are inlined at bundle time. Defaults mirror the matching web client's ports (`Demo_Client` ≈ `:3006`, `Proficient_Premium` ≈ `:3007`; backend `:4001`).
+2. **Environment** — in the client folder you want to run: `cp .env.example .env` and adjust URLs for your machine. `EXPO_PUBLIC_*` values are inlined at bundle time. Defaults mirror the matching web client's ports (`Demo_Client` ≈ `:3006`, `Proficient_Premium` ≈ `:3007`, `Pinjocep` ≈ `:3008`; backend `:4001`).
 
 3. **Start Metro** — from a client folder:
 
    ```bash
-   cd apps/borrower_pro_mobile/Demo_Client   # or Proficient_Premium
+   cd apps/borrower_pro_mobile/Demo_Client   # or Proficient_Premium / Pinjocep
    npm run dev
    ```
 
-   Or from repo root: `npm run dev:borrower_pro_mobile` (Demo_Client) / `npm run dev:borrower_pro_mobile:proficient_premium` (Proficient_Premium). Then open a [development build](https://docs.expo.dev/develop/development-builds/introduction/), **Android emulator**, **iOS simulator**, or [Expo Go](https://expo.dev/go) (limited vs native modules).
+   Or from repo root: `npm run dev:borrower_pro_mobile` (Demo_Client) / `npm run dev:borrower_pro_mobile:proficient_premium` (Proficient_Premium) / `npm run dev:borrower_pro_mobile:pinjocep` (Pinjocep). Then open a [development build](https://docs.expo.dev/develop/development-builds/introduction/), **Android emulator**, **iOS simulator**, or [Expo Go](https://expo.dev/go) (limited vs native modules).
 
 ## Add a new client
 
-1. **Brand** — copy `brand/clients/demo-client.ts` → `brand/clients/<new-id>.ts`; set `id`, `displayName`, `productTagline` (and colors only if it diverges from the neutral palette). Register the export in `brand/active.ts` (`brandsById`).
+1. **Brand** — copy `brand/clients/demo-client.ts` → `brand/clients/<new-id>.ts`; set `id`, `displayName`, `productTagline` (and colors only if it diverges from the neutral palette — e.g. `brand/clients/pinjocep.ts` overrides only `primary`/`primaryForeground`). Register the export in `brand/active.ts` (`brandsById`).
 2. **Client folder** — copy an existing client folder (e.g. `Demo_Client/`) → `<NewClient>/` and update:
    - `package.json` → `name` (e.g. `new_client`).
    - `app.config.ts` → `name`, `slug`, `scheme`, `ios.bundleIdentifier`, `android.package` (keep `['expo-router', { root: '../app' }]` and the `../assets/*` paths).
    - `.env.example` → `EXPO_PUBLIC_CLIENT_ID=<new-id>`, `EXPO_PUBLIC_BACKEND_URL`, `EXPO_PUBLIC_AUTH_BASE_URL`, optional `EXPO_PUBLIC_UNIVERSAL_LINK_HOST` (the deployed borrower web origin from `config/clients/<id>.yaml`).
    - `tsconfig.json` → already includes the shared dirs; no change needed beyond the copy.
 3. **Workspace** — `npm install` from repo root picks up the new workspace automatically (`apps/borrower_pro_mobile/*`). Add convenience scripts in the root `package.json` if you like.
-4. **Artwork** — both shipped clients currently point at the neutral `../assets/images/*` icons/splash. Add client-specific files under `assets/` and repoint that client's `app.config.ts` when real artwork is available.
+4. **Artwork** — all shipped clients currently point at the neutral `../assets/images/*` icons/splash. Add client-specific files under `assets/` and repoint that client's `app.config.ts` when real artwork is available.
 5. **Native projects** — `npx expo prebuild` inside the client folder generates `ios/` + `android/` from `app.config.ts` (git-ignored). EAS build profiles per client are future work (see `docs/mobile-development-expo.md` §7).
 
 ## Sign-in (native)

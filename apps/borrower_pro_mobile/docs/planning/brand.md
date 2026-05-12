@@ -1,6 +1,6 @@
 # Borrower Pro Mobile — Branding Guide
 
-Reference branding for the mobile (Expo/React Native) borrower apps under `apps/borrower_pro_mobile/`. Mirrors the web borrower portal (`apps/borrower_pro/<Client>/docs/planning/brand.md` and the repo-level `docs/planning/brand.md`) and adds mobile-specific guidance. The worked example below uses `demo-client`; each Pro client overrides via `brand/clients/<id>.ts` (registered in `brand/active.ts`, selected by that app's `EXPO_PUBLIC_CLIENT_ID`). `Proficient_Premium` reuses the same neutral black/white palette as `Demo_Client` — only the identity (name / display name / artwork) differs.
+Reference branding for the mobile (Expo/React Native) borrower apps under `apps/borrower_pro_mobile/`. Mirrors the web borrower portal (`apps/borrower_pro/<Client>/docs/planning/brand.md` and the repo-level `docs/planning/brand.md`) and adds mobile-specific guidance. The worked example below uses `demo-client`; each Pro client overrides via `brand/clients/<id>.ts` (registered in `brand/active.ts`, selected by that app's `EXPO_PUBLIC_CLIENT_ID`). `Proficient_Premium` reuses the same neutral black/white palette as `Demo_Client` — only the identity (name / display name / artwork) differs. `Pinjocep` keeps the neutral palette too but overrides `primary` / `primaryForeground` with its branded red (`#8a0304` light, `#f22526` dark) for buttons, tab accents, links and focus rings — see `brand/clients/pinjocep.ts` and `apps/borrower_pro/Pinjocep/docs/planning/brand.md`.
 
 ---
 

@@ -1,4 +1,5 @@
 import { demoClientBrand } from '@/brand/clients/demo-client';
+import { pinjocepBrand } from '@/brand/clients/pinjocep';
 import { proficientPremiumBrand } from '@/brand/clients/proficient-premium';
 import type { BrandTokens } from '@/brand/tokens';
 import { getEnv } from '@/lib/config/env';
@@ -10,6 +11,7 @@ import { getEnv } from '@/lib/config/env';
 const brandsById: Record<string, BrandTokens> = {
   [demoClientBrand.id]: demoClientBrand,
   [proficientPremiumBrand.id]: proficientPremiumBrand,
+  [pinjocepBrand.id]: pinjocepBrand,
 };
 
 export const activeBrand: BrandTokens = brandsById[getEnv().clientId] ?? demoClientBrand;

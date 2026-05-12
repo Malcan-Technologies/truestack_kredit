@@ -782,10 +782,10 @@ export function HomePageContent() {
             {/* Right: KL skyline — semantic scrims (theme-aware via `background`) */}
             <div className="relative hidden min-h-[320px] overflow-hidden lg:block">
               <Image
-                src="/landing/hero-kuala-lumpur-night5.png"
+                src="/landing/hero-kuala-lumpur-night3.png"
                 alt="Kuala Lumpur skyline at night"
                 fill
-                className="-scale-x-100 object-cover object-[10%_30%]"
+                className="object-cover object-[50%_30%]"
                 sizes="50vw"
                 priority
               />

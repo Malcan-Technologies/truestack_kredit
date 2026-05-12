@@ -1,4 +1,10 @@
 import type { Metadata } from "next";
+import { ScamAlertDialog } from "@borrower_pro/components/scam-alert-dialog";
+import {
+  LENDER_KPKT_LICENSE,
+  LENDER_NAME,
+  LENDER_WEB,
+} from "@/app/components/legal/demo-site";
 import { HomePageContent } from "./homepage-content";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3006";
@@ -94,6 +100,11 @@ function homeJsonLd() {
 export default async function HomePage() {
   return (
     <>
+      <ScamAlertDialog
+        lenderName={LENDER_NAME}
+        officialWebsite={LENDER_WEB}
+        kpktLicense={LENDER_KPKT_LICENSE}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(homeJsonLd()) }}

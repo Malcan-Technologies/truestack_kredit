@@ -22,6 +22,7 @@ export const config = {
   corsOrigins: process.env.CORS_ORIGINS?.split(',').map((s) => s.trim()) || [
     'http://localhost:3006',
     'http://localhost:3005',
+    'http://localhost:3010',
   ],
 
   /** `saas` = multi-tenant SaaS behavior; `pro` = single-tenant Pro deployment (public KYC, no TrueStack Admin tenant provisioning for KYC). */

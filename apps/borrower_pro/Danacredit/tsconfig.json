@@ -1,0 +1,63 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./*"
+      ],
+      "@kredit/shared": [
+        "../../../packages/shared/src"
+      ],
+      "@kredit/shared/*": [
+        "../../../packages/shared/src/*"
+      ],
+      "@borrower_pro/components": [
+        "../components"
+      ],
+      "@borrower_pro/components/*": [
+        "../components/*"
+      ],
+      "@borrower_pro/lib": [
+        "../lib"
+      ],
+      "@borrower_pro/lib/*": [
+        "../lib/*"
+      ]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "../components/**/*.ts",
+    "../components/**/*.tsx",
+    "../lib/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

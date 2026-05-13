@@ -15,8 +15,8 @@ import { prisma } from "./prisma.js";
  * - BETTER_AUTH_BASE_URL (optional) — canonical base URL; overrides FRONTEND_URL for baseURL.
  * - FRONTEND_URL (optional) — legacy alias for canonical base URL if BETTER_AUTH_BASE_URL unset.
  * - BETTER_AUTH_TRUSTED_ORIGINS — comma-separated list, e.g.
- *   http://localhost:3005,http://localhost:3006
- *   Local defaults below always include :3005 and :3006 so both apps work without setting it.
+ *   http://localhost:3005,http://localhost:3006,http://localhost:3010
+ *   Local defaults below include common borrower ports so apps work without setting it.
  */
 const explicitTrusted = splitOrigins(process.env.BETTER_AUTH_TRUSTED_ORIGINS);
 const baseURL = resolveAuthBaseUrl(
@@ -31,7 +31,8 @@ const trustedOrigins = collectOrigins(
   baseURL,
   explicitTrusted,
   "http://localhost:3005",
-  "http://localhost:3006"
+  "http://localhost:3006",
+  "http://localhost:3010"
 );
 
 export const auth = betterAuth({

@@ -36,6 +36,7 @@ RUN npm ci
 FROM base AS builder
 
 ARG BORROWER_APP=Demo_Client
+ENV BORROWER_APP=${BORROWER_APP}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps ./apps
@@ -54,8 +55,9 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
 ENV BACKEND_URL=${BACKEND_URL}
 
-# Prisma client: borrower prebuild runs prisma generate + shared + @kredit/borrower only.
-RUN npm run build --prefix "apps/borrower_pro/${BORROWER_APP}"
+# One workspace only: `-w` avoids ever hitting the root `build` script (`--workspaces --if-present`).
+RUN WS="$(node -p "require(\"./apps/borrower_pro/\" + process.env.BORROWER_APP + \"/package.json\").name")" \
+  && npm run build -w "${WS}"
 
 FROM base AS runner
 WORKDIR /app

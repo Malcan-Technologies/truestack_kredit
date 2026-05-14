@@ -10,7 +10,7 @@ aws:
 deploy:
   auto_deploy: false
   platform_release: 1.1.1
-  borrower_release: 1.1.4
+  borrower_release: 1.1.5
 
 ecr:
   backend_repository: truekredit-danacredit-backend-pro

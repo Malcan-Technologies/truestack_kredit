@@ -16,6 +16,7 @@ on:
         type: choice
         options:
           - demo-client
+          - danacredit
           - pinjocep
           - proficient-premium
       action:

@@ -9,6 +9,7 @@ on:
         default: "proficient-premium"
         type: choice
         options:
+          - danacredit
           - pinjocep
           - proficient-premium
       action:

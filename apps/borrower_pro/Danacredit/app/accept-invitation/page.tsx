@@ -68,9 +68,13 @@ function AcceptInvitationInner() {
     void (async () => {
       try {
         // Passkey / 2FA optional — do not block invitation acceptance
-        await fetchSecurityStatus(
-          session!.user as { emailVerified?: boolean; twoFactorEnabled?: boolean }
-        );
+        try {
+          await fetchSecurityStatus(
+            session!.user as { emailVerified?: boolean; twoFactorEnabled?: boolean }
+          );
+        } catch {
+          // Best-effort only; invitation flow continues if this throws
+        }
 
         if (cancelled) return;
 

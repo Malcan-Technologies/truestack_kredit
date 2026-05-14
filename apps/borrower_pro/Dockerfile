@@ -21,6 +21,7 @@ COPY apps/backend/package.json ./apps/backend/
 COPY apps/backend_pro/package.json ./apps/backend_pro/
 COPY apps/signing-gateway/package.json ./apps/signing-gateway/
 COPY apps/borrower_pro/Demo_Client/package.json ./apps/borrower_pro/Demo_Client/
+COPY apps/borrower_pro/Danacredit/package.json ./apps/borrower_pro/Danacredit/
 COPY apps/borrower_pro/Pinjocep/package.json ./apps/borrower_pro/Pinjocep/
 COPY apps/borrower_pro/Proficient_Premium/package.json ./apps/borrower_pro/Proficient_Premium/
 COPY apps/borrower_pro_mobile/Demo_Client/package.json ./apps/borrower_pro_mobile/Demo_Client/
@@ -41,8 +42,10 @@ COPY --from=deps /app/apps ./apps
 COPY --from=deps /app/packages ./packages
 COPY . .
 
-WORKDIR /app/apps/borrower_pro/${BORROWER_APP}
-
+# Run the borrower workspace build from the monorepo root. A bare `npm run build`
+# inside apps/borrower_pro/<app> resolves to the root script and runs
+# `npm run build --workspaces --if-present`, which builds SaaS admin/backend and fails in this image.
+WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3006
 ARG NEXT_PUBLIC_BACKEND_URL=http://localhost:4001
@@ -51,8 +54,8 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
 ENV BACKEND_URL=${BACKEND_URL}
 
-# Prisma client: generated via package.json prebuild before next build.
-RUN npm run build
+# Prisma client: borrower prebuild runs prisma generate + shared + @kredit/borrower only.
+RUN npm run build --prefix "apps/borrower_pro/${BORROWER_APP}"
 
 FROM base AS runner
 WORKDIR /app

@@ -2,6 +2,8 @@
 
 Single-page reference for **dedicated** Pro stacks that use **Cloudflare DNS** (and optionally **Tunnel / Access** for signing). Complements `docs/pro_client_deployment_guide.md`.
 
+**Use this doc in Cursor** when onboarding a new external client, debugging ACM/GitHub OIDC, or Cloudflare cutover—search “symptom” in **§8**, or jump to **§9** (two CNAME types), **§10** (state/profile).
+
 ---
 
 ## 1. Domain alignment (avoid ACM hangs)
@@ -127,9 +129,88 @@ These are **separate** from ALB DNS for admin/api/borrower.
 | `AssumeRoleWithWebIdentity` denied | Trust policy **`sub`** missing `environment:<env>` |
 | Cloudflare “record already exists” | Apex **A** vs **CNAME @** conflict |
 | TLS errors behind orange cloud | SSL mode not **Full (strict)** |
+| `terraform output` / `plan` → **S3 403 Forbidden** on state bucket | Wrong **`AWS_PROFILE`** (not the client account that owns the bucket) |
+| `Error acquiring the state lock` | Another `apply`/`plan` running, or crashed run—**`terraform force-unlock <id>`** only after confirming nothing else holds the lock |
 
 ---
 
-## 9. Canonical checklist elsewhere
+## 9. Two kinds of Cloudflare CNAMEs (do not mix up)
+
+| Kind | Purpose | Names | Target | Proxy |
+|------|---------|-------|--------|--------|
+| **ACM validation** | Prove domain ownership to AWS | `_<hash>.api…`, `_<hash>.admin…`, `_<hash>.` apex | `*.acm-validations.aws` from ACM | **DNS only** |
+| **Application traffic** | Send users to the stack | `admin`, `api`, `@` (if borrower is apex) | **`alb_dns_name`** from `terraform output` | Your choice (if proxied → **Full (strict)**) |
+
+You need **both** at different stages: validation first, then (separately) ALB CNAMEs for `admin` / `api` / `@`.
+
+**Timing:** After DNS is correct, ACM often validates in **~2–15 minutes** (sometimes longer); Terraform’s `aws_acm_certificate_validation` timeout can be up to **~45m**.
+
+---
+
+## 10. Terraform state: bootstrap + correct AWS profile
+
+### 10.1 New client AWS account
+
+Before first `terraform init` in `terraform/pro/clients/<client>/`, that account needs:
+
+- **S3 bucket** for state (e.g. `truestack-terraform-state-<account_id>`), **versioning + encryption**, private ACL.
+- **DynamoDB** table for locks (e.g. `truestack-terraform-locks`, partition key **`LockID`** String, on-demand).
+
+Without these, `init` fails with **NoSuchBucket** or lock errors.
+
+### 10.2 One stack = one account = one profile
+
+- `backend.tf` embeds the **state bucket name** (includes **account id**).
+- Always run: **`AWS_PROFILE=<client_profile> terraform init|plan|apply|output`** for that folder.
+
+**Common mistake:** Running `apply` with **`pinjocep`** credentials while using **`danacredit.tfvars`** creates resources in the **wrong account** and/or cannot write state. **Never mix profile and client folder.**
+
+If `terraform output` returns **403** on `HeadObject` for the state key, you are **not** using credentials allowed on that bucket.
+
+### 10.3 State lock
+
+If a run was aborted and the next command says **state lock** exists:
+
+1. Confirm no other Terraform or CI is using that state.
+2. `terraform force-unlock <Lock ID from error>` from the same directory (with correct profile).
+
+---
+
+## 11. After `terraform apply` succeeds
+
+1. **`terraform output alb_dns_name`** — use for Cloudflare **app** CNAMEs (with correct `AWS_PROFILE`).
+2. **`terraform output app_secret_arn`** — copy the **full ARN** into **`config/clients/<client>.yaml`** → `secrets.app_secrets_arn` (include any random suffix Secrets Manager shows).
+3. **ECS:** New services may start with **`desired_count = 0`** until **Deploy Pro** (or similar) pushes images and scales tasks—expect “no tasks” until deploy.
+4. **GitHub Environment** (e.g. `pro-danacredit`): set **`AWS_ROLE_ARN`**; OIDC trust must allow **`environment:<that env>`** (§5.2).
+5. **Git tags / releases** for borrower vs platform—see **§12**.
+6. **DB seed (Pro):** default seeded owner password is **`Demo@123`** unless changed—see `apps/backend_pro/prisma/seed.prod.ts`; email comes from `pro_tenant.seed_owner_email` / workflow env.
+
+---
+
+## 12. Git tags: borrower vs platform (`deploy-pro.yml`)
+
+Workflow reads **`borrower_app`** and version pins from **`config/clients/<id>.yaml`**.
+
+- **Platform** (admin + backend): Git ref **`refs/tags/pro-platform-v<platform_release>`** (e.g. `pro-platform-v1.1.1`).
+- **Borrower:** If **`borrower_release`** equals **`platform_release`**, borrower uses the **same** platform tag. If they **differ**, borrower needs its own tag:
+
+  **`pro-borrower-<borrower_app>-v<borrower_release>`**
+
+  Example: `borrower_app: Danacredit`, `borrower_release: 1.1.4` → **`pro-borrower-Danacredit-v1.1.4`**.
+
+The middle segment must match the **`borrower_app`** string and the folder under **`apps/borrower_pro/<BorrowerApp>`** (case-sensitive per repo convention).
+
+---
+
+## 13. Quick per-client DNS order (memory aid)
+
+1. **ACM validation** CNAMEs in the **correct** Cloudflare zone → wait **Issued** in ACM (same region as `aws_region`).
+2. **Terraform apply** through **`aws_acm_certificate_validation`** and HTTPS listener.
+3. **App** CNAMEs: `admin`, `api`, `@` (if apex) → **`alb_dns_name`**; remove conflicting apex **A** first.
+4. **www** / **\*** — align or redirect so users don’t hit old IP by mistake.
+
+---
+
+## 14. Canonical checklist elsewhere
 
 - Full external onboarding: **`docs/pro_client_deployment_guide.md`** (Terraform networking, checklist §3–5, Cloudflare §10).

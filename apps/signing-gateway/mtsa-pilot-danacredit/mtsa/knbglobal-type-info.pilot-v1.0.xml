@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<CADetails>
+    <CAInfo id="1">
+        <caAccount>DocSigningBasicPilot</caAccount>
+        <caUser>bqIx1Uqd7saQULDebhaY/SasaD6kqrP8oLOLivFHS/A=</caUser>
+        <caPass>8x5TAzpfsz9wBAfpTQPuM7fpCLG3bjCGuafuUyK3l+0=</caPass>
+        <caCertType>roaming_SKS</caCertType>
+        <projectKey>aMvA9MCbKjnT0sN2zFnxcg==</projectKey>
+        <projectClientID>1200</projectClientID>
+        <certSDN>CN=_N_, SERIALNUMBER=_I_, C=_C_</certSDN>
+        <dsAuthMode>OTP</dsAuthMode>
+        <tgraJurish>KNB</tgraJurish>
+        <tgraPkgId>278</tgraPkgId>
+    </CAInfo>
+    <CAInfo id="2">
+        <caAccount>DocSigningProPilot</caAccount>
+        <caUser>bqIx1Uqd7saQULDebhaY/SasaD6kqrP8oLOLivFHS/A=</caUser>
+        <caPass>8x5TAzpfsz9wBAfpTQPuM7fpCLG3bjCGuafuUyK3l+0=</caPass>
+        <caCertType>roaming_SKS</caCertType>
+        <projectKey>EcM+OAfdV78mSt/tHb/43w==</projectKey>
+        <projectClientID>1200</projectClientID>
+        <certSDN>CN=_N_, SERIALNUMBER=_I_, O=_O_, C=_C_</certSDN>
+        <dsAuthMode>PIN</dsAuthMode>
+        <tgraJurish>KNB</tgraJurish>
+        <tgraPkgId>279</tgraPkgId>
+    </CAInfo>
+</CADetails>

@@ -7,6 +7,7 @@ on:
     paths:
       - "apps/signing-gateway/**"
       - "config/clients/demo-client.yaml"
+      - "config/clients/danacredit.yaml"
       - ".github/workflows/deploy-signing-gateway.yml"
   workflow_dispatch:
     inputs:

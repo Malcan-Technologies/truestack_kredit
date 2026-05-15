@@ -60,6 +60,8 @@ signing:
   gateway_hostname: sign.danacredit.my
   ssh_host: ssh-sign.danacredit.my
   tunnel_name: danacredit-onprem
+  # MTSA pilot bundle: K&B GLOBAL config (see apps/signing-gateway/mtsa-pilot-danacredit/README.md)
+  mtsa_build_context: apps/signing-gateway/mtsa-pilot-danacredit
   mtsa_env: pilot
   backup_bucket_prefix: danacredit
   ecr_repository: truekredit-pro-signing-gateway

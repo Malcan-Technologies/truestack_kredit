@@ -202,3 +202,18 @@ variable "truestack_kyc_api_base_url" {
   type    = string
   default = "https://api.truestack.my"
 }
+
+# JSON key consumed by ECS as SIGNING_ENABLED (must be "true" or "false" strings).
+variable "app_secret_signing_enabled" {
+  type        = string
+  description = <<-EOT
+    Initial signing_enabled key in aws_secretsmanager_secret_version.app (bootstrap only).
+    That resource ignores secret_string drift after creation; operational changes must use AWS console/CLI.
+  EOT
+  default = "false"
+
+  validation {
+    condition     = contains(["true", "false"], var.app_secret_signing_enabled)
+    error_message = "app_secret_signing_enabled must be \"true\" or \"false\"."
+  }
+}

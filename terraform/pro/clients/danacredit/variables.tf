@@ -159,3 +159,14 @@ variable "truestack_kyc_api_base_url" {
   type    = string
   default = "https://api.truestack.my"
 }
+
+variable "app_secret_signing_enabled" {
+  type        = string
+  description = "Bootstrap signing_enabled in app JSON secret; live value is unchanged by terraform applies (see module lifecycle)."
+  default     = "true"
+
+  validation {
+    condition     = contains(["true", "false"], var.app_secret_signing_enabled)
+    error_message = "app_secret_signing_enabled must be \"true\" or \"false\"."
+  }
+}

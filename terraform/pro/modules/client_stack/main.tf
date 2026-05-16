@@ -390,7 +390,7 @@ resource "aws_secretsmanager_secret_version" "app" {
     # On-prem Signing Gateway
     signing_gateway_url     = ""
     signing_api_key         = ""
-    signing_enabled         = "false"
+    signing_enabled         = var.app_secret_signing_enabled
     CF_ACCESS_CLIENT_ID     = ""
     CF_ACCESS_CLIENT_SECRET = ""
   })

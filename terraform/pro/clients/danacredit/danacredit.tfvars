@@ -52,3 +52,6 @@ seed_owner_name  = "DanaCredit Admin"
 email_from_name            = "DanaCredit"
 email_from_address         = "no-reply@danacredit.my"
 truestack_kyc_api_base_url = "https://api.truestack.my"
+
+# Bootstrap signing_enabled in app secretJSON (terraform ignores secret drift after create; use CLI to change live ECS secret).
+app_secret_signing_enabled = "true"

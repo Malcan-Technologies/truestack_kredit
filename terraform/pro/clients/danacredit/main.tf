@@ -72,4 +72,6 @@ module "client_stack" {
   email_from_name            = var.email_from_name
   email_from_address         = var.email_from_address
   truestack_kyc_api_base_url = var.truestack_kyc_api_base_url
+
+  app_secret_signing_enabled = var.app_secret_signing_enabled
 }

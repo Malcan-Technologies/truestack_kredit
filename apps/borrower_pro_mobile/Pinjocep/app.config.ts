@@ -26,12 +26,12 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     userInterfaceStyle: 'automatic',
     ios: {
       /** Required for `expo prebuild` / `expo run:ios` — cannot be inferred when using dynamic `app.config.ts`. */
-      bundleIdentifier: 'com.anonymous.Pinjocep',
+      bundleIdentifier: 'com.srijeyasumi.pinjocep',
       icon: '../assets/expo.icon',
       ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
     },
     android: {
-      package: 'com.anonymous.pinjocep',
+      package: 'com.srijeyasumi.pinjocep',
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: '../assets/images/android-icon-foreground.png',

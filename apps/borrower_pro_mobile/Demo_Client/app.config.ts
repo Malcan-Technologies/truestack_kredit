@@ -87,7 +87,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     },
     extra: {
       eas: {
-        projectId: '21e1017a-9856-4232-9cf8-3b49058ce7c0',
+        projectId: '64ab2eca-cfdb-4cc4-b973-35eb682e37db',
       },
     },
   };

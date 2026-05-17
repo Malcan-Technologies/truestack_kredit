@@ -24,12 +24,12 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     userInterfaceStyle: 'automatic',
     ios: {
       /** Required for `expo prebuild` / `expo run:ios` — cannot be inferred when using dynamic `app.config.ts`. */
-      bundleIdentifier: 'com.anonymous.Demo-Client',
+      bundleIdentifier: 'com.truestack.democlient',
       icon: '../assets/expo.icon',
       ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
     },
     android: {
-      package: 'com.anonymous.democlient',
+      package: 'com.truestack.democlient',
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: '../assets/images/android-icon-foreground.png',
@@ -84,6 +84,11 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     experiments: {
       typedRoutes: true,
       reactCompiler: true,
+    },
+    extra: {
+      eas: {
+        projectId: '64ab2eca-cfdb-4cc4-b973-35eb682e37db',
+      },
     },
   };
 }

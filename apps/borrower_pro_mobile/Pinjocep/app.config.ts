@@ -26,12 +26,12 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     userInterfaceStyle: 'automatic',
     ios: {
       /** Required for `expo prebuild` / `expo run:ios` — cannot be inferred when using dynamic `app.config.ts`. */
-      bundleIdentifier: 'com.anonymous.Pinjocep',
+      bundleIdentifier: 'com.srijeyasumi.pinjocep',
       icon: '../assets/expo.icon',
       ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
     },
     android: {
-      package: 'com.anonymous.pinjocep',
+      package: 'com.srijeyasumi.pinjocep',
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: '../assets/images/android-icon-foreground.png',
@@ -86,6 +86,11 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     experiments: {
       typedRoutes: true,
       reactCompiler: true,
+    },
+    extra: {
+      eas: {
+        projectId: '81974c82-5011-4d66-9b7c-618d007e254a'
+      },
     },
   };
 }

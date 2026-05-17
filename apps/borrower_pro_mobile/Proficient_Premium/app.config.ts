@@ -26,12 +26,12 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     userInterfaceStyle: 'automatic',
     ios: {
       /** Required for `expo prebuild` / `expo run:ios` — cannot be inferred when using dynamic `app.config.ts`. */
-      bundleIdentifier: 'com.anonymous.Proficient-Premium',
+      bundleIdentifier: 'com.proficientpremium.ppsb',
       icon: '../assets/expo.icon',
       ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
     },
     android: {
-      package: 'com.anonymous.proficientpremium',
+      package: 'com.proficientpremium.ppsb',
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: '../assets/images/android-icon-foreground.png',
@@ -86,6 +86,11 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     experiments: {
       typedRoutes: true,
       reactCompiler: true,
+    },
+    extra: {
+      eas: {
+        projectId: '55e83fbc-6ace-4a01-af44-fffe9e5cadf8'
+      },
     },
   };
 }

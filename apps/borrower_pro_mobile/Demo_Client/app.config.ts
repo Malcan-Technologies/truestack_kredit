@@ -85,5 +85,10 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       typedRoutes: true,
       reactCompiler: true,
     },
+    extra: {
+      eas: {
+        projectId: '21e1017a-9856-4232-9cf8-3b49058ce7c0',
+      },
+    },
   };
 }

@@ -149,6 +149,12 @@ export const config = {
     })(),
     webhookSecret: (process.env.TRUESTACK_KYC_WEBHOOK_SECRET || '').trim(),
   },
+
+  /** TrueSSM (Malaysian registry) public API — separate Bearer key from TrueIdentity / TrueStack KYC */
+  truessm: {
+    apiBaseUrl: (process.env.TRUESTACK_SSM_API_BASE_URL || 'https://api.truestack.my').replace(/\/$/, ''),
+    apiKey: (process.env.TRUESTACK_SSM_API_KEY || '').trim(),
+  },
 };
 
 const MIN_SECRET_LENGTH = 32;

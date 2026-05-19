@@ -45,6 +45,8 @@ export const TENANT_PERMISSIONS = [
   "notifications.view_logs",
   "trueidentity.view",
   "trueidentity.manage",
+  "truessm.view",
+  "truessm.manage",
   "audit_logs.view",
   "reports.view",
   "reports.export",
@@ -118,6 +120,7 @@ function withBorrowerPageTrueIdentityDefaults(
 
   if (permissionSet.has("borrowers.view")) {
     permissionSet.add("trueidentity.view");
+    permissionSet.add("truessm.view");
   }
 
   if (
@@ -126,6 +129,8 @@ function withBorrowerPageTrueIdentityDefaults(
   ) {
     permissionSet.add("trueidentity.view");
     permissionSet.add("trueidentity.manage");
+    permissionSet.add("truessm.view");
+    permissionSet.add("truessm.manage");
   }
 
   return [...permissionSet];
@@ -184,6 +189,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
       "agreements.view",
       "availability.view",
       "trueidentity.view",
+      "truessm.view",
       "notifications.view",
       "notifications.manage_settings",
       "notifications.send_broadcast",
@@ -336,6 +342,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
       "agreements.view",
       "signing_certificates.view",
       "trueidentity.view",
+      "truessm.view",
       "notifications.view",
       "audit_logs.view",
       "reports.view",
@@ -367,6 +374,7 @@ export const DEFAULT_TENANT_ROLE_TEMPLATES: TenantRoleTemplate[] = [
       "notifications.view",
       "notifications.view_logs",
       "trueidentity.view",
+      "truessm.view",
       "audit_logs.view",
       "reports.view",
       "team.view",
@@ -462,7 +470,9 @@ export const RBAC_PERMISSION_GROUPS: TenantPermissionGroup[] = [
       "notifications.send_broadcast",
       "notifications.view_logs",
       "trueidentity.view",
-      "trueidentity.manage"
+      "trueidentity.manage",
+      "truessm.view",
+      "truessm.manage"
     ),
   },
   {

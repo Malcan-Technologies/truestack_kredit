@@ -355,6 +355,7 @@ Required keys should include at least:
 - `kredit_webhook_secret`
 - `trueidentity_webhook_secret`
 - `kredit_internal_secret`
+- `truestack_ssm_api_key` (when TrueSSM™ is enabled; maps to env `TRUESTACK_SSM_API_KEY` on `backend_pro`)
 
 Only include keys actually used by your Pro runtime.
 

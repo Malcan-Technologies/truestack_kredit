@@ -199,6 +199,7 @@ model Tenant {
   trueIdentitySessions TrueIdentitySession[]
   trueIdentityWebhookEvents TrueIdentityWebhookEvent[]
   trueIdentityUsageDaily TrueIdentityUsageDaily[]
+  trueSsmPulls               TrueSsmPull[]
   borrowerProfileLinks       BorrowerProfileLink[]
   borrowerOrganizationLinks  BorrowerOrganizationLink[]
   truestackKycSessions       TruestackKycSession[]
@@ -651,6 +652,10 @@ model Borrower {
   paidUpCapital       Decimal?  @db.Decimal(14, 2) // Paid-up capital
   numberOfEmployees   Int? // Employee count
 
+  // TrueSSM provenance: { [field]: { syncedAt, usageId, sourceValue } } for fields synced from SSM.
+  // Manual edits to a provenanced field clear that entry in borrowerUpdateService.
+  ssmFieldProvenance Json?
+
   // Relations
   tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   borrowerProfileLinks BorrowerProfileLink[]
@@ -672,6 +677,7 @@ model Borrower {
   trueIdentitySessions TrueIdentitySession[]
   truestackKycSessions TruestackKycSession[]
   staffNotes           BorrowerNote[]
+  trueSsmPulls         TrueSsmPull[]
 
   @@unique([tenantId, icNumber])
   @@index([tenantId])
@@ -931,9 +937,36 @@ model BorrowerDocument {
   // Relations
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   borrower Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  trueSsmPulls TrueSsmPull[]
 
   @@index([tenantId])
   @@index([borrowerId])
+}
+
+// Per-borrower TrueSSM pull history. Every pull is billed and produces a saved
+// document. Field overwrite into Borrower is a separate Apply action and recorded
+// via Borrower.ssmFieldProvenance.
+model TrueSsmPull {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  borrowerId         String
+  usageType          String   // company_profile, business_profile, llp_profile, officers, ...
+  usageId            String?  // TrueStack acknowledgement.usage_id
+  requestRefNo       String?  // Provider request_id when available
+  regNo              String   // SSM registration number used for the pull
+  billedCredits      Int      @default(0)
+  idempotencyKey     String   @unique
+  rawData            Json     // Provider data block as returned (provider-native keys)
+  documentId         String?  // BorrowerDocument generated from this pull
+  createdByMemberId  String?  // TenantMember.id that initiated the pull
+  createdAt          DateTime @default(now())
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  borrower Borrower          @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  document BorrowerDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, borrowerId])
+  @@index([borrowerId, createdAt])
 }
 
 model Loan {

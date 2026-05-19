@@ -291,6 +291,18 @@ export function canManageTrueIdentity(
   return hasPermission(permissions, "trueidentity.manage");
 }
 
+export function canViewTrueSsm(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasAnyPermission(permissions, "truessm.view", "truessm.manage");
+}
+
+export function canManageTrueSsm(
+  permissions: string[] | undefined | null
+): boolean {
+  return hasPermission(permissions, "truessm.manage");
+}
+
 export function canManageSettings(
   permissions: string[] | undefined | null
 ): boolean {

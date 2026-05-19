@@ -629,6 +629,7 @@ jobs:
       BORROWER_URL: ${{ needs.load-config.outputs.borrower_url }}
       PRO_TENANT_SLUG: ${{ needs.load-config.outputs.pro_tenant_slug }}
       UPLOADS_BUCKET: ${{ needs.load-config.outputs.uploads_bucket }}
+      APP_SECRETS_ARN: ${{ needs.load-config.outputs.app_secrets_arn }}
     if: |
       always() &&
       needs.load-config.result == 'success' &&
@@ -645,6 +646,18 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify TrueSSM secret is configured
+        run: |
+          secret_json=$(aws secretsmanager get-secret-value \
+            --secret-id "${{ env.APP_SECRETS_ARN }}" \
+            --query SecretString \
+            --output text)
+
+          if ! printf '%s' "$secret_json" | jq -e '.truestack_ssm_api_key? | strings | length > 0' > /dev/null; then
+            echo "::error::Secrets Manager secret '${{ env.APP_SECRETS_ARN }}' must contain a non-empty JSON key named 'truestack_ssm_api_key' before deploying TrueSSM."
+            exit 1
+          fi
 
       - name: Download current backend task definition
         run: |
@@ -668,6 +681,8 @@ jobs:
             STORAGE_TYPE=s3
             S3_BUCKET=${{ env.UPLOADS_BUCKET }}
             AWS_REGION=${{ env.AWS_REGION }}
+          secrets: |
+            TRUESTACK_SSM_API_KEY=${{ env.APP_SECRETS_ARN }}:truestack_ssm_api_key::
 
       - name: Deploy backend task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1

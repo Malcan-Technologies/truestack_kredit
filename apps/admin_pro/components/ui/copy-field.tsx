@@ -15,6 +15,8 @@ interface CopyFieldProps {
   copyableStyle?: boolean;
   showCopyButton?: boolean;
   toastMessage?: string;
+  /** Inline badge rendered next to the label (e.g. verification provenance). */
+  badge?: React.ReactNode;
 }
 
 /**
@@ -29,6 +31,7 @@ export function CopyField({
   copyableStyle = false,
   showCopyButton = true,
   toastMessage,
+  badge,
 }: CopyFieldProps) {
   const [copied, setCopied] = useState(false);
 
@@ -56,7 +59,10 @@ export function CopyField({
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          {badge}
+        </div>
         <div className="flex items-center gap-2 group">
           <p
             className={cn(

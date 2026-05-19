@@ -6,6 +6,7 @@ import { assertNoLockedIndividualIdentityChanges } from '../../lib/identityLock.
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { ConflictError, NotFoundError } from '../../lib/errors.js';
 import { normalizeCorporateDirectorFlags } from '../../lib/borrowerDirectorAuthorizedRep.js';
+import { computeSsmProvenanceAfterEdit } from '../truessm/provenance.js';
 
 const BORROWER_TYPE_VALUES = ['INDIVIDUAL', 'CORPORATE'] as const;
 const DOCUMENT_TYPE_VALUES = ['IC', 'PASSPORT'] as const;
@@ -316,6 +317,34 @@ export async function performBorrowerUpdate(
 
   if (data.companyName !== undefined) updateData.companyName = data.companyName || null;
   if (data.ssmRegistrationNo !== undefined) updateData.ssmRegistrationNo = data.ssmRegistrationNo || null;
+
+  // Clear SSM provenance for any provenanced field touched by this manual edit.
+  // Mirrors the e-KYC pattern: when a director's name/IC changes, KYC state is
+  // cleared. Here we clear the "SSM verified" badge when staff overrides the
+  // synced value. Helper is shared with the admin PATCH /borrowers/:id route.
+  const provenanceUpdate = computeSsmProvenanceAfterEdit(existing.ssmFieldProvenance, [
+    { field: 'companyName', incoming: data.companyName, current: existing.companyName },
+    { field: 'ssmRegistrationNo', incoming: data.ssmRegistrationNo, current: existing.ssmRegistrationNo },
+    {
+      field: 'dateOfIncorporation',
+      incoming: data.dateOfIncorporation,
+      current: existing.dateOfIncorporation?.toISOString().slice(0, 10) ?? null,
+    },
+    {
+      field: 'paidUpCapital',
+      incoming: data.paidUpCapital,
+      current: existing.paidUpCapital ? Number(existing.paidUpCapital) : null,
+    },
+    { field: 'addressLine1', incoming: updateData.addressLine1 as unknown, current: existing.addressLine1 },
+    { field: 'addressLine2', incoming: updateData.addressLine2 as unknown, current: existing.addressLine2 },
+    { field: 'city', incoming: updateData.city as unknown, current: existing.city },
+    { field: 'state', incoming: updateData.state as unknown, current: existing.state },
+    { field: 'postcode', incoming: updateData.postcode as unknown, current: existing.postcode },
+    { field: 'country', incoming: updateData.country as unknown, current: existing.country },
+  ]);
+  if (provenanceUpdate !== undefined) {
+    updateData.ssmFieldProvenance = provenanceUpdate;
+  }
   if (data.authorizedRepName !== undefined) updateData.authorizedRepName = data.authorizedRepName || null;
   if (data.authorizedRepIc !== undefined) updateData.authorizedRepIc = data.authorizedRepIc || null;
   if (data.companyPhone !== undefined) updateData.companyPhone = data.companyPhone || null;

@@ -387,6 +387,8 @@ resource "aws_secretsmanager_secret_version" "app" {
     # TrueStack KYC (Bearer + webhook HMAC)
     truestack_kyc_api_key        = ""
     truestack_kyc_webhook_secret = ""
+    # TrueStack SSM (Bearer)
+    truestack_ssm_api_key = ""
     # On-prem Signing Gateway
     signing_gateway_url     = ""
     signing_api_key         = ""
@@ -691,6 +693,7 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "AWS_REGION", value = var.aws_region },
         { name = "UPLOAD_DIR", value = "/tmp/uploads" },
         { name = "TRUESTACK_KYC_API_BASE_URL", value = var.truestack_kyc_api_base_url },
+        { name = "TRUESTACK_SSM_API_BASE_URL", value = var.truestack_ssm_api_base_url },
         { name = "TRUESTACK_KYC_PUBLIC_WEBHOOK_BASE_URL", value = "https://${var.api_domain}" },
         { name = "TRUESTACK_KYC_REDIRECT_URL", value = "" },
         { name = "EMAIL_FROM_NAME", value = var.email_from_name },
@@ -714,6 +717,7 @@ resource "aws_ecs_task_definition" "backend" {
         { name = "GOOGLE_CALENDAR_IMPERSONATE_USER", valueFrom = "${aws_secretsmanager_secret.app.arn}:google_calendar_impersonate_user::" },
         { name = "TRUESTACK_KYC_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:truestack_kyc_api_key::" },
         { name = "TRUESTACK_KYC_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:truestack_kyc_webhook_secret::" },
+        { name = "TRUESTACK_SSM_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:truestack_ssm_api_key::" },
         { name = "SIGNING_GATEWAY_URL", valueFrom = "${aws_secretsmanager_secret.app.arn}:signing_gateway_url::" },
         { name = "SIGNING_API_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:signing_api_key::" },
         { name = "SIGNING_ENABLED", valueFrom = "${aws_secretsmanager_secret.app.arn}:signing_enabled::" },

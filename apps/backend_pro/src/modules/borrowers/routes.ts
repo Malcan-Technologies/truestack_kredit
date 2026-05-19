@@ -33,6 +33,7 @@ import { createKycSession } from '../truestack-kyc/publicApiClient.js';
 import { getBorrowerVerificationSummary } from '../../lib/verification.js';
 import { pickBestTruestackKycSession } from '../../lib/truestackKycSessionPick.js';
 import { normalizeCorporateDirectorFlags } from '../../lib/borrowerDirectorAuthorizedRep.js';
+import { computeSsmProvenanceAfterEdit } from '../truessm/provenance.js';
 
 const router = Router();
 
@@ -587,6 +588,19 @@ router.get('/:borrowerId', requirePermission('borrowers.view'), async (req, res,
             take: 1,
             select: { verificationDocumentUrls: true },
           },
+          trueSsmPulls: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              usageId: true,
+              usageType: true,
+              regNo: true,
+              billedCredits: true,
+              createdAt: true,
+              documentId: true,
+            },
+          },
         },
       }),
       prisma.loan.aggregate({
@@ -622,13 +636,29 @@ router.get('/:borrowerId', requirePermission('borrowers.view'), async (req, res,
       totalPaid: toSafeNumber(totalPaidRes._sum?.totalAmount),
     };
 
+    const latestSsmPull = borrower.trueSsmPulls?.[0] ?? null;
+    const { trueSsmPulls: _omitTrueSsmPulls, ...borrowerCore } = borrower;
+    void _omitTrueSsmPulls;
+
     res.json({
       success: true,
       data: {
-        ...borrower,
+        ...borrowerCore,
         verificationStatus: resolvedVerificationStatus,
         loanSummary,
         guarantorCount,
+        lastSsmPullAt: latestSsmPull ? latestSsmPull.createdAt.toISOString() : null,
+        lastSsmPull: latestSsmPull
+          ? {
+              id: latestSsmPull.id,
+              usageId: latestSsmPull.usageId,
+              usageType: latestSsmPull.usageType,
+              regNo: latestSsmPull.regNo,
+              billedCredits: latestSsmPull.billedCredits,
+              createdAt: latestSsmPull.createdAt.toISOString(),
+              documentId: latestSsmPull.documentId,
+            }
+          : null,
       },
     });
   } catch (error) {
@@ -1852,6 +1882,38 @@ router.patch('/:borrowerId', requirePermission('borrowers.edit'), async (req, re
       updateData.verifiedAt = null;
       updateData.verifiedBy = null;
       updateData.verificationStatus = 'UNVERIFIED';
+    }
+
+    // Drop the "SSM Verified" badge on every field this edit changes away
+    // from its TrueSSM™-synced value. Same shared helper that the borrower
+    // self-service endpoint uses (`borrowerUpdateService.ts`), so admin
+    // edits and borrower edits stay in lock-step.
+    //
+    // `updateData` already holds the normalised target values for address /
+    // text fields, so we read incoming from there where applicable, and
+    // straight from `data` for scalars that don't get rewritten.
+    const ssmProvenanceUpdate = computeSsmProvenanceAfterEdit(existing.ssmFieldProvenance, [
+      { field: 'companyName', incoming: data.companyName, current: existing.companyName },
+      { field: 'ssmRegistrationNo', incoming: data.ssmRegistrationNo, current: existing.ssmRegistrationNo },
+      {
+        field: 'dateOfIncorporation',
+        incoming: data.dateOfIncorporation,
+        current: existing.dateOfIncorporation?.toISOString().slice(0, 10) ?? null,
+      },
+      {
+        field: 'paidUpCapital',
+        incoming: data.paidUpCapital,
+        current: existing.paidUpCapital ? Number(existing.paidUpCapital) : null,
+      },
+      { field: 'addressLine1', incoming: updateData.addressLine1 as unknown, current: existing.addressLine1 },
+      { field: 'addressLine2', incoming: updateData.addressLine2 as unknown, current: existing.addressLine2 },
+      { field: 'city', incoming: updateData.city as unknown, current: existing.city },
+      { field: 'state', incoming: updateData.state as unknown, current: existing.state },
+      { field: 'postcode', incoming: updateData.postcode as unknown, current: existing.postcode },
+      { field: 'country', incoming: updateData.country as unknown, current: existing.country },
+    ]);
+    if (ssmProvenanceUpdate !== undefined) {
+      updateData.ssmFieldProvenance = ssmProvenanceUpdate;
     }
 
     const borrower = await prisma.$transaction(async (tx) => {

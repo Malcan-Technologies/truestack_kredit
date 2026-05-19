@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -31,6 +31,8 @@ import {
   Copy,
   Share2,
   ExternalLink,
+  RefreshCw,
+  Crown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -75,7 +77,11 @@ import { InternalStaffNotesPanel } from "@/components/internal-staff-notes-panel
 import { VerificationBadge } from "@/components/verification-badge";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { useTenantPermissions } from "@/components/tenant-context";
-import { canManageBorrowers, canManageTrueIdentity, hasAnyPermission } from "@/lib/permissions";
+import { canManageBorrowers, canManageTrueIdentity, canViewTrueSsm, canManageTrueSsm, hasAnyPermission } from "@/lib/permissions";
+import { SsmVerifiedBadge } from "@/components/ssm-verified-badge";
+import { TrueSsmBox } from "@/components/true-ssm-box";
+import { TrueSsmInsights } from "@/components/true-ssm-insights";
+import { TrueSsmDirectorSyncModal } from "@/components/true-ssm-director-sync-modal";
 import {
   InstagramIcon,
   TikTokIcon,
@@ -148,6 +154,7 @@ interface Borrower {
     icNumber: string;
     position: string | null;
     order: number;
+    isAuthorizedRepresentative?: boolean;
     trueIdentityStatus?: string | null;
     trueIdentityResult?: string | null;
     trueIdentityDocumentUrls?: {
@@ -164,6 +171,18 @@ interface Borrower {
   dateOfIncorporation: string | null;
   paidUpCapital: string | null;
   numberOfEmployees: number | null;
+  // TrueSSM provenance and last pull metadata
+  ssmFieldProvenance?: Record<string, { syncedAt: string; usageId?: string | null; pullId?: string; sourceValue?: string | null }> | null;
+  lastSsmPullAt?: string | null;
+  lastSsmPull?: {
+    id: string;
+    usageId: string | null;
+    usageType: string;
+    regNo: string;
+    billedCredits: number;
+    createdAt: string;
+    documentId: string | null;
+  } | null;
   performanceProjection: {
     riskLevel: BorrowerPerformanceRiskLevel;
     onTimeRate: string | null;
@@ -261,9 +280,11 @@ interface FormData {
   authorizedRepName: string;
   authorizedRepIc: string;
   directors: Array<{
+    id?: string;
     name: string;
     icNumber: string;
     position: string;
+    isAuthorizedRepresentative: boolean;
   }>;
   companyPhone: string;
   companyEmail: string;
@@ -271,6 +292,11 @@ interface FormData {
   dateOfIncorporation: string;
   paidUpCapital: string;
   numberOfEmployees: string;
+}
+
+interface LatestSsmPullWithRawData {
+  id: string;
+  rawData: unknown;
 }
 
 // ============================================
@@ -620,13 +646,43 @@ interface FieldProps {
   className?: string;
   isEditing: boolean;
   required?: boolean;
+  /** Inline badge rendered next to the label (e.g. verification provenance). */
+  badge?: React.ReactNode;
 }
 
-function Field({ 
-  label, 
-  value, 
-  editValue, 
-  onChange, 
+function FieldLabel({
+  label,
+  required,
+  badge,
+  isEditing,
+}: {
+  label: string;
+  required: boolean;
+  badge?: React.ReactNode;
+  isEditing: boolean;
+}) {
+  const labelText = isEditing && required ? `${label} *` : label;
+  if (isEditing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs text-muted-foreground">{labelText}</label>
+        {badge}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <p className="text-xs text-muted-foreground">{labelText}</p>
+      {badge}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  editValue,
+  onChange,
   type = "text",
   error,
   disabled,
@@ -635,11 +691,12 @@ function Field({
   className,
   isEditing,
   required = true,
+  badge,
 }: FieldProps) {
   if (!isEditing) {
     return (
       <div className={className}>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <FieldLabel label={label} required={required} badge={badge} isEditing={false} />
         <p className="font-medium">{value || "-"}</p>
       </div>
     );
@@ -650,7 +707,7 @@ function Field({
   if (type === "select" && options) {
     return (
       <div className={className}>
-        <label className="text-xs text-muted-foreground">{label} {required && "*"}</label>
+        <FieldLabel label={label} required={required} badge={badge} isEditing />
         <Select value={inputValue} onValueChange={onChange || (() => {})} disabled={disabled}>
           <SelectTrigger className={error ? "border-red-500" : ""}>
             <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
@@ -668,7 +725,7 @@ function Field({
 
   return (
     <div className={className}>
-      <label className="text-xs text-muted-foreground">{label} {required && "*"}</label>
+      <FieldLabel label={label} required={required} badge={badge} isEditing />
       <Input
         type={type}
         value={inputValue}
@@ -751,6 +808,12 @@ function TimelineItem({
       case "TRUEIDENTITY_ALL_DIRECTORS_VERIFIED":
       case "TRUEIDENTITY_WEBHOOK":
         return { icon: ShieldCheck, label: "True Identity" };
+      case "SSM_PULL":
+        return { icon: Building2, label: "TrueSSM\u2122 Pull" };
+      case "SSM_PULL_FAILED":
+        return { icon: Building2, label: "TrueSSM\u2122 Pull Failed" };
+      case "SSM_SYNC":
+        return { icon: Building2, label: "TrueSSM\u2122 Synced" };
       default:
         return { icon: Clock, label: action };
     }
@@ -933,6 +996,103 @@ function TimelineItem({
             </div>
           );
         })()}
+        {event.action === "SSM_PULL" && event.newData && (() => {
+          const credits = Number(event.newData.billedCredits ?? 0);
+          const ringgit = formatCurrency(credits / 10);
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3 min-w-0 space-y-0.5">
+              <p className="text-xs text-muted-foreground break-words">
+                Pulled TrueSSM&trade; company profile for{" "}
+                <span className="font-medium text-foreground">
+                  {String(event.newData.regNo ?? "")}
+                </span>
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Billed {credits} credits ({ringgit})
+                {Boolean(event.newData.usageId) && (
+                  <span> · Usage ID {String(event.newData.usageId)}</span>
+                )}
+              </p>
+            </div>
+          );
+        })()}
+        {event.action === "SSM_PULL_FAILED" && event.newData && (
+          <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-3 min-w-0 space-y-0.5">
+            <p className="text-xs text-muted-foreground break-words">
+              TrueSSM&trade; pull failed for{" "}
+              <span className="font-medium text-foreground">
+                {String(event.newData.regNo ?? "")}
+              </span>
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {String(event.newData.errorCode ?? "ERROR")}
+              {Boolean(event.newData.message) && (
+                <span> — {String(event.newData.message)}</span>
+              )}
+            </p>
+          </div>
+        )}
+        {event.action === "SSM_SYNC" && event.newData && (() => {
+          const fields = Array.isArray(event.newData.fields)
+            ? (event.newData.fields as string[])
+            : [];
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3 min-w-0 space-y-0.5">
+              <p className="text-xs text-muted-foreground break-words">
+                Applied{" "}
+                <span className="font-medium text-foreground">
+                  {fields.length} field{fields.length === 1 ? "" : "s"}
+                </span>{" "}
+                from TrueSSM&trade;
+                {Boolean(event.newData.regNo) && (
+                  <span> for {String(event.newData.regNo)}</span>
+                )}
+              </p>
+              {fields.length > 0 && (
+                <p className="text-[11px] text-muted-foreground break-words">
+                  {fields.join(", ")}
+                </p>
+              )}
+            </div>
+          );
+        })()}
+        {event.action === "SSM_DIRECTOR_SYNC" && event.newData && (() => {
+          const added = Number(event.newData.added ?? 0);
+          const updated = Number(event.newData.updated ?? 0);
+          const verified = Number(event.newData.verified ?? 0);
+          const removed = Number(event.newData.removed ?? 0);
+          const promotedRep = event.newData.promotedRepDirectorId
+            ? String(event.newData.promotedRepDirectorId)
+            : null;
+          const summary = [
+            added && `${added} added`,
+            updated && `${updated} updated`,
+            verified && `${verified} verified`,
+            removed && `${removed} removed`,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            <div className="bg-secondary border border-border rounded-lg p-3 min-w-0 space-y-0.5">
+              <p className="text-xs text-muted-foreground break-words">
+                Synced directors from TrueSSM&trade;
+                {Boolean(event.newData.regNo) && (
+                  <span> for {String(event.newData.regNo)}</span>
+                )}
+              </p>
+              {summary && (
+                <p className="text-[11px] text-muted-foreground break-words">
+                  {summary}
+                </p>
+              )}
+              {promotedRep && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 break-words">
+                  Authorised representative auto-reassigned
+                </p>
+              )}
+            </div>
+          );
+        })()}
         <p className="text-xs text-muted-foreground mt-2">
           {formatDate(event.createdAt)}
         </p>
@@ -957,8 +1117,53 @@ export default function BorrowerDetailPage() {
     "trueidentity.manage"
   );
   const canManageBorrowerTrueIdentity = canManageTrueIdentity(permissions);
+  const canAccessTrueSsm = canViewTrueSsm(permissions);
+  const canManageBorrowerTrueSsm = canManageTrueSsm(permissions);
+  const trueSsmBoxRef = useRef<HTMLDivElement | null>(null);
+  const scrollToTrueSsmBox = useCallback(() => {
+    trueSsmBoxRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+  // Shared open-state for the director-sync modal so both the TrueSSM Insights
+  // Officers tab and the Company Directors card can trigger the same flow.
+  const [ssmDirectorSyncOpen, setSsmDirectorSyncOpen] = useState(false);
 
   const [borrower, setBorrower] = useState<Borrower | null>(null);
+  const [ssmInsightsRawData, setSsmInsightsRawData] = useState<unknown | null>(null);
+
+  /**
+   * Returns the SSM provenance badge node for a borrower field, or null when
+   * the badge should not render for this borrower (non-corporate, missing
+   * permission, etc.).
+   *
+   * Mirrors the "available" hint pattern used for unverified directors in
+   * TrueIdentityBox — every mappable field shows a greyed badge as an
+   * affordance, and turns into a solid blue badge once that field has been
+   * synced from a TrueSSM pull.
+   */
+  const renderSsmBadge = useCallback(
+    (field: string): React.ReactNode => {
+      if (!borrower || borrower.borrowerType !== "CORPORATE") return null;
+      if (!canAccessTrueSsm) return null;
+      const provenance = borrower.ssmFieldProvenance?.[field];
+      if (provenance) {
+        return (
+          <SsmVerifiedBadge
+            state="verified"
+            syncedAt={provenance.syncedAt}
+            usageId={provenance.usageId ?? undefined}
+          />
+        );
+      }
+      return (
+        <SsmVerifiedBadge
+          state="available"
+          onClickAffordance={scrollToTrueSsmBox}
+        />
+      );
+    },
+    [borrower, canAccessTrueSsm, scrollToTrueSsmBox],
+  );
+
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [timelineCursor, setTimelineCursor] = useState<string | null>(null);
   const [hasMoreTimeline, setHasMoreTimeline] = useState(false);
@@ -1005,7 +1210,7 @@ export default function BorrowerDetailPage() {
     bumiStatus: "",
     authorizedRepName: "",
     authorizedRepIc: "",
-    directors: [{ name: "", icNumber: "", position: "" }],
+    directors: [{ name: "", icNumber: "", position: "", isAuthorizedRepresentative: true }],
     companyPhone: "",
     companyEmail: "",
     natureOfBusiness: "",
@@ -1038,6 +1243,26 @@ export default function BorrowerDetailPage() {
       console.error("Failed to fetch borrower:", error);
     }
   }, [borrowerId]);
+
+  const fetchSsmInsights = useCallback(async (latestPullId: string | null | undefined) => {
+    if (!canAccessTrueSsm || !latestPullId) {
+      setSsmInsightsRawData(null);
+      return;
+    }
+    try {
+      const res = await api.get<LatestSsmPullWithRawData>(
+        `/api/borrowers/${borrowerId}/ssm/latest`,
+      );
+      if (res.success && res.data?.id === latestPullId) {
+        setSsmInsightsRawData(res.data.rawData ?? null);
+      } else {
+        setSsmInsightsRawData(null);
+      }
+    } catch (error) {
+      console.error("Failed to fetch TrueSSM insights:", error);
+      setSsmInsightsRawData(null);
+    }
+  }, [borrowerId, canAccessTrueSsm]);
 
   const fetchTimeline = useCallback(async (cursor?: string, append = false) => {
     try {
@@ -1129,21 +1354,34 @@ export default function BorrowerDetailPage() {
       directors: data.borrowerType === "CORPORATE"
         ? (
             data.directors.length > 0
-              ? data.directors
-                  .sort((a, b) => a.order - b.order)
-                  .map((director) => ({
+              ? (() => {
+                  const sorted = [...data.directors].sort(
+                    (a, b) => a.order - b.order,
+                  );
+                  // Backend stores `isAuthorizedRepresentative` per row.
+                  // If none is flagged (legacy data), fall back to row 0 so
+                  // the UI always has exactly one rep designated.
+                  const hasRep = sorted.some(
+                    (d) => d.isAuthorizedRepresentative === true,
+                  );
+                  return sorted.map((director, idx) => ({
                     id: director.id,
                     name: director.name || "",
                     icNumber: director.icNumber || "",
                     position: director.position || "",
-                  }))
+                    isAuthorizedRepresentative: hasRep
+                      ? director.isAuthorizedRepresentative === true
+                      : idx === 0,
+                  }));
+                })()
               : [{
                   name: data.authorizedRepName || data.name || "",
                   icNumber: data.authorizedRepIc || "",
                   position: "",
+                  isAuthorizedRepresentative: true,
                 }]
           )
-        : [{ name: "", icNumber: "", position: "" }],
+        : [{ name: "", icNumber: "", position: "", isAuthorizedRepresentative: true }],
       companyPhone: data.companyPhone || "",
       companyEmail: data.companyEmail || "",
       natureOfBusiness: data.natureOfBusiness || "",
@@ -1161,6 +1399,14 @@ export default function BorrowerDetailPage() {
     };
     loadData();
   }, [fetchBorrower, fetchTimeline]);
+
+  useEffect(() => {
+    if (borrower?.borrowerType !== "CORPORATE") {
+      setSsmInsightsRawData(null);
+      return;
+    }
+    void fetchSsmInsights(borrower.lastSsmPull?.id);
+  }, [borrower?.borrowerType, borrower?.lastSsmPull?.id, fetchSsmInsights]);
 
   const handleIcNumberChange = (value: string) => {
     const currentIsIC = formData.documentType === "IC";
@@ -1316,12 +1562,16 @@ export default function BorrowerDetailPage() {
       let payload: Record<string, unknown>;
       
       if (borrower.borrowerType === "CORPORATE") {
-        const primaryDirector = formData.directors[0];
+        // The authorised representative is the director with the flag set —
+        // falling back to row 0 covers legacy borrowers that lack the flag.
+        const repDirector =
+          formData.directors.find((d) => d.isAuthorizedRepresentative) ??
+          formData.directors[0];
         // Corporate borrower payload
         // Note: icNumber is not updated during edit to avoid duplicate audit entries
         // ssmRegistrationNo is the canonical field for corporate registration
         payload = {
-          name: primaryDirector?.name || formData.authorizedRepName || undefined, // Rep name as primary name
+          name: repDirector?.name || formData.authorizedRepName || undefined, // Rep name as primary name
           phone: formData.companyPhone || undefined,
           email: formData.companyEmail || undefined,
           addressLine1: formData.addressLine1 || undefined,
@@ -1334,12 +1584,15 @@ export default function BorrowerDetailPage() {
           ssmRegistrationNo: formData.ssmRegistrationNo || undefined,
           businessAddress: formData.addressLine1 || undefined,
           bumiStatus: formData.bumiStatus || undefined,
-          authorizedRepName: primaryDirector?.name || formData.authorizedRepName || undefined,
-          authorizedRepIc: primaryDirector?.icNumber || formData.authorizedRepIc || undefined,
+          authorizedRepName: repDirector?.name || formData.authorizedRepName || undefined,
+          authorizedRepIc: repDirector?.icNumber || formData.authorizedRepIc || undefined,
           directors: formData.directors.map((director) => ({
+            ...(director.id ? { id: director.id } : {}),
             name: director.name.trim(),
             icNumber: director.icNumber.trim(),
             position: director.position.trim() || undefined,
+            isAuthorizedRepresentative:
+              director.isAuthorizedRepresentative === true,
           })),
           companyPhone: formData.companyPhone || undefined,
           companyEmail: formData.companyEmail || undefined,
@@ -1804,11 +2057,13 @@ export default function BorrowerDetailPage() {
                       error={validationErrors.companyName}
                       placeholder="Company Sdn Bhd"
                       isEditing={isEditing}
+                      badge={renderSsmBadge("companyName")}
                     />
                     {!isEditing ? (
                       <CopyField
                         label="SSM Registration No"
                         value={borrower.ssmRegistrationNo || borrower.icNumber}
+                        badge={renderSsmBadge("ssmRegistrationNo")}
                       />
                     ) : (
                       <Field
@@ -1822,6 +2077,7 @@ export default function BorrowerDetailPage() {
                         error={validationErrors.ssmRegistrationNo}
                         placeholder="202001012345"
                         isEditing={isEditing}
+                        badge={renderSsmBadge("ssmRegistrationNo")}
                       />
                     )}
                     <Field
@@ -1852,6 +2108,7 @@ export default function BorrowerDetailPage() {
                       onChange={(val) => setFormData((prev) => ({ ...prev, dateOfIncorporation: val }))}
                       type="date"
                       isEditing={isEditing}
+                      badge={renderSsmBadge("dateOfIncorporation")}
                     />
                   </div>
                 </CardContent>
@@ -1893,17 +2150,20 @@ export default function BorrowerDetailPage() {
                       <CopyField
                         label="Address Line 1"
                         value={borrower.addressLine1 || borrower.businessAddress || borrower.address}
+                        badge={renderSsmBadge("addressLine1")}
                       />
-                      <CopyField label="Address Line 2 (optional)" value={borrower.addressLine2} />
-                      <CopyField label="City" value={borrower.city} />
+                      <CopyField label="Address Line 2 (optional)" value={borrower.addressLine2} badge={renderSsmBadge("addressLine2")} />
+                      <CopyField label="City" value={borrower.city} badge={renderSsmBadge("city")} />
                       <CopyField
                         label="State"
                         value={getStateName(borrower.country, borrower.state)}
+                        badge={renderSsmBadge("state")}
                       />
-                      <CopyField label="Postcode" value={borrower.postcode} />
+                      <CopyField label="Postcode" value={borrower.postcode} badge={renderSsmBadge("postcode")} />
                       <CopyField
                         label="Country"
                         value={borrower.country ? `${getCountryFlag(borrower.country)} ${getCountryName(borrower.country) || ""}`.trim() : undefined}
+                        badge={renderSsmBadge("country")}
                       />
                     </div>
                   ) : (
@@ -1919,6 +2179,7 @@ export default function BorrowerDetailPage() {
                         error={validationErrors.addressLine1}
                         placeholder="Street, building, unit"
                         isEditing={isEditing}
+                        badge={renderSsmBadge("addressLine1")}
                       />
                       <Field
                         label="Address Line 2 (optional)"
@@ -1928,6 +2189,7 @@ export default function BorrowerDetailPage() {
                         placeholder="Suite, floor, building"
                         isEditing={isEditing}
                         required={false}
+                        badge={renderSsmBadge("addressLine2")}
                       />
                       <Field
                         label="City"
@@ -1940,6 +2202,7 @@ export default function BorrowerDetailPage() {
                         error={validationErrors.city}
                         placeholder="City"
                         isEditing={isEditing}
+                        badge={renderSsmBadge("city")}
                       />
                       <Field
                         label="Postcode"
@@ -1953,6 +2216,7 @@ export default function BorrowerDetailPage() {
                         error={validationErrors.postcode}
                         placeholder="Postal code (numbers only)"
                         isEditing={isEditing}
+                        badge={renderSsmBadge("postcode")}
                       />
                       <Field
                         label="Country"
@@ -1973,6 +2237,7 @@ export default function BorrowerDetailPage() {
                         options={countryOptions}
                         error={validationErrors.country}
                         isEditing={isEditing}
+                        badge={renderSsmBadge("country")}
                       />
                       <Field
                         label="State"
@@ -1987,6 +2252,7 @@ export default function BorrowerDetailPage() {
                         error={validationErrors.state}
                         disabled={!formData.country || stateOptions.length === 0}
                         isEditing={isEditing}
+                        badge={renderSsmBadge("state")}
                       />
                     </div>
                   )}
@@ -2009,6 +2275,7 @@ export default function BorrowerDetailPage() {
                         label="Paid-up Capital (RM)"
                         value={borrower.paidUpCapital ? `RM ${Number(borrower.paidUpCapital).toLocaleString()}` : "-"}
                         editValue={formData.paidUpCapital}
+                        badge={renderSsmBadge("paidUpCapital")}
                         onChange={(val) => setFormData((prev) => ({ ...prev, paidUpCapital: val }))}
                         placeholder="100000"
                         isEditing={isEditing}
@@ -2079,12 +2346,43 @@ export default function BorrowerDetailPage() {
 
               {/* Company Directors - Full Width */}
               <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <User className="h-5 w-5 text-muted-foreground" />
-                      Company Directors
-                    </CardTitle>
-                    <CardDescription>Minimum 1, maximum 10 directors</CardDescription>
+                  <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-4">
+                    <div className="space-y-1.5 min-w-0">
+                      <CardTitle className="flex items-center gap-2">
+                        <User className="h-5 w-5 text-muted-foreground" />
+                        Company Directors
+                      </CardTitle>
+                      <CardDescription>Minimum 1, maximum 10 directors</CardDescription>
+                    </div>
+                    {/* TrueSSM director-sync trigger. When a pull exists we
+                        surface a button that opens the sync modal; otherwise
+                        we show a subtle CTA that scrolls to the TrueSSM panel
+                        so the admin can pull the registry data first. */}
+                    {canAccessTrueSsm &&
+                    !isEditing &&
+                    borrower.borrowerType === "CORPORATE" ? (
+                      borrower.lastSsmPull && canManageBorrowerTrueSsm ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20"
+                          onClick={() => setSsmDirectorSyncOpen(true)}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                          Sync from TrueSSM&trade;
+                        </Button>
+                      ) : !borrower.lastSsmPull && canManageBorrowerTrueSsm ? (
+                        <button
+                          type="button"
+                          onClick={scrollToTrueSsmBox}
+                          className="shrink-0 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors"
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          Pull TrueSSM&trade; data to verify directors
+                        </button>
+                      ) : null
+                    ) : null}
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
@@ -2107,8 +2405,17 @@ export default function BorrowerDetailPage() {
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                               <p className="text-sm font-medium">
-                                Director {index + 1}{index === 0 ? " (Authorized Representative)" : ""}
+                                Director {index + 1}
                               </p>
+                              {director.isAuthorizedRepresentative && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] gap-1 bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30"
+                                >
+                                  <Crown className="h-3 w-3" />
+                                  Authorized Rep
+                                </Badge>
+                              )}
                               {directorStatus === "completed" && directorResult === "approved" ? (
                                 <Badge variant="verified" className="text-[10px]">
                                   <Fingerprint className="h-3 w-3 mr-1" />
@@ -2169,34 +2476,90 @@ export default function BorrowerDetailPage() {
                               </Button>
                             </div>
                             {isEditing && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                disabled={formData.directors.length <= 1}
-                                onClick={() => {
-                                  if (formData.directors.length <= 1) return;
-                                  setFormData((prev) => {
-                                    const nextDirectors = prev.directors.filter((_, i) => i !== index);
-                                    const firstDirector = nextDirectors[0];
-                                    return {
-                                      ...prev,
-                                      directors: nextDirectors,
-                                      authorizedRepName: firstDirector?.name || "",
-                                      authorizedRepIc: firstDirector?.icNumber || "",
-                                      name: firstDirector?.name || prev.name,
-                                    };
-                                  });
-                                  setExpandedDirectorIndices((prev) =>
-                                    prev
-                                      .filter((i) => i !== index)
-                                      .map((i) => (i > index ? i - 1 : i))
-                                  );
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                Remove
-                              </Button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {/* Designate this director as the authorized
+                                    representative. Hidden when this row is
+                                    already the rep so the action is only
+                                    visible when there's something to do. */}
+                                {!director.isAuthorizedRepresentative && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-purple-700 dark:text-purple-400 hover:bg-purple-500/10 hover:text-purple-800 dark:hover:text-purple-300"
+                                    onClick={() => {
+                                      setFormData((prev) => {
+                                        const nextDirectors = prev.directors.map(
+                                          (d, i) => ({
+                                            ...d,
+                                            isAuthorizedRepresentative:
+                                              i === index,
+                                          }),
+                                        );
+                                        const nextRep = nextDirectors[index];
+                                        return {
+                                          ...prev,
+                                          directors: nextDirectors,
+                                          authorizedRepName: nextRep.name,
+                                          authorizedRepIc: nextRep.icNumber,
+                                        };
+                                      });
+                                    }}
+                                    title="Make this director the authorised representative"
+                                  >
+                                    <Crown className="h-4 w-4 mr-1" />
+                                    Make rep
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={formData.directors.length <= 1}
+                                  onClick={() => {
+                                    if (formData.directors.length <= 1) return;
+                                    setFormData((prev) => {
+                                      const removed = prev.directors[index];
+                                      const nextDirectors = prev.directors.filter(
+                                        (_, i) => i !== index,
+                                      );
+                                      // If we removed the auth rep, promote
+                                      // the new first row so the invariant
+                                      // (exactly one rep) holds.
+                                      if (
+                                        removed?.isAuthorizedRepresentative &&
+                                        nextDirectors.length > 0 &&
+                                        !nextDirectors.some(
+                                          (d) => d.isAuthorizedRepresentative,
+                                        )
+                                      ) {
+                                        nextDirectors[0] = {
+                                          ...nextDirectors[0],
+                                          isAuthorizedRepresentative: true,
+                                        };
+                                      }
+                                      const rep = nextDirectors.find(
+                                        (d) => d.isAuthorizedRepresentative,
+                                      );
+                                      return {
+                                        ...prev,
+                                        directors: nextDirectors,
+                                        authorizedRepName: rep?.name || "",
+                                        authorizedRepIc: rep?.icNumber || "",
+                                        name: rep?.name || prev.name,
+                                      };
+                                    });
+                                    setExpandedDirectorIndices((prev) =>
+                                      prev
+                                        .filter((i) => i !== index)
+                                        .map((i) => (i > index ? i - 1 : i))
+                                    );
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-1" />
+                                  Remove
+                                </Button>
+                              </div>
                             )}
                           </div>
 
@@ -2217,11 +2580,15 @@ export default function BorrowerDetailPage() {
                                     setFormData((prev) => {
                                       const nextDirectors = [...prev.directors];
                                       nextDirectors[index] = { ...nextDirectors[index], name: val };
+                                      const isRep =
+                                        nextDirectors[index].isAuthorizedRepresentative;
                                       return {
                                         ...prev,
                                         directors: nextDirectors,
-                                        authorizedRepName: index === 0 ? val : prev.authorizedRepName,
-                                        name: index === 0 ? val : prev.name,
+                                        authorizedRepName: isRep
+                                          ? val
+                                          : prev.authorizedRepName,
+                                        name: isRep ? val : prev.name,
                                       };
                                     });
                                     if (validationErrors[`directorName_${index}`]) {
@@ -2243,10 +2610,14 @@ export default function BorrowerDetailPage() {
                                     setFormData((prev) => {
                                       const nextDirectors = [...prev.directors];
                                       nextDirectors[index] = { ...nextDirectors[index], icNumber: cleanVal };
+                                      const isRep =
+                                        nextDirectors[index].isAuthorizedRepresentative;
                                       return {
                                         ...prev,
                                         directors: nextDirectors,
-                                        authorizedRepIc: index === 0 ? cleanVal : prev.authorizedRepIc,
+                                        authorizedRepIc: isRep
+                                          ? cleanVal
+                                          : prev.authorizedRepIc,
                                       };
                                     });
                                     if (validationErrors[`directorIc_${index}`]) {
@@ -2363,7 +2734,15 @@ export default function BorrowerDetailPage() {
                               if (formData.directors.length >= 10) return;
                               setFormData((prev) => ({
                                 ...prev,
-                                directors: [...prev.directors, { name: "", icNumber: "", position: "" }],
+                                directors: [
+                                  ...prev.directors,
+                                  {
+                                    name: "",
+                                    icNumber: "",
+                                    position: "",
+                                    isAuthorizedRepresentative: false,
+                                  },
+                                ],
                               }));
                             }}
                           >
@@ -3181,6 +3560,40 @@ export default function BorrowerDetailPage() {
             </CardContent>
           </Card>
 
+          {/* TrueSSM Registry Insights (corporate only). Raw registry data is
+              loaded from a separate `truessm.view`-protected endpoint so the
+              base borrower response stays lean and permission-scoped. */}
+          {canAccessTrueSsm && borrower.borrowerType === "CORPORATE" ? (
+            <TrueSsmInsights
+              rawData={ssmInsightsRawData}
+              onScrollToTrueSsmBox={scrollToTrueSsmBox}
+              hideCta={!canManageBorrowerTrueSsm}
+              onSyncDirectors={
+                canManageBorrowerTrueSsm && borrower.lastSsmPull
+                  ? () => setSsmDirectorSyncOpen(true)
+                  : undefined
+              }
+            />
+          ) : null}
+
+          {/* Director-sync modal: single instance shared between the TrueSSM
+              Insights Officers tab and the Company Directors card header. */}
+          {borrower.borrowerType === "CORPORATE" &&
+          borrower.lastSsmPull &&
+          canManageBorrowerTrueSsm ? (
+            <TrueSsmDirectorSyncModal
+              open={ssmDirectorSyncOpen}
+              onOpenChange={setSsmDirectorSyncOpen}
+              borrowerId={borrower.id}
+              pullId={borrower.lastSsmPull.id}
+              canManage={canManageBorrowerTrueSsm}
+              onSynced={() => {
+                void fetchBorrower();
+                void fetchTimeline();
+              }}
+            />
+          ) : null}
+
           {/* Bottom Save/Cancel when editing */}
           {isEditing && (
             <div className="flex gap-2 justify-end pt-2">
@@ -3199,6 +3612,21 @@ export default function BorrowerDetailPage() {
 
         {/* Right Column - Documents & Activity Timeline */}
         <div className="space-y-6">
+          {/* TrueSSM (corporate only) */}
+          {canAccessTrueSsm && borrower.borrowerType === "CORPORATE" ? (
+            <div ref={trueSsmBoxRef}>
+              <TrueSsmBox
+                borrowerId={borrower.id}
+                borrowerType={borrower.borrowerType}
+                ssmRegistrationNo={borrower.ssmRegistrationNo}
+                lastSsmPull={borrower.lastSsmPull ?? null}
+                ssmFieldProvenance={borrower.ssmFieldProvenance ?? null}
+                canManage={canManageBorrowerTrueSsm}
+                onChanged={() => void fetchBorrower()}
+              />
+            </div>
+          ) : null}
+
           {/* TrueIdentity e-KYC */}
           {canAccessTrueIdentity ? (
             <TrueIdentityBox
@@ -3214,7 +3642,7 @@ export default function BorrowerDetailPage() {
             />
           ) : null}
 
-          <Card>
+          <Card id="borrower-documents">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5 text-muted-foreground" />
@@ -3317,6 +3745,19 @@ export default function BorrowerDetailPage() {
                     const docUrl = doc.path.startsWith("/") ? `/api/proxy${doc.path}` : doc.path;
                     const DocIcon = getDocumentIcon(doc.mimeType);
                     const displayName = doc.originalName || doc.filename || "Document";
+                    const originalNameRaw = doc.originalName ?? "";
+                    const isFromSsm =
+                      doc.category === "COMPANY_PROFILE" &&
+                      /^SSM Company Profile /.test(originalNameRaw);
+                    // TrueIdentity-originated docs come from two ingest paths:
+                    //   1. `documentImagesFromWebhook.ts` → "kyc-{CATEGORY}.{ext}"
+                    //   2. `ingestKycDocuments.ts` / `truestackKycWebhook.ts` →
+                    //      "TrueStack KYC — {description}" (em-dash, U+2014)
+                    // Either pattern means the file came from e-KYC, so we
+                    // surface a "From TrueIdentity" pill on the document row.
+                    const isFromTrueIdentity =
+                      originalNameRaw.startsWith("TrueStack KYC \u2014") ||
+                      /^kyc-/i.test(originalNameRaw);
                     return (
                       <div
                         key={doc.id}
@@ -3336,9 +3777,29 @@ export default function BorrowerDetailPage() {
                           </div>
                         )}
                         <div className="flex-1 min-w-0 overflow-hidden">
-                          <p className="text-sm font-medium truncate" title={getDocumentLabel(doc.category, borrower.borrowerType)}>
-                            {getDocumentLabel(doc.category, borrower.borrowerType)}
-                          </p>
+                          <div className="flex items-center gap-1.5 mb-0.5 min-w-0 flex-wrap">
+                            <p className="text-sm font-medium truncate" title={getDocumentLabel(doc.category, borrower.borrowerType)}>
+                              {getDocumentLabel(doc.category, borrower.borrowerType)}
+                            </p>
+                            {isFromSsm && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] gap-1 px-1.5 py-0 h-5 font-medium bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 shrink-0"
+                              >
+                                <Building2 className="h-3 w-3" />
+                                From TrueSSM&trade;
+                              </Badge>
+                            )}
+                            {isFromTrueIdentity && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] gap-1 px-1.5 py-0 h-5 font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 dark:border-emerald-700 shrink-0"
+                              >
+                                <Fingerprint className="h-3 w-3" />
+                                From TrueIdentity&trade;
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground flex items-center gap-1 min-w-0" title={displayName}>
                             <span className="truncate">{displayName}</span>
                             <span className="shrink-0">• {formatFileSize(doc.size)}</span>

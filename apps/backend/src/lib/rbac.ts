@@ -7,6 +7,7 @@ import {
   TENANT_ROLE_CATALOG_REVISION,
   getDefaultTenantRoleTemplate,
   getRoleDisplayName,
+  withBorrowerPageTrueIdentityDefaults,
   type TenantPermission,
 } from "@kredit/shared";
 
@@ -204,6 +205,35 @@ export async function ensureTenantRoleCatalog(
       })),
       skipDuplicates: true,
     });
+  }
+
+  // Additive backfill: roles with borrower page access inherit TrueIdentity/TrueSSM
+  // companion permissions without overwriting tenant edits to other fields.
+  const rolesToBackfill = await db.tenantRole.findMany({
+    where: {
+      tenantId,
+      key: { notIn: ["OWNER", "SUPER_ADMIN"] },
+    },
+    select: {
+      id: true,
+      permissions: true,
+    },
+  });
+
+  for (const role of rolesToBackfill) {
+    const currentPermissions = sanitizePermissions(role.permissions);
+    const mergedPermissions = withBorrowerPageTrueIdentityDefaults(currentPermissions);
+    const currentSet = new Set(currentPermissions);
+    const hasNewPermissions = mergedPermissions.some(
+      (permission) => !currentSet.has(permission)
+    );
+
+    if (hasNewPermissions) {
+      await db.tenantRole.update({
+        where: { id: role.id },
+        data: { permissions: mergedPermissions },
+      });
+    }
   }
 
   // Enforce immutable system templates (OWNER / SUPER_ADMIN) when we run a full sync.

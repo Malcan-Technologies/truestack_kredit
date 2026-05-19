@@ -39,6 +39,7 @@ import borrowerNotificationRoutes from './modules/borrower-notifications/routes.
 import borrowerSigningRoutes from './modules/borrower-signing/routes.js';
 import adminSigningRoutes from './modules/admin-signing/routes.js';
 import agreementsRoutes from './modules/agreements/routes.js';
+import trueSsmRoutes from './modules/truessm/routes.js';
 
 validateConfig();
 
@@ -115,6 +116,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/borrowers', borrowerRoutes);
+app.use('/api/borrowers', trueSsmRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/loans', loanRoutes);
 app.use('/api/schedules', scheduleRoutes);

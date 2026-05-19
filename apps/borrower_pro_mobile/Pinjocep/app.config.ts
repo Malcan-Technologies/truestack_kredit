@@ -21,6 +21,12 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     slug: 'Pinjocep',
     version: '1.0.0',
     orientation: 'portrait',
+    updates: {
+      url: 'https://u.expo.dev/81974c82-5011-4d66-9b7c-618d007e254a',
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
     icon: '../assets/images/icon.png',
     scheme: 'pinjocep',
     userInterfaceStyle: 'automatic',

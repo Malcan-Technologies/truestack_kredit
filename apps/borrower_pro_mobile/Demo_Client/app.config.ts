@@ -19,6 +19,12 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     slug: 'Demo_Client',
     version: '1.0.0',
     orientation: 'portrait',
+    updates: {
+      url: 'https://u.expo.dev/64ab2eca-cfdb-4cc4-b973-35eb682e37db',
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
     icon: '../assets/images/icon.png',
     scheme: 'democlient',
     userInterfaceStyle: 'automatic',
@@ -60,7 +66,12 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     plugins: [
       // Routes live in the shared `apps/borrower_pro_mobile/app` directory (one level up).
       ['expo-router', { root: '../app' }],
+      'expo-font',
+      'expo-image',
+      'expo-secure-store',
+      'expo-sharing',
       'expo-video',
+      'expo-web-browser',
       [
         'expo-notifications',
         {
@@ -79,7 +90,6 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
           },
         },
       ],
-      ['expo-video'],
     ],
     experiments: {
       typedRoutes: true,

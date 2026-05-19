@@ -21,6 +21,12 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     slug: 'Proficient_Premium',
     version: '1.0.0',
     orientation: 'portrait',
+    updates: {
+      url: 'https://u.expo.dev/55e83fbc-6ace-4a01-af44-fffe9e5cadf8',
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
     icon: '../assets/images/icon.png',
     scheme: 'proficientpremium',
     userInterfaceStyle: 'automatic',

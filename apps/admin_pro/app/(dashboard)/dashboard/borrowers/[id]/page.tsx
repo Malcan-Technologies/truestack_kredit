@@ -1795,7 +1795,17 @@ export default function BorrowerDetailPage() {
               <VerificationBadge
                 verificationStatus={borrower.verificationStatus}
                 documentVerified={borrower.documentVerified}
+                borrowerType={
+                  borrower.borrowerType === "CORPORATE"
+                    ? "CORPORATE"
+                    : "INDIVIDUAL"
+                }
+                ssmEntityVerified={Boolean(
+                  borrower.ssmFieldProvenance?.companyName &&
+                    borrower.ssmFieldProvenance?.ssmRegistrationNo,
+                )}
                 size="full"
+                showTooltip
               />
             </div>
             <p className="text-muted-foreground">

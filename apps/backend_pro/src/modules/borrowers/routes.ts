@@ -405,10 +405,29 @@ router.get('/', requirePermission('borrowers.view'), async (req, res, next) => {
       borrowers = await prisma.borrower.findMany(borrowerListQuery);
     }
 
+    // A corporate borrower's *entity* is considered SSM-verified when the
+    // canonical identity fields carry provenance entries — i.e. the admin
+    // has applied a TrueSSM pull to both the company name and the SSM reg
+    // no. We send a flat boolean here so the frontend doesn't need to ship
+    // the whole provenance JSON in the list payload.
+    const isSsmEntityVerified = (
+      borrowerType: string,
+      provenance: unknown,
+    ): boolean => {
+      if (borrowerType !== 'CORPORATE') return false;
+      if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) return false;
+      const p = provenance as Record<string, unknown>;
+      return Boolean(p.companyName) && Boolean(p.ssmRegistrationNo);
+    };
+
     const borrowersWithVerification = borrowers.map((borrower) => ({
       ...borrower,
       registrationChannel: borrower._count.borrowerProfileLinks > 0 ? 'ONLINE' : 'PHYSICAL',
       verificationStatus: resolveVerificationStatus(borrower),
+      ssmEntityVerified: isSsmEntityVerified(
+        borrower.borrowerType,
+        borrower.ssmFieldProvenance,
+      ),
     }));
 
     res.json({

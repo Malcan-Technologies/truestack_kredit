@@ -18,7 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RefreshButton } from "@/components/ui/refresh-button";
-import { VerificationBadge } from "@/components/verification-badge";
+import { VerificationBadge, resolveBadgeState } from "@/components/verification-badge";
 import { LoanChannelPill } from "@/components/loan-channel-pill";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
@@ -59,6 +59,8 @@ interface Borrower {
     trueIdentityResult: string | null;
   }>;
   verificationStatus?: "FULLY_VERIFIED" | "PARTIALLY_VERIFIED" | "UNVERIFIED";
+  /** Corporate-only: company identity has been confirmed via a TrueSSM pull. */
+  ssmEntityVerified?: boolean;
   _count: {
     loans: number;
   };
@@ -233,27 +235,30 @@ export default function BorrowersPage() {
 
   const sortedBorrowers = useMemo(() => {
     if (!sortField) return borrowers;
+    // Rank ordering for the unified badge — strongest signal first. Used by
+    // the "Verification" column sort so it stays consistent with what the
+    // badge actually shows.
+    const stateRank: Record<ReturnType<typeof resolveBadgeState>, number> = {
+      FULL: 4,
+      EKYC_FULL: 3,
+      SSM_ONLY: 2,
+      PARTIAL: 1,
+      UNVERIFIED: 0,
+    };
+    const rank = (b: Borrower) =>
+      stateRank[
+        resolveBadgeState({
+          verificationStatus: b.verificationStatus,
+          documentVerified: b.documentVerified,
+          borrowerType: b.borrowerType as "INDIVIDUAL" | "CORPORATE",
+          ssmEntityVerified: b.ssmEntityVerified,
+        })
+      ];
     return [...borrowers].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
         case "verification":
-          const rankA =
-            a.verificationStatus === "FULLY_VERIFIED"
-              ? 2
-              : a.verificationStatus === "PARTIALLY_VERIFIED"
-                ? 1
-                : a.documentVerified
-                  ? 2
-                  : 0;
-          const rankB =
-            b.verificationStatus === "FULLY_VERIFIED"
-              ? 2
-              : b.verificationStatus === "PARTIALLY_VERIFIED"
-                ? 1
-                : b.documentVerified
-                  ? 2
-                  : 0;
-          cmp = rankA - rankB;
+          cmp = rank(a) - rank(b);
           break;
         case "created":
           cmp = a.createdAt.localeCompare(b.createdAt);
@@ -492,7 +497,14 @@ export default function BorrowersPage() {
                         <VerificationBadge
                           verificationStatus={borrower.verificationStatus}
                           documentVerified={borrower.documentVerified}
+                          borrowerType={
+                            borrower.borrowerType === "CORPORATE"
+                              ? "CORPORATE"
+                              : "INDIVIDUAL"
+                          }
+                          ssmEntityVerified={borrower.ssmEntityVerified}
                           size="compact"
+                          showTooltip
                         />
                       </TableCell>
                       <TableCell>

@@ -1,6 +1,10 @@
 /**
  * Maps a TrueSSM company profile response into a normalized borrower diff.
  *
+ * Imports `MSIC_CODE_DESCRIPTIONS` to resolve `rocBusinessCodeInfos[]` codes
+ * (e.g. "47413") to a human-readable industry description for the free-text
+ * `Borrower.natureOfBusiness` column.
+ *
  * The provider returns a deeply nested envelope:
  *
  *   data.getCompProfile.{
@@ -18,11 +22,14 @@
  * package, so we translate before producing the diff.
  */
 
+import { lookupMsicDescription } from './msicCodes.js';
+
 export const SSM_MAPPABLE_FIELDS = [
   'companyName',
   'ssmRegistrationNo',
   'dateOfIncorporation',
   'paidUpCapital',
+  'natureOfBusiness',
   'addressLine1',
   'addressLine2',
   'city',
@@ -136,6 +143,7 @@ const FIELD_LABELS: Record<SsmMappableField, string> = {
   ssmRegistrationNo: 'SSM Registration No',
   dateOfIncorporation: 'Date of Incorporation',
   paidUpCapital: 'Paid-up Capital (RM)',
+  natureOfBusiness: 'Nature of Business',
   addressLine1: 'Address Line 1',
   addressLine2: 'Address Line 2',
   city: 'City',
@@ -294,6 +302,7 @@ interface BorrowerCurrent {
   ssmRegistrationNo: string | null;
   dateOfIncorporation: Date | string | null;
   paidUpCapital: number | string | null;
+  natureOfBusiness: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
   city: string | null;
@@ -327,6 +336,59 @@ function normaliseMoneyString(value: string | null): string | null {
   if (!Number.isFinite(num)) return value;
   // Keep up to 2 decimals (matches Borrower.paidUpCapital column scale)
   return (Math.round(num * 100) / 100).toString();
+}
+
+/**
+ * Pull the primary MSIC business code out of an SSM `getCompProfile` payload
+ * and format it for the borrower's free-text `natureOfBusiness` column.
+ *
+ * SSM returns one or more entries under
+ *   `rocBusinessCodeListInfo.rocBusinessCodeInfos.rocBusinessCodeInfos[]`
+ * each shaped roughly as:
+ *
+ *   { businessCode: "47413", priority: "1", businessDesc?: "..." }
+ *
+ * Selection rules (deterministic, no UI picker):
+ *   1. Prefer the entry with the lowest numeric `priority` (1 = primary).
+ *   2. Tie-break by the entry's original index, so a payload already in the
+ *      "right" order wins.
+ *   3. The displayed value is `"<MSIC description> (<code>)"` when we can
+ *      resolve the code locally; otherwise we fall back to whatever string
+ *      description SSM included, or to just the code when neither is present.
+ *
+ * Returns `null` when no usable code is present so the diff records "no_data"
+ * and leaves the existing borrower value untouched.
+ */
+function extractPrimaryBusinessNature(compProfile: Record<string, unknown>): string | null {
+  const listOuter = asObject(compProfile['rocBusinessCodeListInfo']);
+  const listMid = asObject(listOuter?.['rocBusinessCodeInfos']);
+  const arr = listMid?.['rocBusinessCodeInfos'];
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+
+  const entries = arr
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map((row, idx) => {
+      const code = readString(row, 'businessCode', 'msicCode') ?? null;
+      const fallbackDesc =
+        readString(row, 'businessDesc', 'businessDescription', 'description') ?? null;
+      const priorityStr = readString(row, 'priority') ?? '';
+      const priority = Number(priorityStr);
+      return {
+        code: code?.trim() || null,
+        fallbackDesc,
+        priority: Number.isFinite(priority) ? priority : Number.POSITIVE_INFINITY,
+        idx,
+      };
+    })
+    .filter((entry) => entry.code !== null);
+
+  if (entries.length === 0) return null;
+
+  entries.sort((a, b) => a.priority - b.priority || a.idx - b.idx);
+  const primary = entries[0]!;
+  const code = primary.code!;
+  const description = lookupMsicDescription(code) ?? primary.fallbackDesc ?? null;
+  return description ? `${description} (${code})` : code;
 }
 
 function diffOne(
@@ -377,6 +439,7 @@ export function mapCompanyProfileToBorrowerDiff(
   const incomingPaidUpCapital = normaliseMoneyString(
     readNumberLike(shareCapital, 'totalIssued', 'paidUpCapital') ?? null,
   );
+  const incomingNatureOfBusiness = extractPrimaryBusinessNature(compProfile);
 
   const status =
     translateSsmCompanyStatus(readString(roc, 'statusOfCompany')) ??
@@ -401,6 +464,7 @@ export function mapCompanyProfileToBorrowerDiff(
     diffOne('ssmRegistrationNo', borrower.ssmRegistrationNo, incomingRegNo),
     diffOne('dateOfIncorporation', currentIncorporation, incomingIncorporation),
     diffOne('paidUpCapital', currentPaidUpCapital, incomingPaidUpCapital),
+    diffOne('natureOfBusiness', borrower.natureOfBusiness, incomingNatureOfBusiness),
     diffOne('addressLine1', borrower.addressLine1, address.addressLine1),
     diffOne('addressLine2', borrower.addressLine2, address.addressLine2),
     diffOne('city', borrower.city, address.city),

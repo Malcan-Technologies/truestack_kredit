@@ -25,6 +25,8 @@ import {
   History,
   ArrowDownRight,
   RefreshCw,
+  FileText,
+  Coins,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +40,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { lookupMsicDescription } from "@/lib/msic-codes";
 import { cn, formatCurrency, formatDate, toSafeNumber } from "@/lib/utils";
 
 /* --------------------------- public component API ------------------------- */
@@ -117,6 +120,24 @@ const SSM_ID_TYPE: Record<string, string> = {
   P: "Passport",
   C: "Company",
   X: "Other",
+};
+
+const SSM_COMPANY_STATUS: Record<string, string> = {
+  E: "Existing",
+  L: "Liquidated",
+  W: "Wound up",
+  D: "Dissolved",
+  S: "Struck off",
+};
+
+const SSM_COMPANY_TYPE: Record<string, string> = {
+  S: "Sdn Bhd (Private)",
+  B: "Berhad (Public)",
+};
+
+const SSM_LOCAL_FOREIGN: Record<string, string> = {
+  L: "Local",
+  F: "Foreign",
 };
 
 // Common SSM lodgement form codes — see `pdfRenderer.ts` for source list.
@@ -376,6 +397,11 @@ export function TrueSsmInsights({
   }
 
   const {
+    identity,
+    businessDescription,
+    registeredAddress,
+    businessAddress,
+    shareCapital,
     officers,
     shareholders,
     charges,
@@ -388,8 +414,19 @@ export function TrueSsmInsights({
     auditFirm,
   } = parsed;
 
+  // Overview is shown whenever any high-level identity / address / share
+  // capital data came back. Same threshold the parser uses to decide
+  // whether to return a payload at all.
+  const hasOverview =
+    Object.values(identity).some((v) => v !== null) ||
+    businessDescription !== null ||
+    registeredAddress.length > 0 ||
+    businessAddress.length > 0 ||
+    shareCapital !== null;
+
   // Hide tabs that have nothing to show.
   const tabSpecs = [
+    { id: "overview", label: "Overview", count: hasOverview ? 1 : 0, icon: FileText },
     { id: "officers", label: "Officers", count: officers.length, icon: Users },
     { id: "shareholders", label: "Shareholders", count: shareholders.length, icon: PieChart },
     { id: "charges", label: "Charges", count: charges.length, icon: Landmark },
@@ -457,11 +494,133 @@ export function TrueSsmInsights({
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {t.label}
-                  <span className="text-[10px] opacity-70">{t.count}</span>
+                  {t.id !== "overview" && (
+                    <span className="text-[10px] opacity-70">{t.count}</span>
+                  )}
                 </TabsTrigger>
               );
             })}
           </TabsList>
+
+          {/* ---- Overview (identity, business description, addresses, share capital) ---- */}
+          {hasOverview && (
+            <TabsContent value="overview" className="mt-0 space-y-5">
+              <section>
+                <h4 className="text-sm font-semibold flex items-center gap-1.5 mb-3">
+                  <Building2 className="h-4 w-4 text-emerald-700 dark:text-emerald-500" />
+                  Company Identity
+                </h4>
+                <KvGrid
+                  rows={[
+                    { label: "Company Name", value: identity.companyName },
+                    { label: "Former Name", value: identity.formerName },
+                    { label: "Registration No", value: identity.registrationNo },
+                    { label: "Company Type", value: identity.companyType },
+                    { label: "Status", value: identity.status },
+                    { label: "Incorporation Date", value: identity.incorporationDate },
+                    { label: "Last Change Date", value: identity.lastChangeDate },
+                    { label: "Country", value: identity.country },
+                    { label: "Currency", value: identity.currency },
+                    { label: "Local / Foreign", value: identity.localForeign },
+                    { label: "Last Doc Update", value: identity.lastDocUpdate },
+                  ]}
+                />
+              </section>
+
+              {businessDescription ? (
+                <>
+                  <Separator className="bg-emerald-500/15" />
+                  <section>
+                    <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
+                      Business Description
+                    </h4>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                      {businessDescription}
+                    </p>
+                  </section>
+                </>
+              ) : null}
+
+              {(registeredAddress.length > 0 || businessAddress.length > 0) && (
+                <>
+                  <Separator className="bg-emerald-500/15" />
+                  <section>
+                    <h4 className="text-sm font-semibold flex items-center gap-1.5 mb-3">
+                      <Landmark className="h-4 w-4 text-emerald-700 dark:text-emerald-500" />
+                      Registered &amp; Business Address
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
+                          Registered Office
+                        </p>
+                        <p className="text-sm font-medium leading-relaxed whitespace-pre-line">
+                          {registeredAddress.length > 0
+                            ? registeredAddress.join("\n")
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
+                          Business Address
+                        </p>
+                        <p className="text-sm font-medium leading-relaxed whitespace-pre-line">
+                          {businessAddress.length > 0
+                            ? businessAddress.join("\n")
+                            : "—"}
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {shareCapital && (
+                <>
+                  <Separator className="bg-emerald-500/15" />
+                  <section>
+                    <h4 className="text-sm font-semibold flex items-center gap-1.5 mb-3">
+                      <Coins className="h-4 w-4 text-emerald-700 dark:text-emerald-500" />
+                      Share Capital
+                    </h4>
+                    <KvGrid
+                      rows={[
+                        {
+                          label: "Authorised Capital",
+                          value: formatMoney(shareCapital["authorisedCapital"]),
+                        },
+                        {
+                          label: "Total Issued (Paid-up)",
+                          value: formatMoney(shareCapital["totalIssued"]),
+                        },
+                        { label: "Currency", value: plain(shareCapital["currency"]) },
+                        {
+                          label: "Ordinary Shares",
+                          value: formatMoney(shareCapital["ordNumberOfShares"]),
+                        },
+                        {
+                          label: "Ord. Issued (Cash)",
+                          value: formatMoney(shareCapital["ordIssuedCash"]),
+                        },
+                        {
+                          label: "Ord. Issued (Non-Cash)",
+                          value: formatMoney(shareCapital["ordIssuedNonCash"]),
+                        },
+                        {
+                          label: "Ord. Nominal Value (sen)",
+                          value: formatMoney(shareCapital["ordNominalValue"]),
+                        },
+                        {
+                          label: "Preference Shares",
+                          value: formatMoney(shareCapital["prefNumberOfShares"]),
+                        },
+                      ]}
+                    />
+                  </section>
+                </>
+              )}
+            </TabsContent>
+          )}
 
           {/* ---- Officers ---- */}
           {officers.length > 0 && (
@@ -636,6 +795,14 @@ export function TrueSsmInsights({
                         value: formatAccounting(latestBalanceSheet["fixedAsset"]),
                       },
                       {
+                        label: "Non-Current Assets",
+                        value: formatAccounting(latestBalanceSheet["nonCurrAsset"]),
+                      },
+                      {
+                        label: "Other Assets",
+                        value: formatAccounting(latestBalanceSheet["otherAsset"]),
+                      },
+                      {
                         label: "Liabilities",
                         value: formatAccounting(latestBalanceSheet["liability"]),
                       },
@@ -644,12 +811,20 @@ export function TrueSsmInsights({
                         value: formatAccounting(latestBalanceSheet["longTermLiability"]),
                       },
                       {
+                        label: "Non-Current Liab.",
+                        value: formatAccounting(latestBalanceSheet["nonCurrentLiability"]),
+                      },
+                      {
                         label: "Paid-up Capital",
                         value: formatAccounting(latestBalanceSheet["paidUpCapital"]),
                       },
                       {
                         label: "Reserves",
                         value: formatAccounting(latestBalanceSheet["reserves"]),
+                      },
+                      {
+                        label: "Share Premium",
+                        value: formatAccounting(latestBalanceSheet["sharePremium"]),
                       },
                       {
                         label: "Retained Earnings",
@@ -709,8 +884,24 @@ export function TrueSsmInsights({
                         value: formatAccounting(latestProfitLoss["profitAfterTax"]),
                       },
                       {
+                        label: "Profit to Shareholders",
+                        value: formatAccounting(latestProfitLoss["profitShareholder"]),
+                      },
+                      {
+                        label: "Gross Dividend Rate",
+                        value: formatAccounting(latestProfitLoss["grossDividendRate"]),
+                      },
+                      {
                         label: "Net Dividend",
                         value: formatAccounting(latestProfitLoss["netDividend"]),
+                      },
+                      {
+                        label: "Retained Earnings (b/f)",
+                        value: formatAccounting(latestProfitLoss["inappropriateProfitBf"]),
+                      },
+                      {
+                        label: "Retained Earnings (c/f)",
+                        value: formatAccounting(latestProfitLoss["inappropriateProfitCf"]),
                       },
                     ]}
                   />
@@ -754,28 +945,45 @@ export function TrueSsmInsights({
                   const bp = Number(plain(b["priority"]) ?? "99");
                   return (Number.isFinite(ap) ? ap : 99) - (Number.isFinite(bp) ? bp : 99);
                 })
-                .map((c, idx) => (
-                  <div
-                    key={`${plain(c["businessCode"]) ?? idx}-${idx}`}
-                    className="flex items-center justify-between gap-3 rounded-md border border-emerald-500/10 bg-background/60 px-3 py-2 text-sm"
-                  >
-                    <code className="font-mono text-xs font-semibold">
-                      MSIC {plain(c["businessCode"]) ?? "—"}
-                    </code>
-                    <Badge
-                      variant="outline"
-                      className={
-                        plain(c["priority"]) === "1"
-                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]"
-                          : "bg-slate-500/10 text-slate-700 dark:text-slate-300 border-slate-500/30 text-[10px]"
-                      }
+                .map((c, idx) => {
+                  const code = plain(c["businessCode"]);
+                  // Prefer the local MSIC lookup so the displayed nature stays
+                  // consistent across borrowers; fall back to whatever the
+                  // provider returned, then to "—" when neither is present.
+                  const description =
+                    (code ? lookupMsicDescription(code) : null) ??
+                    plain(c["businessDesc"]) ??
+                    plain(c["businessDescription"]) ??
+                    null;
+                  const priority = plain(c["priority"]);
+                  return (
+                    <div
+                      key={`${code ?? idx}-${idx}`}
+                      className="flex items-start justify-between gap-3 rounded-md border border-emerald-500/10 bg-background/60 px-3 py-2 text-sm"
                     >
-                      {plain(c["priority"]) === "1"
-                        ? "Primary"
-                        : `Secondary ${plain(c["priority"]) ?? ""}`.trim()}
-                    </Badge>
-                  </div>
-                ))}
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="text-sm font-medium leading-snug">
+                          {description ?? "Unknown activity"}
+                        </p>
+                        <code className="font-mono text-[11px] text-muted-foreground">
+                          MSIC {code ?? "—"}
+                        </code>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={
+                          priority === "1"
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] shrink-0"
+                            : "bg-slate-500/10 text-slate-700 dark:text-slate-300 border-slate-500/30 text-[10px] shrink-0"
+                        }
+                      >
+                        {priority === "1"
+                          ? "Primary"
+                          : `Secondary ${priority ?? ""}`.trim()}
+                      </Badge>
+                    </div>
+                  );
+                })}
             </TabsContent>
           )}
 
@@ -883,6 +1091,25 @@ function ShareholdersList({
 /* ------------------------------ payload parsing --------------------------- */
 
 interface ParsedSsm {
+  /** Header-level identity fields from `rocCompanyInfo`. */
+  identity: {
+    companyName: string | null;
+    formerName: string | null;
+    registrationNo: string | null;
+    companyType: string | null;
+    status: string | null;
+    incorporationDate: string | null;
+    lastChangeDate: string | null;
+    country: string | null;
+    currency: string | null;
+    localForeign: string | null;
+    lastDocUpdate: string | null;
+  };
+  businessDescription: string | null;
+  /** Multi-line address strings (already decoded for SSM state codes). */
+  registeredAddress: string[];
+  businessAddress: string[];
+  shareCapital: Record<string, unknown> | null;
   officers: Array<Record<string, unknown>>;
   shareholders: Array<Record<string, unknown>>;
   charges: Array<Record<string, unknown>>;
@@ -905,6 +1132,38 @@ function parseSsmPayload(rawData: unknown): ParsedSsm | null {
   const root = asObject(rawData);
   if (!root) return null;
   const compProfile = asObject(root["getCompProfile"]) ?? root;
+
+  const roc = asObject(compProfile["rocCompanyInfo"]) ?? {};
+  const regAddress = asObject(compProfile["rocRegAddressInfo"]);
+  const businessAddress = asObject(compProfile["rocBusinessAddressInfo"]);
+  const shareCapital = asObject(compProfile["rocShareCapitalInfo"]);
+
+  // Compose canonical registration number — pre-2017 SSM numbers carry a
+  // single-letter check digit in a separate field (e.g. "67" + "W" → "67-W").
+  const rocCompanyNo = plain(roc["companyNo"]) ?? plain(roc["regNo"]);
+  const rocCheckDigit = plain(roc["checkDigit"]);
+  const composedRegNo =
+    rocCompanyNo && rocCheckDigit ? `${rocCompanyNo}-${rocCheckDigit}` : rocCompanyNo;
+
+  const identity = {
+    companyName: plain(roc["companyName"]),
+    formerName: plain(roc["companyOldName"]),
+    registrationNo: composedRegNo,
+    companyType: decode(SSM_COMPANY_TYPE, roc["companyType"]),
+    status:
+      decode(SSM_COMPANY_STATUS, roc["statusOfCompany"]) ??
+      decode(SSM_COMPANY_STATUS, roc["companyStatus"]),
+    incorporationDate: formatDateOnly(roc["incorpDate"]),
+    lastChangeDate: formatDateOnly(roc["dateOfChange"]),
+    country: plain(roc["companyCountry"]),
+    currency: plain(roc["currency"]),
+    localForeign: decode(SSM_LOCAL_FOREIGN, roc["localforeignCompany"]),
+    lastDocUpdate: formatDateOnly(roc["latestDocUpdateDate"]),
+  } satisfies ParsedSsm["identity"];
+
+  const businessDescription = plain(roc["businessDescription"]);
+  const registeredAddress = formatAddressLines(regAddress);
+  const businessAddressLines = formatAddressLines(businessAddress);
 
   const officers = readNestedList(
     compProfile,
@@ -957,6 +1216,12 @@ function parseSsmPayload(rawData: unknown): ParsedSsm | null {
 
   // If absolutely nothing came back, treat as "no pull" so callers can show
   // the dashed empty state instead of an empty Insights card.
+  const hasIdentityData =
+    Object.values(identity).some((v) => v !== null) ||
+    businessDescription !== null ||
+    registeredAddress.length > 0 ||
+    businessAddressLines.length > 0 ||
+    shareCapital !== null;
   const totalRows =
     officers.length +
     shareholders.length +
@@ -965,9 +1230,14 @@ function parseSsmPayload(rawData: unknown): ParsedSsm | null {
     profitLoss.length +
     businessCodes.length +
     documentLodge.length;
-  if (totalRows === 0) return null;
+  if (!hasIdentityData && totalRows === 0) return null;
 
   return {
+    identity,
+    businessDescription,
+    registeredAddress,
+    businessAddress: businessAddressLines,
+    shareCapital,
     officers,
     shareholders,
     charges,

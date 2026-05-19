@@ -2110,6 +2110,7 @@ export default function BorrowerDetailPage() {
                       onChange={(val) => setFormData((prev) => ({ ...prev, natureOfBusiness: val }))}
                       placeholder="e.g., Retail"
                       isEditing={isEditing}
+                      badge={renderSsmBadge("natureOfBusiness")}
                     />
                     <Field
                       label="Date of Incorporation"

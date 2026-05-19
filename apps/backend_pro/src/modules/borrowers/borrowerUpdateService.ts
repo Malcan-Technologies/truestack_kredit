@@ -335,6 +335,11 @@ export async function performBorrowerUpdate(
       incoming: data.paidUpCapital,
       current: existing.paidUpCapital ? Number(existing.paidUpCapital) : null,
     },
+    {
+      field: 'natureOfBusiness',
+      incoming: data.natureOfBusiness,
+      current: existing.natureOfBusiness,
+    },
     { field: 'addressLine1', incoming: updateData.addressLine1 as unknown, current: existing.addressLine1 },
     { field: 'addressLine2', incoming: updateData.addressLine2 as unknown, current: existing.addressLine2 },
     { field: 'city', incoming: updateData.city as unknown, current: existing.city },

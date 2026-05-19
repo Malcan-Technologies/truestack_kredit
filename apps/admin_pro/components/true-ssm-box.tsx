@@ -74,6 +74,7 @@ const FIELD_LABELS: Record<string, string> = {
 	ssmRegistrationNo: "SSM Registration No",
 	dateOfIncorporation: "Date of Incorporation",
 	paidUpCapital: "Paid-up Capital (RM)",
+	natureOfBusiness: "Nature of Business",
 	addressLine1: "Address Line 1",
 	addressLine2: "Address Line 2",
 	city: "City",

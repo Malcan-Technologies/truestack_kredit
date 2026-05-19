@@ -58,6 +58,7 @@ interface BorrowerForSsm {
   ssmRegistrationNo: string | null;
   dateOfIncorporation: Date | null;
   paidUpCapital: Prisma.Decimal | null;
+  natureOfBusiness: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
   city: string | null;
@@ -79,6 +80,7 @@ const BORROWER_SELECT = {
   ssmRegistrationNo: true,
   dateOfIncorporation: true,
   paidUpCapital: true,
+  natureOfBusiness: true,
   addressLine1: true,
   addressLine2: true,
   city: true,
@@ -109,6 +111,7 @@ function diffFromBorrower(borrower: BorrowerForSsm, rawData: unknown) {
     ssmRegistrationNo: borrower.ssmRegistrationNo,
     dateOfIncorporation: borrower.dateOfIncorporation,
     paidUpCapital: borrower.paidUpCapital ? Number(borrower.paidUpCapital) : null,
+    natureOfBusiness: borrower.natureOfBusiness,
     addressLine1: borrower.addressLine1,
     addressLine2: borrower.addressLine2,
     city: borrower.city,

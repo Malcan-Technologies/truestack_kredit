@@ -720,6 +720,25 @@ function LoanCardsGrid({
                         Next payment: {formatDate(progress.nextPaymentDue)}
                       </p>
                     )}
+                    {(() => {
+                      const lateFees = toAmountNumber(progress.totalLateFees ?? 0);
+                      const overdueCount = progress.overdueCount ?? 0;
+                      if (lateFees > 0) {
+                        return (
+                          <p className="mt-1.5 text-sm font-medium text-destructive tabular-nums">
+                            Late fees: {formatRm(lateFees)}
+                          </p>
+                        );
+                      }
+                      if (overdueCount > 0) {
+                        return (
+                          <p className="mt-1.5 text-sm font-medium text-destructive">
+                            {overdueCount} payment{overdueCount !== 1 ? "s" : ""} overdue
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
                     {progress.readyToComplete && (
                       <p className="mt-1.5 text-sm font-medium text-success">Ready to complete</p>
                     )}

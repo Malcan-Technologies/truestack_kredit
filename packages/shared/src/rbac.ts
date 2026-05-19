@@ -86,7 +86,7 @@ export type TenantRoleKey = DefaultTenantRoleKey | (string & {});
  * for immutable system roles). Backend uses this to invalidate catalog self-heal caches so existing
  * tenants pick up new rows without re-running heavy sync on every request.
  */
-export const TENANT_ROLE_CATALOG_REVISION = 1;
+export const TENANT_ROLE_CATALOG_REVISION = 2;
 
 export interface TenantRoleTemplate {
   key: TenantRoleKey;
@@ -113,7 +113,7 @@ function pickPermissions(
   return permissions;
 }
 
-function withBorrowerPageTrueIdentityDefaults(
+export function withBorrowerPageTrueIdentityDefaults(
   permissions: TenantPermission[]
 ): TenantPermission[] {
   const permissionSet = new Set<TenantPermission>(permissions);

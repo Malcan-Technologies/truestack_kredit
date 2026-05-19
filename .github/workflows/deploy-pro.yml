@@ -692,18 +692,6 @@ jobs:
             exit 1
           fi
 
-      - name: Verify TrueSSM secret is configured
-        run: |
-          secret_json=$(aws secretsmanager get-secret-value \
-            --secret-id "${{ env.APP_SECRETS_ARN }}" \
-            --query SecretString \
-            --output text)
-
-          if ! printf '%s' "$secret_json" | jq -e '.truestack_ssm_api_key? | strings | length > 0' > /dev/null; then
-            echo "::error::Secrets Manager secret '${{ env.APP_SECRETS_ARN }}' must contain a non-empty JSON key named 'truestack_ssm_api_key' before deploying TrueSSM."
-            exit 1
-          fi
-
       - name: Download current backend task definition
         run: |
           aws ecs describe-task-definition \

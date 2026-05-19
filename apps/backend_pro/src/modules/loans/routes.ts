@@ -2135,7 +2135,7 @@ router.get('/', requirePermission('loans.view'), async (req, res, next) => {
           verificationStatus: borrowerVerificationStatus,
         },
         lateFeeBreakdown: {
-          total: safeRound(toSafeNumber(loan.totalLateFees), 2),
+          total: safeRound(totalLateFeesAccrued, 2),
           paid: safeRound(totalLateFeesPaid, 2),
           unpaid: unpaidLateFees,
         },

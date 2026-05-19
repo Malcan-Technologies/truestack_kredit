@@ -780,7 +780,8 @@ function LoansPageContent() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {loan.lateFeeBreakdown && loan.lateFeeBreakdown.total > 0 ? (
+                      {loan.lateFeeBreakdown &&
+                      (loan.lateFeeBreakdown.unpaid > 0 || loan.lateFeeBreakdown.paid > 0) ? (
                         <div>
                           <span className={`text-sm font-medium ${loan.lateFeeBreakdown.unpaid > 0 ? "text-destructive" : "text-muted-foreground"}`}>
                             {loan.lateFeeBreakdown.unpaid > 0
